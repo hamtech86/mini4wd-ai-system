@@ -1,0 +1,49 @@
+# =====================================================
+# MINI4WD AI SYSTEM
+# MOTOR_BREAKIN_V3
+# requirements.txt
+# =====================================================
+
+# GUI
+PyQt5>=5.15.11
+
+# Graph
+pyqtgraph>=0.13.7
+
+# Serial Communication
+pyserial>=3.5
+
+# Database
+SQLAlchemy>=2.0.36
+
+# Data Processing
+numpy>=2.1.0
+pandas>=2.2.3
+
+# Visualization
+matplotlib>=3.10.0
+
+# Date / Time
+python-dateutil>=2.9.0
+
+# Configuration
+PyYAML>=6.0.2
+
+# Logging
+loguru>=0.7.2
+
+# Progress Bar
+tqdm>=4.67.0
+
+# Image Processing（将来のカメラ解析用）
+opencv-python>=4.11.0
+
+# Scientific Calculation
+scipy>=1.15.0
+
+# Excel Export
+openpyxl>=3.1.5
+
+# Report
+reportlab>=4.2.5
+
