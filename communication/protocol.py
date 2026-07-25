@@ -33,7 +33,7 @@ class RecordType(Enum):
 # Arduino送信順と完全一致
 # =====================================================
 
-CSV_FIELDS = [
+CSV_FIELDS = (
 
     "record_type",
 
@@ -87,7 +87,7 @@ CSV_FIELDS = [
 
     "motor_temperature",
 
-]
+)
 
 CSV_FIELD_COUNT = len(CSV_FIELDS)
 
