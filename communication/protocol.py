@@ -111,3 +111,19 @@ def get_field_index(name: str) -> int:
 
     return CSV_FIELDS.index(name)
 
+# =====================================================
+# Record Type Utility
+# =====================================================
+
+VALID_RECORD_TYPES = {
+    record.value for record in RecordType
+}
+
+
+def is_valid_record_type(record_type: str) -> bool:
+    """
+    レコード種別チェック
+    """
+
+    return record_type in VALID_RECORD_TYPES
+

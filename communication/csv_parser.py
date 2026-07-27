@@ -106,5 +106,5 @@ class CSVParser:
     def is_error_record(data: Dict[str, Any]) -> bool:
         """ERRORレコード判定"""
 
-        return data.get("record_type") == "ERROR”
+        return data.get("record_type") == "ERROR"
 
