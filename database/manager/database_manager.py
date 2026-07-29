@@ -1,278 +1,156 @@
-# ============================================================
-# database_manager.py
-# Motor Database System
-# Revision 1
-# Database Facade Manager
-# ============================================================
+"""
+=====================================================
+ MINI4WD AI SYSTEM
+ MOTOR_BREAKIN_V3
+ database_manager.py
+=====================================================
 
-from .connection import DatabaseConnection
-from .transaction import TransactionManager
+Database Manager
 
-from ..repository.motor_repository import MotorRepository
-from ..repository.motor_instance_repository import MotorInstanceRepository
-from ..repository.motor_work_repository import MotorWorkRepository
-from ..repository.measurement_session_repository import MeasurementSessionRepository
-from ..repository.breakin_log_repository import BreakinLogRepository
-from ..repository.schema_repository import SchemaRepository
+Database層の窓口。
 
+Controller・Repositoryはこのクラス経由で
+SQLiteへアクセスする。
+
+トランザクション管理も担当する。
+"""
+
+from __future__ import annotations
+
+import sqlite3
+from pathlib import Path
 
 
 class DatabaseManager:
-
+    """
+    Database Manager
+    """
 
     def __init__(
         self,
-        database_path
+        database_path: str = "database/mini4wd.db",
     ):
 
+        self.database_path = Path(database_path)
 
-        self.connection = DatabaseConnection(
-            database_path
-        )
+        self.connection: sqlite3.Connection | None = None
 
+    @property
+    def is_connected(self) -> bool:
+        """
+        接続状態
+        """
 
-        self.connection.connect()
+        return self.connection is not None
 
+    def connect(self) -> sqlite3.Connection:
+        """
+        Database接続
+        """
 
+        if self.connection is None:
 
-        self.transaction = TransactionManager(
-            self.connection
-        )
+            self.connection = sqlite3.connect(
+                self.database_path
+            )
 
+            # Rowを辞書風に扱えるようにする
+            self.connection.row_factory = sqlite3.Row
 
+            # 外部キー制約を有効化
+            self.connection.execute(
+                "PRAGMA foreign_keys = ON"
+            )
 
-        self.motor = MotorRepository(
-            self.connection
-        )
+        return self.connection
 
+    def disconnect(self):
+        """
+        Database切断
+        """
 
-        self.motor_instance = MotorInstanceRepository(
-            self.connection
-        )
+        if self.connection is not None:
 
+            self.connection.close()
 
-        self.motor_work = MotorWorkRepository(
-            self.connection
-        )
+            self.connection = None
 
+    def close(self):
+        """
+        disconnect()のエイリアス
+        """
 
-        self.session = MeasurementSessionRepository(
-            self.connection
-        )
+        self.disconnect()
 
+    def cursor(self) -> sqlite3.Cursor:
+        """
+        Cursor取得
+        """
 
-        self.breakin_log = BreakinLogRepository(
-            self.connection
-        )
+        if self.connection is None:
+            self.connect()
 
+        return self.connection.cursor()
 
-        self.schema = SchemaRepository(
-            self.connection
-        )
+    # -------------------------------------------------
+    # Transaction
+    # -------------------------------------------------
 
+    def begin(self):
+        """
+        トランザクション開始
+        """
 
+        if self.connection is None:
+            self.connect()
 
-    # ========================================================
-    # Motor workflow
-    # ========================================================
+        self.connection.execute("BEGIN")
 
+    def commit(self):
+        """
+        コミット
+        """
 
-    def start_work(
-        self,
-        instance_id,
-        work_type,
-        start_datetime
-    ):
+        if self.connection is not None:
+            self.connection.commit()
 
-        work_id = self.motor_work.create(
-            {
-                "instance_id": instance_id,
-                "work_type": work_type,
-                "start_datetime": start_datetime
-            }
-        )
+    def rollback(self):
+        """
+        ロールバック
+        """
 
-        self.motor_instance.update_cache(
-            instance_id,
-            {
-                "latest_work_id": work_id
-            }
-        )
+        if self.connection is not None:
+            self.connection.rollback()
 
-        return work_id
-
-
-
-    def start_session(
-        self,
-        instance_id,
-        device_type,
-        device_model,
-        firmware_version,
-        analysis_version,
-        start_datetime
-    ):
-
-
-        session_id = self.session.create(
-            {
-
-                "instance_id":
-                    instance_id,
-
-                "device_type":
-                    device_type,
-
-                "device_model":
-                    device_model,
-
-                "firmware_version":
-                    firmware_version,
-
-                "analysis_version":
-                    analysis_version,
-
-                "start_datetime":
-                    start_datetime
-
-            }
-        )
-
-
-        self.motor_instance.update_cache(
-
-            instance_id,
-
-            {
-
-                "latest_session_id":
-                    session_id
-
-            }
-
-        )
-
-
-        return session_id
-
-
-
-    def insert_log(
-        self,
-        log_data
-    ):
-
-        log_id = self.breakin_log.create(
-            log_data
-        )
-
-
-        return log_id
-
-
-
-    def finish_session(
-        self,
-        session_id,
-        end_datetime,
-        result
-    ):
-
-
-        return self.session.finish_session(
-            session_id,
-            end_datetime,
-            result
-        )
-
-
-
-    def finish_work(
-        self,
-        work_id,
-        end_datetime,
-        duration_sec
-    ):
-
-
-        return self.motor_work.finish_work(
-            work_id,
-            end_datetime,
-            duration_sec
-        )
-
-
-
-    # ========================================================
-    # Cache management
-    # ========================================================
-
-
-    def update_motor_cache(
-        self,
-        instance_id,
-        cache_data
-    ):
-
-
-        return self.motor_instance.update_cache(
-            instance_id,
-            cache_data
-        )
-
-
-
-    # ========================================================
-    # Transaction support
-    # ========================================================
-
-
-    def begin_transaction(
-        self
-    ):
-
-        self.transaction.begin()
-
-
-
-    def commit(
-        self
-    ):
-
-        self.transaction.commit()
-
-
-
-    def rollback(
-        self
-    ):
-
-        self.transaction.rollback()
-
-
-
-    # ========================================================
+    # -------------------------------------------------
     # Utility
-    # ========================================================
+    # -------------------------------------------------
 
+    def execute(
+        self,
+        sql: str,
+        parameters: tuple = (),
+    ) -> sqlite3.Cursor:
+        """
+        SQL実行
+        """
 
-    def close(
-        self
-    ):
+        cursor = self.cursor()
+        cursor.execute(sql, parameters)
 
-        self.connection.close()
+        return cursor
 
+    def executemany(
+        self,
+        sql: str,
+        parameters,
+    ) -> sqlite3.Cursor:
+        """
+        SQL一括実行
+        """
 
+        cursor = self.cursor()
+        cursor.executemany(sql, parameters)
 
-    def schema_version(
-        self
-    ):
-
-        return self.schema.get_version()
-
-
-
-# ============================================================
-# END OF database_manager.py
-# ============================================================
+        return cursor
 

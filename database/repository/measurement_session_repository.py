@@ -1,155 +1,110 @@
-# ============================================================
-# measurement_session_repository.py
-# Motor Database System
-# Revision 1
-# Measurement Session Repository
-# ============================================================
+"""
+=====================================================
+ MINI4WD AI SYSTEM
+ MOTOR_BREAKIN_V3
+ measurement_repository.py
+=====================================================
 
-from .base_repository import BaseRepository
+Measurement Repository
+
+Measurementテーブルへのアクセスを担当する。
+RepositoryはSQLのみを保持する。
+"""
+
+from __future__ import annotations
+
+from dataclasses import fields
+
+from measurement.measurement import Measurement
+from database.manager.database_manager import DatabaseManager
 
 
+class MeasurementRepository:
+    """
+    Measurement Repository
+    """
 
-class MeasurementSessionRepository(BaseRepository):
+    TABLE_NAME = "measurement"
 
-
-    TABLE = "measurement_session"
-
-
-
-    def create(
+    def __init__(
         self,
-        session_data
+        database: DatabaseManager,
     ):
 
-        return self.insert(
-            self.TABLE,
-            session_data
-        )
+        self.database = database
 
-
-
-    def get_by_id(
+    def insert(
         self,
-        session_id
+        measurement: Measurement,
     ):
+        """
+        Measurementを1件保存
+        """
 
-        return self.fetch_one(
-            """
-            SELECT *
+        columns = [field.name for field in fields(Measurement)]
 
-            FROM measurement_session
+        values = [
+            getattr(measurement, column)
+            for column in columns
+        ]
 
-            WHERE
-                session_id=?
-
-            """,
-            (
-                session_id,
-            )
+        placeholders = ",".join(
+            "?" for _ in columns
         )
 
+        sql = f"""
+        INSERT INTO {self.TABLE_NAME}
+        (
+            {",".join(columns)}
+        )
+        VALUES
+        (
+            {placeholders}
+        )
+        """
 
+        cursor = self.database.cursor()
 
-    def get_by_instance(
-        self,
-        instance_id
-    ):
+        cursor.execute(sql, values)
 
-        return self.fetch_all(
-            """
-            SELECT *
+        self.database.commit()
 
-            FROM measurement_session
+    def find_all(self):
+        """
+        全Measurement取得
+        """
 
-            WHERE
-                instance_id=?
+        cursor = self.database.cursor()
 
-            ORDER BY
-                start_datetime DESC
-
-            """,
-            (
-                instance_id,
-            )
+        cursor.execute(
+            f"SELECT * FROM {self.TABLE_NAME}"
         )
 
+        return cursor.fetchall()
 
+    def delete_all(self):
+        """
+        全Measurement削除
+        """
 
-    def get_by_device_type(
-        self,
-        device_type
-    ):
+        cursor = self.database.cursor()
 
-        return self.fetch_all(
-            """
-            SELECT *
-
-            FROM measurement_session
-
-            WHERE
-                device_type=?
-
-            ORDER BY
-                start_datetime DESC
-
-            """,
-            (
-                device_type,
-            )
+        cursor.execute(
+            f"DELETE FROM {self.TABLE_NAME}"
         )
 
+        self.database.commit()
 
+    def count(self) -> int:
+        """
+        件数取得
+        """
 
-    def finish_session(
-        self,
-        session_id,
-        end_datetime,
-        result
-    ):
+        cursor = self.database.cursor()
 
-        return self.update(
-            self.TABLE,
-            {
-                "end_datetime": end_datetime,
-
-                "result": result
-            },
-            "session_id=?",
-            (
-                session_id,
-            )
+        cursor.execute(
+            f"SELECT COUNT(*) FROM {self.TABLE_NAME}"
         )
 
-
-
-    def get_latest(
-        self,
-        instance_id
-    ):
-
-        return self.fetch_one(
-            """
-            SELECT *
-
-            FROM measurement_session
-
-            WHERE
-                instance_id=?
-
-            ORDER BY
-                start_datetime DESC
-
-            LIMIT 1
-
-            """,
-            (
-                instance_id,
-            )
-        )
-
-
-
-# ============================================================
-# END OF measurement_session_repository.py
-# ============================================================
+        return cursor.fetchone()[0]
 
