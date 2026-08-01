@@ -1,171 +1,64 @@
-# ============================================================
-# migration.py
-# Motor Database System
-# Revision 1
-# SQLite3 Schema Migration Manager
-# ============================================================
+"""
+=====================================================
+ MINI4WD AI SYSTEM
+ MOTOR_BREAKIN_V3
+ migration.py
+=====================================================
 
-import sqlite3
-from datetime import datetime
+Database Migration
+
+初回起動時にSQLite Databaseと
+テーブルを生成する。
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from database.manager.database_manager import DatabaseManager
 
 
-
-class MigrationManager:
-
-
-    CURRENT_VERSION = "Rev.1"
-
-
+class Migration:
+    """
+    Database Migration
+    """
 
     def __init__(
         self,
-        database
+        database: DatabaseManager,
     ):
 
         self.database = database
 
-
-
-    def get_schema_version(self):
-
-        cursor = self.database.execute(
-            """
-            SELECT schema_version
-            FROM schema_info
-            LIMIT 1
-            """
+        self.schema_file = (
+            Path(__file__).parent.parent
+            / "schema"
+            / "create_tables.sql"
         )
 
+    def migrate(self):
+        """
+        create_tables.sql を実行
+        """
 
-        row = cursor.fetchone()
-
-
-        if row:
-
-            return row["schema_version"]
-
-
-        return None
-
-
-
-    def set_schema_version(
-        self,
-        version,
-        description=None
-    ):
-
-        self.database.execute(
-            """
-            UPDATE schema_info
-
-            SET
-                schema_version=?,
-                description=?,
-                updated_at=CURRENT_TIMESTAMP
-            """,
-            (
-                version,
-                description
+        if not self.schema_file.exists():
+            raise FileNotFoundError(
+                self.schema_file
             )
-        )
 
+        self.database.connect()
+
+        with open(
+            self.schema_file,
+            "r",
+            encoding="utf-8",
+        ) as file:
+
+            sql = file.read()
+
+        self.database.connection.executescript(sql)
 
         self.database.commit()
 
-
-
-    def check_version(self):
-
-        version = self.get_schema_version()
-
-
-        if version == self.CURRENT_VERSION:
-
-            return True
-
-
-        return False
-
-
-
-    def migrate(self):
-
-        current = self.get_schema_version()
-
-
-        if current is None:
-
-            self.initialize_schema()
-
-
-        elif current != self.CURRENT_VERSION:
-
-            self.apply_migration(
-                current,
-                self.CURRENT_VERSION
-            )
-
-
-
-    def initialize_schema(self):
-
-        self.set_schema_version(
-            self.CURRENT_VERSION,
-            "Initial schema creation"
-        )
-
-
-
-    def apply_migration(
-        self,
-        old_version,
-        new_version
-    ):
-
-        migrations = {
-
-
-            # Future migrations
-
-            # "Rev.1": [
-            #     migration_function
-            # ]
-
-        }
-
-
-        if old_version in migrations:
-
-
-            for migration in migrations[old_version]:
-
-                migration()
-
-
-        self.set_schema_version(
-            new_version,
-            f"Migration {old_version} -> {new_version}"
-        )
-
-
-
-    def backup_required(
-        self,
-        old_version,
-        new_version
-    ):
-
-        if old_version != new_version:
-
-            return True
-
-
-        return False
-
-
-
-# ============================================================
-# END OF migration.py
-# ============================================================
+        print("Database initialized.")
 

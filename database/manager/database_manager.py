@@ -7,23 +7,29 @@
 
 Database Manager
 
-Database層の窓口。
+SQLiteデータベースへの接続管理を担当する。
 
-Controller・Repositoryはこのクラス経由で
-SQLiteへアクセスする。
+責務
+-----------------------------------------
+・Database接続
+・切断
+・Cursor取得
+・Transaction管理
+・SQL実行補助
 
-トランザクション管理も担当する。
+SQL文自体はRepository層のみが保持する。
 """
 
 from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
+from typing import Iterable, Optional
 
 
 class DatabaseManager:
     """
-    Database Manager
+    SQLite Database Manager
     """
 
     def __init__(
@@ -33,13 +39,15 @@ class DatabaseManager:
 
         self.database_path = Path(database_path)
 
-        self.connection: sqlite3.Connection | None = None
+        self.connection: Optional[sqlite3.Connection] = None
+
+    # =================================================
+    # Connection
+    # =================================================
 
     @property
     def is_connected(self) -> bool:
-        """
-        接続状態
-        """
+        """接続状態"""
 
         return self.connection is not None
 
@@ -54,10 +62,10 @@ class DatabaseManager:
                 self.database_path
             )
 
-            # Rowを辞書風に扱えるようにする
+            # Rowを辞書のように扱う
             self.connection.row_factory = sqlite3.Row
 
-            # 外部キー制約を有効化
+            # 外部キー制約有効
             self.connection.execute(
                 "PRAGMA foreign_keys = ON"
             )
@@ -82,6 +90,10 @@ class DatabaseManager:
 
         self.disconnect()
 
+    # =================================================
+    # Cursor
+    # =================================================
+
     def cursor(self) -> sqlite3.Cursor:
         """
         Cursor取得
@@ -92,9 +104,9 @@ class DatabaseManager:
 
         return self.connection.cursor()
 
-    # -------------------------------------------------
+    # =================================================
     # Transaction
-    # -------------------------------------------------
+    # =================================================
 
     def begin(self):
         """
@@ -122,9 +134,9 @@ class DatabaseManager:
         if self.connection is not None:
             self.connection.rollback()
 
-    # -------------------------------------------------
-    # Utility
-    # -------------------------------------------------
+    # =================================================
+    # Execute
+    # =================================================
 
     def execute(
         self,
@@ -136,21 +148,102 @@ class DatabaseManager:
         """
 
         cursor = self.cursor()
-        cursor.execute(sql, parameters)
+
+        cursor.execute(
+            sql,
+            parameters,
+        )
 
         return cursor
 
     def executemany(
         self,
         sql: str,
-        parameters,
+        parameters: Iterable,
     ) -> sqlite3.Cursor:
         """
         SQL一括実行
         """
 
         cursor = self.cursor()
-        cursor.executemany(sql, parameters)
+
+        cursor.executemany(
+            sql,
+            parameters,
+        )
 
         return cursor
+
+    def executescript(
+        self,
+        sql: str,
+    ):
+        """
+        SQLスクリプト実行
+        """
+
+        if self.connection is None:
+            self.connect()
+
+        self.connection.executescript(sql)
+
+    # =================================================
+    # Utility
+    # =================================================
+
+    def table_exists(
+        self,
+        table_name: str,
+    ) -> bool:
+        """
+        テーブル存在確認
+        """
+
+        cursor = self.execute(
+            """
+            SELECT name
+            FROM sqlite_master
+            WHERE type='table'
+              AND name=?
+            """,
+            (table_name,),
+        )
+
+        return cursor.fetchone() is not None
+
+    def vacuum(self):
+        """
+        Database最適化
+        """
+
+        if self.connection is None:
+            self.connect()
+
+        self.connection.execute("VACUUM")
+
+    def __enter__(self):
+        """
+        with対応
+        """
+
+        self.connect()
+
+        return self
+
+    def __exit__(
+        self,
+        exc_type,
+        exc_val,
+        exc_tb,
+    ):
+        """
+        with終了処理
+        """
+
+        if exc_type is None:
+            self.commit()
+        else:
+            self.rollback()
+
+        self.disconnect()
 
