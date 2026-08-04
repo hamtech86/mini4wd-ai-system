@@ -1,0 +1,21 @@
+analysis_version: "1.0"
+
+weights:
+
+  speed: 0.4
+
+  torque: 0.4
+
+  stability: 0.2
+
+
+rank_thresholds:
+
+  S: 90
+
+  A: 80
+
+  B: 70
+
+  C: 60
+

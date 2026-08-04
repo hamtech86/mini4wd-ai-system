@@ -1,0 +1,142 @@
+# =====================================================
+# MINI4WD AI SYSTEM
+# MOTOR_BREAKIN_V3
+#
+# Break-in Recipe Configuration
+#
+# PWM / Time parameters are configurable.
+# =====================================================
+
+
+version: "1.0"
+
+
+recipes:
+
+
+  # ---------------------------------------------------
+  # Torque Tune
+  # ---------------------------------------------------
+  #
+  # Target:
+  #   Low-mid RPM
+  #   Torque priority
+  #
+  # ---------------------------------------------------
+
+  TORQUE_TUNE:
+
+    description:
+      "Torque oriented break-in recipe"
+
+    target:
+      type: TORQUE
+
+
+    stages:
+
+
+      - name: initial
+
+        pwm: 80
+
+        duration_sec: 300
+
+
+      - name: middle
+
+        pwm: 130
+
+        duration_sec: 600
+
+
+      - name: finish
+
+        pwm: 180
+
+        duration_sec: 600
+
+
+
+  # ---------------------------------------------------
+  # Power Dash
+  # ---------------------------------------------------
+  #
+  # Target:
+  #   High RPM
+  #   Speed priority
+  #
+  # ---------------------------------------------------
+
+  POWER_DASH:
+
+    description:
+      "High rotation break-in recipe"
+
+
+    target:
+      type: SPEED
+
+
+    stages:
+
+
+      - name: initial
+
+        pwm: 100
+
+        duration_sec: 300
+
+
+      - name: middle
+
+        pwm: 180
+
+        duration_sec: 600
+
+
+      - name: finish
+
+        pwm: 230
+
+        duration_sec: 600
+
+
+
+  # ---------------------------------------------------
+  # Balance
+  # ---------------------------------------------------
+
+  BALANCE:
+
+    description:
+      "Balanced recipe"
+
+
+    target:
+      type: BALANCE
+
+
+    stages:
+
+
+      - name: initial
+
+        pwm: 100
+
+        duration_sec: 300
+
+
+      - name: middle
+
+        pwm: 150
+
+        duration_sec: 600
+
+
+      - name: finish
+
+        pwm: 200
+
+        duration_sec: 600
+
