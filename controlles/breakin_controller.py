@@ -1,142 +1,95 @@
 """
-=====================================================
- MINI4WD AI SYSTEM
- MOTOR_BREAKIN_V3
- breakin_controller.py
-=====================================================
-
+MOTOR_BREAKIN_V3
 Break-in Controller
 
-UIと各Controllerを接続する。
-
-UIはこのControllerのみを使用する。
+実機ブレイクイン制御フロー管理
 """
 
-from __future__ import annotations
+from enum import Enum, auto
 
 from measurement.measurement_session import MeasurementType
+from controlles.session_controller import SessionController
+from controlles.serial_controller import SerialController
+from controlles.database_controller import DatabaseController
+from controlles.phase_manager import PhaseManager, BreakinPhase
+from controlles.recipe_manager import RecipeManager
+from controlles.command_sender import CommandSender
 
-from controllers.session_controller import SessionController
-from controllers.serial_controller import SerialController
-from controllers.database_controller import DatabaseController
+
+class BreakinState(Enum):
+    IDLE = auto()
+    READY = auto()
+    RUNNING = auto()
+    PAUSED = auto()
+    COMPLETE = auto()
+    ERROR = auto()
 
 
 class BreakinController:
-    """
-    Break-in System Controller
-    """
+    """Break-in process controller"""
 
     def __init__(self):
-
         self.session = SessionController()
-
         self.serial = SerialController()
-
         self.database = DatabaseController()
 
-        #
-        # Measurement通知
-        #
+        self.phase = PhaseManager()
+        self.recipe = RecipeManager()
+        self.command = CommandSender(self.serial)
 
-        self.serial.on_measurement = self._on_measurement
+        self.state = BreakinState.IDLE
+        self.measurements = []
+        self.on_measurement = None
+        self.on_state_changed = None
 
-    # -------------------------------------------------
-    # Connection
-    # -------------------------------------------------
+        self.serial.on_measurement = self.receive_measurement
 
-    def connect(
-        self,
-        port: str,
-        baudrate: int = 57600,
-    ):
+    def _set_state(self, state):
+        self.state = state
+        if self.on_state_changed:
+            self.on_state_changed(state)
 
-        self.serial.connect(
-            port,
-            baudrate,
-        )
+    def initialize(self):
+        self._set_state(BreakinState.IDLE)
 
-    def disconnect(self):
+    def connect_device(self, port="/dev/ttyACM0", baudrate=57600):
+        self._set_state(BreakinState.READY)
+        return self.serial.connect(port, baudrate)
 
-        self.serial.disconnect()
+    def disconnect_device(self):
+        return self.serial.disconnect()
 
-    @property
-    def is_connected(self):
+    def start_breakin(self, profile=None):
+        self.session.start(MeasurementType.BREAKIN)
+        self.phase.set_phase(BreakinPhase.BREAKIN)
+        self.command.start()
+        self._set_state(BreakinState.RUNNING)
 
-        return self.serial.is_connected
+    def pause(self):
+        self.command.send("PAUSE")
+        self._set_state(BreakinState.PAUSED)
 
-    # -------------------------------------------------
-    # Session
-    # -------------------------------------------------
-
-    def start_breakin(self):
-
-        session = self.session.start(
-            MeasurementType.BREAKIN
-        )
-
-        self.serial.start_session(
-            MeasurementType.BREAKIN
-        )
-
-        return session
+    def resume(self):
+        self.command.send("RESUME")
+        self._set_state(BreakinState.RUNNING)
 
     def stop_breakin(self):
-
+        self.command.stop()
         self.session.finish()
+        self._set_state(BreakinState.COMPLETE)
 
-        self.serial.finish_session()
+    def receive_measurement(self, data):
+        self.measurements.append(data)
+        self.database.save_measurement(data)
+        if self.on_measurement:
+            self.on_measurement(data)
 
-    # -------------------------------------------------
-    # Communication
-    # -------------------------------------------------
+    def run_analysis(self):
+        return None
 
-    def update(self):
+    def save_session(self):
+        return self.session.session
 
-        return self.serial.update()
-
-    # -------------------------------------------------
-    # Arduino Command
-    # -------------------------------------------------
-
-    def send_command(self, command: str):
-
-        self.serial.send(command)
-
-    def set_pwm(self, pwm: int):
-
-        self.send_command(f"PWM,{pwm}")
-
-    def set_direction(self, direction: str):
-
-        self.send_command(f"DIR,{direction}")
-
-    def start_motor(self):
-
-        self.send_command("START")
-
-    def stop_motor(self):
-
-        self.send_command("STOP")
-
-    # -------------------------------------------------
-    # Internal
-    # -------------------------------------------------
-
-    def _on_measurement(self, measurement):
-
-        #
-        # Database保存
-        #
-
-        self.database.save_measurement(
-            measurement
-        )
-
-        #
-        # 将来
-        #
-        # AnalysisController
-        # UI通知
-        # CSV Export
-        #
-
+    def shutdown(self):
+        self.stop_breakin()
+        self.disconnect_device()
