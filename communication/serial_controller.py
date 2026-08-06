@@ -9,18 +9,39 @@ This layer converts controller actions into existing
 serial command format.
 """
 
+try:
+    import serial
+except ImportError:
+    serial = None
+
 
 class SerialController:
 
-    def __init__(self, serial_port=None):
+    def __init__(self, serial_port="/dev/ttyACM0", baudrate=57600):
         self.serial_port = serial_port
+        self.baudrate = baudrate
+        self.serial = None
         self.connected = False
         self.last_pwm = 0
         self.direction = "FWD"
         self.command_log = []
 
     def connect(self):
-        self.connected = True
+        """Connect to Arduino serial port."""
+        if serial is None:
+            return False
+
+        try:
+            self.serial = serial.Serial(
+                self.serial_port,
+                self.baudrate,
+                timeout=1
+            )
+            self.connected = True
+            return True
+        except Exception:
+            self.connected = False
+            return False
 
     def forward(self):
         self.direction = "FWD"
@@ -41,20 +62,26 @@ class SerialController:
     def emergency_stop(self):
         self.set_pwm(0)
         self.send_command("STOP")
+        self.disconnect()
+
+    def disconnect(self):
+        if self.serial:
+            self.serial.close()
+        self.serial = None
         self.connected = False
 
     def send_command(self, command):
-        """Send command to Arduino.
-
-        Current implementation keeps a command log until
-        the physical serial backend is enabled.
-        """
+        """Send command to Arduino while keeping command trace."""
         self.command_log.append(command)
+
+        if self.connected and self.serial:
+            self.serial.write((command + "\n").encode("utf-8"))
+
         return command
 
     def read_measurement(self):
-        """Return raw measurement frame from Arduino.
+        """Return raw measurement frame from Arduino."""
+        if self.connected and self.serial and self.serial.in_waiting:
+            return self.serial.readline().decode("utf-8").strip()
 
-        Measurement parsing remains unchanged.
-        """
         return None
