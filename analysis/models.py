@@ -5,15 +5,12 @@
  analysis/models.py
 =====================================================
 
-Analysis Engine Common Data Models
-
-Compatible V1.0
+Analysis Engine Data Models
 
 =====================================================
 """
 
 from __future__ import annotations
-
 
 from dataclasses import dataclass, field
 
@@ -32,11 +29,7 @@ from typing import (
 @dataclass
 class EstimatedValue:
     """
-    推定値共通形式
-
-    value
-    unit
-    confidence
+    推定値共通モデル
     """
 
     value: float = 0.0
@@ -65,6 +58,14 @@ class FeatureSet:
 
     rpm: float = 0.0
 
+
+    # Performance Analysis対応
+
+    average_voltage: float = 0.0
+
+    average_current: float = 0.0
+
+
     temperature: float = 0.0
 
     magnetic: float = 0.0
@@ -89,34 +90,28 @@ class ValidationResult:
 
     valid: bool = False
 
-    quality: float = 0.0
+    quality_score: float = 0.0
 
 
     missing_count: int = 0
 
     warning_count: int = 0
 
-    anomaly_count: int = 0
-
-    out_of_range_count: int = 0
-
-    sensor_error_count: int = 0
+    error_count: int = 0
 
 
-    quality_score: float = 0.0
-
-    confidence: float = 0.0
+    message: str = ""
 
 
     warnings: List[str] = field(
         default_factory=list
     )
 
-    anomaly_flags: List[str] = field(
+    errors: List[str] = field(
         default_factory=list
     )
 
-    errors: List[str] = field(
+    anomaly_flags: List[str] = field(
         default_factory=list
     )
 
@@ -129,7 +124,7 @@ class ValidationResult:
 @dataclass
 class PerformanceResult:
     """
-    性能解析結果
+    Performance解析結果
     """
 
     estimated_rpm: EstimatedValue = field(
@@ -145,13 +140,6 @@ class PerformanceResult:
     )
 
 
-    rpm: float = 0.0
-
-    torque: float = 0.0
-
-    weight: float = 0.0
-
-
 
 # =====================================================
 # Brush Result
@@ -160,7 +148,7 @@ class PerformanceResult:
 @dataclass
 class BrushResult:
     """
-    ブラシ解析結果
+    Brush解析結果
     """
 
     peak_detected: bool = False
@@ -170,7 +158,6 @@ class BrushResult:
     brush_condition: str = "UNKNOWN"
 
     confidence: float = 0.0
-
 
     explanation: str = ""
 
@@ -186,6 +173,10 @@ class StrategyResult:
     Break-in Strategy Result
     """
 
+    # 現行仕様
+    recipe_name: str = ""
+
+    # 旧仕様互換
     recipe: str = ""
 
     reason: str = ""
@@ -194,14 +185,19 @@ class StrategyResult:
         default_factory=list
     )
 
-
     explanation: str = ""
 
 
-    @property
-    def recipe_name(self):
+    def __post_init__(self):
 
-        return self.recipe
+        if not self.recipe_name and self.recipe:
+
+            self.recipe_name = self.recipe
+
+
+        if not self.recipe and self.recipe_name:
+
+            self.recipe = self.recipe_name
 
 
 
@@ -218,20 +214,30 @@ BreakinStrategyResult = StrategyResult
 @dataclass
 class ScoreResult:
     """
-    Scoring Result
+    Score Result
     """
 
-    score: float = 0.0
+    total_score: float = 0.0
 
     rank: str = "D"
-
 
     details: Dict[str, Any] = field(
         default_factory=dict
     )
 
 
-    explanation: str = ""
+    # 旧テスト互換
+
+    @property
+    def score(self):
+
+        return self.total_score
+
+
+    @score.setter
+    def score(self, value):
+
+        self.total_score = value
 
 
 
@@ -242,7 +248,7 @@ class ScoreResult:
 @dataclass
 class AnalysisResult:
     """
-    Analysis Final Result
+    Final Analysis Result
     """
 
     validation: ValidationResult = field(
@@ -273,4 +279,3 @@ class AnalysisResult:
     config_version: str = "1.0"
 
     recipe_version: str = "1.0"
-

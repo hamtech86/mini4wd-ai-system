@@ -1,0 +1,166 @@
+"""
+=====================================================
+ MINI4WD AI SYSTEM
+ MOTOR_BREAKIN_V3
+
+ tests/test_real_analysis.py
+
+ Real Log Analysis Test
+
+ CSV -> Measurement -> Analysis Engine
+=====================================================
+"""
+
+from pathlib import Path
+import sys
+
+
+# project root
+
+ROOT = Path(__file__).resolve().parent.parent
+
+sys.path.insert(
+    0,
+    str(ROOT)
+)
+
+
+from communication.csv_parser import CSVParser
+
+from analysis.analysis_engine import AnalysisEngine
+
+
+
+def main():
+
+    print("===============================")
+    print(" Real Log Analysis Test")
+    print("===============================")
+
+
+    #
+    # CSV指定
+    #
+
+    log_path = ROOT / "logs" / "test_motor.csv"
+
+
+    if not log_path.exists():
+
+        print()
+
+        print(
+            "CSV not found:"
+        )
+
+        print(
+            log_path
+        )
+
+        print()
+
+        print(
+            "Place Arduino CSV log here."
+        )
+
+        return
+
+
+
+    #
+    # Parser
+    #
+
+    parser = CSVParser()
+
+
+    measurement = parser.parse_file(
+        log_path
+    )
+
+
+    print()
+
+    print("--- Measurement ---")
+
+    print(
+        measurement
+    )
+
+
+
+    #
+    # Analysis Engine
+    #
+
+    engine = AnalysisEngine()
+
+
+    result = engine.analyze(
+        measurement
+    )
+
+
+    print()
+
+    print("--- Performance ---")
+
+    print(
+        "RPM:",
+        result.performance.estimated_rpm.value
+    )
+
+    print(
+        "Torque:",
+        result.performance.estimated_torque.value
+    )
+
+    print(
+        "Weight:",
+        result.performance.estimated_weight.value
+    )
+
+
+    print()
+
+    print("--- Brush ---")
+
+    print(
+        result.brush.brush_condition
+    )
+
+
+    print()
+
+    print("--- Strategy ---")
+
+    print(
+        result.strategy.recipe_name
+    )
+
+
+    print()
+
+    print("--- Score ---")
+
+    print(
+        result.score.total_score
+    )
+
+    print(
+        result.score.rank
+    )
+
+
+    print()
+
+    print(
+        "Real Analysis Complete"
+    )
+
+
+
+if __name__ == "__main__":
+
+    main()
+
