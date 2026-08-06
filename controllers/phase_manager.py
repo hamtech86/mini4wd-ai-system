@@ -1,5 +1,8 @@
 """
 Break-in Phase Manager
+MOTOR_BREAKIN_V3
+
+Phase sequence control
 """
 
 
@@ -21,10 +24,20 @@ class PhaseManager:
         return self.recipe.phases[self.index]
 
     def next_phase(self):
-        self.index += 1
+        if self.has_next():
+            self.index += 1
         return self.current_phase()
 
     def progress(self):
         if not self.recipe.phases:
             return 0
         return int(self.index / len(self.recipe.phases) * 100)
+
+    def total_phases(self):
+        return len(self.recipe.phases)
+
+    def current_index(self):
+        return self.index
+
+    def is_complete(self):
+        return not self.has_next()
