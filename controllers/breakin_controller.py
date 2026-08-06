@@ -35,7 +35,7 @@ class BreakinController:
         self.running = False
         self.measurements = []
         self.session = None
-
+        self.current_phase = None
 
     def start(self, recipe):
         self.phase_manager = PhaseManager(recipe)
@@ -51,6 +51,7 @@ class BreakinController:
                 self.execute_phase(phase)
                 self.phase_manager.next_phase()
 
+            self.stop()
             result = self.analyze(self.measurements)
 
             if self.session_manager:
@@ -64,8 +65,8 @@ class BreakinController:
             self.emergency_stop()
             raise
 
-
     def execute_phase(self, phase):
+        self.current_phase = phase
 
         if phase.direction == "REV":
             self.serial.reverse()
@@ -77,16 +78,22 @@ class BreakinController:
         start = time.time()
 
         while self.running and time.time() - start < phase.duration_sec:
-
             if self.measurement_manager:
                 measurement = self.measurement_manager.collect()
+
+                if isinstance(measurement, dict):
+                    measurement["phase"] = phase
+                    measurement["phase_pwm"] = phase.pwm
+                    measurement["phase_direction"] = phase.direction
+
                 self.measurements.append(measurement)
 
             time.sleep(0.1)
 
+        self.serial.set_pwm(0)
+        time.sleep(0.2)
 
     def analyze(self, measurements):
-
         if self.analysis_engine is None:
             return measurements
 
@@ -95,7 +102,6 @@ class BreakinController:
             for measurement in measurements
         ]
 
-
     def stop(self):
         self.running = False
 
@@ -103,7 +109,6 @@ class BreakinController:
             self.serial.stop_breakin()
 
         self.serial.set_pwm(0)
-
 
     def emergency_stop(self):
         self.running = False
