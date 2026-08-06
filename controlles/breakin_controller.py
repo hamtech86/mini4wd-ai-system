@@ -2,12 +2,13 @@
 Break-in Controller
 MOTOR_BREAKIN_V3
 
+Controller Pipeline
 Recipe
  -> Phase Control
  -> Arduino Control
  -> Measurement Collection
  -> Analysis Engine
- -> Database
+ -> Result
 """
 
 import time
@@ -16,24 +17,20 @@ from .phase_manager import PhaseManager
 
 
 class BreakinController:
-    """
-    Break-in execution controller.
-
-    Hardware control remains separated from analysis.
-    """
 
     def __init__(
         self,
         serial_controller,
         measurement_manager=None,
         analysis_engine=None,
-        database=None
+        database=None,
     ):
         self.serial = serial_controller
         self.measurement_manager = measurement_manager
         self.analysis_engine = analysis_engine
         self.database = database
         self.running = False
+
 
     def start(self, recipe):
         self.phase_manager = PhaseManager(recipe)
@@ -55,10 +52,10 @@ class BreakinController:
 
         self.stop()
 
-        return measurements
+        return self.analyze(measurements)
+
 
     def execute_phase(self, phase):
-        """Execute one break-in phase."""
 
         if phase.direction == "REV":
             self.serial.reverse()
@@ -72,16 +69,33 @@ class BreakinController:
         while self.running and time.time() - start < phase.duration_sec:
             time.sleep(0.1)
 
-    def stop(self):
-        self.running = False
-        self.serial.stop_breakin()
-        self.serial.set_pwm(0)
 
-    def emergency_stop(self):
+    def analyze(self, measurements):
+
+        if self.analysis_engine is None:
+            return measurements
+
+        results = []
+
+        for measurement in measurements:
+            results.append(
+                self.analysis_engine.analyze(measurement)
+            )
+
+        return results
+
+
+    def stop(self):
         self.running = False
 
         if hasattr(self.serial, "stop_breakin"):
             self.serial.stop_breakin()
+
+        self.serial.set_pwm(0)
+
+
+    def emergency_stop(self):
+        self.stop()
 
         if hasattr(self.serial, "emergency_stop"):
             self.serial.emergency_stop()
