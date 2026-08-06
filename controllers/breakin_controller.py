@@ -1,95 +1,101 @@
 """
-MOTOR_BREAKIN_V3
 Break-in Controller
+MOTOR_BREAKIN_V3
 
-実機ブレイクイン制御フロー管理
+Controller Pipeline
+Recipe
+ -> Phase Control
+ -> Arduino Control
+ -> Measurement Collection
+ -> Analysis Engine
+ -> Result
 """
 
-from enum import Enum, auto
+import time
 
-from measurement.measurement_session import MeasurementType
-from controlles.session_controller import SessionController
-from controlles.serial_controller import SerialController
-from controlles.database_controller import DatabaseController
-from controlles.phase_manager import PhaseManager, BreakinPhase
-from controlles.recipe_manager import RecipeManager
-from controlles.command_sender import CommandSender
-
-
-class BreakinState(Enum):
-    IDLE = auto()
-    READY = auto()
-    RUNNING = auto()
-    PAUSED = auto()
-    COMPLETE = auto()
-    ERROR = auto()
+from .phase_manager import PhaseManager
 
 
 class BreakinController:
-    """Break-in process controller"""
 
-    def __init__(self):
-        self.session = SessionController()
-        self.serial = SerialController()
-        self.database = DatabaseController()
+    def __init__(
+        self,
+        serial_controller,
+        measurement_manager=None,
+        analysis_engine=None,
+        database=None,
+    ):
+        self.serial = serial_controller
+        self.measurement_manager = measurement_manager
+        self.analysis_engine = analysis_engine
+        self.database = database
+        self.running = False
 
-        self.phase = PhaseManager()
-        self.recipe = RecipeManager()
-        self.command = CommandSender(self.serial)
 
-        self.state = BreakinState.IDLE
-        self.measurements = []
-        self.on_measurement = None
-        self.on_state_changed = None
+    def start(self, recipe):
+        self.phase_manager = PhaseManager(recipe)
+        self.running = True
 
-        self.serial.on_measurement = self.receive_measurement
+        measurements = []
 
-    def _set_state(self, state):
-        self.state = state
-        if self.on_state_changed:
-            self.on_state_changed(state)
+        while self.running and self.phase_manager.has_next():
+            phase = self.phase_manager.current_phase()
 
-    def initialize(self):
-        self._set_state(BreakinState.IDLE)
+            self.execute_phase(phase)
 
-    def connect_device(self, port="/dev/ttyACM0", baudrate=57600):
-        self._set_state(BreakinState.READY)
-        return self.serial.connect(port, baudrate)
+            if self.measurement_manager:
+                measurements.append(
+                    self.measurement_manager.collect()
+                )
 
-    def disconnect_device(self):
-        return self.serial.disconnect()
+            self.phase_manager.next_phase()
 
-    def start_breakin(self, profile=None):
-        self.session.start(MeasurementType.BREAKIN)
-        self.phase.set_phase(BreakinPhase.BREAKIN)
-        self.command.start()
-        self._set_state(BreakinState.RUNNING)
+        self.stop()
 
-    def pause(self):
-        self.command.send("PAUSE")
-        self._set_state(BreakinState.PAUSED)
+        return self.analyze(measurements)
 
-    def resume(self):
-        self.command.send("RESUME")
-        self._set_state(BreakinState.RUNNING)
 
-    def stop_breakin(self):
-        self.command.stop()
-        self.session.finish()
-        self._set_state(BreakinState.COMPLETE)
+    def execute_phase(self, phase):
 
-    def receive_measurement(self, data):
-        self.measurements.append(data)
-        self.database.save_measurement(data)
-        if self.on_measurement:
-            self.on_measurement(data)
+        if phase.direction == "REV":
+            self.serial.reverse()
+        else:
+            self.serial.forward()
 
-    def run_analysis(self):
-        return None
+        self.serial.set_pwm(phase.pwm)
 
-    def save_session(self):
-        return self.session.session
+        start = time.time()
 
-    def shutdown(self):
-        self.stop_breakin()
-        self.disconnect_device()
+        while self.running and time.time() - start < phase.duration_sec:
+            time.sleep(0.1)
+
+
+    def analyze(self, measurements):
+
+        if self.analysis_engine is None:
+            return measurements
+
+        results = []
+
+        for measurement in measurements:
+            results.append(
+                self.analysis_engine.analyze(measurement)
+            )
+
+        return results
+
+
+    def stop(self):
+        self.running = False
+
+        if hasattr(self.serial, "stop_breakin"):
+            self.serial.stop_breakin()
+
+        self.serial.set_pwm(0)
+
+
+    def emergency_stop(self):
+        self.stop()
+
+        if hasattr(self.serial, "emergency_stop"):
+            self.serial.emergency_stop()

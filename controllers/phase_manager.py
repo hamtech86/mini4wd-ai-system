@@ -1,34 +1,30 @@
 """
-MOTOR_BREAKIN_V3
-Phase Manager
+Break-in Phase Manager
 """
-
-from enum import Enum, auto
-
-
-class BreakinPhase(Enum):
-    INITIAL = auto()
-    BREAKIN = auto()
-    BRUSH_FORMING = auto()
-    FINISH = auto()
-    EVALUATION = auto()
-    COMPLETE = auto()
 
 
 class PhaseManager:
-    def __init__(self):
-        self.phase = BreakinPhase.INITIAL
 
-    def set_phase(self, phase: BreakinPhase):
-        self.phase = phase
-        return self.phase
-
-    def next(self):
-        order = list(BreakinPhase)
-        index = order.index(self.phase)
-        if index < len(order) - 1:
-            self.phase = order[index + 1]
-        return self.phase
+    def __init__(self, recipe):
+        self.recipe = recipe
+        self.index = 0
 
     def reset(self):
-        self.phase = BreakinPhase.INITIAL
+        self.index = 0
+
+    def has_next(self):
+        return self.index < len(self.recipe.phases)
+
+    def current_phase(self):
+        if not self.has_next():
+            return None
+        return self.recipe.phases[self.index]
+
+    def next_phase(self):
+        self.index += 1
+        return self.current_phase()
+
+    def progress(self):
+        if not self.recipe.phases:
+            return 0
+        return int(self.index / len(self.recipe.phases) * 100)
