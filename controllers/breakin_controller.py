@@ -4,6 +4,7 @@ MOTOR_BREAKIN_V3
 
 Controller Pipeline
 Recipe
+ -> Session
  -> Phase Control
  -> Arduino Control
  -> Measurement Collection
@@ -24,35 +25,44 @@ class BreakinController:
         measurement_manager=None,
         analysis_engine=None,
         database=None,
+        session_manager=None,
     ):
         self.serial = serial_controller
         self.measurement_manager = measurement_manager
         self.analysis_engine = analysis_engine
         self.database = database
+        self.session_manager = session_manager
         self.running = False
+        self.measurements = []
+        self.session = None
 
 
     def start(self, recipe):
         self.phase_manager = PhaseManager(recipe)
         self.running = True
+        self.measurements = []
 
-        measurements = []
+        if self.session_manager:
+            self.session = self.session_manager.start("BREAKIN")
 
-        while self.running and self.phase_manager.has_next():
-            phase = self.phase_manager.current_phase()
+        try:
+            while self.running and self.phase_manager.has_next():
+                phase = self.phase_manager.current_phase()
+                self.execute_phase(phase)
+                self.phase_manager.next_phase()
 
-            self.execute_phase(phase)
+            result = self.analyze(self.measurements)
 
-            if self.measurement_manager:
-                measurements.append(
-                    self.measurement_manager.collect()
-                )
+            if self.session_manager:
+                self.session_manager.finish("COMPLETE")
 
-            self.phase_manager.next_phase()
+            return result
 
-        self.stop()
-
-        return self.analyze(measurements)
+        except Exception:
+            if self.session_manager:
+                self.session_manager.finish("ERROR")
+            self.emergency_stop()
+            raise
 
 
     def execute_phase(self, phase):
@@ -67,6 +77,11 @@ class BreakinController:
         start = time.time()
 
         while self.running and time.time() - start < phase.duration_sec:
+
+            if self.measurement_manager:
+                measurement = self.measurement_manager.collect()
+                self.measurements.append(measurement)
+
             time.sleep(0.1)
 
 
@@ -75,14 +90,10 @@ class BreakinController:
         if self.analysis_engine is None:
             return measurements
 
-        results = []
-
-        for measurement in measurements:
-            results.append(
-                self.analysis_engine.analyze(measurement)
-            )
-
-        return results
+        return [
+            self.analysis_engine.analyze(measurement)
+            for measurement in measurements
+        ]
 
 
     def stop(self):
@@ -95,7 +106,9 @@ class BreakinController:
 
 
     def emergency_stop(self):
-        self.stop()
+        self.running = False
 
         if hasattr(self.serial, "emergency_stop"):
             self.serial.emergency_stop()
+        else:
+            self.stop()
