@@ -4,7 +4,7 @@
  MOTOR_BREAKIN_V3
  main.py
 =====================================================
-Temporary UI integration entry point
+Application entry point
 """
 
 import sys
@@ -14,21 +14,26 @@ from loguru import logger
 
 from config import APP_NAME, APP_VERSION, LOG_DIR
 from ui.main_window import MainWindow
+from communication.serial_controller import SerialController
+from app.application_builder import ApplicationBuilder
 
 
-class ApplicationBuilder:
-    """
-    Temporary integration layer.
-
-    This will become the dependency composition root for:
-    - BreakinController
-    - MeasurementManager
-    - AnalysisEngine
-    - SerialController
-    """
+class ApplicationRuntimeBuilder:
+    """Create application dependency context."""
 
     def build_context(self):
-        return {}
+        serial_controller = SerialController(
+            serial_port="/dev/ttyACM0"
+        )
+
+        builder = ApplicationBuilder(
+            serial_controller=serial_controller
+        )
+
+        return {
+            "serial_controller": serial_controller,
+            "breakin_controller": builder.build_breakin_controller(),
+        }
 
 
 def setup_logger() -> None:
@@ -51,7 +56,7 @@ def main() -> int:
     app.setApplicationVersion(APP_VERSION)
 
     try:
-        context = ApplicationBuilder().build_context()
+        context = ApplicationRuntimeBuilder().build_context()
         window = MainWindow(context)
         window.show()
         return app.exec()
