@@ -1,5 +1,7 @@
 from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QPushButton, QLabel
 
+from controllers.recipe import default_speed_recipe
+
 
 class MainWindow(QMainWindow):
     """Temporary UI for MOTOR_BREAKIN_V3 integration testing."""
@@ -32,7 +34,8 @@ class MainWindow(QMainWindow):
     def start_breakin(self):
         self.status.setText("BREAK-IN RUNNING")
         if self.breakin_controller:
-            self.breakin_controller.start()
+            recipe = default_speed_recipe()
+            self.breakin_controller.start(recipe)
 
     def stop_breakin(self):
         self.status.setText("STOPPED")
