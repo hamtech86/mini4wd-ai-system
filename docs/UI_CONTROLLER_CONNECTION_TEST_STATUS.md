@@ -1,12 +1,12 @@
 # UI Controller Connection Test Status
 
-Updated: 2026-08-07
+Updated: 2026-08-08
 
 ## Purpose
 
 Verify the final application path for MOTOR_BREAKIN_V3.
 
-## Target Flow
+## Completed Integration
 
 UI
 ↓
@@ -24,21 +24,28 @@ Measurement
 ↓
 AnalysisEngine
 ↓
-Result
+AnalysisResult
+↓
+UI result display
 
-## Current Check
+## Four Required Actions
 
-ApplicationContext and ApplicationBuilder have been prepared.
+1. **Start**
+   - MainWindow START action calls `BreakinController.start(default_speed_recipe())`.
+   - The returned result is passed to `display_analysis_result()`.
 
-The remaining integration point is connecting the existing MainWindow actions to the controller lifecycle.
+2. **Stop**
+   - MainWindow EMERGENCY STOP action calls `BreakinController.emergency_stop()`.
 
-Required actions:
+3. **Result display**
+   - MainWindow now exposes `result_display` and handles list, dict, and fallback AnalysisResult values.
 
-- Start button calls BreakinController.start()
-- Stop button calls emergency_stop()
-- Result display receives AnalysisResult
-- Mock execution verifies the complete path
+4. **Mock execution**
+   - `tests/test_breakin_controller.py` now uses corrected `controllers.*` imports.
+   - Mock Serial, Measurement, and Analysis components verify the complete controller path and emergency stop.
 
-## Next Step
+## Current Verification State
 
-Implement and validate the UI event binding without changing the core controller design.
+The four implementation items are complete in the source tree.
+
+The mock test is committed and ready for local/CI execution. Hardware execution remains a separate validation step and is not implied by this document.
