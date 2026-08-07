@@ -9,7 +9,17 @@ class MainWindow(QMainWindow):
     def __init__(self, context=None):
         super().__init__()
         self.context = context
-        self.breakin_controller = getattr(context, "breakin_controller", None)
+
+        if isinstance(context, dict):
+            self.breakin_controller = context.get("breakin_controller")
+        else:
+            self.breakin_controller = getattr(
+                context,
+                "breakin_controller",
+                None
+            )
+
+        print("BREAKIN CONTROLLER:", self.breakin_controller)
 
         self.setWindowTitle("MINI4WD AI SYSTEM - Motor Break-in")
         self.resize(600, 400)
