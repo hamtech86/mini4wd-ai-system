@@ -28,7 +28,9 @@ class ApplicationBuilder:
         self.database = database
 
     def build_breakin_controller(self):
-        measurement_manager = MeasurementManager()
+        measurement_manager = MeasurementManager(
+            serial_controller=self.serial_controller
+        )
 
         return BreakinController(
             serial_controller=self.serial_controller,
