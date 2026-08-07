@@ -33,6 +33,11 @@ class ApplicationRuntimeBuilder:
             serial_port="/dev/ttyACM0"
         )
 
+        if serial_controller.connect():
+            logger.info("Arduino serial connected")
+        else:
+            logger.warning("Arduino serial connection failed")
+
         builder = ApplicationBuilder(
             serial_controller=serial_controller
         )
