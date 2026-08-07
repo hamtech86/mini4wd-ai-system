@@ -27,7 +27,6 @@ class SerialController:
         self.command_log = []
 
     def connect(self):
-        """Connect to Arduino serial port."""
         if serial is None:
             return False
 
@@ -71,7 +70,6 @@ class SerialController:
         self.connected = False
 
     def send_command(self, command):
-        """Send command to Arduino while keeping command trace."""
         self.command_log.append(command)
 
         if self.connected and self.serial:
@@ -82,6 +80,7 @@ class SerialController:
     def read_measurement(self):
         """Return raw measurement frame from Arduino."""
         if self.connected and self.serial and self.serial.in_waiting:
-            return self.serial.readline().decode("utf-8").strip()
+            raw = self.serial.readline()
+            return raw.decode("utf-8", errors="replace").strip()
 
         return None
