@@ -6,7 +6,7 @@ Current Baseline
 
 Date:
 
-2026-08-06
+2026-08-08
 
 Purpose:
 
@@ -65,7 +65,38 @@ python3 tests/test_analysis.py
 
 Result:
 
-PASS
+PASS (baseline verification)
+
+Measurement Collection Integration
+
+Status:
+
+Implemented
+
+Functions:
+
+- SerialController -> MeasurementManager connection
+- Arduino DATA CSV parsing
+- Numeric conversion with safe defaults
+- Measurement object creation
+- Measurement logging integration
+
+Break-in Controller / Analysis Integration
+
+Status:
+
+Implemented; hardware verification pending
+
+Functions:
+
+- Recipe/phase execution
+- Arduino direction and PWM control
+- Measurement collection during phases
+- AnalysisEngine invocation for collected Measurements
+- Result return
+- Emergency stop path
+
+The current AnalysisEngine implementation accepts a Measurement and internally executes Validation -> FeatureExtractor -> analysis modules -> AnalysisResult.
 
 ---
 
@@ -75,16 +106,15 @@ Break-in Controller
 
 Status:
 
-Next development target
+Hardware integration verification
 
-Required functions:
+Required verification:
 
-- Recipe management
-- Phase control
-- Arduino communication
-- Measurement collection
-- Analysis integration
-- Database storage
+- Real Arduino DATA reception
+- Real Measurement values
+- Full recipe execution
+- AnalysisResult generation with real measurements
+- Database storage integration
 
 UI Integration
 
@@ -94,7 +124,7 @@ Foundation available
 
 Pending:
 
-- Controller connection
+- Controller connection verification
 - Analysis display
 - Database integration
 
@@ -117,6 +147,14 @@ Before code generation:
 
 CHANGE_LOG.md
 
+2026-08-08
+
+Updated Break-in implementation status.
+
+MeasurementManager now parses the defined MOTOR_BREAKIN_V3 DATA CSV format and creates Measurement objects.
+BreakinController is wired to collect Measurements and invoke AnalysisEngine.
+Remaining work is hardware/runtime verification and subsequent UI/database integration.
+
 2026-08-06
 
 Created development baseline.
@@ -132,4 +170,3 @@ Established:
 - Development status tracking
 
 Future code generation must follow these documents.
-
