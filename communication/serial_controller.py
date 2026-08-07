@@ -37,8 +37,10 @@ class SerialController:
                 timeout=1
             )
             self.connected = True
+            print("SERIAL CONNECTED", self.serial_port, self.baudrate)
             return True
-        except Exception:
+        except Exception as e:
+            print("SERIAL CONNECT ERROR", e)
             self.connected = False
             return False
 
@@ -71,6 +73,7 @@ class SerialController:
 
     def send_command(self, command):
         self.command_log.append(command)
+        print("SERIAL TX:", command)
 
         if self.connected and self.serial:
             self.serial.write((command + "\n").encode("utf-8"))
@@ -81,6 +84,8 @@ class SerialController:
         """Return raw measurement frame from Arduino."""
         if self.connected and self.serial and self.serial.in_waiting:
             raw = self.serial.readline()
-            return raw.decode("utf-8", errors="replace").strip()
+            decoded = raw.decode("utf-8", errors="replace").strip()
+            print("SERIAL RX:", decoded)
+            return decoded
 
         return None
