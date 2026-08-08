@@ -17,8 +17,14 @@ class SessionManager:
         self.repository = SessionRepository(database)
         self.current_session = None
 
-    def start(self, measurement_type="BREAKIN"):
-        session = MeasurementSession()
+    def start(self, measurement_type="BREAKIN", instance_id=None):
+        """Start a DB-backed session for an explicitly selected motor instance."""
+        if instance_id is None:
+            raise ValueError(
+                "instance_id is required to start a production measurement session"
+            )
+
+        session = MeasurementSession(instance_id=int(instance_id))
         session.measurement_type = session.measurement_type.__class__[measurement_type]
         session.start()
         self.repository.insert(session)
