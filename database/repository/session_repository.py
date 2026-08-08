@@ -52,6 +52,21 @@ class SessionRepository:
             SessionStatus.ERROR: "ERROR",
         }[status]
 
+    @staticmethod
+    def _require_instance_id(session: MeasurementSession) -> int:
+        """Return a valid DB motor instance id or fail before the FK INSERT."""
+        if session.instance_id is None:
+            raise ValueError(
+                "MeasurementSession.instance_id is required for database persistence"
+            )
+        try:
+            instance_id = int(session.instance_id)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("MeasurementSession.instance_id must be an integer") from exc
+        if instance_id <= 0:
+            raise ValueError("MeasurementSession.instance_id must be a positive integer")
+        return instance_id
+
     def _allocate_legacy_session_id(self, session: MeasurementSession):
         """Allocate an integer-compatible ID for the pre-Phase1 schema."""
         try:
@@ -71,6 +86,7 @@ class SessionRepository:
         columns = self._columns()
 
         if self._is_legacy_schema(columns):
+            instance_id = self._require_instance_id(session)
             self._allocate_legacy_session_id(session)
             sql = f"""
             INSERT INTO {self.TABLE_NAME}
@@ -95,7 +111,7 @@ class SessionRepository:
                 sql,
                 (
                     session.session_id,
-                    0,
+                    instance_id,
                     "BREAKIN",
                     "MOTOR_BREAKIN_V3",
                     session.firmware_version,
