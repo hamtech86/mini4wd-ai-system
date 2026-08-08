@@ -75,13 +75,15 @@ class RecordType(Enum):
 # Arduino Commands
 # =====================================================
 
+# Firmware MOTOR_BREAKIN_V3.00 command protocol.
+# The firmware accepts bare FWD/REV and PWM=<0..255>.
 CMD_START = "START"
 CMD_STOP = "STOP"
 
-CMD_FORWARD = "DIR FWD"
-CMD_REVERSE = "DIR REV"
+CMD_FORWARD = "FWD"
+CMD_REVERSE = "REV"
 
-CMD_PWM = "PWM"
+CMD_PWM = "PWM="
 
 CMD_STATUS = "STATUS"
 
@@ -139,4 +141,3 @@ ANALYSIS_READY = "READY"
 ANALYSIS_RUNNING = "RUNNING"
 
 ANALYSIS_FINISHED = "FINISHED"
-
