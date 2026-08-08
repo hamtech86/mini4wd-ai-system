@@ -75,23 +75,32 @@ class BreakinController:
 
         self.serial.set_pwm(phase.pwm)
 
+        # Capture one sample at phase start.  This guarantees that a zero-second
+        # phase still produces a representative measurement for validation and
+        # hardware-independent tests.
+        self._collect_measurement(phase)
+
         start = time.time()
 
         while self.running and time.time() - start < phase.duration_sec:
-            if self.measurement_manager:
-                measurement = self.measurement_manager.collect()
-
-                if isinstance(measurement, dict):
-                    measurement["phase"] = phase
-                    measurement["phase_pwm"] = phase.pwm
-                    measurement["phase_direction"] = phase.direction
-
-                self.measurements.append(measurement)
-
+            self._collect_measurement(phase)
             time.sleep(0.1)
 
         self.serial.set_pwm(0)
         time.sleep(0.2)
+
+    def _collect_measurement(self, phase):
+        if not self.measurement_manager:
+            return
+
+        measurement = self.measurement_manager.collect()
+
+        if isinstance(measurement, dict):
+            measurement["phase"] = phase
+            measurement["phase_pwm"] = phase.pwm
+            measurement["phase_direction"] = phase.direction
+
+        self.measurements.append(measurement)
 
     def analyze(self, measurements):
         if self.analysis_engine is None:
