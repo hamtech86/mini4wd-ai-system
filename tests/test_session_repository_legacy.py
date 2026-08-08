@@ -8,6 +8,13 @@ class LegacySQLiteDatabase:
     def __init__(self):
         self.connection = sqlite3.connect(":memory:")
         self.connection.row_factory = sqlite3.Row
+        self.connection.execute("PRAGMA foreign_keys=ON")
+        self.connection.execute(
+            "CREATE TABLE motor_instance (instance_id INTEGER PRIMARY KEY)"
+        )
+        self.connection.execute(
+            "INSERT INTO motor_instance(instance_id) VALUES (7)"
+        )
         self.connection.execute(
             """
             CREATE TABLE measurement_session (
@@ -25,7 +32,8 @@ class LegacySQLiteDatabase:
                 notes TEXT,
                 created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME,
-                measurement_type TEXT NOT NULL DEFAULT 'BREAKIN'
+                measurement_type TEXT NOT NULL DEFAULT 'BREAKIN',
+                FOREIGN KEY(instance_id) REFERENCES motor_instance(instance_id)
             )
             """
         )
@@ -40,13 +48,17 @@ def test_legacy_session_repository_insert_and_update():
     db = LegacySQLiteDatabase()
     repository = SessionRepository(db)
 
-    session = MeasurementSession(measurement_type=MeasurementType.BREAKIN)
+    session = MeasurementSession(
+        instance_id=7,
+        measurement_type=MeasurementType.BREAKIN,
+    )
     session.start()
 
     repository.insert(session)
 
     assert session.session_id.isdigit()
     row = repository.find(session.session_id)
+    assert row["instance_id"] == 7
     assert row["measurement_type"] == "BREAKIN"
     assert row["result"] == "RUNNING"
     assert row["device_type"] == "BREAKIN"
@@ -64,11 +76,11 @@ def test_legacy_session_repository_find_all_uses_start_datetime():
     db = LegacySQLiteDatabase()
     repository = SessionRepository(db)
 
-    first = MeasurementSession()
+    first = MeasurementSession(instance_id=7)
     first.start()
     repository.insert(first)
 
-    second = MeasurementSession()
+    second = MeasurementSession(instance_id=7)
     second.start()
     repository.insert(second)
 
