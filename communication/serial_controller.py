@@ -83,11 +83,24 @@ class SerialController:
         return command
 
     def read_measurement(self):
-        """Return raw measurement frame from Arduino."""
-        if self.connected and self.serial and self.serial.in_waiting:
+        """Read the newest DATA frame available from Arduino.
+
+        Firmware emits READY/RUN DATA periodically.  Consuming only one
+        line per controller tick can leave the application behind a backlog
+        of READY frames. Drain the current input buffer and return the last
+        DATA frame so the controller works on the latest motor state.
+        """
+        if not (self.connected and self.serial):
+            return None
+
+        latest_data = None
+        while self.serial.in_waiting:
             raw = self.serial.readline()
             decoded = raw.decode("utf-8", errors="replace").strip()
+            if not decoded:
+                continue
             print("SERIAL RX:", decoded)
-            return decoded
+            if decoded.startswith("DATA,"):
+                latest_data = decoded
 
-        return None
+        return latest_data
