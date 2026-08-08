@@ -30,6 +30,10 @@ from typing import Iterable, Optional
 class DatabaseManager:
     """
     SQLite Database Manager
+
+    QtのワーカースレッドからRepository経由で利用されるため、
+    SQLite接続は同一プロセス内のスレッド間利用を許可する。
+    本アプリケーションではDB操作を短時間のRepository処理として行う。
     """
 
     def __init__(
@@ -54,12 +58,22 @@ class DatabaseManager:
     def connect(self) -> sqlite3.Connection:
         """
         Database接続
+
+        UIスレッドで生成したDatabaseManagerを、
+        BreakinControllerのワーカースレッドからRepository経由で
+        使用できるよう check_same_thread=False を指定する。
         """
 
         if self.connection is None:
 
+            self.database_path.parent.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
+
             self.connection = sqlite3.connect(
-                self.database_path
+                self.database_path,
+                check_same_thread=False,
             )
 
             # Rowを辞書のように扱う
@@ -73,9 +87,7 @@ class DatabaseManager:
         return self.connection
 
     def disconnect(self):
-        """
-        Database切断
-        """
+        """Database切断"""
 
         if self.connection is not None:
 
@@ -84,9 +96,7 @@ class DatabaseManager:
             self.connection = None
 
     def close(self):
-        """
-        disconnect()のエイリアス
-        """
+        """disconnect()のエイリアス"""
 
         self.disconnect()
 
@@ -95,9 +105,7 @@ class DatabaseManager:
     # =================================================
 
     def cursor(self) -> sqlite3.Cursor:
-        """
-        Cursor取得
-        """
+        """Cursor取得"""
 
         if self.connection is None:
             self.connect()
@@ -109,9 +117,7 @@ class DatabaseManager:
     # =================================================
 
     def begin(self):
-        """
-        トランザクション開始
-        """
+        """トランザクション開始"""
 
         if self.connection is None:
             self.connect()
@@ -119,17 +125,13 @@ class DatabaseManager:
         self.connection.execute("BEGIN")
 
     def commit(self):
-        """
-        コミット
-        """
+        """コミット"""
 
         if self.connection is not None:
             self.connection.commit()
 
     def rollback(self):
-        """
-        ロールバック
-        """
+        """ロールバック"""
 
         if self.connection is not None:
             self.connection.rollback()
@@ -143,9 +145,7 @@ class DatabaseManager:
         sql: str,
         parameters: tuple = (),
     ) -> sqlite3.Cursor:
-        """
-        SQL実行
-        """
+        """SQL実行"""
 
         cursor = self.cursor()
 
@@ -161,9 +161,7 @@ class DatabaseManager:
         sql: str,
         parameters: Iterable,
     ) -> sqlite3.Cursor:
-        """
-        SQL一括実行
-        """
+        """SQL一括実行"""
 
         cursor = self.cursor()
 
@@ -178,9 +176,7 @@ class DatabaseManager:
         self,
         sql: str,
     ):
-        """
-        SQLスクリプト実行
-        """
+        """SQLスクリプト実行"""
 
         if self.connection is None:
             self.connect()
@@ -195,9 +191,7 @@ class DatabaseManager:
         self,
         table_name: str,
     ) -> bool:
-        """
-        テーブル存在確認
-        """
+        """テーブル存在確認"""
 
         cursor = self.execute(
             """
@@ -212,9 +206,7 @@ class DatabaseManager:
         return cursor.fetchone() is not None
 
     def vacuum(self):
-        """
-        Database最適化
-        """
+        """Database最適化"""
 
         if self.connection is None:
             self.connect()
@@ -222,9 +214,7 @@ class DatabaseManager:
         self.connection.execute("VACUUM")
 
     def __enter__(self):
-        """
-        with対応
-        """
+        """with対応"""
 
         self.connect()
 
@@ -236,9 +226,7 @@ class DatabaseManager:
         exc_val,
         exc_tb,
     ):
-        """
-        with終了処理
-        """
+        """with終了処理"""
 
         if exc_type is None:
             self.commit()
@@ -246,4 +234,3 @@ class DatabaseManager:
             self.rollback()
 
         self.disconnect()
-
