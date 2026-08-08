@@ -13,6 +13,7 @@ BreakinController
 The builder keeps dependency wiring outside individual modules.
 """
 
+from analysis.analysis_engine import AnalysisEngine
 from controllers.breakin_controller import BreakinController
 from measurement.measurement_manager import MeasurementManager
 
@@ -32,10 +33,12 @@ class ApplicationBuilder:
             serial_controller=self.serial_controller
         )
 
+        analysis_engine = self.analysis_engine or AnalysisEngine()
+
         return BreakinController(
             serial_controller=self.serial_controller,
             measurement_manager=measurement_manager,
-            analysis_engine=self.analysis_engine,
+            analysis_engine=analysis_engine,
             database=self.database,
             session_manager=self.session_manager,
         )
