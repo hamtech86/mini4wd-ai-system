@@ -4,9 +4,11 @@ MOTOR_BREAKIN_V3
 
 Break-in Controller <-> Arduino communication layer.
 
-Arduino firmware is treated as fixed.
-This layer converts controller actions into existing
-serial command format.
+Arduino firmware MOTOR_BREAKIN_V3.00 protocol:
+  FWD
+  REV
+  PWM=<0..255>
+  STOP
 """
 
 try:
@@ -46,19 +48,19 @@ class SerialController:
 
     def forward(self):
         self.direction = "FWD"
-        self.send_command("DIR,FWD")
+        return self.send_command("FWD")
 
     def reverse(self):
         self.direction = "REV"
-        self.send_command("DIR,REV")
+        return self.send_command("REV")
 
     def set_pwm(self, pwm):
         self.last_pwm = max(0, min(255, int(pwm)))
-        self.send_command(f"PWM,{self.last_pwm}")
+        return self.send_command(f"PWM={self.last_pwm}")
 
     def stop_breakin(self):
         self.set_pwm(0)
-        self.send_command("STOP")
+        return self.send_command("STOP")
 
     def emergency_stop(self):
         self.set_pwm(0)
