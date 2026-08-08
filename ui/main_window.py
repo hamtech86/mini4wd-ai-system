@@ -1,6 +1,26 @@
+from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QPushButton, QLabel
 
 from controllers.recipe import default_speed_recipe
+
+
+class BreakinWorker(QThread):
+    """Run the blocking BreakinController outside the Qt GUI thread."""
+
+    completed = pyqtSignal(object)
+    failed = pyqtSignal(str)
+
+    def __init__(self, controller, recipe):
+        super().__init__()
+        self.controller = controller
+        self.recipe = recipe
+
+    def run(self):
+        try:
+            result = self.controller.start(self.recipe)
+            self.completed.emit(result)
+        except Exception as exc:
+            self.failed.emit(str(exc))
 
 
 class MainWindow(QMainWindow):
@@ -9,6 +29,7 @@ class MainWindow(QMainWindow):
     def __init__(self, context=None):
         super().__init__()
         self.context = context
+        self.breakin_worker = None
 
         if isinstance(context, dict):
             self.breakin_controller = context.get("breakin_controller")
@@ -46,22 +67,43 @@ class MainWindow(QMainWindow):
             self.status.setText("ERROR: CONTROLLER NOT AVAILABLE")
             return None
 
-        self.status.setText("BREAK-IN RUNNING")
-        recipe = default_speed_recipe()
+        if self.breakin_worker and self.breakin_worker.isRunning():
+            return None
 
-        try:
-            result = self.breakin_controller.start(recipe)
-            self.display_analysis_result(result)
-            self.status.setText("BREAK-IN COMPLETE")
-            return result
-        except Exception as exc:
-            self.status.setText(f"ERROR: {exc}")
-            raise
+        self.status.setText("BREAK-IN RUNNING")
+        self.start_button.setEnabled(False)
+        self.stop_button.setEnabled(True)
+
+        recipe = default_speed_recipe()
+        self.breakin_worker = BreakinWorker(self.breakin_controller, recipe)
+        self.breakin_worker.completed.connect(self.on_breakin_complete)
+        self.breakin_worker.failed.connect(self.on_breakin_failed)
+        self.breakin_worker.finished.connect(self.on_worker_finished)
+        self.breakin_worker.start()
+        return None
 
     def stop_breakin(self):
+        if not self.breakin_controller:
+            self.status.setText("ERROR: CONTROLLER NOT AVAILABLE")
+            return
+
+        # emergency_stop() is intentionally called from the GUI thread so the
+        # Stop button remains responsive while BreakinController.start() runs in
+        # the worker thread.
+        self.breakin_controller.emergency_stop()
         self.status.setText("STOPPED")
-        if self.breakin_controller:
-            self.breakin_controller.emergency_stop()
+        self.start_button.setEnabled(True)
+
+    def on_breakin_complete(self, result):
+        self.display_analysis_result(result)
+        self.status.setText("BREAK-IN COMPLETE")
+
+    def on_breakin_failed(self, message):
+        self.status.setText(f"ERROR: {message}")
+
+    def on_worker_finished(self):
+        self.start_button.setEnabled(True)
+        self.breakin_worker = None
 
     def display_analysis_result(self, result):
         """Display the AnalysisResult returned by BreakinController."""
