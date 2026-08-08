@@ -8,16 +8,6 @@
 Database Manager
 
 SQLiteデータベースへの接続管理を担当する。
-
-責務
------------------------------------------
-・Database接続
-・切断
-・Cursor取得
-・Transaction管理
-・SQL実行補助
-
-SQL文自体はRepository層のみが保持する。
 """
 
 from __future__ import annotations
@@ -28,209 +18,109 @@ from typing import Iterable, Optional
 
 
 class DatabaseManager:
-    """
-    SQLite Database Manager
+    """SQLite Database Manager."""
 
-    QtのワーカースレッドからRepository経由で利用されるため、
-    SQLite接続は同一プロセス内のスレッド間利用を許可する。
-    本アプリケーションではDB操作を短時間のRepository処理として行う。
-    """
-
-    def __init__(
-        self,
-        database_path: str = "database/mini4wd.db",
-    ):
-
+    def __init__(self, database_path: str = "database/mini4wd.db"):
         self.database_path = Path(database_path)
-
         self.connection: Optional[sqlite3.Connection] = None
-
-    # =================================================
-    # Connection
-    # =================================================
 
     @property
     def is_connected(self) -> bool:
-        """接続状態"""
-
         return self.connection is not None
 
     def connect(self) -> sqlite3.Connection:
-        """
-        Database接続
-
-        UIスレッドで生成したDatabaseManagerを、
-        BreakinControllerのワーカースレッドからRepository経由で
-        使用できるよう check_same_thread=False を指定する。
-        """
-
+        """Connect to SQLite and perform non-destructive schema migration."""
         if self.connection is None:
-
-            self.database_path.parent.mkdir(
-                parents=True,
-                exist_ok=True,
-            )
-
+            self.database_path.parent.mkdir(parents=True, exist_ok=True)
             self.connection = sqlite3.connect(
                 self.database_path,
                 check_same_thread=False,
             )
-
-            # Rowを辞書のように扱う
             self.connection.row_factory = sqlite3.Row
-
-            # 外部キー制約有効
-            self.connection.execute(
-                "PRAGMA foreign_keys = ON"
-            )
-
+            self.connection.execute("PRAGMA foreign_keys = ON")
+            self._migrate_schema()
         return self.connection
 
+    def _migrate_schema(self) -> None:
+        """Bring an existing measurement_session table up to the current schema."""
+        assert self.connection is not None
+        columns = {
+            row[1]
+            for row in self.connection.execute(
+                "PRAGMA table_info(measurement_session)"
+            ).fetchall()
+        }
+        if not columns:
+            return
+
+        # Older local databases may predate measurement_type.
+        if "measurement_type" not in columns:
+            self.connection.execute(
+                "ALTER TABLE measurement_session "
+                "ADD COLUMN measurement_type TEXT NOT NULL DEFAULT 'BREAKIN'"
+            )
+            self.connection.commit()
+
     def disconnect(self):
-        """Database切断"""
-
         if self.connection is not None:
-
             self.connection.close()
-
             self.connection = None
 
     def close(self):
-        """disconnect()のエイリアス"""
-
         self.disconnect()
 
-    # =================================================
-    # Cursor
-    # =================================================
-
     def cursor(self) -> sqlite3.Cursor:
-        """Cursor取得"""
-
         if self.connection is None:
             self.connect()
-
         return self.connection.cursor()
 
-    # =================================================
-    # Transaction
-    # =================================================
-
     def begin(self):
-        """トランザクション開始"""
-
         if self.connection is None:
             self.connect()
-
         self.connection.execute("BEGIN")
 
     def commit(self):
-        """コミット"""
-
         if self.connection is not None:
             self.connection.commit()
 
     def rollback(self):
-        """ロールバック"""
-
         if self.connection is not None:
             self.connection.rollback()
 
-    # =================================================
-    # Execute
-    # =================================================
-
-    def execute(
-        self,
-        sql: str,
-        parameters: tuple = (),
-    ) -> sqlite3.Cursor:
-        """SQL実行"""
-
+    def execute(self, sql: str, parameters: tuple = ()) -> sqlite3.Cursor:
         cursor = self.cursor()
-
-        cursor.execute(
-            sql,
-            parameters,
-        )
-
+        cursor.execute(sql, parameters)
         return cursor
 
-    def executemany(
-        self,
-        sql: str,
-        parameters: Iterable,
-    ) -> sqlite3.Cursor:
-        """SQL一括実行"""
-
+    def executemany(self, sql: str, parameters: Iterable) -> sqlite3.Cursor:
         cursor = self.cursor()
-
-        cursor.executemany(
-            sql,
-            parameters,
-        )
-
+        cursor.executemany(sql, parameters)
         return cursor
 
-    def executescript(
-        self,
-        sql: str,
-    ):
-        """SQLスクリプト実行"""
-
+    def executescript(self, sql: str):
         if self.connection is None:
             self.connect()
-
         self.connection.executescript(sql)
 
-    # =================================================
-    # Utility
-    # =================================================
-
-    def table_exists(
-        self,
-        table_name: str,
-    ) -> bool:
-        """テーブル存在確認"""
-
+    def table_exists(self, table_name: str) -> bool:
         cursor = self.execute(
-            """
-            SELECT name
-            FROM sqlite_master
-            WHERE type='table'
-              AND name=?
-            """,
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
             (table_name,),
         )
-
         return cursor.fetchone() is not None
 
     def vacuum(self):
-        """Database最適化"""
-
         if self.connection is None:
             self.connect()
-
         self.connection.execute("VACUUM")
 
     def __enter__(self):
-        """with対応"""
-
         self.connect()
-
         return self
 
-    def __exit__(
-        self,
-        exc_type,
-        exc_val,
-        exc_tb,
-    ):
-        """with終了処理"""
-
+    def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type is None:
             self.commit()
         else:
             self.rollback()
-
         self.disconnect()
