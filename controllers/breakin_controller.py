@@ -8,6 +8,7 @@ Recipe
  -> Phase Control
  -> Arduino Control
  -> Measurement Collection
+ -> Measurement Repository
  -> Analysis Engine
  -> Result
 """
@@ -26,12 +27,14 @@ class BreakinController:
         analysis_engine=None,
         database=None,
         session_manager=None,
+        measurement_repository=None,
     ):
         self.serial = serial_controller
         self.measurement_manager = measurement_manager
         self.analysis_engine = analysis_engine
         self.database = database
         self.session_manager = session_manager
+        self.measurement_repository = measurement_repository
         self.running = False
         self.measurements = []
         self.session = None
@@ -99,6 +102,15 @@ class BreakinController:
             measurement["phase"] = phase
             measurement["phase_pwm"] = phase.pwm
             measurement["phase_direction"] = phase.direction
+
+        # Bind a real Measurement to the active session and persist it.  Legacy
+        # dict-based test measurements remain untouched and continue to support
+        # hardware-independent controller tests.
+        if self.measurement_repository is not None and hasattr(measurement, "session_id"):
+            session_id = getattr(self.session, "session_id", None)
+            if session_id:
+                measurement.session_id = session_id
+            self.measurement_repository.insert(measurement)
 
         self.measurements.append(measurement)
 
