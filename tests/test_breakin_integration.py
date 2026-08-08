@@ -9,9 +9,8 @@ Recipe
  -> AnalysisEngine
 """
 
-
-from controlles.breakin_controller import BreakinController
-from controlles.recipe import BreakinRecipe, BreakinPhase
+from controllers.breakin_controller import BreakinController
+from controllers.recipe import BreakinRecipe, BreakinPhase
 
 
 class MockSerial:
@@ -49,7 +48,6 @@ class MockAnalysisEngine:
 
 
 def test_breakin_controller_flow():
-
     serial = MockSerial()
 
     controller = BreakinController(
