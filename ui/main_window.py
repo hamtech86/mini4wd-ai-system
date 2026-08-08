@@ -1,12 +1,11 @@
 from PyQt5.QtCore import QThread, pyqtSignal
-from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QPushButton, QLabel
+from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QPushButton, QLabel, QComboBox
 
-from controllers.recipe import default_speed_recipe
+from controllers.recipe import BreakinRecipe, BreakinPhase, default_speed_recipe
 
 
 class BreakinWorker(QThread):
     """Run the blocking BreakinController outside the Qt GUI thread."""
-
     completed = pyqtSignal(object)
     failed = pyqtSignal(str)
 
@@ -34,20 +33,18 @@ class MainWindow(QMainWindow):
         if isinstance(context, dict):
             self.breakin_controller = context.get("breakin_controller")
         else:
-            self.breakin_controller = getattr(
-                context,
-                "breakin_controller",
-                None,
-            )
+            self.breakin_controller = getattr(context, "breakin_controller", None)
 
         self.setWindowTitle("MINI4WD AI SYSTEM - Motor Break-in")
         self.resize(600, 400)
 
         root = QWidget()
         layout = QVBoxLayout()
-
         self.status = QLabel("READY")
         self.result_display = QLabel("RESULT: --")
+        self.recipe_selector = QComboBox()
+        self.recipe_selector.addItem("TEST - 3 sec / PWM 80", "TEST")
+        self.recipe_selector.addItem("SPEED - 360 sec", "SPEED")
         self.start_button = QPushButton("START BREAK-IN")
         self.stop_button = QPushButton("EMERGENCY STOP")
 
@@ -56,25 +53,31 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(self.status)
         layout.addWidget(self.result_display)
+        layout.addWidget(QLabel("RECIPE"))
+        layout.addWidget(self.recipe_selector)
         layout.addWidget(self.start_button)
         layout.addWidget(self.stop_button)
-
         root.setLayout(layout)
         self.setCentralWidget(root)
+
+    def selected_recipe(self):
+        if self.recipe_selector.currentData() == "TEST":
+            return BreakinRecipe(
+                name="TEST",
+                phases=[BreakinPhase(name="TEST", duration_sec=3, pwm=80, direction="FWD")],
+            )
+        return default_speed_recipe()
 
     def start_breakin(self):
         if not self.breakin_controller:
             self.status.setText("ERROR: CONTROLLER NOT AVAILABLE")
             return None
-
         if self.breakin_worker and self.breakin_worker.isRunning():
             return None
-
         self.status.setText("BREAK-IN RUNNING")
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
-
-        recipe = default_speed_recipe()
+        recipe = self.selected_recipe()
         self.breakin_worker = BreakinWorker(self.breakin_controller, recipe)
         self.breakin_worker.completed.connect(self.on_breakin_complete)
         self.breakin_worker.failed.connect(self.on_breakin_failed)
@@ -86,10 +89,6 @@ class MainWindow(QMainWindow):
         if not self.breakin_controller:
             self.status.setText("ERROR: CONTROLLER NOT AVAILABLE")
             return
-
-        # emergency_stop() is intentionally called from the GUI thread so the
-        # Stop button remains responsive while BreakinController.start() runs in
-        # the worker thread.
         self.breakin_controller.emergency_stop()
         self.status.setText("STOPPED")
         self.start_button.setEnabled(True)
@@ -110,15 +109,12 @@ class MainWindow(QMainWindow):
         if result is None:
             self.result_display.setText("RESULT: --")
             return
-
         if isinstance(result, list):
             self.result_display.setText(f"RESULT: {len(result)} ANALYSIS RESULT(S)")
             return
-
         if isinstance(result, dict):
             summary = result.get("summary") or result.get("result") or result.get("score")
             if summary is not None:
                 self.result_display.setText(f"RESULT: {summary}")
                 return
-
         self.result_display.setText(f"RESULT: {result}")
