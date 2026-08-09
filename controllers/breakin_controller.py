@@ -94,6 +94,12 @@ class BreakinController:
         if measurement is None:
             return
 
+        # The Arduino INFO/DATA instance field identifies the measurement
+        # device, not the physical motor selected for this break-in session.
+        # The selected motor instance is the authoritative binding for DB data.
+        if self.instance_id is not None and hasattr(measurement, "instance_id"):
+            measurement.instance_id = str(self.instance_id)
+
         if isinstance(measurement, dict):
             measurement["phase"] = phase
             measurement["phase_pwm"] = phase.pwm
