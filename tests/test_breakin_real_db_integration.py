@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from controllers.breakin_controller import BreakinController
 from controllers.recipe import BreakinPhase, BreakinRecipe
 from database.manager.database_manager import DatabaseManager
@@ -9,7 +7,65 @@ from measurement.measurement import Measurement
 from measurement.measurement_session import MeasurementSession, MeasurementType
 
 
-SCHEMA = Path("database/schema/create_tables.sql").read_text(encoding="utf-8")
+LEGACY_SCHEMA = """
+PRAGMA foreign_keys = ON;
+
+CREATE TABLE motor_instance (
+    instance_id INTEGER PRIMARY KEY
+);
+
+CREATE TABLE measurement_session (
+    session_id INTEGER PRIMARY KEY,
+    instance_id INTEGER NOT NULL,
+    device_type TEXT NOT NULL,
+    device_model TEXT,
+    firmware_version TEXT,
+    analysis_version TEXT,
+    calibration_profile TEXT,
+    start_datetime DATETIME,
+    end_datetime DATETIME,
+    operator TEXT,
+    result TEXT,
+    notes TEXT,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME,
+    measurement_type TEXT NOT NULL DEFAULT 'BREAKIN',
+    FOREIGN KEY(instance_id) REFERENCES motor_instance(instance_id)
+);
+
+CREATE TABLE measurement (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    record_type TEXT,
+    device_model TEXT,
+    instance_id TEXT,
+    elapsed_time REAL,
+    raw_acs1 INTEGER,
+    raw_acs2 INTEGER,
+    current1 REAL,
+    current2 REAL,
+    voltage1 REAL,
+    voltage2 REAL,
+    motor_voltage REAL,
+    pwm INTEGER,
+    direction TEXT,
+    state TEXT,
+    current_avg REAL,
+    power REAL,
+    current_ripple REAL,
+    voltage_ripple REAL,
+    peak_power REAL,
+    peak_current REAL,
+    peak_voltage REAL,
+    peak_pwm INTEGER,
+    brush_peak_current REAL,
+    raw_magnetic INTEGER,
+    magnetic_level REAL,
+    motor_temperature REAL
+);
+
+INSERT INTO motor_instance(instance_id) VALUES (1);
+"""
 
 
 class MockSerialController:
@@ -69,9 +125,11 @@ class DatabaseSessionManager:
         self.measurement_repository = measurement_repository
         self.session = None
 
-    def start(self, measurement_type):
+    def start(self, measurement_type, instance_id):
+        assert measurement_type == "BREAKIN"
         self.session = MeasurementSession(
-            measurement_type=MeasurementType.BREAKIN
+            measurement_type=MeasurementType.BREAKIN,
+            instance_id=instance_id,
         )
         self.session.start()
         self.session_repository.insert(self.session)
@@ -81,14 +139,19 @@ class DatabaseSessionManager:
         self.session.measurement_count = self.measurement_repository.count_by_session(
             self.session.session_id
         )
-        self.session.finish()
+        if status == "COMPLETE":
+            self.session.finish()
+        elif status == "ERROR":
+            self.session.error()
+        else:
+            self.session.cancel()
         self.session_repository.update(self.session)
 
 
 def test_complete_breakin_persists_session_and_measurement(tmp_path):
     db = DatabaseManager(str(tmp_path / "mini4wd.db"))
     db.connect()
-    db.executescript(SCHEMA)
+    db.executescript(LEGACY_SCHEMA)
 
     measurement_repository = MeasurementRepository(db)
     session_repository = SessionRepository(db)
@@ -117,7 +180,7 @@ def test_complete_breakin_persists_session_and_measurement(tmp_path):
         ],
     )
 
-    result = controller.start(recipe)
+    result = controller.start(recipe, instance_id=1)
     db.commit()
 
     session_id = session_manager.session.session_id
@@ -127,8 +190,8 @@ def test_complete_breakin_persists_session_and_measurement(tmp_path):
     assert result[0]["result"] == "OK"
     assert result[0]["session_id"] == session_id
     assert measurement_repository.count_by_session(session_id) == 1
-    assert session_row["status"] == "FINISHED"
-    assert session_row["measurement_count"] == 1
+    assert session_row["instance_id"] == 1
+    assert session_row["result"] == "COMPLETE"
     assert session_row["measurement_type"] == "BREAKIN"
 
     db.close()
