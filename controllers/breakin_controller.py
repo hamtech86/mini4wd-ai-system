@@ -89,6 +89,11 @@ class BreakinController:
 
         measurement = self.measurement_manager.collect()
 
+        # A missing/invalid serial frame is a communication gap, not a
+        # measurement. Do not persist it or pass it to the analysis engine.
+        if measurement is None:
+            return
+
         if isinstance(measurement, dict):
             measurement["phase"] = phase
             measurement["phase_pwm"] = phase.pwm
