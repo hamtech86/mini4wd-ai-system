@@ -54,8 +54,9 @@ class Session:
 
 
 class SessionManager:
-    def start(self, measurement_type):
+    def start(self, measurement_type, instance_id):
         assert measurement_type == "BREAKIN"
+        assert instance_id == 1
         return Session()
 
     def finish(self, status):
@@ -90,7 +91,7 @@ def test_breakin_controller_persists_measurement():
         phases=[BreakinPhase(name="PHASE1", duration_sec=0, pwm=80, direction="FWD")],
     )
 
-    result = controller.start(recipe)
+    result = controller.start(recipe, instance_id=1)
 
     assert result == [{"result": "ok"}]
     assert len(repository.saved) == 1
