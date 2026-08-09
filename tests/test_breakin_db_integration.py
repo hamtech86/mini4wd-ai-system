@@ -96,3 +96,4 @@ def test_breakin_controller_persists_measurement():
     assert result == [{"result": "ok"}]
     assert len(repository.saved) == 1
     assert repository.saved[0].session_id == "test-session"
+    assert repository.saved[0].instance_id == "1"
