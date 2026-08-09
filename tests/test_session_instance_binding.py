@@ -9,6 +9,7 @@ from measurement.measurement_session import MeasurementSession
 class SQLiteDatabase:
     def __init__(self):
         self.connection = sqlite3.connect(":memory:")
+        self.connection.row_factory = sqlite3.Row
         self.connection.execute("PRAGMA foreign_keys=ON")
         self.connection.execute(
             """
