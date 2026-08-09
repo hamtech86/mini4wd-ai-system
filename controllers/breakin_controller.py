@@ -1,16 +1,6 @@
 """
 Break-in Controller
 MOTOR_BREAKIN_V3
-
-Controller Pipeline
-Recipe
- -> Session
- -> Phase Control
- -> Arduino Control
- -> Measurement Collection
- -> Measurement Repository
- -> Analysis Engine
- -> Result
 """
 
 import time
@@ -39,14 +29,19 @@ class BreakinController:
         self.measurements = []
         self.session = None
         self.current_phase = None
+        self.instance_id = None
 
-    def start(self, recipe):
+    def start(self, recipe, instance_id=None):
+        """Run a break-in for the explicitly selected motor instance."""
         self.phase_manager = PhaseManager(recipe)
         self.running = True
         self.measurements = []
+        self.instance_id = instance_id
 
         if self.session_manager:
-            self.session = self.session_manager.start("BREAKIN")
+            if instance_id is None:
+                raise ValueError("instance_id is required to start a production break-in")
+            self.session = self.session_manager.start("BREAKIN", instance_id=instance_id)
 
         try:
             while self.running and self.phase_manager.has_next():
@@ -63,7 +58,7 @@ class BreakinController:
             return result
 
         except Exception:
-            if self.session_manager:
+            if self.session_manager and self.session is not None:
                 self.session_manager.finish("ERROR")
             self.emergency_stop()
             raise
@@ -77,10 +72,6 @@ class BreakinController:
             self.serial.forward()
 
         self.serial.set_pwm(phase.pwm)
-
-        # Capture one sample at phase start.  This guarantees that a zero-second
-        # phase still produces a representative measurement for validation and
-        # hardware-independent tests.
         self._collect_measurement(phase)
 
         start = time.time()
@@ -103,9 +94,6 @@ class BreakinController:
             measurement["phase_pwm"] = phase.pwm
             measurement["phase_direction"] = phase.direction
 
-        # Bind a real Measurement to the active session and persist it.  Legacy
-        # dict-based test measurements remain untouched and continue to support
-        # hardware-independent controller tests.
         if self.measurement_repository is not None and hasattr(measurement, "session_id"):
             session_id = getattr(self.session, "session_id", None)
             if session_id:
@@ -118,10 +106,7 @@ class BreakinController:
         if self.analysis_engine is None:
             return measurements
 
-        return [
-            self.analysis_engine.analyze(measurement)
-            for measurement in measurements
-        ]
+        return [self.analysis_engine.analyze(measurement) for measurement in measurements]
 
     def stop(self):
         self.running = False
