@@ -2,7 +2,17 @@
 
 from __future__ import annotations
 
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
+
+
+def _format_score(value: Any) -> str:
+    """Format a score to one decimal place using conventional half-up rounding."""
+    return str(
+        Decimal(str(float(value))).quantize(
+            Decimal("0.1"), rounding=ROUND_HALF_UP
+        )
+    )
 
 
 def format_analysis_result(result: Any) -> str:
@@ -20,7 +30,7 @@ def format_analysis_result(result: Any) -> str:
             total = getattr(score, "total_score", None)
             rank = getattr(score, "rank", None)
             if total is not None and rank:
-                return f"RESULT: SCORE {float(total):.1f} / RANK {rank} ({len(result)} samples)"
+                return f"RESULT: SCORE {_format_score(total)} / RANK {rank} ({len(result)} samples)"
 
         if isinstance(latest, dict):
             score = latest.get("score")
@@ -28,7 +38,7 @@ def format_analysis_result(result: Any) -> str:
                 total = score.get("total_score", score.get("score"))
                 rank = score.get("rank")
                 if total is not None and rank:
-                    return f"RESULT: SCORE {float(total):.1f} / RANK {rank} ({len(result)} samples)"
+                    return f"RESULT: SCORE {_format_score(total)} / RANK {rank} ({len(result)} samples)"
 
             summary = latest.get("summary") or latest.get("result")
             if summary is not None:
@@ -41,7 +51,7 @@ def format_analysis_result(result: Any) -> str:
         total = getattr(score, "total_score", None)
         rank = getattr(score, "rank", None)
         if total is not None and rank:
-            return f"RESULT: SCORE {float(total):.1f} / RANK {rank}"
+            return f"RESULT: SCORE {_format_score(total)} / RANK {rank}"
 
     if isinstance(result, dict):
         summary = result.get("summary") or result.get("result") or result.get("score")
