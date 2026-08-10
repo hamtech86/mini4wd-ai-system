@@ -52,6 +52,13 @@ class MainWindow(QMainWindow):
 
     BENCHMARK_KEY = "__MOTOR_BENCHMARK_TEST__"
 
+    # Benchmark vehicle assumptions. Keep the first benchmark intentionally
+    # simple: tire diameter and gear ratio only; course/aero/roller/etc. are
+    # excluded until the simulator layer is integrated.
+    BENCHMARK_VEHICLE_WEIGHT_G = 130.0
+    BENCHMARK_TIRE_DIAMETER_MM = 24.0
+    BENCHMARK_GEAR_RATIO = 3.5
+
     def __init__(self, context=None):
         super().__init__()
         self.context = context
@@ -109,11 +116,17 @@ class MainWindow(QMainWindow):
         self.torque_priority_value = QLabel("-")
         self.benchmark_value = QLabel("-")
         self.safety_value = QLabel("-")
+        self.vehicle_weight_value = QLabel("-")
+        self.tire_value = QLabel("-")
+        self.gear_ratio_value = QLabel("-")
         info_layout.addRow("Brush", self.brush_value)
         info_layout.addRow("Objective", self.objective_value)
         info_layout.addRow("Target RPM", self.target_rpm_value)
         info_layout.addRow("Torque Priority", self.torque_priority_value)
         info_layout.addRow("Benchmark", self.benchmark_value)
+        info_layout.addRow("Vehicle Weight", self.vehicle_weight_value)
+        info_layout.addRow("Tire Diameter", self.tire_value)
+        info_layout.addRow("Gear Ratio", self.gear_ratio_value)
         info_layout.addRow("Safety", self.safety_value)
         content.addWidget(info_box, 1)
         main.addLayout(content)
@@ -131,7 +144,7 @@ class MainWindow(QMainWindow):
         result_layout.addRow("Estimated RPM", self.rpm_display)
         result_layout.addRow("Estimated Torque", self.torque_display)
         result_layout.addRow("Brush Lifecycle", self.lifecycle_display)
-        result_layout.addRow("Estimated Compatible Weight", self.weight_display)
+        result_layout.addRow("Vehicle Weight Assumption", self.weight_display)
         result_layout.addRow("Benchmark Detail", self.benchmark_detail_display)
         main.addWidget(result_box)
 
@@ -165,18 +178,26 @@ class MainWindow(QMainWindow):
         if self.recipe_selector.count():
             self._recipe_changed(0)
 
+    def _set_benchmark_vehicle_assumptions(self):
+        self.vehicle_weight_value.setText(f"{self.BENCHMARK_VEHICLE_WEIGHT_G:.0f} g")
+        self.tire_value.setText(f"{self.BENCHMARK_TIRE_DIAMETER_MM:.0f} mm")
+        self.gear_ratio_value.setText(f"{self.BENCHMARK_GEAR_RATIO:.1f}:1")
+
     def _recipe_changed(self, _index):
         name = self.recipe_selector.currentData()
         if name == self.BENCHMARK_KEY:
             self.description.setText(
                 "Standalone 3 V motor benchmark. No break-in stages are executed. "
-                "The test holds approximately 3.00 V using closed-loop PWM control for 10 seconds."
+                "The test holds approximately 3.00 V using closed-loop PWM control for 10 seconds. "
+                "Vehicle benchmark assumes 130 g, 24 mm tires and 3.5:1 gearing; "
+                "other vehicle/course factors are excluded for now."
             )
             self.brush_value.setText("UNKNOWN")
             self.objective_value.setText("MEASUREMENT")
             self.target_rpm_value.setText("--")
             self.torque_priority_value.setText("0.50")
             self.benchmark_value.setText("3.00 V / 10 s")
+            self._set_benchmark_vehicle_assumptions()
             safety = self.recipe_engine.safety()
             self.safety_value.setText(
                 f"{safety.get('max_current', 5.0):g} A / "
@@ -184,6 +205,8 @@ class MainWindow(QMainWindow):
             )
             self.phase_list.clear()
             self.phase_list.addItem("BENCHMARK_3V_TEST: closed-loop 3.00 V / 10s")
+            self.phase_list.addItem("VEHICLE: 130 g / 24 mm tire / 3.5:1")
+            self.phase_list.addItem("OTHER FACTORS: EXCLUDED")
             return
 
         recipe = self.selected_recipe()
@@ -201,6 +224,9 @@ class MainWindow(QMainWindow):
             f"{benchmark.get('target_voltage', 3.00):.2f} V / "
             f"{benchmark.get('duration_sec', 120)} s"
         )
+        self.vehicle_weight_value.setText("--")
+        self.tire_value.setText("--")
+        self.gear_ratio_value.setText("--")
         safety = self.recipe_engine.safety()
         self.safety_value.setText(
             f"{safety.get('max_current', 5.0):g} A / "
@@ -391,12 +417,18 @@ class MainWindow(QMainWindow):
         self.rpm_display.setText(f"{avg_rpm:,.0f} rpm")
         self.torque_display.setText(f"{avg_torque:.2f} g·cm")
         self.lifecycle_display.setText("-- (benchmark only)")
-        self.weight_display.setText("-- (benchmark only)")
+        self.weight_display.setText(
+            f"{self.BENCHMARK_VEHICLE_WEIGHT_G:.0f} g "
+            f"(24 mm / {self.BENCHMARK_GEAR_RATIO:.1f}:1; other factors excluded)"
+        )
         self.benchmark_detail_display.setText(
             f"Avg {avg_voltage:.3f} V / {avg_current:.3f} A / {avg_power:.3f} W / "
             f"PWM {avg_pwm:.1f} | Max current {max_current:.3f} A | "
             f"Max temperature {max_temperature:.1f} °C | "
-            f"Samples {len(measurements)} | {elapsed:.1f} s"
+            f"Samples {len(measurements)} | {elapsed:.1f} s | "
+            f"Vehicle {self.BENCHMARK_VEHICLE_WEIGHT_G:.0f} g / "
+            f"Tire {self.BENCHMARK_TIRE_DIAMETER_MM:.0f} mm / "
+            f"Gear {self.BENCHMARK_GEAR_RATIO:.1f}:1 | Other factors excluded"
         )
 
         self.last_benchmark_report = self._build_benchmark_report(
@@ -448,6 +480,11 @@ class MainWindow(QMainWindow):
             f"Estimated torque: {avg_torque:.2f} g·cm\n"
             f"Maximum current: {max_current:.3f} A\n"
             f"Maximum temperature: {max_temperature:.1f} °C\n"
+            "----------------------------------------\n"
+            f"Vehicle weight assumption: {MainWindow.BENCHMARK_VEHICLE_WEIGHT_G:.0f} g\n"
+            f"Tire diameter: {MainWindow.BENCHMARK_TIRE_DIAMETER_MM:.0f} mm\n"
+            f"Gear ratio: {MainWindow.BENCHMARK_GEAR_RATIO:.1f}:1\n"
+            "Other vehicle/course factors: EXCLUDED\n"
         )
 
     def copy_benchmark_result(self):
