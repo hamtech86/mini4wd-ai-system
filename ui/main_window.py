@@ -2,6 +2,7 @@ from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QPushButton, QLabel, QComboBox
 
 from controllers.recipe import BreakinRecipe, BreakinPhase, default_speed_recipe
+from ui.result_formatter import format_analysis_result
 
 
 class BreakinWorker(QThread):
@@ -146,15 +147,4 @@ class MainWindow(QMainWindow):
         self.breakin_worker = None
 
     def display_analysis_result(self, result):
-        if result is None:
-            self.result_display.setText("RESULT: --")
-            return
-        if isinstance(result, list):
-            self.result_display.setText(f"RESULT: {len(result)} ANALYSIS RESULT(S)")
-            return
-        if isinstance(result, dict):
-            summary = result.get("summary") or result.get("result") or result.get("score")
-            if summary is not None:
-                self.result_display.setText(f"RESULT: {summary}")
-                return
-        self.result_display.setText(f"RESULT: {result}")
+        self.result_display.setText(format_analysis_result(result))
