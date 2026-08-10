@@ -4,10 +4,6 @@ DEVELOPMENT_STATUS.md
 
 Current Baseline
 
-Date:
-
-2026-08-08
-
 Purpose:
 
 Freeze current development status as the reference point for future implementation.
@@ -42,6 +38,8 @@ Functions:
 - Repository structure
 - CRUD
 - Transaction
+- Motor Instance binding
+- Measurement Session binding
 
 Measurement Model
 
@@ -71,7 +69,7 @@ Measurement Collection Integration
 
 Status:
 
-Implemented
+Completed
 
 Functions:
 
@@ -81,11 +79,39 @@ Functions:
 - Measurement object creation
 - Measurement logging integration
 
+Break-in Controller / Database Integration
+
+Status:
+
+Completed and hardware verified
+
+Verified:
+
+- Motor Instance selection from UI
+- Selected instance binding to Measurement Session
+- Selected instance binding to persisted Measurements
+- Real Arduino DATA reception
+- Real Measurement persistence
+- Complete Session result
+- Foreign key integrity
+
+Verification result:
+
+6 integration tests passed.
+
+Real hardware run confirmed:
+
+- Session result: COMPLETE
+- Selected motor instance: 3
+- Persisted measurement count: 28
+- Persisted measurement instance_id: 3
+- PRAGMA foreign_key_check: []
+
 Break-in Controller / Analysis Integration
 
 Status:
 
-Implemented; hardware verification pending
+Implemented
 
 Functions:
 
@@ -100,33 +126,41 @@ The current AnalysisEngine implementation accepts a Measurement and internally e
 
 ---
 
-In Progress
+Current Work
 
-Break-in Controller
-
-Status:
-
-Hardware integration verification
-
-Required verification:
-
-- Real Arduino DATA reception
-- Real Measurement values
-- Full recipe execution
-- AnalysisResult generation with real measurements
-- Database storage integration
-
-UI Integration
+Break-in Result UI
 
 Status:
 
-Foundation available
+Implemented
 
-Pending:
+Functions:
 
-- Controller connection verification
-- Analysis display
-- Database integration
+- Analysis result formatting separated from MainWindow
+- Score and rank display for AnalysisResult collections
+- Empty/None result handling
+- Legacy dictionary result compatibility
+
+Verification:
+
+- Result formatter unit tests added
+
+---
+
+Next Implementation Target
+
+Break-in Result / Analysis completion
+
+1. Verify real hardware AnalysisResult generation from the persisted run
+2. Confirm displayed score/rank corresponds to the selected Motor Instance session
+3. Define and implement persistent analysis-result storage only after the result contract is fixed
+4. Add result-history retrieval to the UI
+
+Important rule:
+
+Do not modify Measurement records during analysis.
+Analysis Engine must not access the database directly.
+Analysis results must remain reproducible from immutable Measurements.
 
 ---
 
@@ -147,13 +181,19 @@ Before code generation:
 
 CHANGE_LOG.md
 
+Current update
+
+Completed real hardware verification of the Break-in Controller, Measurement persistence, and Motor Instance binding.
+The latest verified session is linked to motor instance 3 and contains 28 persisted Measurements with no foreign-key violations.
+
+Added a dedicated result formatter and connected the Break-in UI to display AnalysisResult score/rank summaries.
+
 2026-08-08
 
 Updated Break-in implementation status.
 
 MeasurementManager now parses the defined MOTOR_BREAKIN_V3 DATA CSV format and creates Measurement objects.
 BreakinController is wired to collect Measurements and invoke AnalysisEngine.
-Remaining work is hardware/runtime verification and subsequent UI/database integration.
 
 2026-08-06
 
