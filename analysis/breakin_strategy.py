@@ -1,289 +1,75 @@
+"""MOTOR_BREAKIN_V3 break-in strategy selector.
+
+This module recommends a recipe; it never drives PWM. Recipe execution is
+owned by BreakinController.
 """
-=====================================================
- MINI4WD AI SYSTEM
- MOTOR_BREAKIN_V3
- breakin_strategy.py
-=====================================================
-
-Break-in Strategy
-
-Analysis Engine Plugin
-
-役割:
-
-Feature / Performance
-        ↓
-BreakinStrategy
-        ↓
-StrategyResult
-
-
-注意:
-このクラスはPWM制御を行わない。
-
-Controller側が
-Recipeを使用して制御する。
-
-=====================================================
-"""
-
 
 from __future__ import annotations
 
-
 from pathlib import Path
-
 from typing import Any
 
 import yaml
 
-
 from analysis.models import StrategyResult
 
 
-
 class BreakinStrategy:
-    """
-    Break-in Strategy Analyzer
-    """
-
-
-
-    def __init__(
-        self,
-        config_path="config/breakin_recipes.yaml",
-    ):
-
+    def __init__(self, config_path="config/breakin_recipes.yaml"):
         self.config_path = None
-
         self.recipes: dict[str, Any] = {}
-
-
-        #
-        # YAML path
-        #
-
-        if isinstance(
-            config_path,
-            (str, Path)
-        ):
-
-            self.config_path = Path(
-                config_path
-            )
-
+        self.aliases: dict[str, str] = {}
+        if isinstance(config_path, (str, Path)):
+            self.config_path = Path(config_path)
             self.load()
-
-
-        #
-        # Already loaded config
-        #
-
-        elif isinstance(
-            config_path,
-            dict
-        ):
-
-            self.recipes = config_path.get(
-                "recipes",
-                {}
-            )
-
-
+        elif isinstance(config_path, dict):
+            self.recipes = config_path.get("recipes", {})
+            self.aliases = {str(k).upper(): str(v).upper() for k, v in config_path.get("aliases", {}).items()}
         else:
-
-            raise TypeError(
-                "Invalid breakin recipe config"
-            )
-
-
-
-    # =================================================
-    # Load Config
-    # =================================================
+            raise TypeError("Invalid breakin recipe config")
 
     def load(self):
-
         if self.config_path is None:
-
             return
-
-
         if not self.config_path.exists():
+            raise FileNotFoundError(self.config_path)
+        with self.config_path.open("r", encoding="utf-8") as stream:
+            config = yaml.safe_load(stream) or {}
+        self.recipes = config.get("recipes", {}) or {}
+        self.aliases = {str(k).upper(): str(v).upper() for k, v in (config.get("aliases", {}) or {}).items()}
 
-            raise FileNotFoundError(
-                self.config_path
-            )
+    def analyze(self, performance, brush=None) -> StrategyResult:
+        return self.select(performance, brush)
 
+    @staticmethod
+    def _value(obj, name, default=0.0):
+        value = getattr(obj, name, default)
+        return getattr(value, "value", value)
 
-        with open(
-            self.config_path,
-            "r",
-            encoding="utf-8"
-        ) as f:
+    def select(self, performance, brush=None) -> StrategyResult:
+        rpm = float(self._value(performance, "estimated_rpm", getattr(performance, "rpm", 0.0)))
+        torque = float(self._value(performance, "estimated_torque", 0.0))
+        brush_name = str(brush or "").upper()
+        if not brush_name:
+            brush_name = str(getattr(performance, "brush", "")).upper()
 
-            config = yaml.safe_load(f)
-
-
-        self.recipes = config.get(
-            "recipes",
-            {}
-        )
-
-
-
-    # =================================================
-    # Analysis Engine Interface
-    # =================================================
-
-    def analyze(
-        self,
-        performance,
-        brush=None,
-    ) -> StrategyResult:
-        """
-        AnalysisEngine入口
-
-        """
-
-        return self.select(
-            performance,
-            brush
-        )
-
-
-
-    # =================================================
-    # Recipe Selection
-    # =================================================
-
-    def select(
-        self,
-        performance,
-        brush=None,
-    ) -> StrategyResult:
-        """
-        Recipe選択
-
-        FeatureSet / PerformanceResult
-        両対応
-
-        """
-
-
-        #
-        # PerformanceResult
-        #
-
-        if hasattr(
-            performance,
-            "estimated_rpm"
-        ):
-
-
-            rpm = (
-                performance
-                .estimated_rpm
-                .value
-            )
-
-
-            torque = (
-                performance
-                .estimated_torque
-                .value
-            )
-
-
-
-        #
-        # FeatureSet
-        #
-
+        if brush_name == "CARBON":
+            recipe_name = "DASH_OPTIMIZED"
+            reason = "Carbon-brush Dash optimization"
+        elif torque >= 20 and rpm < 23000:
+            recipe_name = "TORQUE_TUNE_23K"
+            reason = "Torque priority for a copper-brush motor below the 23k class"
+        elif rpm >= 25000:
+            recipe_name = "ATOMIC_25K"
+            reason = "High-speed copper-brush optimization around the 25k class"
         else:
+            recipe_name = "TUNE_OPTIMIZED"
+            reason = "General copper-brush optimization without a hard RPM pass line"
 
-
-            rpm = getattr(
-                performance,
-                "rpm",
-                0.0
-            )
-
-
-            #
-            # V1.0ではFeatureから
-            # torque推定なし
-            #
-
-            torque = 0.0
-
-
-
-        #
-        # Recipe Decision
-        #
-
-        if rpm >= 25000:
-
-
-            recipe_name = (
-                "POWER_DASH"
-            )
-
-            reason = (
-                "High rotation "
-                "priority recipe"
-            )
-
-
-
-        elif torque >= 20:
-
-
-            recipe_name = (
-                "TORQUE_TUNE"
-            )
-
-            reason = (
-                "Torque priority "
-                "recipe"
-            )
-
-
-
-        else:
-
-
-            recipe_name = (
-                "BALANCE"
-            )
-
-            reason = (
-                "Balanced recipe"
-            )
-
-
-
-        recipe = self.recipes.get(
-            recipe_name,
-            {}
-        )
-
-
-        stages = recipe.get(
-            "stages",
-            []
-        )
-
-
-
+        recipe = self.recipes.get(recipe_name, {})
         return StrategyResult(
-
             recipe_name=recipe_name,
-
             reason=reason,
-
-            stages=stages
-
+            stages=recipe.get("stages", []),
+            explanation=recipe.get("description", ""),
         )
-
