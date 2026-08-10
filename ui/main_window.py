@@ -1,8 +1,8 @@
 """MOTOR_BREAKIN_V3 main window.
 
-This is the operator UI for the motor break-in system.  Recipe definition
-and execution remain in RecipeEngine/BreakinController; the UI only selects
-and starts a validated recipe and displays the execution/result state.
+Operator UI for the motor break-in system. Recipe definition and execution
+remain in RecipeEngine/BreakinController; the UI selects and starts a
+validated recipe or a standalone 3 V benchmark test.
 """
 
 from pathlib import Path
@@ -29,14 +29,19 @@ class BreakinWorker(QThread):
     completed = pyqtSignal(object)
     failed = pyqtSignal(str)
 
-    def __init__(self, controller, recipe):
+    def __init__(self, controller, recipe=None, benchmark=False):
         super().__init__()
         self.controller = controller
         self.recipe = recipe
+        self.benchmark = benchmark
 
     def run(self):
         try:
-            self.completed.emit(self.controller.start(self.recipe))
+            if self.benchmark:
+                result = self.controller.benchmark_3v(duration_sec=10)
+            else:
+                result = self.controller.start(self.recipe)
+            self.completed.emit(result)
         except Exception as exc:
             self.failed.emit(str(exc))
 
@@ -44,11 +49,15 @@ class BreakinWorker(QThread):
 class MainWindow(QMainWindow):
     """Integrated operator UI for MOTOR_BREAKIN_V3."""
 
+    BENCHMARK_KEY = "__MOTOR_BENCHMARK_TEST__"
+
     def __init__(self, context=None):
         super().__init__()
         self.context = context
         self.breakin_worker = None
-        self.recipe_engine = RecipeEngine(str(Path(__file__).resolve().parent.parent / "config" / "breakin_recipes.yaml"))
+        self.recipe_engine = RecipeEngine(
+            str(Path(__file__).resolve().parent.parent / "config" / "breakin_recipes.yaml")
+        )
 
         if isinstance(context, dict):
             self.breakin_controller = context.get("breakin_controller")
@@ -75,7 +84,7 @@ class MainWindow(QMainWindow):
 
         content = QHBoxLayout()
 
-        recipe_box = QGroupBox("BREAK-IN RECIPE")
+        recipe_box = QGroupBox("BREAK-IN / BENCHMARK")
         recipe_layout = QVBoxLayout(recipe_box)
         self.recipe_selector = QComboBox()
         self.recipe_selector.currentIndexChanged.connect(self._recipe_changed)
@@ -136,6 +145,7 @@ class MainWindow(QMainWindow):
         self.recipe_selector.clear()
         for name in self.recipe_engine.names():
             self.recipe_selector.addItem(name, name)
+        self.recipe_selector.addItem("MOTOR BENCHMARK TEST (3V / 10s)", self.BENCHMARK_KEY)
 
     def _set_ready_state(self):
         if self.breakin_controller:
@@ -146,21 +156,45 @@ class MainWindow(QMainWindow):
             self._recipe_changed(0)
 
     def _recipe_changed(self, _index):
+        name = self.recipe_selector.currentData()
+        if name == self.BENCHMARK_KEY:
+            self.description.setText(
+                "Standalone 3 V motor benchmark. No break-in stages are executed. "
+                "The test holds approximately 3.00 V using closed-loop PWM control for 10 seconds."
+            )
+            self.brush_value.setText("UNKNOWN")
+            self.objective_value.setText("MEASUREMENT")
+            self.target_rpm_value.setText("--")
+            self.torque_priority_value.setText("0.50")
+            self.benchmark_value.setText("3.00 V / 10 s")
+            safety = self.recipe_engine.safety()
+            self.safety_value.setText(
+                f"{safety.get('max_current', 5.0):g} A / "
+                f"{safety.get('max_motor_temperature', 70.0):g} °C"
+            )
+            self.phase_list.clear()
+            self.phase_list.addItem("BENCHMARK_3V_TEST: closed-loop 3.00 V / 10s")
+            return
+
         recipe = self.selected_recipe()
         if recipe is None:
             return
         self.description.setText(recipe.description or "-")
         self.brush_value.setText(recipe.brush)
         self.objective_value.setText(recipe.objective)
-        self.target_rpm_value.setText("--" if recipe.target_rpm is None else f"{recipe.target_rpm:,} rpm")
+        self.target_rpm_value.setText(
+            "--" if recipe.target_rpm is None else f"{recipe.target_rpm:,} rpm"
+        )
         self.torque_priority_value.setText(f"{recipe.torque_priority:.2f}")
         benchmark = self.recipe_engine.benchmark()
         self.benchmark_value.setText(
-            f"{benchmark.get('target_voltage', 3.00):.2f} V / {benchmark.get('duration_sec', 120)} s"
+            f"{benchmark.get('target_voltage', 3.00):.2f} V / "
+            f"{benchmark.get('duration_sec', 120)} s"
         )
         safety = self.recipe_engine.safety()
         self.safety_value.setText(
-            f"{safety.get('max_current', 5.0):g} A / {safety.get('max_motor_temperature', 70.0):g} °C"
+            f"{safety.get('max_current', 5.0):g} A / "
+            f"{safety.get('max_motor_temperature', 70.0):g} °C"
         )
         self.phase_list.clear()
         for phase in recipe.phases:
@@ -171,7 +205,9 @@ class MainWindow(QMainWindow):
 
     def selected_recipe(self):
         name = self.recipe_selector.currentData()
-        return self.recipe_engine.get(name) if name else None
+        if not name or name == self.BENCHMARK_KEY:
+            return None
+        return self.recipe_engine.get(name)
 
     def start_breakin(self):
         if not self.breakin_controller:
@@ -179,17 +215,26 @@ class MainWindow(QMainWindow):
             return
         if self.breakin_worker and self.breakin_worker.isRunning():
             return
-        recipe = self.selected_recipe()
-        if recipe is None:
+
+        is_benchmark = self.recipe_selector.currentData() == self.BENCHMARK_KEY
+        recipe = None if is_benchmark else self.selected_recipe()
+        if not is_benchmark and recipe is None:
             QMessageBox.warning(self, "Recipe", "No valid recipe is selected.")
             return
 
-        self.status.setText(f"BREAK-IN RUNNING / {recipe.name}")
+        label = "MOTOR BENCHMARK TEST" if is_benchmark else f"BREAK-IN / {recipe.name}"
+        self.status.setText(f"RUNNING / {label}")
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
         self.recipe_selector.setEnabled(False)
         self.result_display.setText("RUNNING...")
-        self.breakin_worker = BreakinWorker(self.breakin_controller, recipe)
+        self.rpm_display.setText("--")
+        self.torque_display.setText("--")
+        self.lifecycle_display.setText("--")
+        self.weight_display.setText("--")
+        self.breakin_worker = BreakinWorker(
+            self.breakin_controller, recipe=recipe, benchmark=is_benchmark
+        )
         self.breakin_worker.completed.connect(self.on_breakin_complete)
         self.breakin_worker.failed.connect(self.on_breakin_failed)
         self.breakin_worker.finished.connect(self.on_worker_finished)
@@ -205,7 +250,10 @@ class MainWindow(QMainWindow):
 
     def on_breakin_complete(self, result):
         self.display_analysis_result(result)
-        self.status.setText("BREAK-IN COMPLETE / BENCHMARK FINISHED")
+        is_benchmark = self.recipe_selector.currentData() == self.BENCHMARK_KEY
+        self.status.setText(
+            "MOTOR BENCHMARK COMPLETE" if is_benchmark else "BREAK-IN COMPLETE / BENCHMARK FINISHED"
+        )
 
     def on_breakin_failed(self, message):
         self.status.setText(f"ERROR / {message}")
@@ -222,6 +270,10 @@ class MainWindow(QMainWindow):
         if result is None:
             self.result_display.setText("NO RESULT")
             return
+        if isinstance(result, list):
+            self.result_display.setText(f"{len(result)} measurement(s) collected")
+            self._display_latest_measurement(result)
+            return
         if isinstance(result, dict):
             summary = result.get("summary") or result.get("result") or result.get("score")
             self.result_display.setText(str(summary) if summary is not None else "COMPLETE")
@@ -231,3 +283,14 @@ class MainWindow(QMainWindow):
             self.weight_display.setText(str(result.get("estimated_weight", result.get("compatible_weight", "--"))))
             return
         self.result_display.setText(str(result))
+
+    def _display_latest_measurement(self, results):
+        if not results:
+            return
+        latest = results[-1]
+        if not isinstance(latest, dict):
+            return
+        self.rpm_display.setText(str(latest.get("rpm", "--")))
+        self.torque_display.setText(str(latest.get("torque", "--")))
+        self.lifecycle_display.setText("-- (benchmark only)")
+        self.weight_display.setText("-- (benchmark only)")
