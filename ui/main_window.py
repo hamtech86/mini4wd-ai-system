@@ -23,6 +23,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from analysis.vehicle_weight import estimate_vehicle_weight
 from controllers.recipe_engine import RecipeEngine
 
 
@@ -52,12 +53,17 @@ class MainWindow(QMainWindow):
 
     BENCHMARK_KEY = "__MOTOR_BENCHMARK_TEST__"
 
-    # Benchmark vehicle assumptions. Keep the first benchmark intentionally
-    # simple: tire diameter and gear ratio only; course/aero/roller/etc. are
-    # excluded until the simulator layer is integrated.
     BENCHMARK_VEHICLE_WEIGHT_G = 130.0
     BENCHMARK_TIRE_DIAMETER_MM = 24.0
     BENCHMARK_GEAR_RATIO = 3.5
+
+    MOTOR_TYPES = (
+        ("ATOMIC TUNE 25K", "ATOMIC_25K"),
+        ("TORQUE TUNE 23K", "TORQUE_TUNE_23K"),
+        ("TUNE SERIES / OPTIMIZED", "TUNE_OPTIMIZED"),
+        ("DASH SERIES / OPTIMIZED", "DASH_OPTIMIZED"),
+        ("CUSTOM / BENCHMARK ONLY", BENCHMARK_KEY),
+    )
 
     def __init__(self, context=None):
         super().__init__()
@@ -78,6 +84,7 @@ class MainWindow(QMainWindow):
         self.resize(900, 700)
         self._build_ui()
         self._load_recipes()
+        self._load_motor_types()
         self._set_ready_state()
 
     def _build_ui(self):
@@ -94,8 +101,13 @@ class MainWindow(QMainWindow):
 
         content = QHBoxLayout()
 
-        recipe_box = QGroupBox("BREAK-IN / BENCHMARK")
+        recipe_box = QGroupBox("MOTOR / BREAK-IN / BENCHMARK")
         recipe_layout = QVBoxLayout(recipe_box)
+
+        self.motor_type_selector = QComboBox()
+        self.motor_type_selector.currentIndexChanged.connect(self._motor_type_changed)
+        recipe_layout.addWidget(self.motor_type_selector)
+
         self.recipe_selector = QComboBox()
         self.recipe_selector.currentIndexChanged.connect(self._recipe_changed)
         recipe_layout.addWidget(self.recipe_selector)
@@ -110,6 +122,7 @@ class MainWindow(QMainWindow):
 
         info_box = QGroupBox("RECIPE / BENCHMARK")
         info_layout = QFormLayout(info_box)
+        self.motor_type_value = QLabel("-")
         self.brush_value = QLabel("-")
         self.objective_value = QLabel("-")
         self.target_rpm_value = QLabel("-")
@@ -119,6 +132,7 @@ class MainWindow(QMainWindow):
         self.vehicle_weight_value = QLabel("-")
         self.tire_value = QLabel("-")
         self.gear_ratio_value = QLabel("-")
+        info_layout.addRow("Motor Type", self.motor_type_value)
         info_layout.addRow("Brush", self.brush_value)
         info_layout.addRow("Objective", self.objective_value)
         info_layout.addRow("Target RPM", self.target_rpm_value)
@@ -143,8 +157,8 @@ class MainWindow(QMainWindow):
         result_layout.addRow("Summary", self.result_display)
         result_layout.addRow("Estimated RPM", self.rpm_display)
         result_layout.addRow("Estimated Torque", self.torque_display)
+        result_layout.addRow("Compatible Weight", self.weight_display)
         result_layout.addRow("Brush Lifecycle", self.lifecycle_display)
-        result_layout.addRow("Vehicle Weight Assumption", self.weight_display)
         result_layout.addRow("Benchmark Detail", self.benchmark_detail_display)
         main.addWidget(result_box)
 
@@ -170,12 +184,36 @@ class MainWindow(QMainWindow):
             self.recipe_selector.addItem(name, name)
         self.recipe_selector.addItem("MOTOR BENCHMARK TEST (3V / 10s)", self.BENCHMARK_KEY)
 
+    def _load_motor_types(self):
+        self.motor_type_selector.clear()
+        for label, key in self.MOTOR_TYPES:
+            self.motor_type_selector.addItem(label, key)
+
+    def _motor_type_changed(self, _index):
+        key = self.motor_type_selector.currentData()
+        self.motor_type_value.setText(self.motor_type_selector.currentText())
+
+        if not key:
+            return
+
+        # Selecting a known motor type also selects its validated recipe.
+        if key != self.BENCHMARK_KEY:
+            index = self.recipe_selector.findData(key)
+            if index >= 0:
+                self.recipe_selector.setCurrentIndex(index)
+        else:
+            index = self.recipe_selector.findData(self.BENCHMARK_KEY)
+            if index >= 0:
+                self.recipe_selector.setCurrentIndex(index)
+
     def _set_ready_state(self):
         if self.breakin_controller:
             self.status.setText("READY / CONTROLLER CONNECTED")
         else:
             self.status.setText("ERROR / CONTROLLER NOT AVAILABLE")
-        if self.recipe_selector.count():
+        if self.motor_type_selector.count():
+            self.motor_type_selector.setCurrentIndex(0)
+        elif self.recipe_selector.count():
             self._recipe_changed(0)
 
     def _set_benchmark_vehicle_assumptions(self):
@@ -189,8 +227,8 @@ class MainWindow(QMainWindow):
             self.description.setText(
                 "Standalone 3 V motor benchmark. No break-in stages are executed. "
                 "The test holds approximately 3.00 V using closed-loop PWM control for 10 seconds. "
-                "Vehicle benchmark assumes 130 g, 24 mm tires and 3.5:1 gearing; "
-                "other vehicle/course factors are excluded for now."
+                "Vehicle estimate assumes 24 mm tires and 3.5:1 gearing; "
+                "course, roller, brake and grip factors are excluded."
             )
             self.brush_value.setText("UNKNOWN")
             self.objective_value.setText("MEASUREMENT")
@@ -205,7 +243,7 @@ class MainWindow(QMainWindow):
             )
             self.phase_list.clear()
             self.phase_list.addItem("BENCHMARK_3V_TEST: closed-loop 3.00 V / 10s")
-            self.phase_list.addItem("VEHICLE: 130 g / 24 mm tire / 3.5:1")
+            self.phase_list.addItem("VEHICLE: 24 mm tire / 3.5:1")
             self.phase_list.addItem("OTHER FACTORS: EXCLUDED")
             return
 
@@ -213,6 +251,7 @@ class MainWindow(QMainWindow):
         if recipe is None:
             return
         self.description.setText(recipe.description or "-")
+        self.motor_type_value.setText(self.motor_type_selector.currentText())
         self.brush_value.setText(recipe.brush)
         self.objective_value.setText(recipe.objective)
         self.target_rpm_value.setText(
@@ -268,6 +307,7 @@ class MainWindow(QMainWindow):
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
         self.recipe_selector.setEnabled(False)
+        self.motor_type_selector.setEnabled(False)
         self.result_display.setText("RUNNING...")
         self.rpm_display.setText("--")
         self.torque_display.setText("--")
@@ -288,6 +328,7 @@ class MainWindow(QMainWindow):
         self.start_button.setEnabled(True)
         self.stop_button.setEnabled(False)
         self.recipe_selector.setEnabled(True)
+        self.motor_type_selector.setEnabled(True)
 
     def on_breakin_complete(self, result):
         is_benchmark = self.recipe_selector.currentData() == self.BENCHMARK_KEY
@@ -306,6 +347,7 @@ class MainWindow(QMainWindow):
         self.start_button.setEnabled(True)
         self.stop_button.setEnabled(False)
         self.recipe_selector.setEnabled(True)
+        self.motor_type_selector.setEnabled(True)
         self.breakin_worker = None
 
     @staticmethod
@@ -348,8 +390,8 @@ class MainWindow(QMainWindow):
             return
         self.rpm_display.setText(str(latest.get("rpm", "--")))
         self.torque_display.setText(str(latest.get("torque", "--")))
-        self.lifecycle_display.setText("-- (benchmark only)")
-        self.weight_display.setText("-- (benchmark only)")
+        self.lifecycle_display.setText("--")
+        self.weight_display.setText("--")
 
     def _display_benchmark_result(self, result):
         """Display and retain an operator-friendly aggregate benchmark result."""
@@ -399,9 +441,6 @@ class MainWindow(QMainWindow):
         max_current = maximum(current_values)
         max_temperature = maximum(temperature_values)
 
-        # Arduino DATA frames define elapsed_time as a relative millisecond
-        # counter. Ignore Unix-timestamp-sized values from missing-frame
-        # fallbacks so one bad sample can never turn Duration into ~1.7e9 s.
         elapsed_values = []
         for measurement in measurements:
             value = self._number(getattr(measurement, "elapsed_time", 0))
@@ -413,22 +452,29 @@ class MainWindow(QMainWindow):
         else:
             elapsed = 0.0
 
+        weight_estimate = estimate_vehicle_weight(
+            avg_torque,
+            tire_diameter_mm=self.BENCHMARK_TIRE_DIAMETER_MM,
+            gear_ratio=self.BENCHMARK_GEAR_RATIO,
+            reference_weight_g=self.BENCHMARK_VEHICLE_WEIGHT_G,
+        )
+
         self.result_display.setText("3V BENCHMARK COMPLETE")
         self.rpm_display.setText(f"{avg_rpm:,.0f} rpm")
         self.torque_display.setText(f"{avg_torque:.2f} g·cm")
         self.lifecycle_display.setText("-- (benchmark only)")
         self.weight_display.setText(
-            f"{self.BENCHMARK_VEHICLE_WEIGHT_G:.0f} g "
-            f"(24 mm / {self.BENCHMARK_GEAR_RATIO:.1f}:1; other factors excluded)"
+            f"{weight_estimate.minimum_g:.0f}–{weight_estimate.maximum_g:.0f} g "
+            f"(center {weight_estimate.center_g:.0f} g)"
         )
         self.benchmark_detail_display.setText(
             f"Avg {avg_voltage:.3f} V / {avg_current:.3f} A / {avg_power:.3f} W / "
             f"PWM {avg_pwm:.1f} | Max current {max_current:.3f} A | "
             f"Max temperature {max_temperature:.1f} °C | "
             f"Samples {len(measurements)} | {elapsed:.1f} s | "
-            f"Vehicle {self.BENCHMARK_VEHICLE_WEIGHT_G:.0f} g / "
-            f"Tire {self.BENCHMARK_TIRE_DIAMETER_MM:.0f} mm / "
-            f"Gear {self.BENCHMARK_GEAR_RATIO:.1f}:1 | Other factors excluded"
+            f"Motor {self.motor_type_selector.currentText()} | "
+            f"Weight basis {weight_estimate.minimum_g:.0f}–{weight_estimate.maximum_g:.0f} g | "
+            f"24 mm / 3.5:1 | Other factors excluded"
         )
 
         self.last_benchmark_report = self._build_benchmark_report(
@@ -443,6 +489,8 @@ class MainWindow(QMainWindow):
             avg_torque=avg_torque,
             max_current=max_current,
             max_temperature=max_temperature,
+            motor_type=self.motor_type_selector.currentText(),
+            weight_estimate=weight_estimate,
         )
         self.copy_benchmark_button.setEnabled(True)
 
@@ -460,6 +508,8 @@ class MainWindow(QMainWindow):
         avg_torque,
         max_current,
         max_temperature,
+        motor_type,
+        weight_estimate,
     ):
         instance_id = "UNKNOWN"
         if measurements:
@@ -468,8 +518,9 @@ class MainWindow(QMainWindow):
             "MINI4WD AI SYSTEM - MOTOR BREAK-IN V3\n"
             "3V MOTOR BENCHMARK RESULT\n"
             "========================================\n"
+            f"Motor type: {motor_type}\n"
             f"Instance: {instance_id}\n"
-            f"Target voltage: 3.000 V\n"
+            "Target voltage: 3.000 V\n"
             f"Duration: {elapsed:.1f} s\n"
             f"Samples: {sample_count}\n"
             f"Average motor voltage: {avg_voltage:.3f} V\n"
@@ -481,9 +532,11 @@ class MainWindow(QMainWindow):
             f"Maximum current: {max_current:.3f} A\n"
             f"Maximum temperature: {max_temperature:.1f} °C\n"
             "----------------------------------------\n"
-            f"Vehicle weight assumption: {MainWindow.BENCHMARK_VEHICLE_WEIGHT_G:.0f} g\n"
-            f"Tire diameter: {MainWindow.BENCHMARK_TIRE_DIAMETER_MM:.0f} mm\n"
-            f"Gear ratio: {MainWindow.BENCHMARK_GEAR_RATIO:.1f}:1\n"
+            f"Compatible vehicle weight: {weight_estimate.minimum_g:.0f}–{weight_estimate.maximum_g:.0f} g\n"
+            f"Weight center estimate: {weight_estimate.center_g:.0f} g\n"
+            "Tire diameter: 24 mm\n"
+            "Gear ratio: 3.5:1\n"
+            "Weight estimate: PROVISIONAL BENCHMARK CALIBRATION\n"
             "Other vehicle/course factors: EXCLUDED\n"
         )
 
