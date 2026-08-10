@@ -359,8 +359,6 @@ class MainWindow(QMainWindow):
             rpm_values.append(getattr(getattr(performance, "estimated_rpm", None), "value", 0.0))
             torque_values.append(getattr(getattr(performance, "estimated_torque", None), "value", 0.0))
 
-        # Fall back to the same configured estimates when an analysis result is
-        # not available, while keeping the raw measurement values authoritative.
         if not rpm_values:
             rpm_values = [self._number(v) * 5000.0 for v in voltage_values]
         if not torque_values:
@@ -375,11 +373,19 @@ class MainWindow(QMainWindow):
         max_current = maximum(current_values)
         max_temperature = maximum(temperature_values)
 
-        elapsed = 0
-        if measurements:
-            elapsed = max(self._number(getattr(m, "elapsed_time", 0)) for m in measurements)
-            first_elapsed = min(self._number(getattr(m, "elapsed_time", 0)) for m in measurements)
-            elapsed = max(0.0, elapsed - first_elapsed) / 1000.0
+        # Arduino DATA frames define elapsed_time as a relative millisecond
+        # counter. Ignore Unix-timestamp-sized values from missing-frame
+        # fallbacks so one bad sample can never turn Duration into ~1.7e9 s.
+        elapsed_values = []
+        for measurement in measurements:
+            value = self._number(getattr(measurement, "elapsed_time", 0))
+            if 0.0 <= value <= 86_400_000.0:
+                elapsed_values.append(value)
+
+        if elapsed_values:
+            elapsed = max(0.0, max(elapsed_values) - min(elapsed_values)) / 1000.0
+        else:
+            elapsed = 0.0
 
         self.result_display.setText("3V BENCHMARK COMPLETE")
         self.rpm_display.setText(f"{avg_rpm:,.0f} rpm")
