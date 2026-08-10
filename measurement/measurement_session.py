@@ -18,9 +18,7 @@ import uuid
 
 
 class MeasurementType(Enum):
-    """
-    測定種別
-    """
+    """測定種別"""
 
     BREAKIN = "BREAKIN"
     EVALUATION = "EVALUATION"
@@ -28,9 +26,7 @@ class MeasurementType(Enum):
 
 
 class SessionStatus(Enum):
-    """
-    セッション状態
-    """
+    """セッション状態"""
 
     READY = "READY"
     RUNNING = "RUNNING"
@@ -41,13 +37,15 @@ class SessionStatus(Enum):
 
 @dataclass(slots=True)
 class MeasurementSession:
-    """
-    Measurement Session
-    """
+    """Measurement Session."""
 
-    session_id: str = field(
-        default_factory=lambda: str(uuid.uuid4())
-    )
+    session_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+
+    # Database measurement_session.instance_id -> motor_instance.instance_id.
+    # It is intentionally optional at the domain layer so hardware-independent
+    # tests and legacy callers can still construct a session. Production DB
+    # persistence requires a valid motor instance id.
+    instance_id: int | None = None
 
     measurement_type: MeasurementType = MeasurementType.BREAKIN
 
@@ -68,62 +66,38 @@ class MeasurementSession:
     firmware_version: str = "MOTOR_BREAKIN_V3"
 
     def start(self):
-        """
-        セッション開始
-        """
-
+        """セッション開始"""
         self.start_time = datetime.now()
         self.status = SessionStatus.RUNNING
 
     def finish(self):
-        """
-        セッション終了
-        """
-
+        """セッション終了"""
         self.end_time = datetime.now()
         self.status = SessionStatus.FINISHED
 
     def cancel(self):
-        """
-        セッションキャンセル
-        """
-
+        """セッションキャンセル"""
         self.end_time = datetime.now()
         self.status = SessionStatus.CANCELLED
 
     def error(self):
-        """
-        エラー終了
-        """
-
+        """エラー終了"""
         self.end_time = datetime.now()
         self.status = SessionStatus.ERROR
 
     def add_measurement(self):
-        """
-        Measurement件数加算
-        """
-
+        """Measurement件数加算"""
         self.measurement_count += 1
 
     @property
     def elapsed_seconds(self) -> float:
-        """
-        経過時間
-        """
-
+        """経過時間"""
         if self.start_time is None:
             return 0.0
-
         end = self.end_time or datetime.now()
-
         return (end - self.start_time).total_seconds()
 
     @property
     def is_running(self) -> bool:
-        """
-        実行中判定
-        """
-
+        """実行中判定"""
         return self.status == SessionStatus.RUNNING
-

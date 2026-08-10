@@ -22,11 +22,11 @@ from loguru import logger
 from config import APP_NAME, APP_VERSION, LOG_DIR
 from ui.main_window import MainWindow
 from communication.serial_controller import SerialController
-from app.application_builder import ApplicationBuilder
+from app.production_application_builder import ProductionApplicationBuilder
 
 
 class ApplicationRuntimeBuilder:
-    """Create application dependency context."""
+    """Create the production application dependency context."""
 
     def build_context(self):
         serial_controller = SerialController(
@@ -38,8 +38,8 @@ class ApplicationRuntimeBuilder:
         else:
             logger.warning("Arduino serial connection failed")
 
-        builder = ApplicationBuilder(
-            serial_controller=serial_controller
+        builder = ProductionApplicationBuilder(
+            serial_controller=serial_controller,
         )
 
         return {

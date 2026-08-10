@@ -2,6 +2,7 @@ from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QPushButton, QLabel, QComboBox
 
 from controllers.recipe import BreakinRecipe, BreakinPhase, default_speed_recipe
+from ui.result_formatter import format_analysis_result
 
 
 class BreakinWorker(QThread):
@@ -9,14 +10,15 @@ class BreakinWorker(QThread):
     completed = pyqtSignal(object)
     failed = pyqtSignal(str)
 
-    def __init__(self, controller, recipe):
+    def __init__(self, controller, recipe, instance_id):
         super().__init__()
         self.controller = controller
         self.recipe = recipe
+        self.instance_id = instance_id
 
     def run(self):
         try:
-            result = self.controller.start(self.recipe)
+            result = self.controller.start(self.recipe, instance_id=self.instance_id)
             self.completed.emit(result)
         except Exception as exc:
             self.failed.emit(str(exc))
@@ -42,6 +44,8 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout()
         self.status = QLabel("READY")
         self.result_display = QLabel("RESULT: --")
+        self.instance_selector = QComboBox()
+        self._load_motor_instances()
         self.recipe_selector = QComboBox()
         self.recipe_selector.addItem("TEST - 3 sec / PWM 80", "TEST")
         self.recipe_selector.addItem("SPEED - 360 sec", "SPEED")
@@ -53,12 +57,40 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(self.status)
         layout.addWidget(self.result_display)
+        layout.addWidget(QLabel("MOTOR INSTANCE"))
+        layout.addWidget(self.instance_selector)
         layout.addWidget(QLabel("RECIPE"))
         layout.addWidget(self.recipe_selector)
         layout.addWidget(self.start_button)
         layout.addWidget(self.stop_button)
         root.setLayout(layout)
         self.setCentralWidget(root)
+
+    def _load_motor_instances(self):
+        """Load selectable non-deleted motor instances from the production DB."""
+        self.instance_selector.clear()
+        database = getattr(self.breakin_controller, "database", None)
+        if database is None:
+            self.instance_selector.addItem("ERROR: DATABASE NOT AVAILABLE", None)
+            return
+
+        rows = database.execute(
+            """
+            SELECT instance_id, serial_number, nickname, status
+            FROM motor_instance
+            WHERE is_deleted=0
+            ORDER BY instance_id
+            """
+        ).fetchall()
+
+        for row in rows:
+            serial = row[1] or ""
+            nickname = row[2] or ""
+            label = f"#{row[0]} {serial} {nickname}".strip()
+            self.instance_selector.addItem(label, int(row[0]))
+
+        if self.instance_selector.count() == 0:
+            self.instance_selector.addItem("NO MOTOR INSTANCE", None)
 
     def selected_recipe(self):
         if self.recipe_selector.currentData() == "TEST":
@@ -74,11 +106,21 @@ class MainWindow(QMainWindow):
             return None
         if self.breakin_worker and self.breakin_worker.isRunning():
             return None
-        self.status.setText("BREAK-IN RUNNING")
+
+        instance_id = self.instance_selector.currentData()
+        if instance_id is None:
+            self.status.setText("ERROR: MOTOR INSTANCE NOT SELECTED")
+            return None
+
+        self.status.setText(f"BREAK-IN RUNNING / INSTANCE #{instance_id}")
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
         recipe = self.selected_recipe()
-        self.breakin_worker = BreakinWorker(self.breakin_controller, recipe)
+        self.breakin_worker = BreakinWorker(
+            self.breakin_controller,
+            recipe,
+            instance_id,
+        )
         self.breakin_worker.completed.connect(self.on_breakin_complete)
         self.breakin_worker.failed.connect(self.on_breakin_failed)
         self.breakin_worker.finished.connect(self.on_worker_finished)
@@ -105,16 +147,4 @@ class MainWindow(QMainWindow):
         self.breakin_worker = None
 
     def display_analysis_result(self, result):
-        """Display the AnalysisResult returned by BreakinController."""
-        if result is None:
-            self.result_display.setText("RESULT: --")
-            return
-        if isinstance(result, list):
-            self.result_display.setText(f"RESULT: {len(result)} ANALYSIS RESULT(S)")
-            return
-        if isinstance(result, dict):
-            summary = result.get("summary") or result.get("result") or result.get("score")
-            if summary is not None:
-                self.result_display.setText(f"RESULT: {summary}")
-                return
-        self.result_display.setText(f"RESULT: {result}")
+        self.result_display.setText(format_analysis_result(result))
