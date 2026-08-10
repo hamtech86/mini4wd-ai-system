@@ -9,6 +9,7 @@ control. The latter is used by the common 3 V benchmark.
 import time
 
 from .phase_manager import PhaseManager
+from .recipe import BreakinPhase, BreakinRecipe
 
 
 class BreakinController:
@@ -61,6 +62,36 @@ class BreakinController:
                 self.session_manager.finish("ERROR")
             self.emergency_stop()
             raise
+
+    def benchmark_3v(self, duration_sec=10):
+        """Run a standalone 3 V motor benchmark without a break-in recipe.
+
+        The short default duration is intentionally test-oriented. The normal
+        recipe benchmark remains the authoritative 120 s measurement defined
+        in breakin_recipes.yaml.
+        """
+        phase = BreakinPhase(
+            name="BENCHMARK_3V_TEST",
+            duration_sec=float(duration_sec),
+            pwm=80,
+            direction="FWD",
+            control="VOLTAGE",
+            target_voltage=3.00,
+            pwm_min=35,
+            pwm_max=120,
+        )
+        recipe = BreakinRecipe(
+            name="MOTOR_BENCHMARK_TEST",
+            description="Standalone 3 V motor benchmark test",
+            brush="UNKNOWN",
+            family="BENCHMARK",
+            objective="MEASUREMENT",
+            phases=[phase],
+            target_rpm=None,
+            torque_priority=0.50,
+            version="2.0",
+        )
+        return self.start(recipe)
 
     def execute_phase(self, phase):
         self.current_phase = phase
