@@ -14,6 +14,11 @@ from .phase_manager import PhaseManager
 class BreakinController:
     VOLTAGE_KP = 20.0
     CONTROL_INTERVAL_SEC = 0.1
+    DEFAULT_SAFETY = {
+        "max_motor_temperature": 70.0,
+        "max_current": 5.0,
+        "max_pwm": 245,
+    }
 
     def __init__(self, serial_controller, measurement_manager=None,
                  analysis_engine=None, database=None, session_manager=None,
@@ -23,7 +28,9 @@ class BreakinController:
         self.analysis_engine = analysis_engine
         self.database = database
         self.session_manager = session_manager
-        self.safety_config = safety_config or {}
+        self.safety_config = dict(self.DEFAULT_SAFETY)
+        if safety_config:
+            self.safety_config.update(safety_config)
         self.running = False
         self.measurements = []
         self.session = None
@@ -62,7 +69,6 @@ class BreakinController:
             self.serial.reverse()
         else:
             self.serial.forward()
-
         if phase.control == "VOLTAGE" and phase.target_voltage is not None:
             initial = phase.pwm or int((phase.pwm_min + phase.pwm_max) / 2)
             self.current_pwm = max(phase.pwm_min, min(phase.pwm_max, initial))
@@ -88,7 +94,6 @@ class BreakinController:
                 self.emergency_stop()
                 break
             time.sleep(self.CONTROL_INTERVAL_SEC)
-
         self.serial.set_pwm(0)
         time.sleep(0.2)
 
