@@ -1,0 +1,16 @@
+motor_model_id,name,series,shaft_type,motor_category,nominal_rpm,nominal_current_ma,nominal_torque_gcm,efficiency_index,stability_tendency,heat_tendency,data_confidence,notes
+MD_PRO,マッハダッシュPro,PRO,両軸,DASH,25500,1650,180,1.40,LOW,HIGH,HIGH,高回転ピーキー最上位
+HD_PRO,ハイパーダッシュPro,PRO,両軸,DASH,24000,1600,190,1.30,LOW,HIGH,HIGH,バランス高回転型
+LD_PRO,ライトダッシュPro,PRO,両軸,TUNED,18500,1200,165,1.15,HIGH,MEDIUM,HIGH,安定高速型
+TT2_PRO,トルクチューン2Pro,PRO,両軸,TUNED,15000,1400,220,1.00,HIGH,LOW,HIGH,トルク特化型
+AT2_PRO,アトミックチューン2Pro,PRO,両軸,TUNED,16000,1350,200,1.05,HIGH,MEDIUM,HIGH,万能型
+RT2_PRO,レブチューン2Pro,PRO,両軸,TUNED,20000,1450,170,1.20,MEDIUM,MEDIUM,HIGH,高回転安定型
+NOR_DBL,ノーマル両軸,STD,両軸,NORMAL,11000,900,140,1.00,HIGH,LOW,HIGH,基準モーター両軸
+SPT,スプリントダッシュ,STD,片軸,DASH,26500,1700,175,1.35,LOW,HIGH,HIGH,ピーキー高速型
+PD,パワーダッシュ,STD,片軸,DASH,23000,1750,230,1.10,LOW,HIGH,HIGH,トルク特化型
+HD3,ハイパーダッシュ3,STD,片軸,DASH,23500,1650,200,1.20,LOW,HIGH,MEDIUM,高負荷安定型
+LD,ライトダッシュ,STD,片軸,TUNED,17500,1150,160,1.05,HIGH,MEDIUM,MEDIUM,安定型
+TT2,トルクチューン2,STD,片軸,TUNED,14500,1350,210,0.95,HIGH,LOW,HIGH,定番トルク型
+AT2,アトミックチューン2,STD,片軸,TUNED,15500,1300,195,1.00,HIGH,MEDIUM,HIGH,万能型
+RT2,レブチューン2,STD,片軸,TUNED,19000,1400,165,1.15,MEDIUM,MEDIUM,HIGH,高回転型
+NOR_STD,ノーマル片軸,STD,片軸,NORMAL,10500,850,135,1.00,HIGH,LOW,HIGH,基準モーター片軸
