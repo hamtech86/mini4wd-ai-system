@@ -9,6 +9,7 @@ from pathlib import Path
 
 from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtWidgets import (
+    QApplication,
     QComboBox,
     QFormLayout,
     QGroupBox,
@@ -55,6 +56,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.context = context
         self.breakin_worker = None
+        self.last_benchmark_report = ""
+        self.last_benchmark_results = None
         self.recipe_engine = RecipeEngine(
             str(Path(__file__).resolve().parent.parent / "config" / "breakin_recipes.yaml")
         )
@@ -65,7 +68,7 @@ class MainWindow(QMainWindow):
             self.breakin_controller = getattr(context, "breakin_controller", None)
 
         self.setWindowTitle("MINI4WD AI SYSTEM - MOTOR BREAKIN V3")
-        self.resize(900, 620)
+        self.resize(900, 700)
         self._build_ui()
         self._load_recipes()
         self._set_ready_state()
@@ -122,21 +125,28 @@ class MainWindow(QMainWindow):
         self.torque_display = QLabel("--")
         self.lifecycle_display = QLabel("--")
         self.weight_display = QLabel("--")
+        self.benchmark_detail_display = QLabel("--")
+        self.benchmark_detail_display.setWordWrap(True)
         result_layout.addRow("Summary", self.result_display)
         result_layout.addRow("Estimated RPM", self.rpm_display)
         result_layout.addRow("Estimated Torque", self.torque_display)
         result_layout.addRow("Brush Lifecycle", self.lifecycle_display)
         result_layout.addRow("Estimated Compatible Weight", self.weight_display)
+        result_layout.addRow("Benchmark Detail", self.benchmark_detail_display)
         main.addWidget(result_box)
 
         controls = QHBoxLayout()
         self.start_button = QPushButton("START BREAK-IN")
         self.stop_button = QPushButton("EMERGENCY STOP")
+        self.copy_benchmark_button = QPushButton("COPY BENCHMARK RESULT")
         self.stop_button.setEnabled(False)
+        self.copy_benchmark_button.setEnabled(False)
         self.start_button.clicked.connect(self.start_breakin)
         self.stop_button.clicked.connect(self.stop_breakin)
+        self.copy_benchmark_button.clicked.connect(self.copy_benchmark_result)
         controls.addWidget(self.start_button)
         controls.addWidget(self.stop_button)
+        controls.addWidget(self.copy_benchmark_button)
         main.addLayout(controls)
 
         self.setCentralWidget(root)
@@ -222,6 +232,11 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Recipe", "No valid recipe is selected.")
             return
 
+        self.last_benchmark_report = ""
+        self.last_benchmark_results = None
+        self.copy_benchmark_button.setEnabled(False)
+        self.benchmark_detail_display.setText("--")
+
         label = "MOTOR BENCHMARK TEST" if is_benchmark else f"BREAK-IN / {recipe.name}"
         self.status.setText(f"RUNNING / {label}")
         self.start_button.setEnabled(False)
@@ -249,8 +264,8 @@ class MainWindow(QMainWindow):
         self.recipe_selector.setEnabled(True)
 
     def on_breakin_complete(self, result):
-        self.display_analysis_result(result)
         is_benchmark = self.recipe_selector.currentData() == self.BENCHMARK_KEY
+        self.display_analysis_result(result, benchmark=is_benchmark)
         self.status.setText(
             "MOTOR BENCHMARK COMPLETE" if is_benchmark else "BREAK-IN COMPLETE / BENCHMARK FINISHED"
         )
@@ -259,6 +274,7 @@ class MainWindow(QMainWindow):
         self.status.setText(f"ERROR / {message}")
         self.result_display.setText("ERROR")
         self.stop_button.setEnabled(False)
+        self.benchmark_detail_display.setText(message)
 
     def on_worker_finished(self):
         self.start_button.setEnabled(True)
@@ -266,10 +282,24 @@ class MainWindow(QMainWindow):
         self.recipe_selector.setEnabled(True)
         self.breakin_worker = None
 
-    def display_analysis_result(self, result):
+    @staticmethod
+    def _number(value, default=0.0):
+        try:
+            if hasattr(value, "value"):
+                value = value.value
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    def display_analysis_result(self, result, benchmark=False):
         if result is None:
             self.result_display.setText("NO RESULT")
             return
+
+        if benchmark:
+            self._display_benchmark_result(result)
+            return
+
         if isinstance(result, list):
             self.result_display.setText(f"{len(result)} measurement(s) collected")
             self._display_latest_measurement(result)
@@ -294,3 +324,130 @@ class MainWindow(QMainWindow):
         self.torque_display.setText(str(latest.get("torque", "--")))
         self.lifecycle_display.setText("-- (benchmark only)")
         self.weight_display.setText("-- (benchmark only)")
+
+    def _display_benchmark_result(self, result):
+        """Display and retain an operator-friendly aggregate benchmark result."""
+        self.last_benchmark_results = result
+        measurements = list(getattr(self.breakin_controller, "measurements", []) or [])
+        analysis_results = list(result) if isinstance(result, list) else []
+
+        if not measurements and not analysis_results:
+            self.result_display.setText("BENCHMARK COMPLETE / NO MEASUREMENTS")
+            self.benchmark_detail_display.setText("No measurement samples were returned.")
+            return
+
+        def avg(values):
+            values = [self._number(v) for v in values]
+            return sum(values) / len(values) if values else 0.0
+
+        def maximum(values):
+            values = [self._number(v) for v in values]
+            return max(values) if values else 0.0
+
+        voltage_values = [getattr(m, "motor_voltage", 0.0) for m in measurements]
+        current_values = [getattr(m, "current_avg", 0.0) for m in measurements]
+        power_values = [getattr(m, "power", 0.0) for m in measurements]
+        pwm_values = [getattr(m, "pwm", 0) for m in measurements]
+        temperature_values = [getattr(m, "motor_temperature", 0.0) for m in measurements]
+
+        rpm_values = []
+        torque_values = []
+        for item in analysis_results:
+            performance = getattr(item, "performance", None)
+            if performance is None:
+                continue
+            rpm_values.append(getattr(getattr(performance, "estimated_rpm", None), "value", 0.0))
+            torque_values.append(getattr(getattr(performance, "estimated_torque", None), "value", 0.0))
+
+        # Fall back to the same configured estimates when an analysis result is
+        # not available, while keeping the raw measurement values authoritative.
+        if not rpm_values:
+            rpm_values = [self._number(v) * 5000.0 for v in voltage_values]
+        if not torque_values:
+            torque_values = [self._number(v) * 10.0 for v in current_values]
+
+        avg_voltage = avg(voltage_values)
+        avg_current = avg(current_values)
+        avg_power = avg(power_values)
+        avg_rpm = avg(rpm_values)
+        avg_torque = avg(torque_values)
+        avg_pwm = avg(pwm_values)
+        max_current = maximum(current_values)
+        max_temperature = maximum(temperature_values)
+
+        elapsed = 0
+        if measurements:
+            elapsed = max(self._number(getattr(m, "elapsed_time", 0)) for m in measurements)
+            first_elapsed = min(self._number(getattr(m, "elapsed_time", 0)) for m in measurements)
+            elapsed = max(0.0, elapsed - first_elapsed) / 1000.0
+
+        self.result_display.setText("3V BENCHMARK COMPLETE")
+        self.rpm_display.setText(f"{avg_rpm:,.0f} rpm")
+        self.torque_display.setText(f"{avg_torque:.2f} g·cm")
+        self.lifecycle_display.setText("-- (benchmark only)")
+        self.weight_display.setText("-- (benchmark only)")
+        self.benchmark_detail_display.setText(
+            f"Avg {avg_voltage:.3f} V / {avg_current:.3f} A / {avg_power:.3f} W / "
+            f"PWM {avg_pwm:.1f} | Max current {max_current:.3f} A | "
+            f"Max temperature {max_temperature:.1f} °C | "
+            f"Samples {len(measurements)} | {elapsed:.1f} s"
+        )
+
+        self.last_benchmark_report = self._build_benchmark_report(
+            measurements=measurements,
+            sample_count=len(measurements),
+            elapsed=elapsed,
+            avg_voltage=avg_voltage,
+            avg_current=avg_current,
+            avg_power=avg_power,
+            avg_pwm=avg_pwm,
+            avg_rpm=avg_rpm,
+            avg_torque=avg_torque,
+            max_current=max_current,
+            max_temperature=max_temperature,
+        )
+        self.copy_benchmark_button.setEnabled(True)
+
+    @staticmethod
+    def _build_benchmark_report(
+        *,
+        measurements,
+        sample_count,
+        elapsed,
+        avg_voltage,
+        avg_current,
+        avg_power,
+        avg_pwm,
+        avg_rpm,
+        avg_torque,
+        max_current,
+        max_temperature,
+    ):
+        instance_id = "UNKNOWN"
+        if measurements:
+            instance_id = str(getattr(measurements[0], "instance_id", "UNKNOWN"))
+        return (
+            "MINI4WD AI SYSTEM - MOTOR BREAK-IN V3\n"
+            "3V MOTOR BENCHMARK RESULT\n"
+            "========================================\n"
+            f"Instance: {instance_id}\n"
+            f"Target voltage: 3.000 V\n"
+            f"Duration: {elapsed:.1f} s\n"
+            f"Samples: {sample_count}\n"
+            f"Average motor voltage: {avg_voltage:.3f} V\n"
+            f"Average current: {avg_current:.3f} A\n"
+            f"Average power: {avg_power:.3f} W\n"
+            f"Average PWM: {avg_pwm:.1f}\n"
+            f"Estimated RPM: {avg_rpm:,.0f} rpm\n"
+            f"Estimated torque: {avg_torque:.2f} g·cm\n"
+            f"Maximum current: {max_current:.3f} A\n"
+            f"Maximum temperature: {max_temperature:.1f} °C\n"
+        )
+
+    def copy_benchmark_result(self):
+        if not self.last_benchmark_report:
+            QMessageBox.information(self, "Benchmark", "No benchmark result is available to copy.")
+            return
+        clipboard = QApplication.clipboard()
+        clipboard.setText(self.last_benchmark_report)
+        self.status.setText("BENCHMARK RESULT COPIED TO CLIPBOARD")
