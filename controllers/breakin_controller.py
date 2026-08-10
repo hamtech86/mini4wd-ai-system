@@ -1,15 +1,10 @@
-"""
-Break-in Controller
-MOTOR_BREAKIN_V3
+"""Break-in Controller - MOTOR_BREAKIN_V3.
 
-Controller Pipeline
-Recipe
- -> Session
- -> Phase Control
- -> Arduino Control
- -> Measurement Collection
- -> Analysis Engine
- -> Result
+Recipe -> Phase Control -> Arduino -> Measurement -> Analysis.
+
+Recipe stages may use ordinary PWM control or closed-loop motor-voltage
+control.  The latter is used by the common 3 V benchmark so the benchmark
+is independent of small supply/PWM differences.
 """
 
 import time
@@ -18,47 +13,47 @@ from .phase_manager import PhaseManager
 
 
 class BreakinController:
+    VOLTAGE_KP = 20.0
+    CONTROL_INTERVAL_SEC = 0.1
 
-    def __init__(
-        self,
-        serial_controller,
-        measurement_manager=None,
-        analysis_engine=None,
-        database=None,
-        session_manager=None,
-    ):
+    def __init__(self, serial_controller, measurement_manager=None,
+                 analysis_engine=None, database=None, session_manager=None,
+                 safety_config=None):
         self.serial = serial_controller
         self.measurement_manager = measurement_manager
         self.analysis_engine = analysis_engine
         self.database = database
         self.session_manager = session_manager
+        self.safety_config = safety_config or {}
         self.running = False
         self.measurements = []
         self.session = None
         self.current_phase = None
+        self.current_pwm = 0
+        self.abort_reason = None
 
     def start(self, recipe):
         self.phase_manager = PhaseManager(recipe)
         self.running = True
         self.measurements = []
+        self.abort_reason = None
 
         if self.session_manager:
             self.session = self.session_manager.start("BREAKIN")
 
         try:
             while self.running and self.phase_manager.has_next():
-                phase = self.phase_manager.current_phase()
-                self.execute_phase(phase)
+                self.execute_phase(self.phase_manager.current_phase())
                 self.phase_manager.next_phase()
+
+            if self.abort_reason:
+                raise RuntimeError(self.abort_reason)
 
             self.stop()
             result = self.analyze(self.measurements)
-
             if self.session_manager:
                 self.session_manager.finish("COMPLETE")
-
             return result
-
         except Exception:
             if self.session_manager:
                 self.session_manager.finish("ERROR")
@@ -67,61 +62,104 @@ class BreakinController:
 
     def execute_phase(self, phase):
         self.current_phase = phase
+        self.abort_reason = None
 
         if phase.direction == "REV":
             self.serial.reverse()
         else:
             self.serial.forward()
 
-        self.serial.set_pwm(phase.pwm)
+        if phase.control == "VOLTAGE" and phase.target_voltage is not None:
+            self.current_pwm = max(phase.pwm_min, min(phase.pwm_max, phase.pwm or int((phase.pwm_min + phase.pwm_max) / 2)))
+        else:
+            self.current_pwm = phase.pwm
 
-        # Capture one sample at phase start.  This guarantees that a zero-second
-        # phase still produces a representative measurement for validation and
-        # hardware-independent tests.
+        self.serial.set_pwm(self.current_pwm)
         self._collect_measurement(phase)
 
         start = time.time()
-
         while self.running and time.time() - start < phase.duration_sec:
-            self._collect_measurement(phase)
-            time.sleep(0.1)
+            measurement = self._collect_measurement(phase)
+            if not self.running:
+                break
+            if phase.control == "VOLTAGE" and phase.target_voltage is not None:
+                self._voltage_control(phase, measurement)
+            if self._safety_violation(measurement):
+                self.abort_reason = self._safety_violation(measurement)
+                self.emergency_stop()
+                break
+            time.sleep(self.CONTROL_INTERVAL_SEC)
 
         self.serial.set_pwm(0)
         time.sleep(0.2)
 
+    @staticmethod
+    def _value(measurement, name, default=0.0):
+        if measurement is None:
+            return default
+        if isinstance(measurement, dict):
+            return measurement.get(name, default)
+        return getattr(measurement, name, default)
+
+    def _voltage_control(self, phase, measurement):
+        voltage = float(self._value(measurement, "motor_voltage", 0.0))
+        if voltage <= 0:
+            return
+        error = float(phase.target_voltage) - voltage
+        if abs(error) <= 0.02:
+            return
+        new_pwm = self.current_pwm + int(round(self.VOLTAGE_KP * error))
+        new_pwm = max(phase.pwm_min, min(phase.pwm_max, new_pwm))
+        if new_pwm != self.current_pwm:
+            self.current_pwm = new_pwm
+            self.serial.set_pwm(new_pwm)
+
+    def _safety_violation(self, measurement):
+        max_temp = float(self.safety_config.get("max_motor_temperature", 0) or 0)
+        max_current = float(self.safety_config.get("max_current", 0) or 0)
+        max_pwm = int(self.safety_config.get("max_pwm", 255) or 255)
+        temperature = float(self._value(measurement, "motor_temperature", 0.0))
+        current = max(
+            float(self._value(measurement, "current1", 0.0)),
+            float(self._value(measurement, "current2", 0.0)),
+        )
+        pwm = int(self.current_pwm)
+        if max_temp > 0 and temperature >= max_temp:
+            return f"SAFETY: motor temperature {temperature:.1f}C >= {max_temp:.1f}C"
+        if max_current > 0 and current >= max_current:
+            return f"SAFETY: current {current:.2f}A >= {max_current:.2f}A"
+        if pwm > max_pwm:
+            return f"SAFETY: PWM {pwm} > {max_pwm}"
+        return None
+
     def _collect_measurement(self, phase):
         if not self.measurement_manager:
-            return
-
+            return None
         measurement = self.measurement_manager.collect()
-
         if isinstance(measurement, dict):
             measurement["phase"] = phase
-            measurement["phase_pwm"] = phase.pwm
+            measurement["phase_pwm"] = self.current_pwm
             measurement["phase_direction"] = phase.direction
-
+        else:
+            setattr(measurement, "phase", phase)
+            setattr(measurement, "phase_pwm", self.current_pwm)
+            setattr(measurement, "phase_direction", phase.direction)
         self.measurements.append(measurement)
+        return measurement
 
     def analyze(self, measurements):
         if self.analysis_engine is None:
             return measurements
-
-        return [
-            self.analysis_engine.analyze(measurement)
-            for measurement in measurements
-        ]
+        return [self.analysis_engine.analyze(measurement) for measurement in measurements]
 
     def stop(self):
         self.running = False
-
         if hasattr(self.serial, "stop_breakin"):
             self.serial.stop_breakin()
-
         self.serial.set_pwm(0)
 
     def emergency_stop(self):
         self.running = False
-
         if hasattr(self.serial, "emergency_stop"):
             self.serial.emergency_stop()
         else:
