@@ -27,38 +27,22 @@ class Migration:
         self,
         database: DatabaseManager,
     ):
-
+        schema_dir = Path(__file__).parent.parent / "schema"
+        self.schema_file = schema_dir / "create_tables.sql"
+        self.benchmark_schema_file = schema_dir / "benchmark_result.sql"
         self.database = database
 
-        self.schema_file = (
-            Path(__file__).parent.parent
-            / "schema"
-            / "create_tables.sql"
-        )
-
     def migrate(self):
-        """
-        create_tables.sql を実行
-        """
-
-        if not self.schema_file.exists():
-            raise FileNotFoundError(
-                self.schema_file
-            )
+        """Create/update the database schema idempotently."""
+        for schema_file in (self.schema_file, self.benchmark_schema_file):
+            if not schema_file.exists():
+                raise FileNotFoundError(schema_file)
 
         self.database.connect()
 
-        with open(
-            self.schema_file,
-            "r",
-            encoding="utf-8",
-        ) as file:
-
-            sql = file.read()
-
-        self.database.connection.executescript(sql)
+        for schema_file in (self.schema_file, self.benchmark_schema_file):
+            with open(schema_file, "r", encoding="utf-8") as file:
+                self.database.connection.executescript(file.read())
 
         self.database.commit()
-
         print("Database initialized.")
-
