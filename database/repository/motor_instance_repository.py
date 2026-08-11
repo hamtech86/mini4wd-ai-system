@@ -1,7 +1,7 @@
 # ============================================================
 # motor_instance_repository.py
 # Motor Database System
-# Revision 2
+# Revision 3
 # Motor Instance Repository
 # ============================================================
 
@@ -99,6 +99,30 @@ class MotorInstanceRepository(BaseRepository):
             LIMIT 1
             """,
             (session_id,),
+        )
+
+    def get_latest_benchmark(self, instance_id):
+        """個体に紐づく最新のユーザー確認Benchmark RPM。"""
+        return self.fetch_one(
+            """
+            SELECT *
+            FROM benchmark_result
+            WHERE instance_id=?
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (instance_id,),
+        )
+
+    def get_benchmark_history(self, instance_id):
+        return self.fetch_all(
+            """
+            SELECT *
+            FROM benchmark_result
+            WHERE instance_id=?
+            ORDER BY created_at DESC
+            """,
+            (instance_id,),
         )
 
     def update_instance(self, instance_id, data):
