@@ -23,7 +23,7 @@ PRAGMA foreign_keys = ON;
 
 BEGIN TRANSACTION;
 
--- Existing five IDs are updated in place so existing Motor Instance
+-- Existing IDs are updated in place so existing Motor Instance
 -- foreign references remain attached to the same motor_model_id.
 UPDATE motor_model SET
     name='トルクチューン2', series='STD', shaft_type='片軸', motor_category='TUNED',
@@ -57,12 +57,16 @@ UPDATE motor_model SET
     data_confidence='MEDIUM', notes='高負荷安定型', is_deleted=0
 WHERE motor_model_id='HD3';
 
--- The old PD2 master key is not part of the confirmed 15-model master.
--- Keep it intact if existing data references it; it is not exposed as a
--- confirmed choice after the migration.
+-- PD2 is a legacy master key and is not part of the confirmed
+-- 15-model choice list. Keep the row for referential integrity,
+-- but hide it from MotorRepository.get_all() / selection UI.
+UPDATE motor_model
+SET is_deleted=1
+WHERE motor_model_id='PD2';
 
--- Add the ten new stable IDs. Existing rows are left untouched by these
--- INSERT OR IGNORE statements, making the migration safe to re-run.
+-- Add the eleven new stable IDs. Existing rows are left untouched
+-- by these INSERT OR IGNORE statements, making the migration safe
+-- to re-run for already-created rows.
 INSERT OR IGNORE INTO motor_model
 (motor_model_id,name,series,shaft_type,motor_category,nominal_voltage,nominal_rpm,nominal_current_ma,nominal_torque_gcm,efficiency_index,stability_tendency,heat_tendency,brush_life_index,data_confidence,notes,is_deleted)
 VALUES
