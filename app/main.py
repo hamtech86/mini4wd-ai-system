@@ -26,26 +26,68 @@ from app.application_builder import ApplicationBuilder
 
 
 class ApplicationRuntimeBuilder:
-    """Create application dependency context."""
+    """Create and wire the application dependency context."""
+
+    SERIAL_PORT = "/dev/ttyACM0"
+    SERIAL_BAUDRATE = 57600
+
+    def __init__(self):
+        self.serial_controller = None
 
     def build_context(self):
-        serial_controller = SerialController(
-            serial_port="/dev/ttyACM0"
+        """Create the hardware/service graph used by the main window.
+
+        Serial connection is established here so the UI never needs to know
+        how the Arduino transport is constructed.  A failed connection does
+        not prevent the UI from starting; this keeps the application usable
+        for UI/mock work while clearly reporting the disconnected state.
+        """
+        self.serial_controller = SerialController(
+            serial_port=self.SERIAL_PORT,
+            baudrate=self.SERIAL_BAUDRATE,
         )
 
-        if serial_controller.connect():
-            logger.info("Arduino serial connected")
+        connected = self.serial_controller.connect()
+        if connected:
+            logger.info(
+                "Arduino serial connected: {} @ {} baud",
+                self.SERIAL_PORT,
+                self.SERIAL_BAUDRATE,
+            )
         else:
-            logger.warning("Arduino serial connection failed")
+            logger.warning(
+                "Arduino serial connection failed: {} @ {} baud",
+                self.SERIAL_PORT,
+                self.SERIAL_BAUDRATE,
+            )
 
         builder = ApplicationBuilder(
-            serial_controller=serial_controller
+            serial_controller=self.serial_controller
         )
 
+        breakin_controller = builder.build_breakin_controller()
+
         return {
-            "serial_controller": serial_controller,
-            "breakin_controller": builder.build_breakin_controller(),
+            "serial_controller": self.serial_controller,
+            "breakin_controller": breakin_controller,
+            "serial_connected": connected,
         }
+
+    def close(self):
+        """Release the serial device during application shutdown."""
+        if self.serial_controller is None:
+            return
+
+        try:
+            if self.serial_controller.connected:
+                self.serial_controller.stop_breakin()
+        except Exception:
+            logger.exception("Failed to stop Arduino during shutdown")
+        finally:
+            try:
+                self.serial_controller.disconnect()
+            except Exception:
+                logger.exception("Failed to disconnect Arduino serial port")
 
 
 def setup_logger() -> None:
@@ -67,18 +109,25 @@ def main() -> int:
     app.setApplicationName(APP_NAME)
     app.setApplicationVersion(APP_VERSION)
 
+    runtime = ApplicationRuntimeBuilder()
+
     try:
-        context = ApplicationRuntimeBuilder().build_context()
+        context = runtime.build_context()
         window = MainWindow(context)
         window.show()
+
+        # Always release the Arduino port when the Qt event loop exits.
+        app.aboutToQuit.connect(runtime.close)
+
         return app.exec()
 
     except Exception:
         logger.exception("Fatal Error")
+        runtime.close()
         QMessageBox.critical(
             None,
             "Fatal Error",
-            "致命的なエラーが発生しました。\nsystem.log を確認してください。"
+            "致命的なエラーが発生しました。\nsystem.log を確認してください。",
         )
         return 1
 
