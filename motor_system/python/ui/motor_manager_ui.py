@@ -113,10 +113,16 @@ class MotorManagerUI(QWidget):
         button = QPushButton("Compare Selected"); button.clicked.connect(self.compare_selected); row.addWidget(button); row.addStretch(); layout.addLayout(row)
         self.compare_table = QTableWidget(); self.compare_table.setEditTriggers(QTableWidget.NoEditTriggers); layout.addWidget(self.compare_table)
 
+    @staticmethod
+    def _model_display_name(model):
+        name = model.get("name", model.get("motor_model_id"))
+        code = model.get("model_code")
+        return f"{name} ({code})" if code else str(name)
+
     def load_models(self):
         self.model_box.clear()
         for model in self.motor_repo.get_all():
-            self.model_box.addItem(str(model.get("name", model.get("motor_model_id"))), model.get("motor_model_id"))
+            self.model_box.addItem(self._model_display_name(model), model.get("motor_model_id"))
 
     def load_instances(self):
         try:
