@@ -1,7 +1,7 @@
 # ============================================================
 # motor_instance_repository.py
 # Motor Database System
-# Revision 3
+# Revision 4
 # Motor Instance Repository
 # ============================================================
 
@@ -49,12 +49,33 @@ class MotorInstanceRepository(BaseRepository):
         )
 
     def get_list_view(self):
-        """一覧UI用。モデル名を含む個体情報を返す。"""
+        """一覧UI用。Motor Modelの名称と正式コードを含む個体情報を返す。"""
         return self.fetch_all(
             """
-            SELECT *
-            FROM vw_motor_instance
-            ORDER BY created_at DESC
+            SELECT
+                mi.instance_id,
+                mi.motor_model_id,
+                mm.name AS motor_name,
+                mm.model_code,
+                mm.series,
+                mi.serial_number,
+                mi.nickname,
+                mi.status,
+                mi.health_status,
+                mi.purchase_date,
+                mi.opened_date,
+                mi.latest_session_id,
+                mi.latest_work_id,
+                mi.anomaly_count,
+                mi.consecutive_anomaly_count,
+                mi.created_at,
+                mi.updated_at
+            FROM motor_instance mi
+            INNER JOIN motor_model mm
+                ON mi.motor_model_id = mm.motor_model_id
+            WHERE mi.is_deleted=0
+              AND mm.is_deleted=0
+            ORDER BY mi.created_at DESC
             """
         )
 
