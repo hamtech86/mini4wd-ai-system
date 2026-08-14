@@ -7,7 +7,7 @@ validated recipe or a standalone 3 V benchmark test.
 
 from pathlib import Path
 
-from PyQt5.QtCore import QThread, pyqtSignal
+from PyQt5.QtCore import QThread, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
     QApplication,
     QComboBox,
@@ -52,9 +52,6 @@ class MainWindow(QMainWindow):
 
     BENCHMARK_KEY = "__MOTOR_BENCHMARK_TEST__"
 
-    # Benchmark vehicle assumptions. Keep the first benchmark intentionally
-    # simple: tire diameter and gear ratio only; course/aero/roller/etc. are
-    # excluded until the simulator layer is integrated.
     BENCHMARK_VEHICLE_WEIGHT_G = 130.0
     BENCHMARK_TIRE_DIAMETER_MM = 24.0
     BENCHMARK_GEAR_RATIO = 3.5
@@ -74,8 +71,12 @@ class MainWindow(QMainWindow):
         else:
             self.breakin_controller = getattr(context, "breakin_controller", None)
 
+        self.progress_timer = QTimer(self)
+        self.progress_timer.setInterval(250)
+        self.progress_timer.timeout.connect(self._update_progress)
+
         self.setWindowTitle("MINI4WD AI SYSTEM - MOTOR BREAKIN V3")
-        self.resize(900, 700)
+        self.resize(900, 760)
         self._build_ui()
         self._load_recipes()
         self._set_ready_state()
@@ -91,6 +92,28 @@ class MainWindow(QMainWindow):
         self.status = QLabel("READY")
         self.status.setStyleSheet("font-size: 16px; font-weight: bold;")
         main.addWidget(self.status)
+
+        progress_box = QGroupBox("LIVE BREAK-IN PROGRESS")
+        progress_layout = QFormLayout(progress_box)
+        self.progress_recipe_value = QLabel("--")
+        self.progress_step_value = QLabel("--")
+        self.progress_phase_value = QLabel("--")
+        self.progress_direction_value = QLabel("--")
+        self.progress_pwm_value = QLabel("--")
+        self.progress_elapsed_value = QLabel("--")
+        self.progress_remaining_value = QLabel("--")
+        self.progress_next_value = QLabel("--")
+        self.progress_status_value = QLabel("READY")
+        progress_layout.addRow("Recipe", self.progress_recipe_value)
+        progress_layout.addRow("Step", self.progress_step_value)
+        progress_layout.addRow("Current Phase", self.progress_phase_value)
+        progress_layout.addRow("Direction", self.progress_direction_value)
+        progress_layout.addRow("PWM", self.progress_pwm_value)
+        progress_layout.addRow("Elapsed", self.progress_elapsed_value)
+        progress_layout.addRow("Remaining", self.progress_remaining_value)
+        progress_layout.addRow("Next", self.progress_next_value)
+        progress_layout.addRow("Execution", self.progress_status_value)
+        main.addWidget(progress_box)
 
         content = QHBoxLayout()
 
@@ -175,6 +198,7 @@ class MainWindow(QMainWindow):
             self.status.setText("READY / CONTROLLER CONNECTED")
         else:
             self.status.setText("ERROR / CONTROLLER NOT AVAILABLE")
+        self._reset_progress_display()
         if self.recipe_selector.count():
             self._recipe_changed(0)
 
@@ -207,6 +231,7 @@ class MainWindow(QMainWindow):
             self.phase_list.addItem("BENCHMARK_3V_TEST: closed-loop 3.00 V / 10s")
             self.phase_list.addItem("VEHICLE: 130 g / 24 mm tire / 3.5:1")
             self.phase_list.addItem("OTHER FACTORS: EXCLUDED")
+            self._reset_progress_display(benchmark=True)
             return
 
         recipe = self.selected_recipe()
@@ -238,12 +263,74 @@ class MainWindow(QMainWindow):
             self.phase_list.addItem(
                 f"{phase.name}: PWM {phase.pwm}, {phase.duration_sec}s{control}"
             )
+        self._reset_progress_display()
 
     def selected_recipe(self):
         name = self.recipe_selector.currentData()
         if not name or name == self.BENCHMARK_KEY:
             return None
         return self.recipe_engine.get(name)
+
+    def _reset_progress_display(self, benchmark=False):
+        name = "MOTOR BENCHMARK TEST" if benchmark else (self.recipe_selector.currentData() or "--")
+        self.progress_recipe_value.setText(str(name))
+        self.progress_step_value.setText("--")
+        self.progress_phase_value.setText("BENCHMARK_3V_TEST" if benchmark else "--")
+        self.progress_direction_value.setText("FWD" if benchmark else "--")
+        self.progress_pwm_value.setText("--")
+        self.progress_elapsed_value.setText("--")
+        self.progress_remaining_value.setText("--")
+        self.progress_next_value.setText("--")
+        self.progress_status_value.setText("READY")
+        if hasattr(self, "phase_list"):
+            self.phase_list.clearSelection()
+
+    def _update_progress(self):
+        controller = self.breakin_controller
+        if not controller or not getattr(controller, "running", False):
+            return
+
+        phase = getattr(controller, "current_phase", None)
+        if phase is None:
+            return
+
+        recipe_name = self.recipe_selector.currentData()
+        if recipe_name == self.BENCHMARK_KEY:
+            recipe_name = "MOTOR BENCHMARK TEST"
+        index = int(getattr(controller, "current_phase_index", 0))
+        total = int(getattr(controller, "total_phases", 0))
+        elapsed = float(controller.phase_elapsed_sec()) if hasattr(controller, "phase_elapsed_sec") else 0.0
+        duration = float(getattr(phase, "duration_sec", 0.0))
+        remaining = max(0.0, duration - elapsed)
+
+        self.progress_recipe_value.setText(str(recipe_name))
+        self.progress_step_value.setText(f"{index + 1} / {total}")
+        self.progress_phase_value.setText(str(getattr(phase, "name", "--")))
+        self.progress_direction_value.setText(str(getattr(phase, "direction", "FWD")))
+        self.progress_pwm_value.setText(str(getattr(controller, "current_pwm", 0)))
+        self.progress_elapsed_value.setText(f"{elapsed:.1f} / {duration:.1f} s")
+        self.progress_remaining_value.setText(f"{remaining:.1f} s")
+        self.progress_status_value.setText("RUNNING")
+
+        next_index = index + 1
+        try:
+            recipe = self.selected_recipe()
+            if recipe is not None and next_index < len(recipe.phases):
+                next_phase = recipe.phases[next_index]
+                self.progress_next_value.setText(
+                    f"{next_phase.name} / {next_phase.direction} / PWM {next_phase.pwm}"
+                )
+            else:
+                self.progress_next_value.setText("FINAL / ANALYSIS")
+        except Exception:
+            self.progress_next_value.setText("--")
+
+        if hasattr(self, "phase_list") and 0 <= index < self.phase_list.count():
+            self.phase_list.setCurrentRow(index)
+
+    def _stop_progress_timer(self):
+        if self.progress_timer.isActive():
+            self.progress_timer.stop()
 
     def start_breakin(self):
         if not self.breakin_controller:
@@ -273,6 +360,7 @@ class MainWindow(QMainWindow):
         self.torque_display.setText("--")
         self.lifecycle_display.setText("--")
         self.weight_display.setText("--")
+        self.progress_status_value.setText("STARTING...")
         self.breakin_worker = BreakinWorker(
             self.breakin_controller, recipe=recipe, benchmark=is_benchmark
         )
@@ -280,29 +368,37 @@ class MainWindow(QMainWindow):
         self.breakin_worker.failed.connect(self.on_breakin_failed)
         self.breakin_worker.finished.connect(self.on_worker_finished)
         self.breakin_worker.start()
+        self.progress_timer.start()
 
     def stop_breakin(self):
+        self._stop_progress_timer()
         if self.breakin_controller:
             self.breakin_controller.emergency_stop()
         self.status.setText("STOPPED / EMERGENCY STOP")
+        self.progress_status_value.setText("STOPPED")
         self.start_button.setEnabled(True)
         self.stop_button.setEnabled(False)
         self.recipe_selector.setEnabled(True)
 
     def on_breakin_complete(self, result):
+        self._stop_progress_timer()
         is_benchmark = self.recipe_selector.currentData() == self.BENCHMARK_KEY
         self.display_analysis_result(result, benchmark=is_benchmark)
+        self.progress_status_value.setText("COMPLETE / ANALYSIS FINISHED")
         self.status.setText(
             "MOTOR BENCHMARK COMPLETE" if is_benchmark else "BREAK-IN COMPLETE / BENCHMARK FINISHED"
         )
 
     def on_breakin_failed(self, message):
+        self._stop_progress_timer()
         self.status.setText(f"ERROR / {message}")
+        self.progress_status_value.setText("ERROR")
         self.result_display.setText("ERROR")
         self.stop_button.setEnabled(False)
         self.benchmark_detail_display.setText(message)
 
     def on_worker_finished(self):
+        self._stop_progress_timer()
         self.start_button.setEnabled(True)
         self.stop_button.setEnabled(False)
         self.recipe_selector.setEnabled(True)
@@ -399,9 +495,6 @@ class MainWindow(QMainWindow):
         max_current = maximum(current_values)
         max_temperature = maximum(temperature_values)
 
-        # Arduino DATA frames define elapsed_time as a relative millisecond
-        # counter. Ignore Unix-timestamp-sized values from missing-frame
-        # fallbacks so one bad sample can never turn Duration into ~1.7e9 s.
         elapsed_values = []
         for measurement in measurements:
             value = self._number(getattr(measurement, "elapsed_time", 0))
