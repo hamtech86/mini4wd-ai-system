@@ -140,6 +140,7 @@ class MainWindow(QMainWindow):
         progress_layout.addLayout(progress_row3)
         main.addWidget(progress_box)
 
+<<<<<<< HEAD
         sensor_box = QGroupBox("LIVE ARDUINO / SENSOR")
         sensor_layout = QHBoxLayout(sensor_box)
         self.sensor_state_value = QLabel("--")
@@ -166,6 +167,30 @@ class MainWindow(QMainWindow):
             block.addWidget(value)
             sensor_layout.addLayout(block)
         main.addWidget(sensor_box)
+=======
+        telemetry_box = QGroupBox("LIVE ARDUINO / SENSOR")
+        telemetry_layout = QHBoxLayout(telemetry_box)
+        self.telemetry_arduino_value = QLabel("--")
+        self.telemetry_direction_value = QLabel("--")
+        self.telemetry_pwm_value = QLabel("--")
+        self.telemetry_voltage_value = QLabel("--")
+        self.telemetry_current_value = QLabel("--")
+        self.telemetry_state_value = QLabel("--")
+        self.telemetry_temperature_value = QLabel("--")
+        for label, value in (
+            ("Arduino", self.telemetry_arduino_value),
+            ("DIR", self.telemetry_direction_value),
+            ("PWM", self.telemetry_pwm_value),
+            ("V", self.telemetry_voltage_value),
+            ("A", self.telemetry_current_value),
+            ("STATE", self.telemetry_state_value),
+            ("TEMP", self.telemetry_temperature_value),
+        ):
+            telemetry_layout.addWidget(QLabel(f"{label}:"))
+            telemetry_layout.addWidget(value)
+        telemetry_layout.addStretch(1)
+        main.addWidget(telemetry_box)
+>>>>>>> ef52884 (Show live Arduino telemetry in motor break-in UI)
 
         content = QHBoxLayout()
 
@@ -257,7 +282,11 @@ class MainWindow(QMainWindow):
         else:
             self.status.setText("ERROR / CONTROLLER NOT AVAILABLE")
         self._reset_progress_display()
+<<<<<<< HEAD
         self._reset_sensor_display()
+=======
+        self._update_telemetry()
+>>>>>>> ef52884 (Show live Arduino telemetry in motor break-in UI)
         if self.recipe_selector.count():
             self._recipe_changed(0)
 
@@ -344,6 +373,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, "phase_list"):
             self.phase_list.clearSelection()
 
+<<<<<<< HEAD
     def _reset_sensor_display(self):
         self.sensor_state_value.setText("--")
         self.sensor_direction_value.setText("--")
@@ -390,6 +420,52 @@ class MainWindow(QMainWindow):
 
     def _update_progress(self):
         self._update_sensor_display()
+=======
+    def _update_telemetry(self):
+        controller = self.breakin_controller
+        serial_controller = getattr(controller, "serial", None) if controller else None
+        connected = bool(getattr(serial_controller, "connected", False))
+        self.telemetry_arduino_value.setText("CONNECTED" if connected else "DISCONNECTED")
+
+        if not controller:
+            for widget in (
+                self.telemetry_direction_value,
+                self.telemetry_pwm_value,
+                self.telemetry_voltage_value,
+                self.telemetry_current_value,
+                self.telemetry_state_value,
+                self.telemetry_temperature_value,
+            ):
+                widget.setText("--")
+            return
+
+        measurement_manager = getattr(controller, "measurement_manager", None)
+        measurement = getattr(measurement_manager, "last_measurement", None)
+        if measurement is not None:
+            direction = getattr(measurement, "direction", getattr(serial_controller, "direction", "--"))
+            pwm = getattr(measurement, "pwm", getattr(serial_controller, "last_pwm", 0))
+            voltage = getattr(measurement, "motor_voltage", 0.0)
+            current = getattr(measurement, "current_avg", 0.0)
+            state = getattr(measurement, "state", "--")
+            temperature = getattr(measurement, "motor_temperature", 0.0)
+        else:
+            direction = getattr(serial_controller, "direction", "--")
+            pwm = getattr(serial_controller, "last_pwm", 0)
+            voltage = 0.0
+            current = 0.0
+            state = "NO DATA"
+            temperature = 0.0
+
+        self.telemetry_direction_value.setText(str(direction))
+        self.telemetry_pwm_value.setText(str(pwm))
+        self.telemetry_voltage_value.setText(f"{self._number(voltage):.2f} V")
+        self.telemetry_current_value.setText(f"{self._number(current):.3f} A")
+        self.telemetry_state_value.setText(str(state))
+        self.telemetry_temperature_value.setText(f"{self._number(temperature):.1f} °C")
+
+    def _update_progress(self):
+        self._update_telemetry()
+>>>>>>> ef52884 (Show live Arduino telemetry in motor break-in UI)
         controller = self.breakin_controller
         if not controller or not getattr(controller, "running", False):
             return
@@ -465,6 +541,7 @@ class MainWindow(QMainWindow):
         self.lifecycle_display.setText("--")
         self.weight_display.setText("--")
         self.progress_status_value.setText("STARTING...")
+        self._update_telemetry()
         self.breakin_worker = BreakinWorker(
             self.breakin_controller, recipe=recipe, benchmark=is_benchmark
         )
@@ -480,12 +557,14 @@ class MainWindow(QMainWindow):
             self.breakin_controller.emergency_stop()
         self.status.setText("STOPPED / EMERGENCY STOP")
         self.progress_status_value.setText("STOPPED")
+        self._update_telemetry()
         self.start_button.setEnabled(True)
         self.stop_button.setEnabled(False)
         self.recipe_selector.setEnabled(True)
 
     def on_breakin_complete(self, result):
         self._stop_progress_timer()
+        self._update_telemetry()
         is_benchmark = self.recipe_selector.currentData() == self.BENCHMARK_KEY
         self.display_analysis_result(result, benchmark=is_benchmark)
         self.progress_status_value.setText("COMPLETE / ANALYSIS FINISHED")
@@ -496,6 +575,7 @@ class MainWindow(QMainWindow):
 
     def on_breakin_failed(self, message):
         self._stop_progress_timer()
+        self._update_telemetry()
         self.status.setText(f"ERROR / {message}")
         self.progress_status_value.setText("ERROR")
         self.result_display.setText("ERROR")
