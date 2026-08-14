@@ -38,18 +38,26 @@ class BreakinController:
         self.current_phase = None
         self.current_pwm = 0
         self.abort_reason = None
+        self.phase_started_at = None
+        self.current_phase_index = 0
+        self.total_phases = 0
 
     def start(self, recipe):
         self.phase_manager = PhaseManager(recipe)
         self.running = True
         self.measurements = []
         self.abort_reason = None
+        self.current_phase = None
+        self.current_phase_index = 0
+        self.total_phases = len(recipe.phases)
+        self.phase_started_at = None
         if self.session_manager:
             self.session = self.session_manager.start("BREAKIN")
         try:
             while self.running and self.phase_manager.has_next():
                 self.execute_phase(self.phase_manager.current_phase())
                 self.phase_manager.next_phase()
+                self.current_phase_index = self.phase_manager.current_index()
             if self.abort_reason:
                 raise RuntimeError(self.abort_reason)
             self.stop()
@@ -62,6 +70,8 @@ class BreakinController:
                 self.session_manager.finish("ERROR")
             self.emergency_stop()
             raise
+        finally:
+            self.phase_started_at = None
 
     def benchmark_3v(self, duration_sec=10):
         """Run a standalone 3 V motor benchmark without a break-in recipe.
@@ -95,7 +105,9 @@ class BreakinController:
 
     def execute_phase(self, phase):
         self.current_phase = phase
+        self.current_phase_index = self.phase_manager.current_index()
         self.abort_reason = None
+        self.phase_started_at = time.time()
         if phase.direction == "REV":
             self.serial.reverse()
         else:
@@ -114,7 +126,7 @@ class BreakinController:
             self.emergency_stop()
             return
 
-        start = time.time()
+        start = self.phase_started_at
         while self.running and time.time() - start < phase.duration_sec:
             measurement = self._collect_measurement(phase)
             if phase.control == "VOLTAGE" and phase.target_voltage is not None:
@@ -127,6 +139,11 @@ class BreakinController:
             time.sleep(self.CONTROL_INTERVAL_SEC)
         self.serial.set_pwm(0)
         time.sleep(0.2)
+
+    def phase_elapsed_sec(self):
+        if self.phase_started_at is None:
+            return 0.0
+        return max(0.0, time.time() - self.phase_started_at)
 
     @staticmethod
     def _value(measurement, name, default=0.0):
