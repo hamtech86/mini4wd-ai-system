@@ -1,281 +1,105 @@
-"""
-=====================================================
- MINI4WD AI SYSTEM
- MOTOR_BREAKIN_V3
- analysis/models.py
-=====================================================
-
-Analysis Engine Data Models
-
-=====================================================
-"""
-
+"""Analysis Engine data models for MOTOR_BREAKIN_V3."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any, Dict, List
 
-from typing import (
-    Any,
-    Dict,
-    List,
-)
-
-
-
-# =====================================================
-# Estimated Value
-# =====================================================
 
 @dataclass
 class EstimatedValue:
-    """
-    推定値共通モデル
-    """
-
     value: float = 0.0
-
     unit: str = ""
-
     confidence: float = 0.0
 
-
-
-# =====================================================
-# Feature Set
-# =====================================================
 
 @dataclass
 class FeatureSet:
-    """
-    FeatureExtractor Output
-    """
-
     voltage: float = 0.0
-
     current: float = 0.0
-
     pwm: float = 0.0
-
     rpm: float = 0.0
-
-
-    # Performance Analysis対応
-
     average_voltage: float = 0.0
-
     average_current: float = 0.0
-
-
     temperature: float = 0.0
-
     magnetic: float = 0.0
-
     direction: str = ""
-
     state: str = ""
-
     quality: float = 1.0
+    brush_peak_current: float = 0.0
+    current_ripple: float = 0.0
 
-
-
-# =====================================================
-# Validation Result
-# =====================================================
 
 @dataclass
 class ValidationResult:
-    """
-    Validation結果
-    """
-
     valid: bool = False
-
     quality_score: float = 0.0
-
-
     missing_count: int = 0
-
     warning_count: int = 0
-
     error_count: int = 0
-
-
     message: str = ""
+    warnings: List[str] = field(default_factory=list)
+    errors: List[str] = field(default_factory=list)
+    anomaly_flags: List[str] = field(default_factory=list)
 
-
-    warnings: List[str] = field(
-        default_factory=list
-    )
-
-    errors: List[str] = field(
-        default_factory=list
-    )
-
-    anomaly_flags: List[str] = field(
-        default_factory=list
-    )
-
-
-
-# =====================================================
-# Performance Result
-# =====================================================
 
 @dataclass
 class PerformanceResult:
-    """
-    Performance解析結果
-    """
+    estimated_rpm: EstimatedValue = field(default_factory=EstimatedValue)
+    estimated_torque: EstimatedValue = field(default_factory=EstimatedValue)
+    estimated_weight: EstimatedValue = field(default_factory=EstimatedValue)
 
-    estimated_rpm: EstimatedValue = field(
-        default_factory=EstimatedValue
-    )
-
-    estimated_torque: EstimatedValue = field(
-        default_factory=EstimatedValue
-    )
-
-    estimated_weight: EstimatedValue = field(
-        default_factory=EstimatedValue
-    )
-
-
-
-# =====================================================
-# Brush Result
-# =====================================================
 
 @dataclass
 class BrushResult:
-    """
-    Brush解析結果
-    """
-
     peak_detected: bool = False
-
-    peak_position: float = 0.0
-
+    peak_position: EstimatedValue = field(default_factory=EstimatedValue)
     brush_condition: str = "UNKNOWN"
-
+    peak_score: EstimatedValue = field(default_factory=EstimatedValue)
     confidence: float = 0.0
-
     explanation: str = ""
 
-
-
-# =====================================================
-# Strategy Result
-# =====================================================
 
 @dataclass
 class StrategyResult:
-    """
-    Break-in Strategy Result
-    """
-
-    # 現行仕様
     recipe_name: str = ""
-
-    # 旧仕様互換
     recipe: str = ""
-
     reason: str = ""
-
-    stages: List[Dict[str, Any]] = field(
-        default_factory=list
-    )
-
+    stages: List[Dict[str, Any]] = field(default_factory=list)
     explanation: str = ""
 
-
     def __post_init__(self):
-
         if not self.recipe_name and self.recipe:
-
             self.recipe_name = self.recipe
-
-
         if not self.recipe and self.recipe_name:
-
             self.recipe = self.recipe_name
 
-
-
-# 旧名称互換
 
 BreakinStrategyResult = StrategyResult
 
 
-
-# =====================================================
-# Score Result
-# =====================================================
-
 @dataclass
 class ScoreResult:
-    """
-    Score Result
-    """
-
     total_score: float = 0.0
-
     rank: str = "D"
-
-    details: Dict[str, Any] = field(
-        default_factory=dict
-    )
-
-
-    # 旧テスト互換
+    details: Dict[str, Any] = field(default_factory=dict)
 
     @property
     def score(self):
-
         return self.total_score
-
 
     @score.setter
     def score(self, value):
-
         self.total_score = value
 
 
-
-# =====================================================
-# Analysis Result
-# =====================================================
-
 @dataclass
 class AnalysisResult:
-    """
-    Final Analysis Result
-    """
-
-    validation: ValidationResult = field(
-        default_factory=ValidationResult
-    )
-
-    performance: PerformanceResult = field(
-        default_factory=PerformanceResult
-    )
-
-    brush: BrushResult = field(
-        default_factory=BrushResult
-    )
-
-    strategy: StrategyResult = field(
-        default_factory=StrategyResult
-    )
-
-    score: ScoreResult = field(
-        default_factory=ScoreResult
-    )
-
-
+    validation: ValidationResult = field(default_factory=ValidationResult)
+    performance: PerformanceResult = field(default_factory=PerformanceResult)
+    brush: BrushResult = field(default_factory=BrushResult)
+    strategy: StrategyResult = field(default_factory=StrategyResult)
+    score: ScoreResult = field(default_factory=ScoreResult)
     analysis_version: str = "1.0"
-
     algorithm_version: str = "1.0"
-
     config_version: str = "1.0"
-
     recipe_version: str = "1.0"
