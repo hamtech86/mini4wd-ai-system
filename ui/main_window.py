@@ -204,6 +204,26 @@ class MainWindow(QMainWindow):
         info_layout.addRow("Gear Ratio", self.gear_ratio_value)
         info_layout.addRow("Safety", self.safety_value)
         content.addWidget(info_box, 1)
+
+        controls = QVBoxLayout()
+
+        self.start_button = QPushButton("START BREAK-IN")
+        self.stop_button = QPushButton("EMERGENCY STOP")
+        self.copy_benchmark_button = QPushButton("COPY BENCHMARK RESULT")
+
+        self.stop_button.setEnabled(False)
+        self.copy_benchmark_button.setEnabled(False)
+
+        self.start_button.clicked.connect(self.start_breakin)
+        self.stop_button.clicked.connect(self.stop_breakin)
+        self.copy_benchmark_button.clicked.connect(self.copy_benchmark_result)
+
+        controls.addWidget(self.start_button)
+        controls.addWidget(self.stop_button)
+        controls.addWidget(self.copy_benchmark_button)
+        controls.addStretch()
+
+        content.addLayout(controls)
         main.addLayout(content)
 
         result_box = QGroupBox("RESULT")
@@ -222,20 +242,6 @@ class MainWindow(QMainWindow):
         result_layout.addRow("Vehicle Weight Assumption", self.weight_display)
         result_layout.addRow("Benchmark Detail", self.benchmark_detail_display)
         main.addWidget(result_box)
-
-        controls = QHBoxLayout()
-        self.start_button = QPushButton("START BREAK-IN")
-        self.stop_button = QPushButton("EMERGENCY STOP")
-        self.copy_benchmark_button = QPushButton("COPY BENCHMARK RESULT")
-        self.stop_button.setEnabled(False)
-        self.copy_benchmark_button.setEnabled(False)
-        self.start_button.clicked.connect(self.start_breakin)
-        self.stop_button.clicked.connect(self.stop_breakin)
-        self.copy_benchmark_button.clicked.connect(self.copy_benchmark_result)
-        controls.addWidget(self.start_button)
-        controls.addWidget(self.stop_button)
-        controls.addWidget(self.copy_benchmark_button)
-        main.addLayout(controls)
 
         self.setCentralWidget(root)
 
