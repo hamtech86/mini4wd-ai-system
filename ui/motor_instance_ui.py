@@ -7,12 +7,8 @@ from pathlib import Path
 
 from PyQt5.QtCore import QTimer
 from PyQt5.QtWidgets import (
-    QComboBox,
-    QFormLayout,
-    QGroupBox,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
+    QComboBox, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton,
+    QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem,
 )
 
 
@@ -27,6 +23,7 @@ class MotorInstanceUI:
         self.brush_peak_state = QLabel("--")
         self._instances = []
         self._manager_window = None
+        self._history_window = None
 
         root_layout = window.centralWidget().layout()
         instance_box = QGroupBox("MOTOR INSTANCE")
@@ -40,6 +37,11 @@ class MotorInstanceUI:
         self.manager_button.setToolTip("Motor Instance Managerを開く")
         self.manager_button.clicked.connect(self.open_manager)
         instance_root.addWidget(self.manager_button)
+
+        self.history_button = QPushButton("HISTORY")
+        self.history_button.setToolTip("選択したMotor Instanceの保存済み結果を参照")
+        self.history_button.clicked.connect(self.open_history)
+        instance_root.addWidget(self.history_button)
         root_layout.insertWidget(2, instance_box)
 
         peak_box = QGroupBox("BENCHMARK / BRUSH PEAK")
@@ -75,7 +77,6 @@ class MotorInstanceUI:
             self.instance_selector.addItem("NO DATABASE", None)
             self.instance_label.setText("--")
             return
-
         try:
             connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
             try:
@@ -89,17 +90,14 @@ class MotorInstanceUI:
         except sqlite3.Error as exc:
             self.instance_selector.addItem(f"DATABASE ERROR: {exc}", None)
             return
-
         if not rows:
             self.instance_selector.addItem("NO ACTIVE MOTOR INSTANCE", None)
             return
-
         for instance_id, model_id, serial_number, nickname, created_at in rows:
             label = nickname or serial_number or f"MODEL {model_id}"
             text = f"{instance_id} / {label} / MODEL {model_id}"
             self._instances.append(instance_id)
             self.instance_selector.addItem(text, instance_id)
-
         self._instance_changed(0)
 
     def _instance_changed(self, index):
@@ -112,17 +110,65 @@ class MotorInstanceUI:
         return self.instance_selector.currentData()
 
     def open_manager(self):
-        try:
-            from motor_system.python.ui.motor_manager_ui import MotorManagerUI
-        except ImportError:
-            from motor_system.python.ui.motor_manager_ui import MotorManagerUI
-
+        from motor_system.python.ui.motor_manager_ui import MotorManagerUI
         self._manager_window = MotorManagerUI()
         self._manager_window.setAttribute(55, True)
         self._manager_window.show()
         self._manager_window.raise_()
         self._manager_window.activateWindow()
         self._manager_window.destroyed.connect(self.load_instances)
+
+    def open_history(self):
+        instance_id = self.selected_instance_id()
+        if instance_id is None:
+            from PyQt5.QtWidgets import QMessageBox
+            QMessageBox.information(self.window, "History", "Motor Instanceを選択してください。")
+            return
+        path = self._database_path()
+        try:
+            db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+            rows = db.execute(
+                "SELECT session_id, device_type, device_model, start_datetime, end_datetime, result "
+                "FROM measurement_session WHERE instance_id=? ORDER BY session_id DESC",
+                (instance_id,),
+            ).fetchall()
+        except sqlite3.Error as exc:
+            from PyQt5.QtWidgets import QMessageBox
+            QMessageBox.critical(self.window, "History Error", str(exc))
+            return
+        finally:
+            try:
+                db.close()
+            except Exception:
+                pass
+
+        dialog = QDialog(self.window)
+        dialog.setWindowTitle(f"Saved Results — Instance {instance_id}")
+        dialog.resize(850, 420)
+        layout = QVBoxLayout(dialog)
+        table = QTableWidget(len(rows), 6)
+        table.setHorizontalHeaderLabels(["Session", "Device", "Model", "Start", "End", "Result"])
+        table.setSelectionBehavior(QTableWidget.SelectRows)
+        table.setEditTriggers(QTableWidget.NoEditTriggers)
+        for r, row in enumerate(rows):
+            for c, value in enumerate(row):
+                table.setItem(r, c, QTableWidgetItem("" if value is None else str(value)))
+        table.resizeColumnsToContents()
+        layout.addWidget(table)
+        hint = QLabel("保存済み結果をダブルクリックすると詳細を表示します。")
+        layout.addWidget(hint)
+
+        def show_detail(row, _column):
+            session_id = table.item(row, 0).text()
+            from motor_system.python.ui.saved_result_dialog import SavedResultDialog
+            detail = SavedResultDialog(dialog, db, session_id)
+            detail.exec_()
+
+        table.cellDoubleClicked.connect(show_detail)
+        self._history_window = dialog
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
 
     def update(self):
         controller = self.controller
@@ -140,16 +186,12 @@ class MotorInstanceUI:
                     peak_values.append(float(value))
             except (TypeError, ValueError):
                 pass
-
         peak = max(peak_values, default=float(getattr(controller, "last_brush_peak_current", 0.0) or 0.0))
         self.brush_peak_value.setText(f"{peak:.3f} A" if peak > 0 else "--")
-
         reached = bool(getattr(controller, "brush_peak_reached", False))
         target = float(getattr(controller, "brush_peak_target_current", 0.0) or 0.0)
         if target > 0:
-            self.brush_peak_state.setText(
-                f"APPROACH TARGET {target:.3f} A" + (" / REACHED" if reached else "")
-            )
+            self.brush_peak_state.setText(f"APPROACH TARGET {target:.3f} A" + (" / REACHED" if reached else ""))
         elif peak > 0:
             self.brush_peak_state.setText("MEASURED / BENCHMARK")
         else:
@@ -157,7 +199,6 @@ class MotorInstanceUI:
 
 
 def install_motor_instance_ui(window, context=None):
-    """Install operator widgets and retain the augmentation on the window."""
     ui = MotorInstanceUI(window, context)
     window.motor_instance_ui = ui
     return ui
