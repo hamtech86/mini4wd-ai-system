@@ -10,17 +10,16 @@ Application entry point
 import sys
 from pathlib import Path
 
-# Allow execution with: python3 app/main.py
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from PyQt5.QtWidgets import QApplication, QMessageBox
-
 from loguru import logger
 
 from config import APP_NAME, APP_VERSION, LOG_DIR
 from ui.main_window import MainWindow
+from ui.motor_instance_ui import install_motor_instance_ui
 from communication.serial_controller import SerialController
 from app.application_builder import ApplicationBuilder
 
@@ -35,13 +34,6 @@ class ApplicationRuntimeBuilder:
         self.serial_controller = None
 
     def build_context(self):
-        """Create the hardware/service graph used by the main window.
-
-        Serial connection is established here so the UI never needs to know
-        how the Arduino transport is constructed.  A failed connection does
-        not prevent the UI from starting; this keeps the application usable
-        for UI/mock work while clearly reporting the disconnected state.
-        """
         self.serial_controller = SerialController(
             serial_port=self.SERIAL_PORT,
             baudrate=self.SERIAL_BAUDRATE,
@@ -61,10 +53,7 @@ class ApplicationRuntimeBuilder:
                 self.SERIAL_BAUDRATE,
             )
 
-        builder = ApplicationBuilder(
-            serial_controller=self.serial_controller
-        )
-
+        builder = ApplicationBuilder(serial_controller=self.serial_controller)
         breakin_controller = builder.build_breakin_controller()
 
         return {
@@ -74,10 +63,8 @@ class ApplicationRuntimeBuilder:
         }
 
     def close(self):
-        """Release the serial device during application shutdown."""
         if self.serial_controller is None:
             return
-
         try:
             if self.serial_controller.connected:
                 self.serial_controller.stop_breakin()
@@ -104,23 +91,18 @@ def setup_logger() -> None:
 
 def main() -> int:
     setup_logger()
-
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setApplicationVersion(APP_VERSION)
-
     runtime = ApplicationRuntimeBuilder()
 
     try:
         context = runtime.build_context()
         window = MainWindow(context)
+        install_motor_instance_ui(window, context)
         window.show()
-
-        # Always release the Arduino port when the Qt event loop exits.
         app.aboutToQuit.connect(runtime.close)
-
         return app.exec()
-
     except Exception:
         logger.exception("Fatal Error")
         runtime.close()
