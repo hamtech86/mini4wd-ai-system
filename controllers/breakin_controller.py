@@ -41,11 +41,15 @@ class BreakinController:
         self.phase_started_at = None
         self.current_phase_index = 0
         self.total_phases = 0
+        self.selected_instance_id = None
+        self.active_instance_id = None
         self.last_brush_peak_current = 0.0
         self.brush_peak_target_current = 0.0
         self.brush_peak_reached = False
 
     def start(self, recipe, instance_id=None):
+        instance_id = instance_id if instance_id is not None else self.selected_instance_id
+        self.active_instance_id = instance_id
         self.phase_manager = PhaseManager(recipe)
         self.running = True
         self.measurements = []
@@ -58,7 +62,10 @@ class BreakinController:
         self.brush_peak_target_current = 0.0
         self.brush_peak_reached = False
         if self.session_manager:
-            self.session = self.session_manager.start("BREAKIN", instance_id=instance_id)
+            try:
+                self.session = self.session_manager.start("BREAKIN", instance_id=instance_id)
+            except TypeError:
+                self.session = self.session_manager.start("BREAKIN")
         try:
             while self.running and self.phase_manager.has_next():
                 self.execute_phase(self.phase_manager.current_phase())
@@ -109,20 +116,14 @@ class BreakinController:
         self.current_phase_index = self.phase_manager.current_index()
         self.abort_reason = None
         self.phase_started_at = time.time()
-
         if phase.direction == "REV":
             self.serial.reverse()
         else:
             self.serial.forward()
-
         self.current_pwm = max(phase.pwm_min, min(phase.pwm_max, phase.pwm))
         if phase.control in ("VOLTAGE", "VOLTAGE_RAMP", "BRUSH_PEAK_APPROACH"):
-            if phase.control == "VOLTAGE_RAMP":
-                target = phase.start_voltage if phase.start_voltage is not None else 0.0
-            else:
-                target = phase.target_voltage if phase.target_voltage is not None else 0.0
-            self.current_pwm = self._initial_pwm_for_voltage(target, phase)
-
+            target = phase.start_voltage if phase.control == "VOLTAGE_RAMP" else phase.target_voltage
+            self.current_pwm = self._initial_pwm_for_voltage(target or 0.0, phase)
         self.serial.set_pwm(self.current_pwm)
 
         measurement = self._collect_measurement(phase)
@@ -131,12 +132,10 @@ class BreakinController:
             self.abort_reason = safety
             self.emergency_stop()
             return
-
         if phase.control == "BRUSH_PEAK_APPROACH":
             self._execute_brush_peak_approach(phase)
         else:
             self._execute_standard_phase(phase)
-
         self.serial.set_pwm(0)
         time.sleep(0.2)
 
@@ -156,12 +155,6 @@ class BreakinController:
             time.sleep(self.CONTROL_INTERVAL_SEC)
 
     def _execute_brush_peak_approach(self, phase):
-        """Hold 2 V until measured brush current approaches the last benchmark peak.
-
-        The benchmark must precede this phase. The controller intentionally stops
-        below the observed peak using peak_margin_ratio, rather than driving
-        through the peak.
-        """
         peak = self._estimate_brush_peak_current()
         if peak < phase.peak_min_current:
             self.abort_reason = (
@@ -170,12 +163,10 @@ class BreakinController:
             )
             self.emergency_stop()
             return
-
         target = peak * (1.0 - phase.peak_margin_ratio)
         self.brush_peak_target_current = target
         start = self.phase_started_at
         max_duration = phase.max_duration_sec or phase.duration_sec or 1800
-
         while self.running and time.time() - start < max_duration:
             measurement = self._collect_measurement(phase)
             current = self._current_from_measurement(measurement)
@@ -192,7 +183,6 @@ class BreakinController:
                 self.emergency_stop()
                 return
             time.sleep(self.CONTROL_INTERVAL_SEC)
-
         self.serial.set_pwm(0)
 
     def _estimate_brush_peak_current(self):
@@ -211,10 +201,7 @@ class BreakinController:
     def _initial_pwm_for_voltage(self, target_voltage, phase):
         if target_voltage <= 0:
             return phase.pwm_min
-        return max(
-            phase.pwm_min,
-            min(phase.pwm_max, int(round((target_voltage / 9.0) * 180.0))),
-        )
+        return max(phase.pwm_min, min(phase.pwm_max, int(round((target_voltage / 9.0) * 180.0))))
 
     def _voltage_ramp_control(self, phase):
         elapsed = self.phase_elapsed_sec()
