@@ -1,8 +1,8 @@
 """MOTOR_BREAKIN_V3 operator UI: pre-run -> running -> result."""
 from pathlib import Path
 import sqlite3
-from PyQt5.QtCore import QThread,QTimer,pyqtSignal
-from PyQt5.QtWidgets import QApplication,QComboBox,QGroupBox,QHBoxLayout,QLabel,QMainWindow,QMessageBox,QPushButton,QVBoxLayout,QWidget
+from PyQt5.QtCore import QThread,QTimer,pyqtSignal,Qt
+from PyQt5.QtWidgets import QApplication,QComboBox,QGroupBox,QHBoxLayout,QLabel,QMainWindow,QMessageBox,QPushButton,QScrollArea,QSizePolicy,QVBoxLayout,QWidget
 from controllers.recipe_engine import RecipeEngine
 
 class BreakinWorker(QThread):
@@ -18,25 +18,27 @@ class MainWindow(QMainWindow):
         super().__init__(); self.context=context; self.breakin_worker=None; root=Path(__file__).resolve().parent.parent
         self.recipe_engine=RecipeEngine(str(root/"config"/"breakin_recipes.yaml")); self.breakin_controller=context.get("breakin_controller") if isinstance(context,dict) else getattr(context,"breakin_controller",None)
         self.timer=QTimer(self); self.timer.setInterval(250); self.timer.timeout.connect(self.refresh_runtime)
-        self.setWindowTitle("MINI4WD AI SYSTEM - MOTOR BREAKIN V3"); self.resize(1120,820); self.setMinimumSize(1000,720); self.build_ui(); self.load_recipes(); self.load_instances(); self.set_ready()
+        self.setWindowTitle("MINI4WD AI SYSTEM - MOTOR BREAKIN V3"); self.resize(1120,760); self.setMinimumSize(900,620); self.build_ui(); self.load_recipes(); self.load_instances(); self.set_ready()
     def build_ui(self):
-        root=QWidget(); main=QVBoxLayout(root); main.setContentsMargins(14,12,14,12); main.setSpacing(9)
-        h=QLabel("MOTOR BREAK-IN SYSTEM"); h.setStyleSheet("font-size:27px;font-weight:bold;"); main.addWidget(h)
-        pre=QGroupBox("① 駆動前：操作"); pv=QVBoxLayout(pre)
+        outer=QWidget(); outer_layout=QVBoxLayout(outer); outer_layout.setContentsMargins(8,8,8,8)
+        scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QScrollArea.NoFrame); content=QWidget(); main=QVBoxLayout(content); main.setContentsMargins(8,6,8,8); main.setSpacing(7)
+        head=QHBoxLayout(); h=QLabel("MOTOR BREAK-IN SYSTEM"); h.setStyleSheet("font-size:25px;font-weight:bold;"); head.addWidget(h); head.addStretch(); self.stop=QPushButton("EMERGENCY STOP"); self.stop.setEnabled(False); self.stop.setFixedHeight(30); self.stop.clicked.connect(self.stop_run); head.addWidget(self.stop); main.addLayout(head)
+        pre=QGroupBox("① 駆動前：操作"); pv=QVBoxLayout(pre); pv.setContentsMargins(8,6,8,6)
         r=QHBoxLayout(); r.addWidget(QLabel("MOTOR INSTANCE")); self.instance=QComboBox(); r.addWidget(self.instance,1); self.instance_id=QLabel("ID: --"); r.addWidget(self.instance_id); self.manager=QPushButton("INSTANCE MANAGER"); self.manager.setMinimumWidth(170); self.manager.clicked.connect(self.open_manager); r.addWidget(self.manager); pv.addLayout(r)
         r=QHBoxLayout(); r.addWidget(QLabel("RECIPE")); self.recipe=QComboBox(); self.recipe.currentIndexChanged.connect(self.recipe_changed); r.addWidget(self.recipe,1); self.start=QPushButton("START BREAK-IN"); self.start.setMinimumWidth(180); self.start.clicked.connect(self.start_run); r.addWidget(self.start); pv.addLayout(r)
         self.description=QLabel("-"); self.description.setWordWrap(True); pv.addWidget(self.description); main.addWidget(pre)
-        run=QGroupBox("② 駆動中：プログレス / LIVE DATA"); rv=QVBoxLayout(run); self.run_state=QLabel("READY"); self.run_state.setStyleSheet("font-size:23px;font-weight:bold;"); rv.addWidget(self.run_state)
+        run=QGroupBox("② 駆動中：プログレス / LIVE DATA"); rv=QVBoxLayout(run); rv.setContentsMargins(8,6,8,6); self.run_state=QLabel("READY"); self.run_state.setStyleSheet("font-size:22px;font-weight:bold;"); rv.addWidget(self.run_state)
         r=QHBoxLayout(); self.progress={k:QLabel("--") for k in ("STEP","PHASE","DIR","PWM","VOLT","CURRENT","ELAPSED","REMAIN")}
-        for k,w in self.progress.items(): box=QGroupBox(k); q=QVBoxLayout(box); q.setContentsMargins(8,7,8,7); w.setStyleSheet("font-size:17px;font-weight:bold;"); q.addWidget(w); r.addWidget(box,1)
+        for k,w in self.progress.items(): box=QGroupBox(k); q=QVBoxLayout(box); q.setContentsMargins(6,5,6,5); w.setStyleSheet("font-size:16px;font-weight:bold;"); w.setAlignment(Qt.AlignCenter); w.setMinimumHeight(32); q.addWidget(w); r.addWidget(box,1)
         rv.addLayout(r)
         r=QHBoxLayout(); self.live={k:QLabel("--") for k in ("Arduino","DIR","PWM","V","A","STATE","TEMP")}
         for k,w in self.live.items(): r.addWidget(QLabel(k+":")); r.addWidget(w)
-        r.addStretch(); rv.addLayout(r); self.stop=QPushButton("EMERGENCY STOP"); self.stop.setEnabled(False); self.stop.setMinimumHeight(42); self.stop.clicked.connect(self.stop_run); rv.addWidget(self.stop); main.addWidget(run)
-        detail=QGroupBox("SELECTED RECIPE"); r=QHBoxLayout(detail); self.recipe_detail=QLabel("-"); self.phase_detail=QLabel("-"); self.benchmark_detail=QLabel("-"); r.addWidget(QLabel("Description:")); r.addWidget(self.recipe_detail,2); r.addWidget(QLabel("Phases:")); r.addWidget(self.phase_detail,3); r.addWidget(QLabel("Benchmark:")); r.addWidget(self.benchmark_detail,1); main.addWidget(detail)
-        result=QGroupBox("③ 結果"); rv=QVBoxLayout(result); r=QHBoxLayout(); self.result={k:QLabel("--") for k in ("STATUS","BRUSH PEAK","PEAK STATE","BENCHMARK","SUMMARY")}
-        for k,w in self.result.items(): box=QGroupBox(k); q=QVBoxLayout(box); w.setStyleSheet("font-size:16px;font-weight:bold;"); w.setWordWrap(True); q.addWidget(w); r.addWidget(box,1)
-        rv.addLayout(r); self.copy=QPushButton("COPY RESULT"); self.copy.setEnabled(False); self.copy.setMinimumHeight(42); self.copy.clicked.connect(self.copy_result); rv.addWidget(self.copy); main.addWidget(result); self.setCentralWidget(root)
+        r.addStretch(); rv.addLayout(r); main.addWidget(run)
+        detail=QGroupBox("SELECTED RECIPE"); r=QHBoxLayout(detail); r.setContentsMargins(8,5,8,5); self.recipe_detail=QLabel("-"); self.phase_detail=QLabel("-"); self.benchmark_detail=QLabel("-"); r.addWidget(QLabel("Description:")); r.addWidget(self.recipe_detail,2); r.addWidget(QLabel("Phases:")); r.addWidget(self.phase_detail,3); r.addWidget(QLabel("Benchmark:")); r.addWidget(self.benchmark_detail,1); main.addWidget(detail)
+        result=QGroupBox("③ 結果"); rv=QVBoxLayout(result); rv.setContentsMargins(8,6,8,6); r=QHBoxLayout(); self.result={k:QLabel("--") for k in ("STATUS","BRUSH PEAK","PEAK STATE","BENCHMARK","SUMMARY")}
+        for k,w in self.result.items(): box=QGroupBox(k); q=QVBoxLayout(box); q.setContentsMargins(6,5,6,5); w.setStyleSheet("font-size:15px;font-weight:bold;"); w.setWordWrap(True); w.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Preferred); q.addWidget(w); r.addWidget(box,1)
+        rv.addLayout(r); self.copy=QPushButton("COPY RESULT"); self.copy.setEnabled(False); self.copy.setMinimumHeight(34); self.copy.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Fixed); self.copy.clicked.connect(self.copy_result); rv.addWidget(self.copy); main.addWidget(result)
+        scroll.setWidget(content); outer_layout.addWidget(scroll); self.setCentralWidget(outer)
     def set_ready(self): self.run_state.setText("READY / CONTROLLER CONNECTED" if self.breakin_controller else "ERROR / CONTROLLER NOT AVAILABLE"); self.refresh_runtime(); self.recipe_changed(0)
     def load_recipes(self):
         self.recipe.clear()
@@ -56,7 +58,7 @@ class MainWindow(QMainWindow):
     def open_manager(self):
         try:
             from motor_system.python.ui.motor_manager_ui import MotorManagerUI
-            self.manager_window=MotorManagerUI(); self.manager_window.setAttribute(55,True); self.manager_window.destroyed.connect(self.load_instances); self.manager_window.show(); self.manager_window.raise_(); self.manager_window.activateWindow()
+            self.manager_window=MotorManagerUI(); self.manager_window.setAttribute(Qt.WA_DeleteOnClose,True); self.manager_window.destroyed.connect(self.load_instances); self.manager_window.show(); self.manager_window.raise_(); self.manager_window.activateWindow()
         except Exception as e: QMessageBox.critical(self,"Instance Manager",f"Motor Instance Managerを起動できません。\n{type(e).__name__}: {e}")
     def recipe_changed(self,_):
         n=self.recipe.currentData()
