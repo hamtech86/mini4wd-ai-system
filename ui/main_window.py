@@ -130,15 +130,94 @@ class MainWindow(QMainWindow):
     def update_database(self):
         if self.database_updated:return
         instance_id=self.instance.currentData()
-        if instance_id is None or self.result["STATUS"].text() not in ("BENCHMARK COMPLETE","BREAK-IN COMPLETE"): QMessageBox.warning(self,"Database","正常完了した結果とMotor Instanceが必要です。"); return
+        if instance_id is None or self.result["STATUS"].text() not in ("BENCHMARK COMPLETE","BREAK-IN COMPLETE"):
+            QMessageBox.warning(self,"Database","正常完了した結果とMotor Instanceが必要です。"); return
         reply=QMessageBox.question(self,"Database Update",f"Instance #{instance_id} に今回の結果を登録しますか？\n\n{self.result['STATUS'].text()} / {self.result['RPM'].text()}",QMessageBox.Yes|QMessageBox.No,QMessageBox.No)
         if reply!=QMessageBox.Yes:return
+        conn=None
         try:
-            session=getattr(self.breakin_controller,"session",None); session_id=getattr(session,"session_id",None) or str(uuid.uuid4()); now=datetime.now().isoformat(timespec="seconds"); measurements=list(getattr(self.breakin_controller,"measurements",[]) or []); conn=sqlite3.connect(self.db_path); cur=conn.cursor(); cur.execute("INSERT OR IGNORE INTO measurement_session (session_id,measurement_type,status,start_time,end_time,measurement_count,operator,notes,schema_version,firmware_version) VALUES (?,?,?,?,?,?,?,?,?,?)",(session_id,"BREAKIN","FINISHED",None,now,len(measurements),"USER",json.dumps({"instance_id":instance_id,"benchmark_rpm":self.benchmark_rpm_input.text().strip(),"result":{k:v.text() for k,v in self.result.items()}},ensure_ascii=False),"1.0","MOTOR_BREAKIN_V3")); columns=("record_type","device_model","instance_id","elapsed_time","raw_acs1","raw_acs2","current1","current2","voltage1","voltage2","motor_voltage","pwm","direction","state","current_avg","power","current_ripple","voltage_ripple","peak_power","peak_current","peak_voltage","peak_pwm","brush_peak_current","raw_magnetic","magnetic_level","motor_temperature")
+            session=getattr(self.breakin_controller,"session",None)
+            measurements=list(getattr(self.breakin_controller,"measurements",[]) or [])
+            session_id=getattr(session,"session_id",None)
+            if not session_id:
+                for measurement in measurements:
+                    session_id=getattr(measurement,"session_id",None) if not isinstance(measurement,dict) else measurement.get("session_id")
+                    if session_id: break
+            session_id=session_id or str(uuid.uuid4())
+            now=datetime.now().isoformat(timespec="seconds")
+            conn=sqlite3.connect(self.db_path)
+            conn.execute("PRAGMA foreign_keys = ON")
+            cur=conn.cursor()
+
+            def table_columns(table):
+                return {row[1] for row in cur.execute(f"PRAGMA table_info({table})").fetchall()}
+
+            session_columns=table_columns("measurement_session")
+            required_session={
+                "session_id":session_id,
+                "measurement_type":"BREAKIN",
+                "status":"FINISHED",
+                "start_time":None,
+                "end_time":now,
+                "measurement_count":len(measurements),
+                "operator":"USER",
+                "notes":json.dumps({
+                    "instance_id":instance_id,
+                    "benchmark_rpm":self.benchmark_rpm_input.text().strip(),
+                    "result":{k:v.text() for k,v in self.result.items()},
+                },ensure_ascii=False),
+                "schema_version":"1.0",
+                "firmware_version":"MOTOR_BREAKIN_V3",
+            }
+            session_data={k:v for k,v in required_session.items() if k in session_columns}
+            if "session_id" not in session_data or "measurement_type" not in session_data or "status" not in session_data:
+                raise RuntimeError("measurement_session の必須カラムが現在のDBと一致しません")
+            placeholders=",".join("?" for _ in session_data)
+            cur.execute(f"INSERT OR IGNORE INTO measurement_session ({','.join(session_data)}) VALUES ({placeholders})",tuple(session_data.values()))
+
+            measurement_columns=table_columns("measurement")
+            model_columns=("record_type","device_model","instance_id","elapsed_time","raw_acs1","raw_acs2","current1","current2","voltage1","voltage2","motor_voltage","pwm","direction","state","current_avg","power","current_ripple","voltage_ripple","peak_power","peak_current","peak_voltage","peak_pwm","brush_peak_current","raw_magnetic","magnetic_level","motor_temperature")
+            inserted=0
             for measurement in measurements:
-                values=[getattr(measurement,col,None) for col in columns]; cur.execute(f"INSERT INTO measurement (session_id,{','.join(columns)}) VALUES ({','.join(['?']*(len(columns)+1))})",[session_id]+values)
-            conn.commit(); conn.close(); self.database_updated=True; self.update_db.setEnabled(False); self.database_status.setText(f"DATABASE: UPDATED ✓ / Instance #{instance_id} / Session {session_id}")
-        except Exception as exc: QMessageBox.critical(self,"Database Update Error",f"DB更新に失敗しました。\n{type(exc).__name__}: {exc}"); self.database_status.setText("DATABASE: UPDATE FAILED")
+                row={}
+                for col in model_columns:
+                    if col in measurement_columns:
+                        if isinstance(measurement,dict):
+                            value=measurement.get(col)
+                        else:
+                            value=getattr(measurement,col,None)
+                        row[col]=value
+                if "instance_id" in measurement_columns and row.get("instance_id") is None:
+                    row["instance_id"]=str(instance_id)
+                if "session_id" not in measurement_columns:
+                    raise RuntimeError("measurement.session_id カラムが現在のDBに存在しません")
+                row={"session_id":session_id,**row}
+                names=list(row.keys()); values=[row[name] for name in names]
+                cur.execute(f"INSERT INTO measurement ({','.join(names)}) VALUES ({','.join('?' for _ in names)})",values)
+                inserted+=1
+
+            # Some database revisions expose latest_session_id on motor_instance.
+            # Update it when available, without making the UI depend on that column.
+            instance_columns=table_columns("motor_instance")
+            if "latest_session_id" in instance_columns:
+                id_column="instance_id" if "instance_id" in instance_columns else None
+                if id_column:
+                    cur.execute(f"UPDATE motor_instance SET latest_session_id=? WHERE {id_column}=?",(session_id,instance_id))
+
+            conn.commit()
+            self.database_updated=True
+            self.update_db.setEnabled(False)
+            self.database_status.setText(f"DATABASE: UPDATED ✓ / Instance #{instance_id} / Session {session_id} / Measurements {inserted}")
+        except Exception as exc:
+            if conn is not None:
+                try: conn.rollback()
+                except Exception: pass
+            QMessageBox.critical(self,"Database Update Error",f"DB更新に失敗しました。\n{type(exc).__name__}: {exc}")
+            self.database_status.setText(f"DATABASE: UPDATE FAILED / {type(exc).__name__}: {exc}")
+        finally:
+            if conn is not None:
+                try: conn.close()
+                except Exception: pass
 
 def run_app(context=None):
     app=QApplication.instance() or QApplication([]); window=MainWindow(context); window.show(); return app.exec_()
