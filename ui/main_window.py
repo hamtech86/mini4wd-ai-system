@@ -87,10 +87,42 @@ class MainWindow(QMainWindow):
     def stop_run(self):
         if self.breakin_controller:self.breakin_controller.emergency_stop()
         self.timer.stop(); self.run_state.setText("EMERGENCY STOP"); self.stop.setEnabled(False)
+    def _benchmark_summary(self,data):
+        """Convert benchmark return data into operator-readable text; never render raw dict/object repr."""
+        if data is None:return "30秒測定完了"
+        if isinstance(data,dict):
+            for key in ("summary","message","result","status"):
+                value=data.get(key)
+                if isinstance(value,str) and value.strip():return value.strip()
+            elapsed=data.get("elapsed_sec",data.get("duration_sec"))
+            if elapsed is not None:return f"ベンチマーク測定完了 / {float(elapsed):.1f} s"
+            return "ベンチマーク測定完了"
+        return "ベンチマーク測定完了"
+    def _benchmark_value(self,data,*keys):
+        if isinstance(data,dict):
+            for key in keys:
+                if key in data and data[key] is not None:
+                    try:return float(data[key])
+                    except (TypeError,ValueError):pass
+        for key in keys:
+            value=getattr(data,key,None)
+            if value is not None:
+                try:return float(value)
+                except (TypeError,ValueError):pass
+        return None
     def complete(self,data,b):
-        self.timer.stop(); self.refresh_runtime(); self.run_state.setText("COMPLETE"); self.result["STATUS"].setText("BENCHMARK COMPLETE" if b else "BREAK-IN COMPLETE"); self.result["BENCHMARK"].setText("3.00 V / 30 s"); self.result["SUMMARY"].setText(str(data))
+        self.timer.stop(); self.refresh_runtime(); self.run_state.setText("COMPLETE"); self.result["STATUS"].setText("BENCHMARK COMPLETE" if b else "BREAK-IN COMPLETE")
         if b:
-            peak=getattr(self.breakin_controller,"last_brush_peak_current",None); self.result["BRUSH PEAK"].setText(f"{float(peak):.3f} A" if peak is not None else "--"); self.result["PEAK STATE"].setText("MEASURED / BENCHMARK")
+            peak=self._benchmark_value(data,"brush_peak_current","peak_current","peak_current_a","max_current","current_peak")
+            if peak is None: peak=getattr(self.breakin_controller,"last_brush_peak_current",None)
+            self.result["BRUSH PEAK"].setText(f"{peak:.3f} A" if peak is not None else "NOT RECORDED")
+            self.result["PEAK STATE"].setText("MEASURED / BENCHMARK" if peak is not None else "NO PEAK DATA")
+            voltage=self._benchmark_value(data,"target_voltage","benchmark_voltage","voltage")
+            duration=self._benchmark_value(data,"duration_sec","elapsed_sec","elapsed")
+            vtxt=f"{voltage:.2f} V" if voltage is not None else "3.00 V"; dtxt=f"{duration:.0f} s" if duration is not None else "30 s"
+            self.result["BENCHMARK"].setText(f"{vtxt} / {dtxt}"); self.result["SUMMARY"].setText(self._benchmark_summary(data))
+        else:
+            self.result["BENCHMARK"].setText("--"); self.result["SUMMARY"].setText("ブレイクイン完了")
         self.copy.setEnabled(True)
     def failed(self,msg):self.timer.stop();self.run_state.setText("ERROR");self.result["STATUS"].setText("ERROR");self.result["SUMMARY"].setText(msg);self.copy.setEnabled(True)
     def finished(self):self.timer.stop();self.start.setEnabled(True);self.manager.setEnabled(True);self.instance.setEnabled(True);self.recipe.setEnabled(True);self.stop.setEnabled(False);self.breakin_worker=None
