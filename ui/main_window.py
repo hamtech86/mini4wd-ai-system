@@ -178,7 +178,11 @@ class MainWindow(QMainWindow):
         main.addLayout(content)
 
         result_box = QGroupBox("RESULT")
-        result_layout = QFormLayout(result_box)
+        result_layout = QHBoxLayout(result_box)
+
+        result_left = QFormLayout()
+        result_right = QFormLayout()
+
         self.result_display = QLabel("--")
         self.rpm_display = QLabel("--")
         self.torque_display = QLabel("--")
@@ -186,27 +190,19 @@ class MainWindow(QMainWindow):
         self.weight_display = QLabel("--")
         self.benchmark_detail_display = QLabel("--")
         self.benchmark_detail_display.setWordWrap(True)
-        result_layout.addRow("Summary", self.result_display)
-        result_layout.addRow("Estimated RPM", self.rpm_display)
-        result_layout.addRow("Estimated Torque", self.torque_display)
-        result_layout.addRow("Brush Lifecycle", self.lifecycle_display)
-        result_layout.addRow("Vehicle Weight Assumption", self.weight_display)
-        result_layout.addRow("Benchmark Detail", self.benchmark_detail_display)
-        main.addWidget(result_box)
 
-        controls = QHBoxLayout()
-        self.start_button = QPushButton("START BREAK-IN")
-        self.stop_button = QPushButton("EMERGENCY STOP")
-        self.copy_benchmark_button = QPushButton("COPY BENCHMARK RESULT")
-        self.stop_button.setEnabled(False)
-        self.copy_benchmark_button.setEnabled(False)
-        self.start_button.clicked.connect(self.start_breakin)
-        self.stop_button.clicked.connect(self.stop_breakin)
-        self.copy_benchmark_button.clicked.connect(self.copy_benchmark_result)
-        controls.addWidget(self.start_button)
-        controls.addWidget(self.stop_button)
-        controls.addWidget(self.copy_benchmark_button)
-        main.addLayout(controls)
+        result_left.addRow("Summary", self.result_display)
+        result_left.addRow("Estimated RPM", self.rpm_display)
+        result_left.addRow("Estimated Torque", self.torque_display)
+
+        result_right.addRow("Brush Lifecycle", self.lifecycle_display)
+        result_right.addRow("Vehicle Weight Assumption", self.weight_display)
+        result_right.addRow("Benchmark Detail", self.benchmark_detail_display)
+
+        result_layout.addLayout(result_left, 1)
+        result_layout.addLayout(result_right, 1)
+
+        main.addWidget(result_box)
 
         self.setCentralWidget(root)
 

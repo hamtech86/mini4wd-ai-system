@@ -2,8 +2,8 @@
 
 Recipe -> Phase Control -> Arduino -> Measurement -> Analysis.
 
-Recipe stages may use ordinary PWM control or closed-loop motor-voltage
-control. The latter is used by the common 3 V benchmark.
+Recipe stages use ordinary PWM control. The standalone benchmark uses a
+fixed PWM value chosen to approximate 3 V from a 12 V supply.
 """
 
 import time
@@ -74,25 +74,26 @@ class BreakinController:
             self.phase_started_at = None
 
     def benchmark_3v(self, duration_sec=10):
-        """Run a standalone 3 V motor benchmark without a break-in recipe.
+        """Run a 12 V-input, 3 V-equivalent PWM benchmark for 10 seconds.
 
-        The short default duration is intentionally test-oriented. The normal
-        recipe benchmark remains the authoritative 120 s measurement defined
-        in breakin_recipes.yaml.
+        PWM 64 on a 0-255 command range corresponds to approximately
+        12 * 64 / 255 = 3.01 V equivalent under the simple proportional model.
+        This is intentionally an open-loop fixed-PWM benchmark rather than
+        closed-loop voltage regulation.
         """
         phase = BreakinPhase(
-            name="BENCHMARK_3V_TEST",
+            name="BENCHMARK_3V_EQ_PWM",
             duration_sec=float(duration_sec),
-            pwm=80,
+            pwm=64,
             direction="FWD",
-            control="VOLTAGE",
-            target_voltage=3.00,
-            pwm_min=35,
-            pwm_max=120,
+            control=None,
+            target_voltage=None,
+            pwm_min=0,
+            pwm_max=245,
         )
         recipe = BreakinRecipe(
             name="MOTOR_BENCHMARK_TEST",
-            description="Standalone 3 V motor benchmark test",
+            description="12 V input / PWM64 (~3 V equivalent) motor benchmark",
             brush="UNKNOWN",
             family="BENCHMARK",
             objective="MEASUREMENT",

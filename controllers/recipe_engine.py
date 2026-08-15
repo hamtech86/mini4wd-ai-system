@@ -37,11 +37,21 @@ class RecipeEngine:
         if not self.recipes:
             raise ValueError("No break-in recipes are defined")
         for name, recipe in self.recipes.items():
-            if recipe.brush not in {"COPPER", "CARBON", "UNKNOWN"}:
+            allowed_brush = {"COPPER", "CARBON", "UNKNOWN"}
+            # Diagnostic recipes are not motor-material recipes.  They use
+            # brush=TEST to make their purpose explicit and must be accepted
+            # by the recipe engine without affecting normal break-in recipes.
+            if recipe.family == "DIAGNOSTIC":
+                allowed_brush = allowed_brush | {"TEST"}
+            if recipe.brush not in allowed_brush:
                 raise ValueError(f"{name}: unsupported brush type {recipe.brush}")
             for phase in recipe.phases:
                 if phase.pwm < 0 or phase.pwm > 255:
                     raise ValueError(f"{name}/{phase.name}: PWM out of range")
+                if phase.direction not in {"FWD", "REV"}:
+                    raise ValueError(f"{name}/{phase.name}: unsupported direction {phase.direction}")
+                if phase.duration_sec < 0:
+                    raise ValueError(f"{name}/{phase.name}: invalid duration")
                 if phase.control == "VOLTAGE":
                     if phase.target_voltage is None or phase.target_voltage <= 0:
                         raise ValueError(f"{name}/{phase.name}: invalid target voltage")

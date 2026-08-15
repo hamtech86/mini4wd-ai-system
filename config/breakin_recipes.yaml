@@ -24,6 +24,25 @@ common:
     max_pwm: 245
 
 recipes:
+  MOTOR_DRIVE_TEST:
+    description: "Short diagnostic recipe for verifying Arduino commands, motor direction, PWM response, current sensing and RPM sensing. Not a break-in recipe."
+    brush: TEST
+    family: DIAGNOSTIC
+    objective: MEASUREMENT
+    benchmark: null
+    target:
+      rpm: null
+      torque_priority: 0.50
+    stages:
+      - {name: FWD_50, pwm: 50, duration_sec: 5, direction: FWD}
+      - {name: FWD_75, pwm: 75, duration_sec: 5, direction: FWD}
+      - {name: FWD_100, pwm: 100, duration_sec: 5, direction: FWD}
+      - {name: STOP_1, pwm: 0, duration_sec: 2, direction: FWD}
+      - {name: REV_50, pwm: 50, duration_sec: 5, direction: REV}
+      - {name: REV_75, pwm: 75, duration_sec: 5, direction: REV}
+      - {name: REV_100, pwm: 100, duration_sec: 5, direction: REV}
+      - {name: STOP_2, pwm: 0, duration_sec: 2, direction: REV}
+
   ATOMIC_25K:
     description: "Atomic/Tune copper-brush high-speed recipe; 3 V benchmark targets 25,000 rpm class."
     brush: COPPER

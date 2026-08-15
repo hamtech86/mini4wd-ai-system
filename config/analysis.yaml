@@ -1,22 +1,33 @@
-analysis_version: "1.0"
+analysis_version: "1.1"
 
 performance:
 
   rpm:
-
     voltage_gain: 5000.0
-
     default_confidence: 0.50
 
   torque:
-
     current_gain: 10.0
-
     default_confidence: 0.50
 
+  # Legacy compatibility only. Do not use as the physical suitability model.
   weight:
-
     torque_gain: 12.0
-
     default_confidence: 0.40
 
+  # First physical weight-suitability model.
+  # Required motor torque = m * a * tire_radius / (gear_ratio * efficiency).
+  # Thresholds are intentionally configurable for later real-run calibration.
+  weight_suitability:
+    min_weight_g: 115.0
+    max_weight_g: 155.0
+    step_g: 5.0
+    reference_weight_g: 130.0
+    comparison_weight_g: 140.0
+    tire_diameter_mm: 24.0
+    gear_ratio: 3.5
+    drivetrain_efficiency: 0.75
+    target_acceleration_mps2: 3.0
+    margin_recommended: 1.30
+    margin_acceptable: 1.10
+    margin_limit: 1.00

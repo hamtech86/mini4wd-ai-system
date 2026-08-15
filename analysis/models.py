@@ -21,261 +21,109 @@ from typing import (
 )
 
 
-
-# =====================================================
-# Estimated Value
-# =====================================================
-
 @dataclass
 class EstimatedValue:
-    """
-    推定値共通モデル
-    """
-
+    """推定値共通モデル"""
     value: float = 0.0
-
     unit: str = ""
-
     confidence: float = 0.0
 
-
-
-# =====================================================
-# Feature Set
-# =====================================================
 
 @dataclass
 class FeatureSet:
-    """
-    FeatureExtractor Output
-    """
-
+    """FeatureExtractor Output"""
     voltage: float = 0.0
-
     current: float = 0.0
-
     pwm: float = 0.0
-
     rpm: float = 0.0
-
-
-    # Performance Analysis対応
-
     average_voltage: float = 0.0
-
     average_current: float = 0.0
-
-
     temperature: float = 0.0
-
     magnetic: float = 0.0
-
     direction: str = ""
-
     state: str = ""
-
     quality: float = 1.0
 
 
-
-# =====================================================
-# Validation Result
-# =====================================================
-
 @dataclass
 class ValidationResult:
-    """
-    Validation結果
-    """
-
+    """Validation結果"""
     valid: bool = False
-
     quality_score: float = 0.0
-
-
     missing_count: int = 0
-
     warning_count: int = 0
-
     error_count: int = 0
-
-
     message: str = ""
+    warnings: List[str] = field(default_factory=list)
+    errors: List[str] = field(default_factory=list)
+    anomaly_flags: List[str] = field(default_factory=list)
 
-
-    warnings: List[str] = field(
-        default_factory=list
-    )
-
-    errors: List[str] = field(
-        default_factory=list
-    )
-
-    anomaly_flags: List[str] = field(
-        default_factory=list
-    )
-
-
-
-# =====================================================
-# Performance Result
-# =====================================================
 
 @dataclass
 class PerformanceResult:
-    """
-    Performance解析結果
-    """
+    """Performance解析結果"""
+    estimated_rpm: EstimatedValue = field(default_factory=EstimatedValue)
+    estimated_torque: EstimatedValue = field(default_factory=EstimatedValue)
+    estimated_weight: EstimatedValue = field(default_factory=EstimatedValue)
+    # Physical vehicle-weight suitability profile. Kept separate from the
+    # legacy estimated_weight compatibility field.
+    weight_suitability: Any = None
 
-    estimated_rpm: EstimatedValue = field(
-        default_factory=EstimatedValue
-    )
-
-    estimated_torque: EstimatedValue = field(
-        default_factory=EstimatedValue
-    )
-
-    estimated_weight: EstimatedValue = field(
-        default_factory=EstimatedValue
-    )
-
-
-
-# =====================================================
-# Brush Result
-# =====================================================
 
 @dataclass
 class BrushResult:
-    """
-    Brush解析結果
-    """
-
+    """Brush解析結果"""
     peak_detected: bool = False
-
     peak_position: float = 0.0
-
     brush_condition: str = "UNKNOWN"
-
     confidence: float = 0.0
-
     explanation: str = ""
 
-
-
-# =====================================================
-# Strategy Result
-# =====================================================
 
 @dataclass
 class StrategyResult:
-    """
-    Break-in Strategy Result
-    """
-
-    # 現行仕様
+    """Break-in Strategy Result"""
     recipe_name: str = ""
-
-    # 旧仕様互換
     recipe: str = ""
-
     reason: str = ""
-
-    stages: List[Dict[str, Any]] = field(
-        default_factory=list
-    )
-
+    stages: List[Dict[str, Any]] = field(default_factory=list)
     explanation: str = ""
 
-
     def __post_init__(self):
-
         if not self.recipe_name and self.recipe:
-
             self.recipe_name = self.recipe
-
-
         if not self.recipe and self.recipe_name:
-
             self.recipe = self.recipe_name
 
-
-
-# 旧名称互換
 
 BreakinStrategyResult = StrategyResult
 
 
-
-# =====================================================
-# Score Result
-# =====================================================
-
 @dataclass
 class ScoreResult:
-    """
-    Score Result
-    """
-
+    """Score Result"""
     total_score: float = 0.0
-
     rank: str = "D"
-
-    details: Dict[str, Any] = field(
-        default_factory=dict
-    )
-
-
-    # 旧テスト互換
+    details: Dict[str, Any] = field(default_factory=dict)
 
     @property
     def score(self):
-
         return self.total_score
-
 
     @score.setter
     def score(self, value):
-
         self.total_score = value
 
 
-
-# =====================================================
-# Analysis Result
-# =====================================================
-
 @dataclass
 class AnalysisResult:
-    """
-    Final Analysis Result
-    """
-
-    validation: ValidationResult = field(
-        default_factory=ValidationResult
-    )
-
-    performance: PerformanceResult = field(
-        default_factory=PerformanceResult
-    )
-
-    brush: BrushResult = field(
-        default_factory=BrushResult
-    )
-
-    strategy: StrategyResult = field(
-        default_factory=StrategyResult
-    )
-
-    score: ScoreResult = field(
-        default_factory=ScoreResult
-    )
-
-
+    """Final Analysis Result"""
+    validation: ValidationResult = field(default_factory=ValidationResult)
+    performance: PerformanceResult = field(default_factory=PerformanceResult)
+    brush: BrushResult = field(default_factory=BrushResult)
+    strategy: StrategyResult = field(default_factory=StrategyResult)
+    score: ScoreResult = field(default_factory=ScoreResult)
     analysis_version: str = "1.0"
-
     algorithm_version: str = "1.0"
-
     config_version: str = "1.0"
-
     recipe_version: str = "1.0"
