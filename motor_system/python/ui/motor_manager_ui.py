@@ -17,18 +17,13 @@ from database.manager.database_manager import DatabaseManager
 from database.repository.motor_instance_repository import MotorInstanceRepository
 from database.repository.motor_repository import MotorRepository
 
-# Benchmark repository is optional in the current main branch.  The Instance
-# Manager must remain launchable even when the benchmark_result repository has
-# not yet been installed.  This keeps the UI boundary independent from the
-# Main.py benchmark implementation.
 try:
     from database.repository.benchmark_result_repository import BenchmarkResultRepository
 except ImportError:
     class BenchmarkResultRepository:
-        def __init__(self, db):
-            self.db = db
-        def get_by_session(self, session_id):
-            return None
+        def __init__(self, db): self.db = db
+        def get_by_session(self, session_id): return None
+
 
 class MotorManagerUI(QWidget):
     def __init__(self):
@@ -60,11 +55,19 @@ class MotorManagerUI(QWidget):
 
     @staticmethod
     def _model_display_name(model):
-        name=model.get("name",model.get("motor_model_id")); code=model.get("model_code"); return f"{name} ({code})" if code else str(name)
+        name = model.get("name", model.get("motor_model_id"))
+        # Current schema uses `series` for the model code. Newer schemas may
+        # expose `model_code`; accept both without duplicating master data.
+        code = model.get("model_code") or model.get("series")
+        return f"{name} ({code})" if code else str(name)
 
     def load_models(self):
         self.model_box.clear()
-        for model in self.motor_repo.get_all(): self.model_box.addItem(self._model_display_name(model),model.get("motor_model_id"))
+        models = self.motor_repo.get_all()
+        for model in models:
+            self.model_box.addItem(self._model_display_name(model), model.get("motor_model_id"))
+        if len(models) != 15:
+            self.model_box.setToolTip(f"Motor Model Master: {len(models)} active models (expected 15)")
 
     def load_instances(self):
         try: rows=self.instance_repo.get_list_view()
@@ -72,7 +75,7 @@ class MotorManagerUI(QWidget):
         self.instance_table.setRowCount(len(rows))
         for r,data in enumerate(rows):
             benchmark=self.instance_repo.get_latest_benchmark(data.get("instance_id")) if self._benchmark_table_available() else None
-            model_name=data.get("motor_name"); model_code=data.get("model_code")
+            model_name=data.get("motor_name"); model_code=data.get("model_code") or data.get("series")
             model_display=f"{model_name} ({model_code})" if model_name and model_code else (str(model_name) if model_name else str(data.get("motor_model_id") or ""))
             values=[data.get("instance_id"),model_display,data.get("serial_number"),data.get("nickname"),data.get("status"),data.get("health_status"),data.get("latest_session_id"),benchmark.get("benchmark_rpm") if benchmark else None,data.get("anomaly_count",0),data.get("created_at"),data.get("updated_at")]
             for c,value in enumerate(values):
@@ -161,6 +164,7 @@ class MotorManagerUI(QWidget):
         self.compare_table.resizeColumnsToContents(); self.tabs.setCurrentWidget(self.compare_tab)
 
     def closeEvent(self,event): self.db.close(); event.accept()
+
 
 if __name__=="__main__":
     app=QApplication(sys.argv); window=MotorManagerUI(); window.show(); sys.exit(app.exec_())
