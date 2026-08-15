@@ -24,11 +24,9 @@ class MainWindow(BaseMainWindow):
         self._build_estimated_result_panel()
 
     def _build_estimated_result_panel(self):
-        # Keep the existing MainWindow layout intact; append a dedicated card
-        # below the existing result area so the legacy result fields remain
-        # available and are not silently repurposed.
-        scroll = self.centralWidget()
-        content = scroll.widget() if scroll is not None else None
+        # centralWidget() is the existing QWidget container, not a QScrollArea.
+        # Keep the existing layout intact and append the estimated-result card.
+        content = self.centralWidget()
         layout = content.layout() if content is not None else None
         if layout is None:
             return
