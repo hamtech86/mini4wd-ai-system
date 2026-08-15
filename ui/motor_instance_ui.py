@@ -44,6 +44,19 @@ class MotorInstanceUI:
         self.timer.start()
         self.load_instances()
 
+        # The existing MainWindow benchmark worker historically requested a
+        # 10-second test. The recipe contract is now 30 seconds, so enforce
+        # the authoritative minimum here without coupling the UI worker to
+        # recipe constants.
+        if self.controller is not None:
+            original_benchmark = self.controller.benchmark_3v
+
+            def benchmark_30s(*args, **kwargs):
+                kwargs["duration_sec"] = max(30.0, float(kwargs.get("duration_sec", 30.0)))
+                return original_benchmark(*args, **kwargs)
+
+            self.controller.benchmark_3v = benchmark_30s
+
     def _database_path(self):
         return Path(__file__).resolve().parent.parent / "database" / "mini4wd.db"
 
