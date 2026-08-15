@@ -1,13 +1,29 @@
-"""Analysis Engine Data Models."""
+"""
+=====================================================
+ MINI4WD AI SYSTEM
+ MOTOR_BREAKIN_V3
+ analysis/models.py
+=====================================================
+
+Analysis Engine Data Models
+
+=====================================================
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+
+from typing import (
+    Any,
+    Dict,
+    List,
+)
 
 
 @dataclass
 class EstimatedValue:
+    """推定値共通モデル"""
     value: float = 0.0
     unit: str = ""
     confidence: float = 0.0
@@ -15,6 +31,7 @@ class EstimatedValue:
 
 @dataclass
 class FeatureSet:
+    """FeatureExtractor Output"""
     voltage: float = 0.0
     current: float = 0.0
     pwm: float = 0.0
@@ -30,6 +47,7 @@ class FeatureSet:
 
 @dataclass
 class ValidationResult:
+    """Validation結果"""
     valid: bool = False
     quality_score: float = 0.0
     missing_count: int = 0
@@ -43,14 +61,18 @@ class ValidationResult:
 
 @dataclass
 class PerformanceResult:
+    """Performance解析結果"""
     estimated_rpm: EstimatedValue = field(default_factory=EstimatedValue)
     estimated_torque: EstimatedValue = field(default_factory=EstimatedValue)
     estimated_weight: EstimatedValue = field(default_factory=EstimatedValue)
+    # Physical vehicle-weight suitability profile. Kept separate from the
+    # legacy estimated_weight compatibility field.
     weight_suitability: Any = None
 
 
 @dataclass
 class BrushResult:
+    """Brush解析結果"""
     peak_detected: bool = False
     peak_position: float = 0.0
     brush_condition: str = "UNKNOWN"
@@ -60,6 +82,7 @@ class BrushResult:
 
 @dataclass
 class StrategyResult:
+    """Break-in Strategy Result"""
     recipe_name: str = ""
     recipe: str = ""
     reason: str = ""
@@ -78,6 +101,7 @@ BreakinStrategyResult = StrategyResult
 
 @dataclass
 class ScoreResult:
+    """Score Result"""
     total_score: float = 0.0
     rank: str = "D"
     details: Dict[str, Any] = field(default_factory=dict)
@@ -93,6 +117,7 @@ class ScoreResult:
 
 @dataclass
 class AnalysisResult:
+    """Final Analysis Result"""
     validation: ValidationResult = field(default_factory=ValidationResult)
     performance: PerformanceResult = field(default_factory=PerformanceResult)
     brush: BrushResult = field(default_factory=BrushResult)
