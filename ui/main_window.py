@@ -2,7 +2,7 @@
 
 Operator UI for the motor break-in system. Recipe definition and execution
 remain in RecipeEngine/BreakinController; the UI selects and starts a
-validated recipe or a standalone 3 V benchmark test.
+validated recipe or a standalone 12 V-input / 3 V-equivalent PWM benchmark.
 """
 
 from pathlib import Path
@@ -51,7 +51,6 @@ class MainWindow(QMainWindow):
     """Integrated operator UI for MOTOR_BREAKIN_V3."""
 
     BENCHMARK_KEY = "__MOTOR_BENCHMARK_TEST__"
-
     BENCHMARK_VEHICLE_WEIGHT_G = 130.0
     BENCHMARK_TIRE_DIAMETER_MM = 24.0
     BENCHMARK_GEAR_RATIO = 3.5
@@ -76,7 +75,7 @@ class MainWindow(QMainWindow):
         self.progress_timer.timeout.connect(self._update_progress)
 
         self.setWindowTitle("MINI4WD AI SYSTEM - MOTOR BREAKIN V3")
-        self.resize(900, 760)
+        self.resize(1000, 620)
         self._build_ui()
         self._load_recipes()
         self._set_ready_state()
@@ -86,15 +85,34 @@ class MainWindow(QMainWindow):
         main = QVBoxLayout(root)
 
         title = QLabel("MOTOR BREAK-IN SYSTEM")
-        title.setStyleSheet("font-size: 22px; font-weight: bold;")
+        title.setStyleSheet("font-size: 20px; font-weight: bold;")
         main.addWidget(title)
 
+        header = QHBoxLayout()
         self.status = QLabel("READY")
-        self.status.setStyleSheet("font-size: 16px; font-weight: bold;")
-        main.addWidget(self.status)
+        self.status.setStyleSheet("font-size: 15px; font-weight: bold;")
+        header.addWidget(self.status, 1)
+
+        control_box = QGroupBox("CONTROL")
+        control_layout = QHBoxLayout(control_box)
+        self.start_button = QPushButton("START BREAK-IN")
+        self.stop_button = QPushButton("EMERGENCY STOP")
+        self.copy_benchmark_button = QPushButton("COPY BENCHMARK RESULT")
+        self.stop_button.setEnabled(False)
+        self.copy_benchmark_button.setEnabled(False)
+        self.start_button.clicked.connect(self.start_breakin)
+        self.stop_button.clicked.connect(self.stop_breakin)
+        self.copy_benchmark_button.clicked.connect(self.copy_benchmark_result)
+        control_layout.addWidget(self.start_button)
+        control_layout.addWidget(self.stop_button)
+        control_layout.addWidget(self.copy_benchmark_button)
+        header.addWidget(control_box, 2)
+        main.addLayout(header)
 
         progress_box = QGroupBox("LIVE BREAK-IN PROGRESS")
-        progress_layout = QFormLayout(progress_box)
+        progress_layout = QHBoxLayout(progress_box)
+        progress_left = QFormLayout()
+        progress_right = QFormLayout()
         self.progress_recipe_value = QLabel("--")
         self.progress_step_value = QLabel("--")
         self.progress_phase_value = QLabel("--")
@@ -104,15 +122,17 @@ class MainWindow(QMainWindow):
         self.progress_remaining_value = QLabel("--")
         self.progress_next_value = QLabel("--")
         self.progress_status_value = QLabel("READY")
-        progress_layout.addRow("Recipe", self.progress_recipe_value)
-        progress_layout.addRow("Step", self.progress_step_value)
-        progress_layout.addRow("Current Phase", self.progress_phase_value)
-        progress_layout.addRow("Direction", self.progress_direction_value)
-        progress_layout.addRow("PWM", self.progress_pwm_value)
-        progress_layout.addRow("Elapsed", self.progress_elapsed_value)
-        progress_layout.addRow("Remaining", self.progress_remaining_value)
-        progress_layout.addRow("Next", self.progress_next_value)
-        progress_layout.addRow("Execution", self.progress_status_value)
+        progress_left.addRow("Recipe", self.progress_recipe_value)
+        progress_left.addRow("Step", self.progress_step_value)
+        progress_left.addRow("Phase", self.progress_phase_value)
+        progress_left.addRow("Direction", self.progress_direction_value)
+        progress_right.addRow("PWM", self.progress_pwm_value)
+        progress_right.addRow("Elapsed", self.progress_elapsed_value)
+        progress_right.addRow("Remaining", self.progress_remaining_value)
+        progress_right.addRow("Next", self.progress_next_value)
+        progress_right.addRow("Execution", self.progress_status_value)
+        progress_layout.addLayout(progress_left, 1)
+        progress_layout.addLayout(progress_right, 1)
         main.addWidget(progress_box)
 
         telemetry_box = QGroupBox("LIVE ARDUINO / SENSOR")
@@ -139,17 +159,14 @@ class MainWindow(QMainWindow):
         main.addWidget(telemetry_box)
 
         content = QHBoxLayout()
-
         recipe_box = QGroupBox("BREAK-IN / BENCHMARK")
         recipe_layout = QVBoxLayout(recipe_box)
         self.recipe_selector = QComboBox()
         self.recipe_selector.currentIndexChanged.connect(self._recipe_changed)
         recipe_layout.addWidget(self.recipe_selector)
-
         self.description = QLabel("-")
         self.description.setWordWrap(True)
         recipe_layout.addWidget(self.description)
-
         self.phase_list = QListWidget()
         recipe_layout.addWidget(self.phase_list)
         content.addWidget(recipe_box, 2)
@@ -179,10 +196,8 @@ class MainWindow(QMainWindow):
 
         result_box = QGroupBox("RESULT")
         result_layout = QHBoxLayout(result_box)
-
         result_left = QFormLayout()
         result_right = QFormLayout()
-
         self.result_display = QLabel("--")
         self.rpm_display = QLabel("--")
         self.torque_display = QLabel("--")
@@ -190,33 +205,28 @@ class MainWindow(QMainWindow):
         self.weight_display = QLabel("--")
         self.benchmark_detail_display = QLabel("--")
         self.benchmark_detail_display.setWordWrap(True)
-
         result_left.addRow("Summary", self.result_display)
         result_left.addRow("Estimated RPM", self.rpm_display)
         result_left.addRow("Estimated Torque", self.torque_display)
-
         result_right.addRow("Brush Lifecycle", self.lifecycle_display)
-        result_right.addRow("Vehicle Weight Assumption", self.weight_display)
+        result_right.addRow("Vehicle Weight", self.weight_display)
         result_right.addRow("Benchmark Detail", self.benchmark_detail_display)
-
         result_layout.addLayout(result_left, 1)
         result_layout.addLayout(result_right, 1)
-
         main.addWidget(result_box)
-
         self.setCentralWidget(root)
 
     def _load_recipes(self):
         self.recipe_selector.clear()
         for name in self.recipe_engine.names():
             self.recipe_selector.addItem(name, name)
-        self.recipe_selector.addItem("MOTOR BENCHMARK TEST (3V / 10s)", self.BENCHMARK_KEY)
+        self.recipe_selector.addItem("MOTOR BENCHMARK TEST (12V / PWM64 ≈ 3V / 10s)", self.BENCHMARK_KEY)
 
     def _set_ready_state(self):
-        if self.breakin_controller:
-            self.status.setText("READY / CONTROLLER CONNECTED")
-        else:
-            self.status.setText("ERROR / CONTROLLER NOT AVAILABLE")
+        self.status.setText(
+            "READY / CONTROLLER CONNECTED" if self.breakin_controller else
+            "ERROR / CONTROLLER NOT AVAILABLE"
+        )
         self._reset_progress_display()
         self._update_telemetry()
         if self.recipe_selector.count():
@@ -231,16 +241,14 @@ class MainWindow(QMainWindow):
         name = self.recipe_selector.currentData()
         if name == self.BENCHMARK_KEY:
             self.description.setText(
-                "Standalone 3 V motor benchmark. No break-in stages are executed. "
-                "The test holds approximately 3.00 V using closed-loop PWM control for 10 seconds. "
-                "Vehicle benchmark assumes 130 g, 24 mm tires and 3.5:1 gearing; "
-                "other vehicle/course factors are excluded for now."
+                "Standalone benchmark: 12 V input, PWM64 (~3.01 V equivalent), 10 seconds. "
+                "No closed-loop voltage control. Vehicle assumption: 130 g, 24 mm tires, 3.5:1 gearing."
             )
             self.brush_value.setText("UNKNOWN")
             self.objective_value.setText("MEASUREMENT")
             self.target_rpm_value.setText("--")
             self.torque_priority_value.setText("0.50")
-            self.benchmark_value.setText("3.00 V / 10 s")
+            self.benchmark_value.setText("12 V / PWM64 (~3.01 V equiv.) / 10 s")
             self._set_benchmark_vehicle_assumptions()
             safety = self.recipe_engine.safety()
             self.safety_value.setText(
@@ -248,9 +256,9 @@ class MainWindow(QMainWindow):
                 f"{safety.get('max_motor_temperature', 70.0):g} °C"
             )
             self.phase_list.clear()
-            self.phase_list.addItem("BENCHMARK_3V_TEST: closed-loop 3.00 V / 10s")
+            self.phase_list.addItem("BENCHMARK_3V_EQ_PWM: 12V input / PWM64 / 10s")
             self.phase_list.addItem("VEHICLE: 130 g / 24 mm tire / 3.5:1")
-            self.phase_list.addItem("OTHER FACTORS: EXCLUDED")
+            self.phase_list.addItem("CONTROL: fixed PWM")
             self._reset_progress_display(benchmark=True)
             return
 
@@ -260,29 +268,23 @@ class MainWindow(QMainWindow):
         self.description.setText(recipe.description or "-")
         self.brush_value.setText(recipe.brush)
         self.objective_value.setText(recipe.objective)
-        self.target_rpm_value.setText(
-            "--" if recipe.target_rpm is None else f"{recipe.target_rpm:,} rpm"
-        )
+        self.target_rpm_value.setText("--" if recipe.target_rpm is None else f"{recipe.target_rpm:,} rpm")
         self.torque_priority_value.setText(f"{recipe.torque_priority:.2f}")
         benchmark = self.recipe_engine.benchmark()
         self.benchmark_value.setText(
-            f"{benchmark.get('target_voltage', 3.00):.2f} V / "
-            f"{benchmark.get('duration_sec', 120)} s"
+            f"{benchmark.get('target_voltage', 3.00):.2f} V / {benchmark.get('duration_sec', 120)} s"
         )
         self.vehicle_weight_value.setText("--")
         self.tire_value.setText("--")
         self.gear_ratio_value.setText("--")
         safety = self.recipe_engine.safety()
         self.safety_value.setText(
-            f"{safety.get('max_current', 5.0):g} A / "
-            f"{safety.get('max_motor_temperature', 70.0):g} °C"
+            f"{safety.get('max_current', 5.0):g} A / {safety.get('max_motor_temperature', 70.0):g} °C"
         )
         self.phase_list.clear()
         for phase in recipe.phases:
             control = f", {phase.control}" if phase.control else ""
-            self.phase_list.addItem(
-                f"{phase.name}: PWM {phase.pwm}, {phase.duration_sec}s{control}"
-            )
+            self.phase_list.addItem(f"{phase.name}: PWM {phase.pwm}, {phase.duration_sec}s{control}")
         self._reset_progress_display()
 
     def selected_recipe(self):
@@ -295,9 +297,9 @@ class MainWindow(QMainWindow):
         name = "MOTOR BENCHMARK TEST" if benchmark else (self.recipe_selector.currentData() or "--")
         self.progress_recipe_value.setText(str(name))
         self.progress_step_value.setText("--")
-        self.progress_phase_value.setText("BENCHMARK_3V_TEST" if benchmark else "--")
+        self.progress_phase_value.setText("BENCHMARK_3V_EQ_PWM" if benchmark else "--")
         self.progress_direction_value.setText("FWD" if benchmark else "--")
-        self.progress_pwm_value.setText("--")
+        self.progress_pwm_value.setText("64" if benchmark else "--")
         self.progress_elapsed_value.setText("--")
         self.progress_remaining_value.setText("--")
         self.progress_next_value.setText("--")
@@ -310,19 +312,14 @@ class MainWindow(QMainWindow):
         serial_controller = getattr(controller, "serial", None) if controller else None
         connected = bool(getattr(serial_controller, "connected", False))
         self.telemetry_arduino_value.setText("CONNECTED" if connected else "DISCONNECTED")
-
         if not controller:
             for widget in (
-                self.telemetry_direction_value,
-                self.telemetry_pwm_value,
-                self.telemetry_voltage_value,
-                self.telemetry_current_value,
-                self.telemetry_state_value,
-                self.telemetry_temperature_value,
+                self.telemetry_direction_value, self.telemetry_pwm_value,
+                self.telemetry_voltage_value, self.telemetry_current_value,
+                self.telemetry_state_value, self.telemetry_temperature_value,
             ):
                 widget.setText("--")
             return
-
         measurement_manager = getattr(controller, "measurement_manager", None)
         measurement = getattr(measurement_manager, "last_measurement", None)
         if measurement is not None:
@@ -335,11 +332,9 @@ class MainWindow(QMainWindow):
         else:
             direction = getattr(serial_controller, "direction", "--")
             pwm = getattr(serial_controller, "last_pwm", 0)
-            voltage = 0.0
-            current = 0.0
+            voltage = current = 0.0
             state = "NO DATA"
             temperature = 0.0
-
         self.telemetry_direction_value.setText(str(direction))
         self.telemetry_pwm_value.setText(str(pwm))
         self.telemetry_voltage_value.setText(f"{self._number(voltage):.2f} V")
@@ -352,11 +347,9 @@ class MainWindow(QMainWindow):
         controller = self.breakin_controller
         if not controller or not getattr(controller, "running", False):
             return
-
         phase = getattr(controller, "current_phase", None)
         if phase is None:
             return
-
         recipe_name = self.recipe_selector.currentData()
         if recipe_name == self.BENCHMARK_KEY:
             recipe_name = "MOTOR BENCHMARK TEST"
@@ -365,7 +358,6 @@ class MainWindow(QMainWindow):
         elapsed = float(controller.phase_elapsed_sec()) if hasattr(controller, "phase_elapsed_sec") else 0.0
         duration = float(getattr(phase, "duration_sec", 0.0))
         remaining = max(0.0, duration - elapsed)
-
         self.progress_recipe_value.setText(str(recipe_name))
         self.progress_step_value.setText(f"{index + 1} / {total}")
         self.progress_phase_value.setText(str(getattr(phase, "name", "--")))
@@ -374,20 +366,16 @@ class MainWindow(QMainWindow):
         self.progress_elapsed_value.setText(f"{elapsed:.1f} / {duration:.1f} s")
         self.progress_remaining_value.setText(f"{remaining:.1f} s")
         self.progress_status_value.setText("RUNNING")
-
         next_index = index + 1
         try:
             recipe = self.selected_recipe()
             if recipe is not None and next_index < len(recipe.phases):
                 next_phase = recipe.phases[next_index]
-                self.progress_next_value.setText(
-                    f"{next_phase.name} / {next_phase.direction} / PWM {next_phase.pwm}"
-                )
+                self.progress_next_value.setText(f"{next_phase.name} / {next_phase.direction} / PWM {next_phase.pwm}")
             else:
                 self.progress_next_value.setText("FINAL / ANALYSIS")
         except Exception:
             self.progress_next_value.setText("--")
-
         if hasattr(self, "phase_list") and 0 <= index < self.phase_list.count():
             self.phase_list.setCurrentRow(index)
 
@@ -401,18 +389,15 @@ class MainWindow(QMainWindow):
             return
         if self.breakin_worker and self.breakin_worker.isRunning():
             return
-
         is_benchmark = self.recipe_selector.currentData() == self.BENCHMARK_KEY
         recipe = None if is_benchmark else self.selected_recipe()
         if not is_benchmark and recipe is None:
             QMessageBox.warning(self, "Recipe", "No valid recipe is selected.")
             return
-
         self.last_benchmark_report = ""
         self.last_benchmark_results = None
         self.copy_benchmark_button.setEnabled(False)
         self.benchmark_detail_display.setText("--")
-
         label = "MOTOR BENCHMARK TEST" if is_benchmark else f"BREAK-IN / {recipe.name}"
         self.status.setText(f"RUNNING / {label}")
         self.start_button.setEnabled(False)
@@ -425,9 +410,7 @@ class MainWindow(QMainWindow):
         self.weight_display.setText("--")
         self.progress_status_value.setText("STARTING...")
         self._update_telemetry()
-        self.breakin_worker = BreakinWorker(
-            self.breakin_controller, recipe=recipe, benchmark=is_benchmark
-        )
+        self.breakin_worker = BreakinWorker(self.breakin_controller, recipe=recipe, benchmark=is_benchmark)
         self.breakin_worker.completed.connect(self.on_breakin_complete)
         self.breakin_worker.failed.connect(self.on_breakin_failed)
         self.breakin_worker.finished.connect(self.on_worker_finished)
@@ -451,9 +434,7 @@ class MainWindow(QMainWindow):
         is_benchmark = self.recipe_selector.currentData() == self.BENCHMARK_KEY
         self.display_analysis_result(result, benchmark=is_benchmark)
         self.progress_status_value.setText("COMPLETE / ANALYSIS FINISHED")
-        self.status.setText(
-            "MOTOR BENCHMARK COMPLETE" if is_benchmark else "BREAK-IN COMPLETE / BENCHMARK FINISHED"
-        )
+        self.status.setText("MOTOR BENCHMARK COMPLETE" if is_benchmark else "BREAK-IN COMPLETE / BENCHMARK FINISHED")
 
     def on_breakin_failed(self, message):
         self._stop_progress_timer()
@@ -484,11 +465,9 @@ class MainWindow(QMainWindow):
         if result is None:
             self.result_display.setText("NO RESULT")
             return
-
         if benchmark:
             self._display_benchmark_result(result)
             return
-
         if isinstance(result, list):
             self.result_display.setText(f"{len(result)} measurement(s) collected")
             self._display_latest_measurement(result)
@@ -511,34 +490,28 @@ class MainWindow(QMainWindow):
             return
         self.rpm_display.setText(str(latest.get("rpm", "--")))
         self.torque_display.setText(str(latest.get("torque", "--")))
-        self.lifecycle_display.setText("-- (benchmark only)")
-        self.weight_display.setText("-- (benchmark only)")
+        self.lifecycle_display.setText("--")
+        self.weight_display.setText("--")
 
     def _display_benchmark_result(self, result):
-        """Display and retain an operator-friendly aggregate benchmark result."""
         self.last_benchmark_results = result
         measurements = list(getattr(self.breakin_controller, "measurements", []) or [])
         analysis_results = list(result) if isinstance(result, list) else []
-
         if not measurements and not analysis_results:
             self.result_display.setText("BENCHMARK COMPLETE / NO MEASUREMENTS")
             self.benchmark_detail_display.setText("No measurement samples were returned.")
             return
-
         def avg(values):
             values = [self._number(v) for v in values]
             return sum(values) / len(values) if values else 0.0
-
         def maximum(values):
             values = [self._number(v) for v in values]
             return max(values) if values else 0.0
-
         voltage_values = [getattr(m, "motor_voltage", 0.0) for m in measurements]
         current_values = [getattr(m, "current_avg", 0.0) for m in measurements]
         power_values = [getattr(m, "power", 0.0) for m in measurements]
         pwm_values = [getattr(m, "pwm", 0) for m in measurements]
         temperature_values = [getattr(m, "motor_temperature", 0.0) for m in measurements]
-
         rpm_values = []
         torque_values = []
         for item in analysis_results:
@@ -547,12 +520,10 @@ class MainWindow(QMainWindow):
                 continue
             rpm_values.append(getattr(getattr(performance, "estimated_rpm", None), "value", 0.0))
             torque_values.append(getattr(getattr(performance, "estimated_torque", None), "value", 0.0))
-
         if not rpm_values:
             rpm_values = [self._number(v) * 5000.0 for v in voltage_values]
         if not torque_values:
             torque_values = [self._number(v) * 10.0 for v in current_values]
-
         avg_voltage = avg(voltage_values)
         avg_current = avg(current_values)
         avg_power = avg(power_values)
@@ -561,75 +532,45 @@ class MainWindow(QMainWindow):
         avg_pwm = avg(pwm_values)
         max_current = maximum(current_values)
         max_temperature = maximum(temperature_values)
-
         elapsed_values = []
         for measurement in measurements:
             value = self._number(getattr(measurement, "elapsed_time", 0))
             if 0.0 <= value <= 86_400_000.0:
                 elapsed_values.append(value)
-
-        if elapsed_values:
-            elapsed = max(0.0, max(elapsed_values) - min(elapsed_values)) / 1000.0
-        else:
-            elapsed = 0.0
-
-        self.result_display.setText("3V BENCHMARK COMPLETE")
+        elapsed = (max(0.0, max(elapsed_values) - min(elapsed_values)) / 1000.0) if elapsed_values else 0.0
+        self.result_display.setText("3V-EQUIV PWM64 BENCHMARK COMPLETE")
         self.rpm_display.setText(f"{avg_rpm:,.0f} rpm")
         self.torque_display.setText(f"{avg_torque:.2f} g·cm")
         self.lifecycle_display.setText("-- (benchmark only)")
-        self.weight_display.setText(
-            f"{self.BENCHMARK_VEHICLE_WEIGHT_G:.0f} g "
-            f"(24 mm / {self.BENCHMARK_GEAR_RATIO:.1f}:1; other factors excluded)"
-        )
+        self.weight_display.setText(f"{self.BENCHMARK_VEHICLE_WEIGHT_G:.0f} g (24 mm / {self.BENCHMARK_GEAR_RATIO:.1f}:1)")
         self.benchmark_detail_display.setText(
-            f"Avg {avg_voltage:.3f} V / {avg_current:.3f} A / {avg_power:.3f} W / "
-            f"PWM {avg_pwm:.1f} | Max current {max_current:.3f} A | "
-            f"Max temperature {max_temperature:.1f} °C | "
+            f"Input 12 V / PWM {avg_pwm:.1f} (~3.01 V equiv.) | "
+            f"Avg motor {avg_voltage:.3f} V / {avg_current:.3f} A / {avg_power:.3f} W | "
+            f"Max current {max_current:.3f} A | Max temp {max_temperature:.1f} °C | "
             f"Samples {len(measurements)} | {elapsed:.1f} s | "
-            f"Vehicle {self.BENCHMARK_VEHICLE_WEIGHT_G:.0f} g / "
-            f"Tire {self.BENCHMARK_TIRE_DIAMETER_MM:.0f} mm / "
-            f"Gear {self.BENCHMARK_GEAR_RATIO:.1f}:1 | Other factors excluded"
+            "Vehicle 130 g / Tire 24 mm / Gear 3.5:1"
         )
-
         self.last_benchmark_report = self._build_benchmark_report(
-            measurements=measurements,
-            sample_count=len(measurements),
-            elapsed=elapsed,
-            avg_voltage=avg_voltage,
-            avg_current=avg_current,
-            avg_power=avg_power,
-            avg_pwm=avg_pwm,
-            avg_rpm=avg_rpm,
-            avg_torque=avg_torque,
-            max_current=max_current,
-            max_temperature=max_temperature,
+            measurements=measurements, sample_count=len(measurements), elapsed=elapsed,
+            avg_voltage=avg_voltage, avg_current=avg_current, avg_power=avg_power,
+            avg_pwm=avg_pwm, avg_rpm=avg_rpm, avg_torque=avg_torque,
+            max_current=max_current, max_temperature=max_temperature,
         )
         self.copy_benchmark_button.setEnabled(True)
 
     @staticmethod
-    def _build_benchmark_report(
-        *,
-        measurements,
-        sample_count,
-        elapsed,
-        avg_voltage,
-        avg_current,
-        avg_power,
-        avg_pwm,
-        avg_rpm,
-        avg_torque,
-        max_current,
-        max_temperature,
-    ):
-        instance_id = "UNKNOWN"
-        if measurements:
-            instance_id = str(getattr(measurements[0], "instance_id", "UNKNOWN"))
+    def _build_benchmark_report(*, measurements, sample_count, elapsed, avg_voltage,
+                                 avg_current, avg_power, avg_pwm, avg_rpm, avg_torque,
+                                 max_current, max_temperature):
+        instance_id = str(getattr(measurements[0], "instance_id", "UNKNOWN")) if measurements else "UNKNOWN"
         return (
             "MINI4WD AI SYSTEM - MOTOR BREAK-IN V3\n"
-            "3V MOTOR BENCHMARK RESULT\n"
+            "3V-EQUIVALENT PWM64 MOTOR BENCHMARK RESULT\n"
             "========================================\n"
             f"Instance: {instance_id}\n"
-            f"Target voltage: 3.000 V\n"
+            "Input supply: 12.000 V\n"
+            "PWM: 64 / 255\n"
+            "Equivalent voltage: ~3.01 V\n"
             f"Duration: {elapsed:.1f} s\n"
             f"Samples: {sample_count}\n"
             f"Average motor voltage: {avg_voltage:.3f} V\n"
@@ -644,13 +585,11 @@ class MainWindow(QMainWindow):
             f"Vehicle weight assumption: {MainWindow.BENCHMARK_VEHICLE_WEIGHT_G:.0f} g\n"
             f"Tire diameter: {MainWindow.BENCHMARK_TIRE_DIAMETER_MM:.0f} mm\n"
             f"Gear ratio: {MainWindow.BENCHMARK_GEAR_RATIO:.1f}:1\n"
-            "Other vehicle/course factors: EXCLUDED\n"
         )
 
     def copy_benchmark_result(self):
         if not self.last_benchmark_report:
             QMessageBox.information(self, "Benchmark", "No benchmark result is available to copy.")
             return
-        clipboard = QApplication.clipboard()
-        clipboard.setText(self.last_benchmark_report)
+        QApplication.clipboard().setText(self.last_benchmark_report)
         self.status.setText("BENCHMARK RESULT COPIED TO CLIPBOARD")
