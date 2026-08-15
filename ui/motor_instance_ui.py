@@ -1,8 +1,4 @@
-"""Operator-side motor instance selection and benchmark peak display.
-
-This module augments MainWindow without coupling the core break-in controller
-or recipe engine to Qt widgets.
-"""
+"""Operator-side motor instance selection and benchmark peak display."""
 
 from __future__ import annotations
 
@@ -10,7 +6,14 @@ import sqlite3
 from pathlib import Path
 
 from PyQt5.QtCore import QTimer
-from PyQt5.QtWidgets import QComboBox, QFormLayout, QGroupBox, QLabel
+from PyQt5.QtWidgets import (
+    QComboBox,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+)
 
 
 class MotorInstanceUI:
@@ -23,12 +26,20 @@ class MotorInstanceUI:
         self.brush_peak_value = QLabel("--")
         self.brush_peak_state = QLabel("--")
         self._instances = []
+        self._manager_window = None
 
         root_layout = window.centralWidget().layout()
         instance_box = QGroupBox("MOTOR INSTANCE")
-        instance_layout = QFormLayout(instance_box)
-        instance_layout.addRow("Instance", self.instance_selector)
-        instance_layout.addRow("Selected ID", self.instance_label)
+        instance_root = QHBoxLayout(instance_box)
+        instance_form = QFormLayout()
+        instance_form.addRow("Instance", self.instance_selector)
+        instance_form.addRow("Selected ID", self.instance_label)
+        instance_root.addLayout(instance_form, 1)
+
+        self.manager_button = QPushButton("MANAGER")
+        self.manager_button.setToolTip("Motor Instance Managerを開く")
+        self.manager_button.clicked.connect(self.open_manager)
+        instance_root.addWidget(self.manager_button)
         root_layout.insertWidget(2, instance_box)
 
         peak_box = QGroupBox("BENCHMARK / BRUSH PEAK")
@@ -44,10 +55,6 @@ class MotorInstanceUI:
         self.timer.start()
         self.load_instances()
 
-        # The existing MainWindow benchmark worker historically requested a
-        # 10-second test. The recipe contract is now 30 seconds, so enforce
-        # the authoritative minimum here without coupling the UI worker to
-        # recipe constants.
         if self.controller is not None:
             original_benchmark = self.controller.benchmark_3v
 
@@ -73,7 +80,7 @@ class MotorInstanceUI:
             connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
             try:
                 rows = connection.execute(
-                    "SELECT instance_id, motor_model_id, created_at "
+                    "SELECT instance_id, motor_model_id, serial_number, nickname, created_at "
                     "FROM motor_instance WHERE COALESCE(is_deleted, 0)=0 "
                     "ORDER BY created_at DESC, instance_id DESC"
                 ).fetchall()
@@ -87,8 +94,9 @@ class MotorInstanceUI:
             self.instance_selector.addItem("NO ACTIVE MOTOR INSTANCE", None)
             return
 
-        for instance_id, model_id, created_at in rows:
-            text = f"{instance_id} / MODEL {model_id} / {created_at or '-'}"
+        for instance_id, model_id, serial_number, nickname, created_at in rows:
+            label = nickname or serial_number or f"MODEL {model_id}"
+            text = f"{instance_id} / {label} / MODEL {model_id}"
             self._instances.append(instance_id)
             self.instance_selector.addItem(text, instance_id)
 
@@ -102,6 +110,19 @@ class MotorInstanceUI:
 
     def selected_instance_id(self):
         return self.instance_selector.currentData()
+
+    def open_manager(self):
+        try:
+            from motor_system.python.ui.motor_manager_ui import MotorManagerUI
+        except ImportError:
+            from motor_system.python.ui.motor_manager_ui import MotorManagerUI
+
+        self._manager_window = MotorManagerUI()
+        self._manager_window.setAttribute(55, True)
+        self._manager_window.show()
+        self._manager_window.raise_()
+        self._manager_window.activateWindow()
+        self._manager_window.destroyed.connect(self.load_instances)
 
     def update(self):
         controller = self.controller
