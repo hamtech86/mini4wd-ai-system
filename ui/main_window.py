@@ -51,7 +51,6 @@ class MainWindow(QMainWindow):
     """Integrated operator UI for MOTOR_BREAKIN_V3."""
 
     BENCHMARK_KEY = "__MOTOR_BENCHMARK_TEST__"
-
     BENCHMARK_VEHICLE_WEIGHT_G = 130.0
     BENCHMARK_TIRE_DIAMETER_MM = 24.0
     BENCHMARK_GEAR_RATIO = 3.5
@@ -94,7 +93,8 @@ class MainWindow(QMainWindow):
         main.addWidget(self.status)
 
         progress_box = QGroupBox("LIVE BREAK-IN PROGRESS")
-        progress_layout = QFormLayout(progress_box)
+        progress_layout = QVBoxLayout(progress_box)
+
         self.progress_recipe_value = QLabel("--")
         self.progress_step_value = QLabel("--")
         self.progress_phase_value = QLabel("--")
@@ -104,16 +104,68 @@ class MainWindow(QMainWindow):
         self.progress_remaining_value = QLabel("--")
         self.progress_next_value = QLabel("--")
         self.progress_status_value = QLabel("READY")
-        progress_layout.addRow("Recipe", self.progress_recipe_value)
-        progress_layout.addRow("Step", self.progress_step_value)
-        progress_layout.addRow("Current Phase", self.progress_phase_value)
-        progress_layout.addRow("Direction", self.progress_direction_value)
-        progress_layout.addRow("PWM", self.progress_pwm_value)
-        progress_layout.addRow("Elapsed", self.progress_elapsed_value)
-        progress_layout.addRow("Remaining", self.progress_remaining_value)
-        progress_layout.addRow("Next", self.progress_next_value)
-        progress_layout.addRow("Execution", self.progress_status_value)
+
+        progress_row1 = QHBoxLayout()
+        progress_row1.addWidget(QLabel("Recipe:"))
+        progress_row1.addWidget(self.progress_recipe_value)
+        progress_row1.addSpacing(12)
+        progress_row1.addWidget(QLabel("Step:"))
+        progress_row1.addWidget(self.progress_step_value)
+        progress_row1.addSpacing(12)
+        progress_row1.addWidget(QLabel("Phase:"))
+        progress_row1.addWidget(self.progress_phase_value)
+        progress_row1.addStretch()
+        progress_layout.addLayout(progress_row1)
+
+        progress_row2 = QHBoxLayout()
+        progress_row2.addWidget(QLabel("Direction:"))
+        progress_row2.addWidget(self.progress_direction_value)
+        progress_row2.addSpacing(12)
+        progress_row2.addWidget(QLabel("PWM:"))
+        progress_row2.addWidget(self.progress_pwm_value)
+        progress_row2.addSpacing(12)
+        progress_row2.addWidget(QLabel("Time:"))
+        progress_row2.addWidget(self.progress_elapsed_value)
+        progress_row2.addSpacing(12)
+        progress_row2.addWidget(QLabel("Remain:"))
+        progress_row2.addWidget(self.progress_remaining_value)
+        progress_row2.addStretch()
+        progress_layout.addLayout(progress_row2)
+
+        progress_row3 = QHBoxLayout()
+        progress_row3.addWidget(QLabel("Next:"))
+        progress_row3.addWidget(self.progress_next_value, 1)
+        progress_row3.addWidget(QLabel("Execution:"))
+        progress_row3.addWidget(self.progress_status_value)
+        progress_layout.addLayout(progress_row3)
         main.addWidget(progress_box)
+
+        sensor_box = QGroupBox("LIVE ARDUINO / SENSOR")
+        sensor_layout = QHBoxLayout(sensor_box)
+        self.sensor_state_value = QLabel("--")
+        self.sensor_direction_value = QLabel("--")
+        self.sensor_pwm_value = QLabel("--")
+        self.sensor_acs1_value = QLabel("--")
+        self.sensor_acs2_value = QLabel("--")
+        self.sensor_motor_voltage_value = QLabel("--")
+        self.sensor_temperature_value = QLabel("--")
+        self.sensor_update_value = QLabel("NO DATA")
+
+        for label, value in (
+            ("State", self.sensor_state_value),
+            ("Dir", self.sensor_direction_value),
+            ("PWM", self.sensor_pwm_value),
+            ("ACS1", self.sensor_acs1_value),
+            ("ACS2", self.sensor_acs2_value),
+            ("Motor V", self.sensor_motor_voltage_value),
+            ("Temp", self.sensor_temperature_value),
+            ("RX", self.sensor_update_value),
+        ):
+            block = QVBoxLayout()
+            block.addWidget(QLabel(label))
+            block.addWidget(value)
+            sensor_layout.addLayout(block)
+        main.addWidget(sensor_box)
 
         content = QHBoxLayout()
 
@@ -199,6 +251,7 @@ class MainWindow(QMainWindow):
         else:
             self.status.setText("ERROR / CONTROLLER NOT AVAILABLE")
         self._reset_progress_display()
+        self._reset_sensor_display()
         if self.recipe_selector.count():
             self._recipe_changed(0)
 
@@ -285,7 +338,52 @@ class MainWindow(QMainWindow):
         if hasattr(self, "phase_list"):
             self.phase_list.clearSelection()
 
+    def _reset_sensor_display(self):
+        self.sensor_state_value.setText("--")
+        self.sensor_direction_value.setText("--")
+        self.sensor_pwm_value.setText("--")
+        self.sensor_acs1_value.setText("--")
+        self.sensor_acs2_value.setText("--")
+        self.sensor_motor_voltage_value.setText("--")
+        self.sensor_temperature_value.setText("--")
+        self.sensor_update_value.setText("NO DATA")
+
+    @staticmethod
+    def _measurement_value(measurement, name, default=None):
+        if measurement is None:
+            return default
+        if isinstance(measurement, dict):
+            return measurement.get(name, default)
+        return getattr(measurement, name, default)
+
+    def _update_sensor_display(self):
+        controller = self.breakin_controller
+        manager = getattr(controller, "measurement_manager", None) if controller else None
+        measurement = getattr(manager, "last_measurement", None) if manager else None
+        if measurement is None:
+            return
+
+        state = self._measurement_value(measurement, "state", "--")
+        direction = self._measurement_value(measurement, "direction", "--")
+        pwm = self._measurement_value(measurement, "pwm", "--")
+        raw_acs1 = self._measurement_value(measurement, "raw_acs1", 0)
+        raw_acs2 = self._measurement_value(measurement, "raw_acs2", 0)
+        current1 = self._measurement_value(measurement, "current1", 0.0)
+        current2 = self._measurement_value(measurement, "current2", 0.0)
+        motor_voltage = self._measurement_value(measurement, "motor_voltage", 0.0)
+        temperature = self._measurement_value(measurement, "motor_temperature", 0.0)
+
+        self.sensor_state_value.setText(str(state))
+        self.sensor_direction_value.setText(str(direction))
+        self.sensor_pwm_value.setText(str(pwm))
+        self.sensor_acs1_value.setText(f"{int(raw_acs1)} / {float(current1):.2f} A")
+        self.sensor_acs2_value.setText(f"{int(raw_acs2)} / {float(current2):.2f} A")
+        self.sensor_motor_voltage_value.setText(f"{float(motor_voltage):.2f} V")
+        self.sensor_temperature_value.setText(f"{float(temperature):.1f} °C")
+        self.sensor_update_value.setText("DATA RX")
+
     def _update_progress(self):
+        self._update_sensor_display()
         controller = self.breakin_controller
         if not controller or not getattr(controller, "running", False):
             return
@@ -388,6 +486,7 @@ class MainWindow(QMainWindow):
         self.status.setText(
             "MOTOR BENCHMARK COMPLETE" if is_benchmark else "BREAK-IN COMPLETE / BENCHMARK FINISHED"
         )
+        self._update_sensor_display()
 
     def on_breakin_failed(self, message):
         self._stop_progress_timer()
@@ -396,6 +495,7 @@ class MainWindow(QMainWindow):
         self.result_display.setText("ERROR")
         self.stop_button.setEnabled(False)
         self.benchmark_detail_display.setText(message)
+        self._update_sensor_display()
 
     def on_worker_finished(self):
         self._stop_progress_timer()
