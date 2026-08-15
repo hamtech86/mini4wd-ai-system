@@ -44,9 +44,27 @@ class ValidationResult:
 
 @dataclass
 class PerformanceResult:
-    estimated_rpm: EstimatedValue = field(default_factory=EstimatedValue)
+    """Motor performance estimates used by the UI/result contract."""
+    estimated_no_load_rpm: EstimatedValue = field(default_factory=EstimatedValue)
     estimated_torque: EstimatedValue = field(default_factory=EstimatedValue)
-    estimated_weight: EstimatedValue = field(default_factory=EstimatedValue)
+    estimated_supported_weight: EstimatedValue = field(default_factory=EstimatedValue)
+
+    # Backward-compatible aliases retained for existing consumers.
+    @property
+    def estimated_rpm(self) -> EstimatedValue:
+        return self.estimated_no_load_rpm
+
+    @estimated_rpm.setter
+    def estimated_rpm(self, value: EstimatedValue) -> None:
+        self.estimated_no_load_rpm = value
+
+    @property
+    def estimated_weight(self) -> EstimatedValue:
+        return self.estimated_supported_weight
+
+    @estimated_weight.setter
+    def estimated_weight(self, value: EstimatedValue) -> None:
+        self.estimated_supported_weight = value
 
 
 @dataclass
