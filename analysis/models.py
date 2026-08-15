@@ -34,6 +34,7 @@ class FeatureSet:
     """FeatureExtractor Output"""
     voltage: float = 0.0
     current: float = 0.0
+    current2: float = 0.0
     pwm: float = 0.0
     rpm: float = 0.0
     average_voltage: float = 0.0
@@ -78,6 +79,29 @@ class BrushResult:
     brush_condition: str = "UNKNOWN"
     confidence: float = 0.0
     explanation: str = ""
+
+    # Benchmark brush-stability metrics.  These are based specifically on
+    # ACS712-2 (Measurement.current2), not on the UI and not on ACS712-1.
+    stability_score: float = 0.0
+    current2_mean: float = 0.0
+    current2_stddev: float = 0.0
+    current2_range: float = 0.0
+    current2_cv: float = 0.0
+    current2_spike_count: int = 0
+    current2_spike_rate: float = 0.0
+    sample_count: int = 0
+    stability_basis: str = "ACS712-2"
+
+
+@dataclass
+class BenchmarkAnalysisResults(list):
+    """Benchmark results with session-level brush analysis attached."""
+
+    brush_benchmark: BrushResult | None = None
+
+    def __init__(self, results=None, brush_benchmark=None):
+        super().__init__(results or [])
+        self.brush_benchmark = brush_benchmark
 
 
 @dataclass
