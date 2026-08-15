@@ -18,10 +18,11 @@ class MainWindow(QMainWindow):
         super().__init__(); self.context=context; self.breakin_worker=None; root=Path(__file__).resolve().parent.parent
         self.recipe_engine=RecipeEngine(str(root/"config"/"breakin_recipes.yaml")); self.breakin_controller=context.get("breakin_controller") if isinstance(context,dict) else getattr(context,"breakin_controller",None)
         self.timer=QTimer(self); self.timer.setInterval(250); self.timer.timeout.connect(self.refresh_runtime)
-        self.setWindowTitle("MINI4WD AI SYSTEM - MOTOR BREAKIN V3"); self.resize(1120,760); self.setMinimumSize(900,620); self.build_ui(); self.load_recipes(); self.load_instances(); self.set_ready()
+        self.setWindowTitle("MINI4WD AI SYSTEM - MOTOR BREAKIN V3"); self.resize(1050,780); self.setMinimumSize(850,600); self.build_ui(); self.load_recipes(); self.load_instances(); self.set_ready()
     def build_ui(self):
         outer=QWidget(); outer_layout=QVBoxLayout(outer); outer_layout.setContentsMargins(8,8,8,8)
-        scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QScrollArea.NoFrame); content=QWidget(); main=QVBoxLayout(content); main.setContentsMargins(8,6,8,8); main.setSpacing(7)
+        scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff); scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded); scroll.setFrameShape(QScrollArea.NoFrame)
+        content=QWidget(); main=QVBoxLayout(content); main.setContentsMargins(8,6,8,8); main.setSpacing(7)
         head=QHBoxLayout(); h=QLabel("MOTOR BREAK-IN SYSTEM"); h.setStyleSheet("font-size:25px;font-weight:bold;"); head.addWidget(h); head.addStretch(); self.stop=QPushButton("EMERGENCY STOP"); self.stop.setEnabled(False); self.stop.setFixedHeight(30); self.stop.clicked.connect(self.stop_run); head.addWidget(self.stop); main.addLayout(head)
         pre=QGroupBox("① 駆動前：操作"); pv=QVBoxLayout(pre); pv.setContentsMargins(8,6,8,6)
         r=QHBoxLayout(); r.addWidget(QLabel("MOTOR INSTANCE")); self.instance=QComboBox(); r.addWidget(self.instance,1); self.instance_id=QLabel("ID: --"); r.addWidget(self.instance_id); self.manager=QPushButton("INSTANCE MANAGER"); self.manager.setMinimumWidth(170); self.manager.clicked.connect(self.open_manager); r.addWidget(self.manager); pv.addLayout(r)
