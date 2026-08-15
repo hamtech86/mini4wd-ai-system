@@ -14,6 +14,7 @@ from config import APP_NAME, APP_VERSION, LOG_DIR
 from ui.main_window import MainWindow as BaseMainWindow
 from communication.serial_controller import SerialController
 from app.application_builder import ApplicationBuilder
+from ui.resume_controls import install_resume_controls, bind_resume_api
 
 
 class MainWindow(BaseMainWindow):
@@ -21,6 +22,8 @@ class MainWindow(BaseMainWindow):
 
     def __init__(self, context=None):
         super().__init__(context)
+        bind_resume_api(type(self))
+        install_resume_controls(self)
         self._build_estimated_result_panel()
 
     def _build_estimated_result_panel(self):
@@ -85,8 +88,6 @@ class MainWindow(BaseMainWindow):
         voltages = [v for v in voltages if v > 0.01]
         currents = [a for a in currents if a > 0.001]
 
-        # Use the retained run measurements, not the final STOP frame, which
-        # naturally contains zero PWM/current after the run has finished.
         average_voltage = sum(voltages) / len(voltages) if voltages else 0.0
         average_current = sum(currents) / len(currents) if currents else 0.0
         peak_current = max(currents) if currents else 0.0
@@ -94,8 +95,6 @@ class MainWindow(BaseMainWindow):
         estimated_rpm = max(0.0, average_voltage * 5000.0)
         estimated_torque = max(0.0, average_current * 10.0)
 
-        # Temporary weight estimate. Keep it bounded to the agreed evaluation
-        # window rather than reporting the meaningless 0 g when data is absent.
         if estimated_torque > 0:
             reference_weight = estimated_torque * 12.0
             recommended_min = max(115.0, reference_weight - 10.0)
@@ -106,8 +105,6 @@ class MainWindow(BaseMainWindow):
         else:
             weight_text = "データ不足"
 
-        # Temporary brush-state score: +10=new, 0=perfect/peak, -10=failure.
-        # Peak current is displayed separately in the legacy result area.
         brush_score = max(-10.0, min(10.0, 10.0 - peak_current * 5.0)) if currents else None
         if brush_score is None:
             brush_text = "データ不足"
@@ -128,8 +125,8 @@ class MainWindow(BaseMainWindow):
         if not hasattr(self, "estimated_result"):
             return
         rpm, torque, brush_text, weight_text = self._estimated_values()
-        self.estimated_result["UNLOADED_RPM"].setText(f"{rpm:,.0f} rpm") if rpm > 0 else self.estimated_result["UNLOADED_RPM"].setText("データ不足")
-        self.estimated_result["TORQUE"].setText(f"{torque:.2f} g·cm") if torque > 0 else self.estimated_result["TORQUE"].setText("データ不足")
+        self.estimated_result["UNLOADED_RPM"].setText(f"{rpm:,.0f} rpm" if rpm > 0 else "データ不足")
+        self.estimated_result["TORQUE"].setText(f"{torque:.2f} g·cm" if torque > 0 else "データ不足")
         self.estimated_result["BRUSH_SCORE"].setText(brush_text)
         self.estimated_result["WEIGHT"].setText(weight_text)
 
