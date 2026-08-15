@@ -252,7 +252,11 @@ class MainWindow(QMainWindow):
         main.addLayout(content)
 
         result_box = QGroupBox("RESULT")
-        result_layout = QFormLayout(result_box)
+        result_layout = QHBoxLayout(result_box)
+
+        result_left = QFormLayout()
+        result_right = QFormLayout()
+
         self.result_display = QLabel("--")
         self.rpm_display = QLabel("--")
         self.torque_display = QLabel("--")
@@ -260,12 +264,18 @@ class MainWindow(QMainWindow):
         self.weight_display = QLabel("--")
         self.benchmark_detail_display = QLabel("--")
         self.benchmark_detail_display.setWordWrap(True)
-        result_layout.addRow("Summary", self.result_display)
-        result_layout.addRow("Estimated RPM", self.rpm_display)
-        result_layout.addRow("Estimated Torque", self.torque_display)
-        result_layout.addRow("Brush Lifecycle", self.lifecycle_display)
-        result_layout.addRow("Vehicle Weight Assumption", self.weight_display)
-        result_layout.addRow("Benchmark Detail", self.benchmark_detail_display)
+
+        result_left.addRow("Summary", self.result_display)
+        result_left.addRow("Estimated RPM", self.rpm_display)
+        result_left.addRow("Estimated Torque", self.torque_display)
+
+        result_right.addRow("Brush Lifecycle", self.lifecycle_display)
+        result_right.addRow("Vehicle Weight Assumption", self.weight_display)
+        result_right.addRow("Benchmark Detail", self.benchmark_detail_display)
+
+        result_layout.addLayout(result_left, 1)
+        result_layout.addLayout(result_right, 1)
+
         main.addWidget(result_box)
 
         self.setCentralWidget(root)
