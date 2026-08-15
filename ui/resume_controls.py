@@ -26,7 +26,7 @@ class ResumeWorker(QThread):
 
 def install_resume_controls(window):
     """Install PAUSE/RESUME controls without changing the stable UI structure."""
-    if hasattr(window, "pause_run"):
+    if hasattr(window, "pause_button"):
         return
 
     window.resume_worker = None
@@ -39,7 +39,6 @@ def install_resume_controls(window):
     window.pause_button.clicked.connect(window.pause_run)
     window.resume_button.clicked.connect(window.resume_run)
 
-    # Put controls into the existing runtime group (section ②).
     runtime_group = None
     for group in window.findChildren(QGroupBox):
         if group.title().startswith("②"):
@@ -138,7 +137,6 @@ def resume_run(window):
     window.resume_worker.start()
 
 
-# Bind methods onto MainWindow without changing its established class layout.
 def bind_resume_api(window_class):
     window_class.pause_run = pause_run
     window_class.resume_run = resume_run
