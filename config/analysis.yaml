@@ -1,16 +1,25 @@
-analysis_version: "1.0"
+analysis_version: "1.1"
 
 performance:
 
   rpm:
 
-    voltage_gain: 5000.0
+    # FA130-class Torque Tune baseline.
+    # Formal RPM estimate does not use KY-024.
+    kv_rpm_per_volt: 8500.0
+
+    nominal_voltage: 2.4
+
+    # Voltage above this is treated as a measurement anomaly for RPM
+    # estimation rather than converted into an implausible RPM.
+    max_valid_voltage: 3.6
 
     default_confidence: 0.50
 
   torque:
 
-    current_gain: 10.0
+    # Derived from approximately 8500 rpm/V.
+    torque_constant_gcm_per_a: 11.46
 
     default_confidence: 0.50
 
