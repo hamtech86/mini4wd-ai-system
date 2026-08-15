@@ -1,7 +1,12 @@
 from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QPushButton, QLabel, QComboBox
 
-from controllers.recipe import BreakinRecipe, BreakinPhase, default_speed_recipe
+from controllers.recipe import (
+    BreakinRecipe,
+    BreakinPhase,
+    default_speed_recipe,
+    default_torque_recipe,
+)
 from ui.result_formatter import format_analysis_result
 
 
@@ -25,7 +30,7 @@ class BreakinWorker(QThread):
 
 
 class MainWindow(QMainWindow):
-    """Temporary UI for MOTOR_BREAKIN_V3 integration testing."""
+    """MOTOR_BREAKIN_V3 production break-in UI."""
 
     def __init__(self, context=None):
         super().__init__()
@@ -38,17 +43,19 @@ class MainWindow(QMainWindow):
             self.breakin_controller = getattr(context, "breakin_controller", None)
 
         self.setWindowTitle("MINI4WD AI SYSTEM - Motor Break-in")
-        self.resize(600, 400)
+        self.resize(700, 520)
 
         root = QWidget()
         layout = QVBoxLayout()
         self.status = QLabel("READY")
         self.result_display = QLabel("RESULT: --")
+        self.result_display.setWordWrap(True)
         self.instance_selector = QComboBox()
         self._load_motor_instances()
         self.recipe_selector = QComboBox()
-        self.recipe_selector.addItem("TEST - 3 sec / PWM 80", "TEST")
+        self.recipe_selector.addItem("TORQUE - automatic Torque Tune recipe", "TORQUE")
         self.recipe_selector.addItem("SPEED - 360 sec", "SPEED")
+        self.recipe_selector.addItem("TEST - 3 sec / PWM 80", "TEST")
         self.start_button = QPushButton("START BREAK-IN")
         self.stop_button = QPushButton("EMERGENCY STOP")
 
@@ -56,6 +63,7 @@ class MainWindow(QMainWindow):
         self.stop_button.clicked.connect(self.stop_breakin)
 
         layout.addWidget(self.status)
+        layout.addWidget(QLabel("ANALYSIS / BENCHMARK"))
         layout.addWidget(self.result_display)
         layout.addWidget(QLabel("MOTOR INSTANCE"))
         layout.addWidget(self.instance_selector)
@@ -67,7 +75,6 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(root)
 
     def _load_motor_instances(self):
-        """Load selectable non-deleted motor instances from the production DB."""
         self.instance_selector.clear()
         database = getattr(self.breakin_controller, "database", None)
         if database is None:
@@ -93,11 +100,14 @@ class MainWindow(QMainWindow):
             self.instance_selector.addItem("NO MOTOR INSTANCE", None)
 
     def selected_recipe(self):
-        if self.recipe_selector.currentData() == "TEST":
+        recipe_type = self.recipe_selector.currentData()
+        if recipe_type == "TEST":
             return BreakinRecipe(
                 name="TEST",
                 phases=[BreakinPhase(name="TEST", duration_sec=3, pwm=80, direction="FWD")],
             )
+        if recipe_type == "TORQUE":
+            return default_torque_recipe()
         return default_speed_recipe()
 
     def start_breakin(self):
