@@ -1,4 +1,4 @@
-"""MOTOR_BREAKIN_V3 operator UI: portrait layout with vertical scrolling."""
+"""MOTOR_BREAKIN_V3 operator UI: compact portrait layout with vertical scrolling."""
 from pathlib import Path
 import sqlite3
 from PyQt5.QtCore import QThread,QTimer,pyqtSignal,Qt
@@ -18,26 +18,25 @@ class MainWindow(QMainWindow):
         super().__init__(); self.context=context; self.breakin_worker=None; root=Path(__file__).resolve().parent.parent
         self.recipe_engine=RecipeEngine(str(root/"config"/"breakin_recipes.yaml")); self.breakin_controller=context.get("breakin_controller") if isinstance(context,dict) else getattr(context,"breakin_controller",None)
         self.timer=QTimer(self); self.timer.setInterval(250); self.timer.timeout.connect(self.refresh_runtime)
-        self.setWindowTitle("MINI4WD AI SYSTEM - MOTOR BREAKIN V3"); self.resize(760,1050); self.setMinimumSize(680,600); self.build_ui(); self.load_recipes(); self.load_instances(); self.set_ready()
+        self.setWindowTitle("MINI4WD AI SYSTEM - MOTOR BREAKIN V3"); self.resize(700,1080); self.setMinimumSize(620,600); self.build_ui(); self.load_recipes(); self.load_instances(); self.set_ready()
     def build_ui(self):
         outer=QWidget(); outer_layout=QVBoxLayout(outer); outer_layout.setContentsMargins(3,3,3,3)
         scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff); scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn); scroll.setFrameShape(QScrollArea.NoFrame)
-        content=QWidget(); content.setMinimumWidth(0); content.setMinimumHeight(1220); main=QVBoxLayout(content); main.setContentsMargins(6,5,18,10); main.setSpacing(8)
-        head=QHBoxLayout(); h=QLabel("MOTOR BREAK-IN SYSTEM"); h.setStyleSheet("font-size:25px;font-weight:bold;"); head.addWidget(h); head.addStretch(); self.stop=QPushButton("EMERGENCY STOP"); self.stop.setEnabled(False); self.stop.setFixedSize(125,28); self.stop.clicked.connect(self.stop_run); head.addWidget(self.stop); main.addLayout(head)
+        content=QWidget(); content.setMinimumHeight(1300); main=QVBoxLayout(content); main.setContentsMargins(6,5,18,10); main.setSpacing(8)
+        head=QHBoxLayout(); h=QLabel("MOTOR BREAK-IN SYSTEM"); h.setStyleSheet("font-size:25px;font-weight:bold;"); head.addWidget(h); head.addStretch(); self.stop=QPushButton("EMERGENCY STOP"); self.stop.setEnabled(False); self.stop.setFixedSize(120,28); self.stop.clicked.connect(self.stop_run); head.addWidget(self.stop); main.addLayout(head)
         pre=QGroupBox("① 駆動前：操作"); pv=QVBoxLayout(pre); pv.setContentsMargins(8,6,8,6)
-        r=QHBoxLayout(); r.addWidget(QLabel("MOTOR INSTANCE")); self.instance=QComboBox(); r.addWidget(self.instance,1); self.instance_id=QLabel("ID: --"); r.addWidget(self.instance_id); self.manager=QPushButton("INSTANCE MANAGER"); self.manager.setFixedWidth(150); self.manager.clicked.connect(self.open_manager); r.addWidget(self.manager); pv.addLayout(r)
-        r=QHBoxLayout(); r.addWidget(QLabel("RECIPE")); self.recipe=QComboBox(); self.recipe.currentIndexChanged.connect(self.recipe_changed); r.addWidget(self.recipe,1); self.start=QPushButton("START BREAK-IN"); self.start.setFixedWidth(150); self.start.clicked.connect(self.start_run); r.addWidget(self.start); pv.addLayout(r)
+        r=QHBoxLayout(); r.addWidget(QLabel("MOTOR INSTANCE")); self.instance=QComboBox(); self.instance.setMinimumWidth(0); self.instance.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Fixed); r.addWidget(self.instance,1); self.instance_id=QLabel("ID: --"); self.instance_id.setFixedWidth(55); r.addWidget(self.instance_id); self.manager=QPushButton("INSTANCE MANAGER"); self.manager.setFixedWidth(145); self.manager.clicked.connect(self.open_manager); r.addWidget(self.manager); pv.addLayout(r)
+        r=QHBoxLayout(); r.addWidget(QLabel("RECIPE")); self.recipe=QComboBox(); self.recipe.setMinimumWidth(0); self.recipe.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Fixed); r.addWidget(self.recipe,1); self.start=QPushButton("START BREAK-IN"); self.start.setFixedWidth(145); self.start.clicked.connect(self.start_run); r.addWidget(self.start); pv.addLayout(r)
         self.description=QLabel("-"); self.description.setWordWrap(True); pv.addWidget(self.description); main.addWidget(pre)
         run=QGroupBox("② 駆動中：プログレス / LIVE DATA"); rv=QVBoxLayout(run); rv.setContentsMargins(8,6,8,6); self.run_state=QLabel("READY"); self.run_state.setStyleSheet("font-size:22px;font-weight:bold;"); rv.addWidget(self.run_state)
-        self.progress={k:QLabel("--") for k in ("STEP","PHASE","DIR","PWM","VOLT","CURRENT","ELAPSED","REMAIN")}
-        grid=QGridLayout(); grid.setHorizontalSpacing(5); grid.setVerticalSpacing(5)
+        self.progress={k:QLabel("--") for k in ("STEP","PHASE","DIR","PWM","VOLT","CURRENT","ELAPSED","REMAIN")}; grid=QGridLayout(); grid.setHorizontalSpacing(5); grid.setVerticalSpacing(5)
         for i,k in enumerate(self.progress):
             box=QGroupBox(k); q=QVBoxLayout(box); q.setContentsMargins(5,4,5,4); self.progress[k].setStyleSheet("font-size:14px;font-weight:bold;"); self.progress[k].setAlignment(Qt.AlignCenter); self.progress[k].setMinimumHeight(34); q.addWidget(self.progress[k]); grid.addWidget(box,i//4,i%4)
         rv.addLayout(grid)
-        r=QHBoxLayout(); self.live={k:QLabel("--") for k in ("Arduino","DIR","PWM","V","A","STATE","TEMP")}
-        for k,w in self.live.items(): r.addWidget(QLabel(k+":")); r.addWidget(w)
-        r.addStretch(); rv.addLayout(r); main.addWidget(run)
-        detail=QGroupBox("SELECTED RECIPE"); r=QVBoxLayout(detail); r.setContentsMargins(8,5,8,5); line=QHBoxLayout(); self.recipe_detail=QLabel("-"); self.phase_detail=QLabel("-"); self.benchmark_detail=QLabel("-"); line.addWidget(QLabel("Description:")); line.addWidget(self.recipe_detail,2); line.addWidget(QLabel("Benchmark:")); line.addWidget(self.benchmark_detail,1); r.addLayout(line); line=QHBoxLayout(); line.addWidget(QLabel("Phases:")); line.addWidget(self.phase_detail,1); r.addLayout(line); main.addWidget(detail)
+        livegrid=QGridLayout(); livegrid.setHorizontalSpacing(8); livegrid.setVerticalSpacing(4); self.live={k:QLabel("--") for k in ("Arduino","DIR","PWM","V","A","STATE","TEMP")}
+        for i,(k,w) in enumerate(self.live.items()): livegrid.addWidget(QLabel(k+":"),i//4*2,i%4*2); livegrid.addWidget(w,i//4*2,i%4*2+1)
+        rv.addLayout(livegrid); main.addWidget(run)
+        detail=QGroupBox("SELECTED RECIPE"); r=QVBoxLayout(detail); r.setContentsMargins(8,5,8,5); line=QHBoxLayout(); self.recipe_detail=QLabel("-"); self.benchmark_detail=QLabel("-"); line.addWidget(QLabel("Description:")); line.addWidget(self.recipe_detail,1); line.addWidget(QLabel("Benchmark:")); line.addWidget(self.benchmark_detail,1); r.addLayout(line); line=QHBoxLayout(); self.phase_detail=QLabel("-"); line.addWidget(QLabel("Phases:")); line.addWidget(self.phase_detail,1); r.addLayout(line); main.addWidget(detail)
         result=QGroupBox("③ 結果"); rv=QVBoxLayout(result); rv.setContentsMargins(8,6,8,6); self.result={k:QLabel("--") for k in ("STATUS","BRUSH PEAK","PEAK STATE","BENCHMARK","SUMMARY")}; grid=QGridLayout(); grid.setHorizontalSpacing(5); grid.setVerticalSpacing(5)
         for i,k in enumerate(self.result):
             box=QGroupBox(k); q=QVBoxLayout(box); q.setContentsMargins(5,4,5,4); self.result[k].setStyleSheet("font-size:14px;font-weight:bold;"); self.result[k].setWordWrap(True); self.result[k].setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Preferred); q.addWidget(self.result[k]); grid.addWidget(box,0 if i<3 else 1,i if i<3 else i-3)
