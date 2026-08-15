@@ -2,7 +2,7 @@
 from pathlib import Path
 import sqlite3
 from PyQt5.QtCore import QThread,QTimer,pyqtSignal
-from PyQt5.QtWidgets import QApplication,QComboBox,QFormLayout,QGroupBox,QHBoxLayout,QLabel,QMainWindow,QMessageBox,QPushButton,QVBoxLayout,QWidget
+from PyQt5.QtWidgets import QApplication,QComboBox,QGroupBox,QHBoxLayout,QLabel,QMainWindow,QMessageBox,QPushButton,QVBoxLayout,QWidget
 from controllers.recipe_engine import RecipeEngine
 
 class BreakinWorker(QThread):
@@ -15,30 +15,28 @@ class BreakinWorker(QThread):
 class MainWindow(QMainWindow):
     BENCHMARK_KEY="__MOTOR_BENCHMARK_TEST__"
     def __init__(self,context=None):
-        super().__init__(); self.context=context; self.breakin_worker=None
-        root=Path(__file__).resolve().parent.parent; self.recipe_engine=RecipeEngine(str(root/"config"/"breakin_recipes.yaml")); self.breakin_controller=context.get("breakin_controller") if isinstance(context,dict) else getattr(context,"breakin_controller",None)
+        super().__init__(); self.context=context; self.breakin_worker=None; root=Path(__file__).resolve().parent.parent
+        self.recipe_engine=RecipeEngine(str(root/"config"/"breakin_recipes.yaml")); self.breakin_controller=context.get("breakin_controller") if isinstance(context,dict) else getattr(context,"breakin_controller",None)
         self.timer=QTimer(self); self.timer.setInterval(250); self.timer.timeout.connect(self.refresh_runtime)
-        self.setWindowTitle("MINI4WD AI SYSTEM - MOTOR BREAKIN V3"); self.resize(1100,820); self.setMinimumSize(950,700); self.build_ui(); self.load_recipes(); self.load_instances(); self.set_ready()
+        self.setWindowTitle("MINI4WD AI SYSTEM - MOTOR BREAKIN V3"); self.resize(1120,820); self.setMinimumSize(1000,720); self.build_ui(); self.load_recipes(); self.load_instances(); self.set_ready()
     def build_ui(self):
-        root=QWidget(); main=QVBoxLayout(root); main.setContentsMargins(14,12,14,12); main.setSpacing(10)
-        h=QLabel("MOTOR BREAK-IN SYSTEM"); h.setStyleSheet("font-size:28px;font-weight:bold;"); main.addWidget(h)
+        root=QWidget(); main=QVBoxLayout(root); main.setContentsMargins(14,12,14,12); main.setSpacing(9)
+        h=QLabel("MOTOR BREAK-IN SYSTEM"); h.setStyleSheet("font-size:27px;font-weight:bold;"); main.addWidget(h)
         pre=QGroupBox("① 駆動前：操作"); pv=QVBoxLayout(pre)
-        row=QHBoxLayout(); row.addWidget(QLabel("MOTOR INSTANCE")); self.instance=QComboBox(); row.addWidget(self.instance,1); self.instance_id=QLabel("ID: --"); row.addWidget(self.instance_id); self.manager=QPushButton("INSTANCE MANAGER"); self.manager.clicked.connect(self.open_manager); row.addWidget(self.manager); pv.addLayout(row)
-        row2=QHBoxLayout(); row2.addWidget(QLabel("RECIPE")); self.recipe=QComboBox(); self.recipe.currentIndexChanged.connect(self.recipe_changed); row2.addWidget(self.recipe,1); self.start=QPushButton("START BREAK-IN"); self.start.clicked.connect(self.start_run); row2.addWidget(self.start); pv.addLayout(row2)
+        r=QHBoxLayout(); r.addWidget(QLabel("MOTOR INSTANCE")); self.instance=QComboBox(); r.addWidget(self.instance,1); self.instance_id=QLabel("ID: --"); r.addWidget(self.instance_id); self.manager=QPushButton("INSTANCE MANAGER"); self.manager.setMinimumWidth(170); self.manager.clicked.connect(self.open_manager); r.addWidget(self.manager); pv.addLayout(r)
+        r=QHBoxLayout(); r.addWidget(QLabel("RECIPE")); self.recipe=QComboBox(); self.recipe.currentIndexChanged.connect(self.recipe_changed); r.addWidget(self.recipe,1); self.start=QPushButton("START BREAK-IN"); self.start.setMinimumWidth(180); self.start.clicked.connect(self.start_run); r.addWidget(self.start); pv.addLayout(r)
         self.description=QLabel("-"); self.description.setWordWrap(True); pv.addWidget(self.description); main.addWidget(pre)
-        run=QGroupBox("② 駆動中：プログレス / LIVE DATA"); rv=QVBoxLayout(run)
-        self.run_state=QLabel("READY"); self.run_state.setStyleSheet("font-size:24px;font-weight:bold;"); rv.addWidget(self.run_state)
-        row=QHBoxLayout(); self.progress={k:QLabel("--") for k in ("STEP","PHASE","DIR","PWM","VOLT","CURRENT","ELAPSED","REMAIN")}
-        for k,w in self.progress.items(): box=QGroupBox(k); q=QVBoxLayout(box); w.setStyleSheet("font-size:18px;font-weight:bold;"); q.addWidget(w); row.addWidget(box)
-        rv.addLayout(row)
-        row=QHBoxLayout(); self.live={k:QLabel("--") for k in ("Arduino","DIR","PWM","V","A","STATE","TEMP")}
-        for k,w in self.live.items(): row.addWidget(QLabel(k+":")); row.addWidget(w)
-        row.addStretch(); rv.addLayout(row)
-        self.stop=QPushButton("EMERGENCY STOP"); self.stop.setEnabled(False); self.stop.setMinimumHeight(42); self.stop.clicked.connect(self.stop_run); rv.addWidget(self.stop); main.addWidget(run)
-        detail=QGroupBox("SELECTED RECIPE"); df=QFormLayout(detail); self.recipe_detail=QLabel("-"); self.phase_detail=QLabel("-"); self.benchmark_detail=QLabel("-"); df.addRow("Description",self.recipe_detail); df.addRow("Phases",self.phase_detail); df.addRow("Benchmark",self.benchmark_detail); main.addWidget(detail)
-        result=QGroupBox("③ 結果"); rf=QFormLayout(result); self.result={k:QLabel("--") for k in ("STATUS","BRUSH PEAK","PEAK STATE","BENCHMARK","SUMMARY")};
-        for k,w in self.result.items(): w.setStyleSheet("font-size:16px;"); rf.addRow(k,w)
-        self.copy=QPushButton("COPY RESULT"); self.copy.setEnabled(False); self.copy.clicked.connect(self.copy_result); rf.addRow("",self.copy); main.addWidget(result); self.setCentralWidget(root)
+        run=QGroupBox("② 駆動中：プログレス / LIVE DATA"); rv=QVBoxLayout(run); self.run_state=QLabel("READY"); self.run_state.setStyleSheet("font-size:23px;font-weight:bold;"); rv.addWidget(self.run_state)
+        r=QHBoxLayout(); self.progress={k:QLabel("--") for k in ("STEP","PHASE","DIR","PWM","VOLT","CURRENT","ELAPSED","REMAIN")}
+        for k,w in self.progress.items(): box=QGroupBox(k); q=QVBoxLayout(box); q.setContentsMargins(8,7,8,7); w.setStyleSheet("font-size:17px;font-weight:bold;"); q.addWidget(w); r.addWidget(box,1)
+        rv.addLayout(r)
+        r=QHBoxLayout(); self.live={k:QLabel("--") for k in ("Arduino","DIR","PWM","V","A","STATE","TEMP")}
+        for k,w in self.live.items(): r.addWidget(QLabel(k+":")); r.addWidget(w)
+        r.addStretch(); rv.addLayout(r); self.stop=QPushButton("EMERGENCY STOP"); self.stop.setEnabled(False); self.stop.setMinimumHeight(42); self.stop.clicked.connect(self.stop_run); rv.addWidget(self.stop); main.addWidget(run)
+        detail=QGroupBox("SELECTED RECIPE"); r=QHBoxLayout(detail); self.recipe_detail=QLabel("-"); self.phase_detail=QLabel("-"); self.benchmark_detail=QLabel("-"); r.addWidget(QLabel("Description:")); r.addWidget(self.recipe_detail,2); r.addWidget(QLabel("Phases:")); r.addWidget(self.phase_detail,3); r.addWidget(QLabel("Benchmark:")); r.addWidget(self.benchmark_detail,1); main.addWidget(detail)
+        result=QGroupBox("③ 結果"); rv=QVBoxLayout(result); r=QHBoxLayout(); self.result={k:QLabel("--") for k in ("STATUS","BRUSH PEAK","PEAK STATE","BENCHMARK","SUMMARY")}
+        for k,w in self.result.items(): box=QGroupBox(k); q=QVBoxLayout(box); w.setStyleSheet("font-size:16px;font-weight:bold;"); w.setWordWrap(True); q.addWidget(w); r.addWidget(box,1)
+        rv.addLayout(r); self.copy=QPushButton("COPY RESULT"); self.copy.setEnabled(False); self.copy.setMinimumHeight(42); self.copy.clicked.connect(self.copy_result); rv.addWidget(self.copy); main.addWidget(result); self.setCentralWidget(root)
     def set_ready(self): self.run_state.setText("READY / CONTROLLER CONNECTED" if self.breakin_controller else "ERROR / CONTROLLER NOT AVAILABLE"); self.refresh_runtime(); self.recipe_changed(0)
     def load_recipes(self):
         self.recipe.clear()
@@ -58,8 +56,8 @@ class MainWindow(QMainWindow):
     def open_manager(self):
         try:
             from motor_system.python.ui.motor_manager_ui import MotorManagerUI
-            self.manager_window=MotorManagerUI(); self.manager_window.setAttribute(55,True); self.manager_window.show(); self.manager_window.raise_(); self.manager_window.activateWindow()
-        except Exception as e: QMessageBox.critical(self,"Instance Manager",f"Motor Instance Managerを起動できません。\n{e}")
+            self.manager_window=MotorManagerUI(); self.manager_window.setAttribute(55,True); self.manager_window.destroyed.connect(self.load_instances); self.manager_window.show(); self.manager_window.raise_(); self.manager_window.activateWindow()
+        except Exception as e: QMessageBox.critical(self,"Instance Manager",f"Motor Instance Managerを起動できません。\n{type(e).__name__}: {e}")
     def recipe_changed(self,_):
         n=self.recipe.currentData()
         if n==self.BENCHMARK_KEY:self.recipe_detail.setText("3.00 V closed-loop benchmark / 30 s / brush peak measurement"); self.phase_detail.setText("BENCHMARK_3V_TEST → BRUSH PEAK"); self.benchmark_detail.setText("3.00 V / 30 s"); return
@@ -73,8 +71,7 @@ class MainWindow(QMainWindow):
         if not c or not getattr(c,"running",False):return
         ph=getattr(c,"current_phase",None)
         if ph is None:return
-        e=float(c.phase_elapsed_sec()) if hasattr(c,"phase_elapsed_sec") else 0.; d=float(getattr(ph,"duration_sec",0)); idx=int(getattr(c,"current_phase_index",0)); total=int(getattr(c,"total_phases",0));
-        vals={"STEP":f"{idx+1} / {total}","PHASE":getattr(ph,"name","--"),"DIR":getattr(ph,"direction","FWD"),"PWM":getattr(c,"current_pwm",0),"VOLT":self.live["V"].text(),"CURRENT":self.live["A"].text(),"ELAPSED":f"{e:.1f} s","REMAIN":f"{max(0,d-e):.1f} s"};
+        e=float(c.phase_elapsed_sec()) if hasattr(c,"phase_elapsed_sec") else 0.; d=float(getattr(ph,"duration_sec",0)); idx=int(getattr(c,"current_phase_index",0)); total=int(getattr(c,"total_phases",0)); vals={"STEP":f"{idx+1} / {total}","PHASE":getattr(ph,"name","--"),"DIR":getattr(ph,"direction","FWD"),"PWM":getattr(c,"current_pwm",0),"VOLT":self.live["V"].text(),"CURRENT":self.live["A"].text(),"ELAPSED":f"{e:.1f} s","REMAIN":f"{max(0,d-e):.1f} s"};
         for k,v in vals.items():self.progress[k].setText(str(v))
         self.run_state.setText("RUNNING")
     def start_run(self):
@@ -90,11 +87,10 @@ class MainWindow(QMainWindow):
         if b:
             peak=getattr(self.breakin_controller,"last_brush_peak_current",None); self.result["BRUSH PEAK"].setText(f"{float(peak):.3f} A" if peak is not None else "--"); self.result["PEAK STATE"].setText("MEASURED / BENCHMARK")
         self.copy.setEnabled(True)
-    def failed(self,msg):self.timer.stop();self.run_state.setText("ERROR");self.result["STATUS"].setText("ERROR");self.result["SUMMARY"].setText(msg)
+    def failed(self,msg):self.timer.stop();self.run_state.setText("ERROR");self.result["STATUS"].setText("ERROR");self.result["SUMMARY"].setText(msg);self.copy.setEnabled(True)
     def finished(self):self.timer.stop();self.start.setEnabled(True);self.manager.setEnabled(True);self.instance.setEnabled(True);self.recipe.setEnabled(True);self.stop.setEnabled(False);self.breakin_worker=None
     def copy_result(self):
-        text="\n".join(f"{k}: {w.text()}" for k,w in self.result.items())
-        QApplication.clipboard().setText(text); self.copy.setText("COPIED")
+        text="\n".join(f"{k}: {w.text()}" for k,w in self.result.items()); QApplication.clipboard().setText(text); self.copy.setText("COPIED")
 
 def run_app(context=None):
     app=QApplication.instance() or QApplication([]); w=MainWindow(context); w.show(); return app.exec_()
