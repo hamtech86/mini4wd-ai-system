@@ -11,6 +11,7 @@ def test_recipe_catalog_loads():
         "TORQUE_TUNE_23K",
         "TUNE_OPTIMIZED",
         "DASH_OPTIMIZED",
+        "MOTOR_DRIVE_TEST",
     }
 
 
