@@ -7,11 +7,11 @@ from analysis.models import EstimatedValue, FeatureSet, PerformanceResult
 
 
 class PerformanceAnalysis:
-    """Estimate motor performance without modifying Measurement data.
+    """Estimate no-load RPM, torque and supported vehicle weight.
 
-    RPM and torque are explicitly estimated values.  A physical RPM sensor is
-    not required by the current MOTOR_BREAKIN_V3 specification, therefore an
-    input ``features.rpm`` value is never treated as measured RPM here.
+    All three values are explicitly estimates. Measurement data is never
+    modified and an input RPM field is intentionally not treated as measured
+    RPM by this module.
     """
 
     def __init__(self, config: dict[str, Any]):
@@ -24,17 +24,18 @@ class PerformanceAnalysis:
         torque_cfg = performance["torque"]
         weight_cfg = performance["weight"]
 
-        # Current specification: estimated RPM is derived from voltage.
         voltage = float(features.average_voltage or features.voltage or 0.0)
+        current = float(features.average_current or features.current or 0.0)
+
+        # Provisional no-load RPM estimate from motor voltage.
         rpm = max(0.0, voltage * float(rpm_cfg["voltage_gain"]))
-        result.estimated_rpm = EstimatedValue(
+        result.estimated_no_load_rpm = EstimatedValue(
             value=rpm,
             unit="rpm",
             confidence=float(rpm_cfg["default_confidence"]),
         )
 
-        # Current specification: estimated torque is derived from current.
-        current = float(features.average_current or features.current or 0.0)
+        # Provisional torque estimate from motor current.
         torque = max(0.0, current * float(torque_cfg["current_gain"]))
         result.estimated_torque = EstimatedValue(
             value=torque,
@@ -42,9 +43,12 @@ class PerformanceAnalysis:
             confidence=float(torque_cfg["default_confidence"]),
         )
 
-        weight = max(0.0, torque * float(weight_cfg["torque_gain"]))
-        result.estimated_weight = EstimatedValue(
-            value=weight,
+        # Keep the existing configurable weight model as the provisional
+        # supported-weight estimate until the vehicle-weight suitability
+        # algorithm is calibrated against the 115–155 g reference set.
+        supported_weight = max(0.0, torque * float(weight_cfg["torque_gain"]))
+        result.estimated_supported_weight = EstimatedValue(
+            value=supported_weight,
             unit="g",
             confidence=float(weight_cfg["default_confidence"]),
         )
