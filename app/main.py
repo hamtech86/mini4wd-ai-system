@@ -24,13 +24,10 @@ class MainWindow(BaseMainWindow):
         self._build_estimated_result_panel()
 
     def _build_estimated_result_panel(self):
-        # centralWidget() is the existing QWidget container, not a QScrollArea.
-        # Keep the existing layout intact and append the estimated-result card.
         content = self.centralWidget()
         layout = content.layout() if content is not None else None
         if layout is None:
             return
-
         self.estimated_result = {
             "UNLOADED_RPM": QLabel("--"),
             "TORQUE": QLabel("--"),
@@ -62,44 +59,79 @@ class MainWindow(BaseMainWindow):
         except (TypeError, ValueError):
             return default
 
-    def _estimated_values(self):
+    @staticmethod
+    def _measurement_value(measurement, *names):
+        if isinstance(measurement, dict):
+            for name in names:
+                value = measurement.get(name)
+                if value is not None:
+                    return value
+        else:
+            for name in names:
+                value = getattr(measurement, name, None)
+                if value is not None:
+                    return value
+        return None
+
+    def _measurement_series(self):
         controller = self.breakin_controller
-        manager = getattr(controller, "measurement_manager", None) if controller else None
-        measurement = getattr(manager, "last_measurement", None) if manager else None
+        values = list(getattr(controller, "measurements", []) or []) if controller else []
+        return values
 
-        voltage = self._as_float(getattr(measurement, "motor_voltage", 0.0))
-        current = self._as_float(getattr(measurement, "current_avg", 0.0))
+    def _estimated_values(self):
+        measurements = self._measurement_series()
+        voltages = [self._as_float(self._measurement_value(m, "motor_voltage", "voltage"), 0.0) for m in measurements]
+        currents = [abs(self._as_float(self._measurement_value(m, "current_avg", "current", "current1"), 0.0)) for m in measurements]
+        voltages = [v for v in voltages if v > 0.01]
+        currents = [a for a in currents if a > 0.001]
 
-        # MOTOR_BREAKIN_V3 current estimation contract.
-        estimated_rpm = max(0.0, voltage * 5000.0)
-        estimated_torque = max(0.0, current * 10.0)
-        estimated_weight = max(0.0, estimated_torque * 12.0)
+        # Use the retained run measurements, not the final STOP frame, which
+        # naturally contains zero PWM/current after the run has finished.
+        average_voltage = sum(voltages) / len(voltages) if voltages else 0.0
+        average_current = sum(currents) / len(currents) if currents else 0.0
+        peak_current = max(currents) if currents else 0.0
 
-        peak = getattr(controller, "last_brush_peak_current", None) if controller else None
-        if peak is None:
-            data = getattr(self, "last_result_data", None)
-            peak = self._number(
-                data,
-                "brush_peak_current",
-                "peak_current",
-                "peak_current_a",
-                "max_current",
-                "current_peak",
-            )
-        peak = self._as_float(peak, current)
+        estimated_rpm = max(0.0, average_voltage * 5000.0)
+        estimated_torque = max(0.0, average_current * 10.0)
 
-        # Temporary brush-state score: +10=new, 0=peak/perfect, -10=failure.
-        brush_score = max(-10.0, min(10.0, 10.0 - (peak * 5.0)))
-        return estimated_rpm, estimated_torque, brush_score, estimated_weight
+        # Temporary weight estimate. Keep it bounded to the agreed evaluation
+        # window rather than reporting the meaningless 0 g when data is absent.
+        if estimated_torque > 0:
+            reference_weight = estimated_torque * 12.0
+            recommended_min = max(115.0, reference_weight - 10.0)
+            recommended_max = min(155.0, reference_weight + 10.0)
+            if recommended_max < recommended_min:
+                recommended_max = recommended_min
+            weight_text = f"{recommended_min:.0f}～{recommended_max:.0f} g"
+        else:
+            weight_text = "データ不足"
+
+        # Temporary brush-state score: +10=new, 0=perfect/peak, -10=failure.
+        # Peak current is displayed separately in the legacy result area.
+        brush_score = max(-10.0, min(10.0, 10.0 - peak_current * 5.0)) if currents else None
+        if brush_score is None:
+            brush_text = "データ不足"
+        elif brush_score >= 7.0:
+            brush_text = f"{brush_score:+.1f} / 10　新品寄り"
+        elif brush_score >= 2.0:
+            brush_text = f"{brush_score:+.1f} / 10　馴染み中"
+        elif brush_score > -2.0:
+            brush_text = f"{brush_score:+.1f} / 10　PEAK / 完璧"
+        elif brush_score > -7.0:
+            brush_text = f"{brush_score:+.1f} / 10　摩耗傾向"
+        else:
+            brush_text = f"{brush_score:+.1f} / 10　故障域"
+
+        return estimated_rpm, estimated_torque, brush_text, weight_text
 
     def _refresh_estimated_values(self):
         if not hasattr(self, "estimated_result"):
             return
-        rpm, torque, brush_score, weight = self._estimated_values()
-        self.estimated_result["UNLOADED_RPM"].setText(f"{rpm:,.0f} rpm")
-        self.estimated_result["TORQUE"].setText(f"{torque:.2f} g·cm")
-        self.estimated_result["BRUSH_SCORE"].setText(f"{brush_score:+.1f} / +10 ～ -10")
-        self.estimated_result["WEIGHT"].setText(f"{weight:.0f} g")
+        rpm, torque, brush_text, weight_text = self._estimated_values()
+        self.estimated_result["UNLOADED_RPM"].setText(f"{rpm:,.0f} rpm") if rpm > 0 else self.estimated_result["UNLOADED_RPM"].setText("データ不足")
+        self.estimated_result["TORQUE"].setText(f"{torque:.2f} g·cm") if torque > 0 else self.estimated_result["TORQUE"].setText("データ不足")
+        self.estimated_result["BRUSH_SCORE"].setText(brush_text)
+        self.estimated_result["WEIGHT"].setText(weight_text)
 
     def complete(self, data, benchmark):
         super().complete(data, benchmark)
@@ -126,17 +158,9 @@ class ApplicationRuntimeBuilder:
         )
         connected = self.serial_controller.connect()
         if connected:
-            logger.info(
-                "Arduino serial connected: {} @ {} baud",
-                self.SERIAL_PORT,
-                self.SERIAL_BAUDRATE,
-            )
+            logger.info("Arduino serial connected: {} @ {} baud", self.SERIAL_PORT, self.SERIAL_BAUDRATE)
         else:
-            logger.warning(
-                "Arduino serial connection failed: {} @ {} baud",
-                self.SERIAL_PORT,
-                self.SERIAL_BAUDRATE,
-            )
+            logger.warning("Arduino serial connection failed: {} @ {} baud", self.SERIAL_PORT, self.SERIAL_BAUDRATE)
         builder = ApplicationBuilder(serial_controller=self.serial_controller)
         return {
             "serial_controller": self.serial_controller,
@@ -162,13 +186,7 @@ class ApplicationRuntimeBuilder:
 def setup_logger():
     logger.remove()
     logger.add(sys.stdout, level="INFO", colorize=True)
-    logger.add(
-        LOG_DIR / "system.log",
-        rotation="10 MB",
-        retention=10,
-        encoding="utf-8",
-        level="DEBUG",
-    )
+    logger.add(LOG_DIR / "system.log", rotation="10 MB", retention=10, encoding="utf-8", level="DEBUG")
 
 
 def main():
@@ -186,11 +204,7 @@ def main():
     except Exception:
         logger.exception("Fatal Error")
         runtime.close()
-        QMessageBox.critical(
-            None,
-            "Fatal Error",
-            "致命的なエラーが発生しました。\nsystem.log を確認してください。",
-        )
+        QMessageBox.critical(None, "Fatal Error", "致命的なエラーが発生しました。\nsystem.log を確認してください。")
         return 1
 
 
