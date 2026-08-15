@@ -4,9 +4,7 @@
  MOTOR_BREAKIN_V3
  analysis/brush.py
 =====================================================
-
 Brush Analysis
-
 Estimate brush/contact condition from measured current level and
 short-window current ripple. KY-024 RPM is not used.
 =====================================================
@@ -16,7 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from analysis.models import BrushResult, EstimatedValue, FeatureSet
+from analysis.models import BrushResult, FeatureSet
 
 
 class BrushAnalysis:
@@ -30,10 +28,12 @@ class BrushAnalysis:
 
         current = max(0.0, float(getattr(features, "average_current", 0.0)))
         ripple = max(0.0, float(getattr(features, "current_ripple", 0.0)))
-        peak = max(0.0, float(getattr(features, "brush_peak_current", 0.0)))
+        peak = max(
+            0.0,
+            float(getattr(features, "brush_peak_current", 0.0)),
+            float(getattr(features, "peak_current", 0.0)),
+        )
 
-        # Ripple ratio is more useful than an absolute threshold because the
-        # motor current changes substantially between break-in phases.
         ripple_ratio = ripple / max(current, 0.05)
 
         if current <= 0.05:
@@ -54,14 +54,10 @@ class BrushAnalysis:
 
         result.peak_detected = peak > current * 1.25 if current > 0.05 else False
         result.brush_condition = condition
-        result.peak_position = EstimatedValue(
-            value=ripple,
-            unit="A",
-            confidence=confidence,
-        )
+        result.peak_position = ripple
         result.confidence = confidence
         result.explanation = (
             f"current={current:.3f}A, ripple={ripple:.3f}A, "
-            f"ripple_ratio={ripple_ratio:.2f}"
+            f"peak={peak:.3f}A, ripple_ratio={ripple_ratio:.2f}"
         )
         return result
