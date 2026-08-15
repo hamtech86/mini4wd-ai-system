@@ -16,7 +16,19 @@ sys.path.append(str(ROOT))
 from database.manager.database_manager import DatabaseManager
 from database.repository.motor_instance_repository import MotorInstanceRepository
 from database.repository.motor_repository import MotorRepository
-from database.repository.benchmark_result_repository import BenchmarkResultRepository
+
+# Benchmark repository is optional in the current main branch.  The Instance
+# Manager must remain launchable even when the benchmark_result repository has
+# not yet been installed.  This keeps the UI boundary independent from the
+# Main.py benchmark implementation.
+try:
+    from database.repository.benchmark_result_repository import BenchmarkResultRepository
+except ImportError:
+    class BenchmarkResultRepository:
+        def __init__(self, db):
+            self.db = db
+        def get_by_session(self, session_id):
+            return None
 
 class MotorManagerUI(QWidget):
     def __init__(self):
@@ -64,7 +76,7 @@ class MotorManagerUI(QWidget):
             model_display=f"{model_name} ({model_code})" if model_name and model_code else (str(model_name) if model_name else str(data.get("motor_model_id") or ""))
             values=[data.get("instance_id"),model_display,data.get("serial_number"),data.get("nickname"),data.get("status"),data.get("health_status"),data.get("latest_session_id"),benchmark.get("benchmark_rpm") if benchmark else None,data.get("anomaly_count",0),data.get("created_at"),data.get("updated_at")]
             for c,value in enumerate(values):
-                item=QTableWidgetItem("" if value is None else str(value));
+                item=QTableWidgetItem("" if value is None else str(value))
                 if c==0: item.setData(Qt.UserRole,data.get("instance_id"))
                 self.instance_table.setItem(r,c,item)
         self.instance_table.resizeColumnsToContents()
@@ -111,7 +123,7 @@ class MotorManagerUI(QWidget):
     def load_instance_into_form(self,instance_id):
         data=self.instance_repo.get_by_id(instance_id)
         if not data:return
-        self.current_instance_id=instance_id; index=self.model_box.findData(data.get("motor_model_id"));
+        self.current_instance_id=instance_id; index=self.model_box.findData(data.get("motor_model_id"))
         if index>=0:self.model_box.setCurrentIndex(index)
         self.serial_edit.setText(str(data.get("serial_number") or "")); self.nickname_edit.setText(str(data.get("nickname") or "")); self.status_box.setCurrentText(str(data.get("status") or "NEW")); self.health_box.setCurrentText(str(data.get("health_status") or "UNKNOWN")); self.purchase_edit.setText(str(data.get("purchase_date") or "")); self.opened_edit.setText(str(data.get("opened_date") or "")); self.save_button.setText("Update")
 
@@ -121,34 +133,34 @@ class MotorManagerUI(QWidget):
         self.current_instance_id=instance_id; self.detail_title.setText(f"Instance {instance_id} — {data.get('nickname') or data.get('serial_number') or ''}")
         latest_benchmark=self.instance_repo.get_latest_benchmark(instance_id) if self._benchmark_table_available() else None; fields=[("Instance ID",data.get("instance_id")),("Motor Model ID",data.get("motor_model_id")),("Serial Number",data.get("serial_number")),("Nickname",data.get("nickname")),("Status",data.get("status")),("Health",data.get("health_status")),("Purchase Date",data.get("purchase_date")),("Opened Date",data.get("opened_date")),("Latest Session",data.get("latest_session_id")),("Latest Benchmark RPM",latest_benchmark.get("benchmark_rpm") if latest_benchmark else None),("Anomaly Count",data.get("anomaly_count")),("Consecutive Anomaly",data.get("consecutive_anomaly_count")),("Created",data.get("created_at")),("Updated",data.get("updated_at"))]
         self.detail_info.setRowCount(len(fields))
-        for r,(key,value) in enumerate(fields):self.detail_info.setItem(r,0,QTableWidgetItem(key));self.detail_info.setItem(r,1,QTableWidgetItem("" if value is None else str(value)))
+        for r,(key,value) in enumerate(fields): self.detail_info.setItem(r,0,QTableWidgetItem(key)); self.detail_info.setItem(r,1,QTableWidgetItem("" if value is None else str(value)))
         self.detail_info.resizeColumnsToContents()
         try:sessions=self.instance_repo.get_session_history(instance_id)
         except Exception:sessions=[]
         self.history_table.setRowCount(len(sessions))
         for r,session in enumerate(sessions):
             summary=self.instance_repo.get_breakin_summary(session.get("session_id")) or {}; latest=self.instance_repo.get_latest_log(session.get("session_id")) or {}; benchmark=self.benchmark_repo.get_by_session(session.get("session_id")) if self._benchmark_table_available() else None; values=[session.get("session_id"),session.get("device_type"),session.get("device_model"),session.get("start_datetime"),session.get("end_datetime"),session.get("result"),summary.get("log_count",""),latest.get("measured_rpm",""),benchmark.get("benchmark_rpm") if benchmark else None,latest.get("current_ma","")]
-            for c,value in enumerate(values):self.history_table.setItem(r,c,QTableWidgetItem("" if value is None else str(value)))
+            for c,value in enumerate(values): self.history_table.setItem(r,c,QTableWidgetItem("" if value is None else str(value)))
         self.history_table.resizeColumnsToContents()
 
     def compare_selected(self):
         rows=sorted({index.row() for index in self.instance_table.selectionModel().selectedRows()})
-        if not rows:QMessageBox.information(self,"Compare","Select at least one Motor Instance.");return
+        if not rows: QMessageBox.information(self,"Compare","Select at least one Motor Instance."); return
         instances=[]
         for row in rows:
             item=self.instance_table.item(row,0)
-            if item is None:continue
+            if item is None: continue
             instance_id=item.data(Qt.UserRole) or item.text(); data=self.instance_repo.get_by_id(instance_id)
-            if not data:continue
+            if not data: continue
             sessions=self.instance_repo.get_session_history(instance_id); session=sessions[0] if sessions else {}; log=self.instance_repo.get_latest_log(session.get("session_id")) if session.get("session_id") else {}; benchmark=self.instance_repo.get_latest_benchmark(instance_id) if self._benchmark_table_available() else None; instances.append((data,session,log or {},benchmark or {}))
         headers=["Metric"]+[str(x[0].get("instance_id")) for x in instances]; metrics=[("Model",lambda d,s,l,b:d.get("motor_model_id")),("Nickname",lambda d,s,l,b:d.get("nickname")),("Status",lambda d,s,l,b:d.get("status")),("Health",lambda d,s,l,b:d.get("health_status")),("Latest Session",lambda d,s,l,b:s.get("session_id")),("Latest Result",lambda d,s,l,b:s.get("result")),("Measured RPM",lambda d,s,l,b:l.get("measured_rpm")),("Benchmark RPM",lambda d,s,l,b:b.get("benchmark_rpm")),("Current mA",lambda d,s,l,b:l.get("current_ma")),("Voltage V",lambda d,s,l,b:l.get("voltage_v")),("Temperature C",lambda d,s,l,b:l.get("temperature_c")),("PWM",lambda d,s,l,b:l.get("pwm")),("Anomaly Count",lambda d,s,l,b:d.get("anomaly_count"))]
-        self.compare_table.setColumnCount(len(headers));self.compare_table.setRowCount(len(metrics));self.compare_table.setHorizontalHeaderLabels(headers)
+        self.compare_table.setColumnCount(len(headers)); self.compare_table.setRowCount(len(metrics)); self.compare_table.setHorizontalHeaderLabels(headers)
         for r,(name,getter) in enumerate(metrics):
             self.compare_table.setItem(r,0,QTableWidgetItem(name))
-            for c,instance in enumerate(instances,start=1):value=getter(*instance);self.compare_table.setItem(r,c,QTableWidgetItem("" if value is None else str(value)))
-        self.compare_table.resizeColumnsToContents();self.tabs.setCurrentWidget(self.compare_tab)
+            for c,instance in enumerate(instances,start=1): self.compare_table.setItem(r,c,QTableWidgetItem("" if getter(*instance) is None else str(getter(*instance))))
+        self.compare_table.resizeColumnsToContents(); self.tabs.setCurrentWidget(self.compare_tab)
 
-    def closeEvent(self,event):self.db.close();event.accept()
+    def closeEvent(self,event): self.db.close(); event.accept()
 
 if __name__=="__main__":
-    app=QApplication(sys.argv);window=MotorManagerUI();window.show();sys.exit(app.exec_())
+    app=QApplication(sys.argv); window=MotorManagerUI(); window.show(); sys.exit(app.exec_())
