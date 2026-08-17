@@ -71,6 +71,16 @@ class BreakinRecipe:
     def total_time(self):
         return sum(p.duration_sec for p in self.phases)
 
+    def sequences(self):
+        """Return the declarative sequence view of this recipe.
+
+        This is an adapter over the existing phase model, so existing
+        controller execution remains unchanged while new UI/simulator code
+        can consume a common sequence representation.
+        """
+        from .sequence import sequences_from_recipe
+        return sequences_from_recipe(self)
+
     @classmethod
     def from_dict(cls, name: str, data: Dict[str, Any], version: str = "2.0") -> "BreakinRecipe":
         target = data.get("target") or {}
