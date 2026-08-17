@@ -43,8 +43,6 @@ class BatteryChannelCard(QGroupBox):
             self.values["attainment"].setText("--")
         else:
             self.values["attainment"].setText(f"{sample.current / target * 100:.1f} %")
-        # Internal resistance is intentionally unavailable until a controlled
-        # load-step/recovery measurement is implemented in the evaluation layer.
         self.values["internal_r"].setText("-- mΩ")
 
     def set_state(self, state):
@@ -54,7 +52,7 @@ class BatteryChannelCard(QGroupBox):
 class BatteryEvaluationWindow(QMainWindow):
     TARGET_CURRENT = 5.0
 
-    def __init__(self, port="/dev/ttyACM0", parent=None):
+    def __init__(self, port="/dev/ttyUSB0", parent=None):
         super().__init__(parent)
         self.transport = BatterySerial(port=port)
         self.cards = {1: BatteryChannelCard(1), 2: BatteryChannelCard(2)}
@@ -146,7 +144,7 @@ class BatteryEvaluationWindow(QMainWindow):
             self._set_controls_enabled(False)
             self._set_all_state("READY")
             return
-        self.transport.port = self.port.text().strip() or "/dev/ttyACM0"
+        self.transport.port = self.port.text().strip() or "/dev/ttyUSB0"
         self.transport.baudrate = int(self.baud.currentText())
         if not self.transport.connect():
             QMessageBox.warning(self, "Serial", f"接続できませんでした。\n{self.transport.last_error}")
@@ -202,7 +200,6 @@ class BatteryEvaluationWindow(QMainWindow):
                 self.result_values[f"CH{sample.channel}"].setText(state)
                 if state in ("COMPLETE", "TIMEOUT", "STOP"):
                     self.cards[sample.channel].set_state(state)
-            # Raw DATA is never routed to the DEBUG panel.
 
     def closeEvent(self, event):
         self.timer.stop()
