@@ -1,7 +1,7 @@
 """Battery Arduino serial transport.
 
-The battery firmware is treated as immutable.  This layer only sends operator
-commands and parses DATA/DEBUG frames without coupling the UI to the firmware.
+The battery firmware is treated as immutable. This layer sends the commands
+implemented by 2ch5Abattery.ino and keeps DEBUG frames out of measurement data.
 """
 from dataclasses import dataclass
 import csv
@@ -64,10 +64,15 @@ class BatterySerial:
         return True
 
     def start(self, channel=None):
-        return self.send("START,ALL" if channel is None else f"START,{int(channel)}")
+        # Exact firmware commands; do not alter Arduino firmware here.
+        if channel is None:
+            return self.send("STARTALL")
+        return self.send(f"START{int(channel)}")
 
     def stop(self, channel=None):
-        return self.send("STOP,ALL" if channel is None else f"STOP,{int(channel)}")
+        if channel is None:
+            return self.send("STOPALL")
+        return self.send(f"STOP{int(channel)}")
 
     def read_lines(self):
         if not self.connected or not self.serial:
@@ -82,38 +87,34 @@ class BatterySerial:
 
     @staticmethod
     def parse_data(line):
-        """Best-effort parser for DATA CSV frames.
+        """Parse the current firmware DATA frame.
 
-        The UI accepts both positional frames and key=value fields so the
-        firmware protocol can evolve without changing the presentation layer.
-        DEBUG frames are deliberately rejected here.
+        DATA format:
+        DATA,BATTERY_DISCHARGER_V1,CH1,elapsed_ms,current_a,voltage_v,0,pwm,0,state
         """
         if not line.startswith("DATA,"):
             return None
         fields = next(csv.reader(io.StringIO(line)))
-        values = {}
-        for item in fields[1:]:
-            if "=" in item:
-                key, value = item.split("=", 1)
-                values[key.strip().lower()] = value.strip()
-
-        def num(*keys):
-            for key in keys:
-                value = values.get(key)
-                if value is not None:
-                    try:
-                        return float(value)
-                    except ValueError:
-                        pass
+        if len(fields) < 10:
             return None
 
-        channel = num("channel", "ch")
+        try:
+            channel_text = fields[2].strip().upper()
+            channel = int(channel_text.replace("CH", ""))
+            elapsed_ms = float(fields[3])
+            current = float(fields[4])
+            voltage = float(fields[5])
+            pwm = int(float(fields[7]))
+            state = fields[9].strip() or "--"
+        except (ValueError, IndexError):
+            return None
+
         return BatterySample(
-            channel=int(channel) if channel is not None else 0,
-            voltage=num("voltage", "v", "battery_voltage"),
-            current=num("current", "a", "current_a", "measured_current"),
-            pwm=int(num("pwm")) if num("pwm") is not None else None,
-            elapsed_sec=num("elapsed", "elapsed_sec", "time", "seconds"),
-            state=values.get("state", "--"),
+            channel=channel,
+            voltage=voltage,
+            current=current,
+            pwm=pwm,
+            elapsed_sec=elapsed_ms / 1000.0,
+            state=state,
             raw=line,
         )
