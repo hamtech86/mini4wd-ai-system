@@ -26,8 +26,9 @@ class BatterySample:
 
 class BatterySerial:
     BAUDRATE = 57600
+    DEFAULT_PORT = "/dev/ttyUSB0"
 
-    def __init__(self, port="/dev/ttyACM0", baudrate=BAUDRATE):
+    def __init__(self, port=DEFAULT_PORT, baudrate=BAUDRATE):
         self.port = port
         self.baudrate = baudrate
         self.serial = None
@@ -64,7 +65,6 @@ class BatterySerial:
         return True
 
     def start(self, channel=None):
-        # Exact firmware commands; do not alter Arduino firmware here.
         if channel is None:
             return self.send("STARTALL")
         return self.send(f"START{int(channel)}")
@@ -97,10 +97,8 @@ class BatterySerial:
         fields = next(csv.reader(io.StringIO(line)))
         if len(fields) < 10:
             return None
-
         try:
-            channel_text = fields[2].strip().upper()
-            channel = int(channel_text.replace("CH", ""))
+            channel = int(fields[2].strip().upper().replace("CH", ""))
             elapsed_ms = float(fields[3])
             current = float(fields[4])
             voltage = float(fields[5])
@@ -108,7 +106,6 @@ class BatterySerial:
             state = fields[9].strip() or "--"
         except (ValueError, IndexError):
             return None
-
         return BatterySample(
             channel=channel,
             voltage=voltage,
