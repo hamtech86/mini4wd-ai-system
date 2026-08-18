@@ -43,7 +43,7 @@ def parse_battery_data_frame(raw: str | bytes) -> Measurement:
 
     return Measurement(
         record_type="DATA", device_model="BATTERY_DISCHARGER_V1",
-        instance_id=channel, elapsed_time=elapsed_ms,
+        instance_id=channel, elapsed_time=elapsed_ms / 1000.0,
         raw_acs1=0, raw_acs2=0, current1=current1, current2=current2,
         voltage1=voltage1, voltage2=voltage2, motor_voltage=voltage,
         pwm=pwm, direction="DISCHARGE", state=fields[9], current_avg=current,
