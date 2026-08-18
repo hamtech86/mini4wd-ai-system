@@ -1,4 +1,4 @@
-name: Break-in Tests
+name: Break-in and Battery Tests
 
 on:
   push:
@@ -22,3 +22,21 @@ jobs:
           python -m pytest -q \
             tests/test_breakin_controller.py \
             tests/test_recipe_engine.py
+
+  test-battery:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest pyyaml
+      - name: Run Battery Database and Benchmark tests
+        run: |
+          python -m pytest -q \
+            tests/test_battery_benchmark.py \
+            tests/test_battery_benchmark_service.py \
+            tests/test_battery_repository.py
