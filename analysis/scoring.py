@@ -1,47 +1,22 @@
+"""Final motor performance scoring.
+
+Performance is anchored to HD_PRO=50 by PerformanceAnalysis.  Brush state is
+then incorporated as a separate factor; excess torque is not rewarded here.
 """
-=====================================================
- MINI4WD AI SYSTEM
- MOTOR_BREAKIN_V3
- analysis/scoring.py
-=====================================================
-
-Scoring
-
-Analysis結果を評価スコアへ変換する。
-
-責務
-------
-・性能評価
-・安定性評価
-・総合ランク生成
-
-係数・閾値は設定ファイル管理。
-"""
-
 from __future__ import annotations
 
 from typing import Any
 
-from analysis.models import (
-    PerformanceResult,
-    BrushResult,
-    BreakinStrategyResult,
-    ScoreResult,
-)
+from analysis.models import PerformanceResult, BrushResult, BreakinStrategyResult, ScoreResult
 
 
 class Scoring:
-    """
-    Score Calculator
-    """
-
-    def __init__(
-        self,
-        config: dict[str, Any] | None = None,
-    ):
-
+    def __init__(self, config: dict[str, Any] | None = None):
         self.config = config or {}
 
+    @staticmethod
+    def _clamp(value: float, low: float = 0.0, high: float = 100.0) -> float:
+        return max(low, min(high, value))
 
     def calculate(
         self,
@@ -49,184 +24,43 @@ class Scoring:
         brush: BrushResult,
         strategy: BreakinStrategyResult,
     ) -> ScoreResult:
-        """
-        総合評価計算
-        """
+        weights = self.config.get("weights", {})
+        performance_weight = float(weights.get("performance", 0.70))
+        brush_weight = float(weights.get("brush", 0.30))
+        total_weight = max(1e-9, performance_weight + brush_weight)
+        performance_weight /= total_weight
+        brush_weight /= total_weight
 
-        result = ScoreResult()
+        performance_score = self._clamp(performance.performance_index.value)
 
+        # Brush score: peak itself is ideal (100).  Distance from peak reduces
+        # the final index, while unknown/single-sample state remains neutral.
+        if brush.peak_offset.value or brush.brush_condition in {"PRE_PEAK", "POST_PEAK"}:
+            brush_score = self._clamp(100.0 - abs(brush.peak_offset.value))
+        elif brush.brush_condition == "PEAK":
+            brush_score = 100.0
+        else:
+            brush_score = 50.0
 
-        #
-        # 設定取得
-        #
-
-        weights = self.config.get(
-            "weights",
-            {},
-        )
-
-        thresholds = self.config.get(
-            "rank_thresholds",
-            {},
-        )
-
-
-        #
-        # Performance Score
-        #
-
-        rpm_score = self._normalize(
-            performance.estimated_rpm.value,
-            30000,
-        )
-
-
-        torque_score = self._normalize(
-            performance.estimated_torque.value,
-            100,
-        )
-
-
-        stability_score = (
-            1.0
-            if brush.peak_detected is False
-            else 0.7
-        )
-
-
-        #
-        # Weight
-        #
-
-        speed_weight = weights.get(
-            "speed",
-            0.4,
-        )
-
-        torque_weight = weights.get(
-            "torque",
-            0.4,
-        )
-
-        stability_weight = weights.get(
-            "stability",
-            0.2,
-        )
-
-
-        total = (
-
-            rpm_score
-            * speed_weight
-
-            +
-
-            torque_score
-            * torque_weight
-
-            +
-
-            stability_score
-            * stability_weight
-
-        )
-
-
-        result.total_score = (
-            total * 100
-        )
-
-
-        #
-        # Rank
-        #
-
-        result.rank = self._rank(
-            result.total_score,
-            thresholds,
-        )
-
-
-        #
-        # Detail
-        #
-
-        result.details = {
-
-            "speed":
-                rpm_score * 100,
-
-            "torque":
-                torque_score * 100,
-
-            "stability":
-                stability_score * 100,
-
-        }
-
-
+        total = performance_score * performance_weight + brush_score * brush_weight
+        result = ScoreResult(total_score=round(total, 2), details={
+            "performance": round(performance_score, 2),
+            "brush": round(brush_score, 2),
+            "performance_weight": performance_weight,
+            "brush_weight": brush_weight,
+            "required_torque_met": None,
+        })
+        result.rank = self._rank(result.total_score)
         return result
 
-
-    def _normalize(
-        self,
-        value: float,
-        maximum: float,
-    ) -> float:
-        """
-        0～1へ正規化
-        """
-
-        if maximum <= 0:
-
-            return 0.0
-
-        return max(
-            0.0,
-            min(
-                value / maximum,
-                1.0,
-            ),
-        )
-
-
-    def _rank(
-        self,
-        score: float,
-        thresholds: dict,
-    ) -> str:
-
-        if score >= thresholds.get(
-            "S",
-            90,
-        ):
-
+    def _rank(self, score: float) -> str:
+        thresholds = self.config.get("rank_thresholds", {})
+        if score >= float(thresholds.get("S", 90)):
             return "S"
-
-
-        if score >= thresholds.get(
-            "A",
-            80,
-        ):
-
+        if score >= float(thresholds.get("A", 80)):
             return "A"
-
-
-        if score >= thresholds.get(
-            "B",
-            70,
-        ):
-
+        if score >= float(thresholds.get("B", 70)):
             return "B"
-
-
-        if score >= thresholds.get(
-            "C",
-            60,
-        ):
-
+        if score >= float(thresholds.get("C", 60)):
             return "C"
-
-
         return "D"
-
