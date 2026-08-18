@@ -1,22 +1,22 @@
-analysis_version: "1.0"
+analysis_version: "2.0"
 
 performance:
-
   rpm:
-
-    voltage_gain: 5000.0
-
-    default_confidence: 0.50
-
+    voltage_reference: 3.0
+    max_voltage_ratio: 1.15
+    default_confidence: 0.60
   torque:
-
-    current_gain: 10.0
-
-    default_confidence: 0.50
-
+    default_confidence: 0.60
+  index:
+    benchmark_model_id: HD_PRO
+    benchmark_score: 50.0
+    log_sigma: 0.10
   weight:
-
+    # Legacy fallback only. Vehicle-specific required torque uses
+    # analysis.required_torque.RequiredTorqueAnalysis.
     torque_gain: 12.0
-
     default_confidence: 0.40
 
+brush:
+  # Provisional threshold only; actual peak is detected from session history.
+  peak_current: 2.0
