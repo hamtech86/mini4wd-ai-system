@@ -29,3 +29,29 @@ performance:
     gear_ratio: 3.5
 
     default_confidence: 0.40
+
+  weight_suitability:
+
+    min_weight_g: 115.0
+
+    max_weight_g: 155.0
+
+    step_g: 5.0
+
+    reference_torque_gcm: 0.83
+
+    reference_weight_g: 130.0
+
+    comparison_weight_g: 140.0
+
+    tire_diameter_mm: 24.0
+
+    gear_ratio: 3.5
+
+    margin_recommended: 1.15
+
+    margin_acceptable: 1.00
+
+    margin_limit: 0.90
+
+    default_confidence: 0.40
