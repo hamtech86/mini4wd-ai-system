@@ -1,7 +1,7 @@
 """MOTOR_BREAKIN_V3 analysis pipeline.
 
 The engine consumes immutable Measurement data and produces re-runnable
-AnalysisResult objects.  Database and Arduino access remain outside this layer.
+AnalysisResult objects. Database and Arduino access remain outside this layer.
 """
 from __future__ import annotations
 
@@ -27,7 +27,6 @@ class AnalysisEngine:
         analysis_config = self.loader.load("analysis.yaml")
         scoring_config = self.loader.load("scoring.yaml")
         recipe_config = self.loader.load("breakin_recipes.yaml")
-
         self.validation = Validation(analysis_config)
         self.extractor = FeatureExtractor()
         self.performance = PerformanceAnalysis(analysis_config)
@@ -45,47 +44,67 @@ class AnalysisEngine:
         benchmark_model: Mapping[str, Any] | None = None,
         vehicle_spec: VehicleSpec | Mapping[str, float] | None = None,
     ) -> AnalysisResult:
-        """Analyze one Measurement without modifying it.
-
-        ``motor_model`` and ``benchmark_model`` must come from the DB layer.
-        ``vehicle_spec`` is optional; when supplied, required torque and motor
-        torque margin are added to the result score details.
-        """
         validation = self.validation.validate(measurement)
         features = self.extractor.extract(measurement)
         performance = self.performance.analyze(
-            features,
-            motor_model=motor_model,
-            benchmark_model=benchmark_model,
+            features, motor_model=motor_model, benchmark_model=benchmark_model
         )
         brush = self.brush.analyze(features)
         strategy = self.strategy.analyze(features)
         score = self.scoring.calculate(performance, brush, strategy)
+        self._apply_vehicle_requirement(score, performance, vehicle_spec)
+        return self._result(validation, performance, brush, strategy, score)
 
-        if vehicle_spec is not None:
-            requirement = self.required_torque.calculate(vehicle_spec)
-            margin, margin_percent = self.required_torque.margin(
-                performance.estimated_torque.value,
-                requirement.required_torque_gcm.value,
+    def analyze_series(
+        self,
+        measurements: Iterable,
+        *,
+        motor_model: Mapping[str, Any] | None = None,
+        benchmark_model: Mapping[str, Any] | None = None,
+        vehicle_spec: VehicleSpec | Mapping[str, float] | None = None,
+    ) -> AnalysisResult:
+        """Analyze a session and use complete history for brush peak state."""
+        items = list(measurements)
+        if not items:
+            return AnalysisResult(
+                analysis_version=self.analysis_version,
+                analysis_datetime=datetime.now(timezone.utc).isoformat(),
+                confidence=0.0,
             )
-            requirement.margin_gcm = margin
-            requirement.margin_percent = margin_percent
-            score.details["required_torque_gcm"] = requirement.required_torque_gcm.value
-            score.details["torque_margin_gcm"] = margin
-            score.details["torque_margin_percent"] = margin_percent
-            score.details["traction_limited"] = requirement.traction_limited
 
-            # Failing the minimum torque requirement is a hard suitability fail;
-            # surplus torque receives no extra score.
-            if margin < 0:
-                score.details["required_torque_met"] = False
-                score.total_score = min(score.total_score, 49.0)
-            else:
-                score.details["required_torque_met"] = True
-        else:
+        result = self.analyze(
+            items[-1], motor_model=motor_model, benchmark_model=benchmark_model,
+            vehicle_spec=vehicle_spec,
+        )
+        features: list[FeatureSet] = [self.extractor.extract(item) for item in items]
+        result.brush = self.brush.analyze_series(features)
+        result.score = self.scoring.calculate(result.performance, result.brush, result.strategy)
+        self._apply_vehicle_requirement(result.score, result.performance, vehicle_spec)
+        result.confidence = min(result.confidence or 1.0, result.brush.confidence or 1.0)
+        return result
+
+    def _apply_vehicle_requirement(self, score, performance, vehicle_spec) -> None:
+        if vehicle_spec is None:
             score.details["required_torque_met"] = None
+            return
+        requirement = self.required_torque.calculate(vehicle_spec)
+        margin, margin_percent = self.required_torque.margin(
+            performance.estimated_torque.value, requirement.required_torque_gcm.value
+        )
+        score.details.update({
+            "required_torque_gcm": requirement.required_torque_gcm.value,
+            "torque_margin_gcm": margin,
+            "torque_margin_percent": margin_percent,
+            "traction_limited": requirement.traction_limited,
+            "required_torque_met": margin >= 0,
+        })
+        # Minimum torque is a hard gate. Excess torque receives no additional score.
+        if margin < 0:
+            score.total_score = min(score.total_score, 49.0)
+            score.rank = "D"
 
-        result = AnalysisResult(
+    def _result(self, validation, performance, brush, strategy, score) -> AnalysisResult:
+        return AnalysisResult(
             validation=validation,
             performance=performance,
             brush=brush,
@@ -99,36 +118,3 @@ class AnalysisEngine:
                 brush.confidence or 1.0,
             ),
         )
-        return result
-
-    def analyze_series(
-        self,
-        measurements: Iterable,
-        *,
-        motor_model: Mapping[str, Any] | None = None,
-        benchmark_model: Mapping[str, Any] | None = None,
-        vehicle_spec: VehicleSpec | Mapping[str, float] | None = None,
-    ) -> AnalysisResult:
-        """Analyze a session and use the complete history for brush peak state."""
-        items = list(measurements)
-        if not items:
-            return AnalysisResult(
-                analysis_version=self.analysis_version,
-                analysis_datetime=datetime.now(timezone.utc).isoformat(),
-                confidence=0.0,
-            )
-
-        result = self.analyze(
-            items[-1],
-            motor_model=motor_model,
-            benchmark_model=benchmark_model,
-            vehicle_spec=vehicle_spec,
-        )
-        features: list[FeatureSet] = [self.extractor.extract(item) for item in items]
-        result.brush = self.brush.analyze_series(features)
-        result.score = self.scoring.calculate(
-            result.performance,
-            result.brush,
-            result.strategy,
-        )
-        return result
