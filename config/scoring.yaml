@@ -1,21 +1,11 @@
-analysis_version: "1.0"
+analysis_version: "2.0"
 
 weights:
-
-  speed: 0.4
-
-  torque: 0.4
-
-  stability: 0.2
-
+  performance: 0.70
+  brush: 0.30
 
 rank_thresholds:
-
   S: 90
-
   A: 80
-
   B: 70
-
   C: 60
-
