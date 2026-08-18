@@ -48,8 +48,14 @@ class PerformanceResult:
     estimated_no_load_rpm: EstimatedValue = field(default_factory=EstimatedValue)
     estimated_torque: EstimatedValue = field(default_factory=EstimatedValue)
     estimated_supported_weight: EstimatedValue = field(default_factory=EstimatedValue)
+    performance_index: EstimatedValue = field(default_factory=EstimatedValue)
+    benchmark_ratio: float = 0.0
+    motor_model_id: str = ""
+    motor_model_name: str = ""
+    nominal_rpm: float = 0.0
+    nominal_current_ma: float = 0.0
+    nominal_torque_gcm: float = 0.0
 
-    # Backward-compatible aliases retained for existing consumers.
     @property
     def estimated_rpm(self) -> EstimatedValue:
         return self.estimated_no_load_rpm
@@ -68,6 +74,21 @@ class PerformanceResult:
 
 
 @dataclass
+class RequiredTorqueResult:
+    required_torque_gcm: EstimatedValue = field(default_factory=EstimatedValue)
+    usable_traction_torque_gcm: EstimatedValue = field(default_factory=EstimatedValue)
+    traction_limited: bool = False
+    wheel_force_n: float = 0.0
+    traction_limit_n: float = 0.0
+    rolling_resistance_n: float = 0.0
+    grade_force_n: float = 0.0
+    acceleration_force_n: float = 0.0
+    margin_gcm: float = 0.0
+    margin_percent: float = 0.0
+    explanation: str = ""
+
+
+@dataclass
 class BrushResult:
     peak_detected: bool = False
     peak_position: EstimatedValue = field(default_factory=EstimatedValue)
@@ -75,6 +96,9 @@ class BrushResult:
     peak_score: EstimatedValue = field(default_factory=EstimatedValue)
     confidence: float = 0.0
     explanation: str = ""
+    peak_offset: EstimatedValue = field(default_factory=EstimatedValue)
+    growth_rate_percent: float = 0.0
+    life_position_percent: float = 0.0
 
 
 @dataclass
@@ -121,3 +145,5 @@ class AnalysisResult:
     algorithm_version: str = "1.0"
     config_version: str = "1.0"
     recipe_version: str = "1.0"
+    analysis_datetime: str = ""
+    confidence: float = 0.0
