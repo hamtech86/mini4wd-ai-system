@@ -51,4 +51,5 @@ def test_weight_suitability_margin_statuses_are_derived_from_torque():
 
     assert by_weight[115.0].status == "RECOMMENDED"
     assert by_weight[130.0].status == "ACCEPTABLE"
-    assert by_weight[140.0].status == "UNSUITABLE"
+    assert by_weight[140.0].status == "LIMIT"
+    assert by_weight[155.0].status == "UNSUITABLE"
