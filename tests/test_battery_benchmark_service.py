@@ -6,9 +6,7 @@ from analysis.battery_benchmark_service import BatteryBenchmarkService
 def test_service_reads_measurement_and_only_writes_result():
     db = sqlite3.connect(":memory:")
     db.row_factory = sqlite3.Row
-    db.execute(
-        "CREATE TABLE measurement_session (session_id TEXT PRIMARY KEY)"
-    )
+    db.execute("CREATE TABLE measurement_session (session_id TEXT PRIMARY KEY)")
     db.execute(
         """CREATE TABLE measurement (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -28,6 +26,8 @@ def test_service_reads_measurement_and_only_writes_result():
     )
     db.commit()
 
+    # Service must be able to create its result table against the existing
+    # session/measurement schema without modifying the raw Measurement rows.
     before = db.execute("SELECT * FROM measurement ORDER BY id").fetchall()
     result = BatteryBenchmarkService(db).analyze_session('S1')
     after = db.execute("SELECT * FROM measurement ORDER BY id").fetchall()
