@@ -26,7 +26,6 @@ class BatteryTab(QWidget):
         for col,ch in enumerate(("ALL","CH1","CH2")): self.status_labels[ch]=QLabel(f"{ch}: IDLE"); sg.addWidget(self.status_labels[ch],0,col)
         op.addWidget(status)
         assignment=QGroupBox("BATTERY INSTANCE ASSIGNMENT"); ar=QVBoxLayout(assignment); mr=QHBoxLayout(); self.model=QComboBox(); mr.addWidget(QLabel("Battery Model")); mr.addWidget(self.model); ar.addLayout(mr); ir=QHBoxLayout(); self.ch1_instance=QComboBox(); self.ch2_instance=QComboBox(); ir.addWidget(QLabel("CH1 Instance")); ir.addWidget(self.ch1_instance); ir.addWidget(QLabel("CH2 Instance")); ir.addWidget(self.ch2_instance); ar.addLayout(ir); self.assignment_status=QLabel("Battery Model / Instanceを読み込み中..."); ar.addWidget(self.assignment_status); op.addWidget(assignment)
-        self.ch1_instance.currentIndexChanged.connect(self._validate_instance_assignment); self.ch2_instance.currentIndexChanged.connect(self._validate_instance_assignment)
         controls=QGroupBox("5A DISCHARGE"); cr=QGridLayout(controls)
         for col,name in enumerate(("ALL","CH1","CH2")): cr.addWidget(QLabel(name),0,col)
         self.all_start=QPushButton("START"); self.ch1_start=QPushButton("START"); self.ch2_start=QPushButton("START"); self.all_stop=QPushButton("STOP"); self.ch1_stop=QPushButton("STOP"); self.ch2_stop=QPushButton("STOP")
@@ -53,30 +52,42 @@ class BatteryTab(QWidget):
             self.assignment_status.setText("Battery Modelを選択し、CH1 / CH2 Instanceを指定してください" if models and instances else "Battery Model / InstanceをDATABASEから登録してください")
         except sqlite3.Error as exc: self.assignment_status.setText("Battery Model / Instanceを読み込めません"); QMessageBox.warning(self,"Battery",f"Battery Model / Instanceを読み込めません。\n{exc}")
 
-    def _validate_instance_assignment(self):
+    def _validate_instance_assignment(self, warn=False):
         a=self.ch1_instance.currentData(); b=self.ch2_instance.currentData()
         if a is not None and b is not None and a==b:
-            sender=self.sender(); previous=sender.property("previous_index") if sender else None
-            if previous is not None: sender.blockSignals(True); sender.setCurrentIndex(int(previous)); sender.blockSignals(False)
-            QMessageBox.warning(self,"Battery Instance","同じ測定でCH1とCH2に同じBattery Instanceは指定できません。"); return False
-        for combo in (self.ch1_instance,self.ch2_instance): combo.setProperty("previous_index",combo.currentIndex())
+            self.assignment_status.setText("CH1 / CH2: 同じInstance（START時に警告）")
+            if warn:
+                QMessageBox.warning(self,"Battery Instance","CH1とCH2に同じBattery Instanceが指定されています。\n同じInstanceを同時にSTARTすることはできません。")
+            return False
         self.assignment_status.setText("CH1 / CH2: Assignment OK" if a is not None and b is not None else "Battery Modelを選択し、CH1 / CH2 Instanceを指定してください"); return True
 
-    def set_connected(self,connected): self._set_controls_enabled(connected); self.timer.start() if connected else self.timer.stop()
     def _set_controls_enabled(self,enabled):
-        valid=self.ch1_instance.currentData() is not None and self.ch2_instance.currentData() is not None and self.ch1_instance.currentData()!=self.ch2_instance.currentData()
-        for b in (self.ch1_start,self.ch1_stop,self.ch2_start,self.ch2_stop): b.setEnabled(enabled and valid)
-        self.all_start.setEnabled(enabled and valid); self.all_stop.setEnabled(enabled)
+        have1=self.ch1_instance.currentData() is not None; have2=self.ch2_instance.currentData() is not None
+        for b in (self.ch1_start,self.ch1_stop,self.ch2_start,self.ch2_stop): b.setEnabled(enabled and have1 and have2)
+        self.all_start.setEnabled(enabled and have1 and have2); self.all_stop.setEnabled(enabled)
+
+    def set_connected(self,connected): self._set_controls_enabled(connected); self.timer.start() if connected else self.timer.stop()
 
     def _status(self,ch,value):
         self.latest_status[ch]=value; self.status_labels[f"CH{ch}"].setText(f"CH{ch}: {value}"); self.status_labels["ALL"].setText(f"ALL: {self.latest_status[1]} / {self.latest_status[2]}")
 
+    def _same_instance_conflict(self, channel):
+        a=self.ch1_instance.currentData(); b=self.ch2_instance.currentData()
+        if a is None or b is None: return False
+        if a != b: return False
+        if channel is None: return True
+        other=2 if channel==1 else 1
+        return self.latest_status[other] not in ("IDLE","STOPPED","DISCONNECTED")
+
     def start_channel(self,channel):
-        if not self.transport.connected or not self._validate_instance_assignment(): return
-        self.samples={1:[],2:[]} if channel is None else {1:self.samples[1],2:self.samples[2]}; self.session_ids={1:None,2:None} if channel is None else self.session_ids
-        now=datetime.now().isoformat(timespec="seconds")
-        if channel is None: self.session_started={1:now,2:now}; self.samples={1:[],2:[]}
-        else: self.session_started[channel]=now; self.samples[channel]=[]
+        if not self.transport.connected: return
+        a=self.ch1_instance.currentData(); b=self.ch2_instance.currentData()
+        if a is None or b is None:
+            QMessageBox.warning(self,"Battery Instance","CH1 / CH2のBattery Instanceを指定してください。"); return
+        if self._same_instance_conflict(channel):
+            QMessageBox.warning(self,"Battery Instance Conflict",f"CH1: {a}\nCH2: {b}\n\n同じBattery Instanceを同時に使用することはできません。\nInstanceを変更してください。"); return
+        if channel is None: self.session_started={1:datetime.now().isoformat(timespec="seconds"),2:datetime.now().isoformat(timespec="seconds")}; self.samples={1:[],2:[]}
+        else: self.session_started[channel]=datetime.now().isoformat(timespec="seconds"); self.samples[channel]=[]
         if not self.transport.start(channel): QMessageBox.warning(self,"Battery","STARTコマンドを送信できませんでした。"); return
         if channel is None: self._status(1,"STARTING"); self._status(2,"STARTING")
         else: self._status(channel,"STARTING")
