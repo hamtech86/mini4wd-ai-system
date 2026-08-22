@@ -30,6 +30,11 @@ class MainWindow(BaseMainWindow):
         self.battery_serial_controller = context.get("battery_serial_controller") if context else None
         self._build_recipe_sequence_panel()
         self._build_integrated_ui()
+        # The legacy START BREAK-IN button remains visible for layout
+        # compatibility, but non-benchmark recipes must use the selected
+        # Sequence checkboxes rather than the old blocking phase runner.
+        if hasattr(self, "start"):
+            self.start.setText("START SELECTED SEQUENCE")
 
     def _extract_motor_page(self):
         central = self.centralWidget()
@@ -284,6 +289,24 @@ class MainWindow(BaseMainWindow):
         self.sequence_execute.setEnabled(False)
         self.sequence_stop.setEnabled(True)
         self.sequence_status.setText(f"実行中: {recipe.name}  0%")
+
+    def start_run(self):
+        """Route normal recipe starts through the selectable Sequence executor.
+
+        The legacy BaseMainWindow.start_run() calls the blocking recipe phase
+        runner and therefore cannot honor the new per-sequence checkboxes.
+        Keep benchmark mode on the legacy path, but make normal recipes use
+        exactly the same selected-ID path as the dedicated Sequence button.
+        """
+        selected_name = self.recipe.currentData() if hasattr(self, "recipe") else None
+        if selected_name == self.BENCHMARK_KEY:
+            return super().start_run()
+        if selected_name:
+            index = self.recipe_combo.findText(str(selected_name))
+            if index >= 0 and index != self.recipe_combo.currentIndex():
+                self.recipe_combo.setCurrentIndex(index)
+                self._load_recipe_sequence(str(selected_name))
+        self._execute_selected_sequences()
 
     def _sequence_tick(self):
         try:
