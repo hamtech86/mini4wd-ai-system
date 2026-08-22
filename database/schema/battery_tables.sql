@@ -62,3 +62,13 @@ CREATE TABLE IF NOT EXISTS battery_benchmark_result (
 CREATE INDEX IF NOT EXISTS idx_battery_instance_model ON battery_instance(battery_model_id);
 CREATE INDEX IF NOT EXISTS idx_benchmark_session ON battery_benchmark_result(session_id);
 CREATE INDEX IF NOT EXISTS idx_benchmark_instance ON battery_benchmark_result(instance_id);
+
+-- Tamiya Neo Champ preset.
+-- Official current product page: ITEM 15420; minimum capacity 950mAh.
+-- The database stores the minimum guaranteed capacity as the nominal reference,
+-- rather than inventing a measured/typical capacity.
+INSERT OR IGNORE INTO battery_model
+    (model_code, name, chemistry, nominal_voltage, capacity_nominal_mah, manufacturer, data_confidence, notes)
+VALUES
+    ('NEO_CHAMP', 'Neo Champ', 'NiMH', 1.2, 950.0, 'Tamiya', 1.0,
+     'Tamiya ITEM 15420. Capacity: Min. 950mAh per current official product specification.');
