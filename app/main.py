@@ -131,7 +131,7 @@ class MainWindow(BaseMainWindow):
         if not enabled_ids:self.sequence_status.setText("実施するSequenceが選択されていません");return
         controller=self._motor_controller()
         if controller is None or not getattr(controller,"connected",False):QMessageBox.warning(self,"Sequence","先にMOTOR CONNECTを実行してください。");return
-        self.sequence_executor.load_recipe(recipe,enabled_ids=enabled_ids);self.sequence_executor.start();self.sequence_timer.start();self.sequence_execute.setEnabled(False);self.sequence_stop.setEnabled(True);current=self.sequence_executor.current();self._update_sequence_highlight(current.sequence_id if current else None);self.sequence_status.setText(f"実行中: {recipe.name}  0%")
+        self.sequence_executor.load_recipe(recipe,enabled_ids=enabled_ids);self.sequence_executor.start();self.sequence_timer.start();self.timer.start();self.sequence_execute.setEnabled(False);self.sequence_stop.setEnabled(True);current=self.sequence_executor.current();self._update_sequence_highlight(current.sequence_id if current else None);self.sequence_status.setText(f"実行中: {recipe.name}  0%")
 
     def start_run(self):
         selected_name=self._current_recipe_name()
@@ -141,12 +141,12 @@ class MainWindow(BaseMainWindow):
     def _sequence_tick(self):
         try:
             current=self.sequence_executor.execute_current()
-            if self.sequence_executor.is_complete():self.sequence_timer.stop();self.sequence_execute.setEnabled(True);self.sequence_stop.setEnabled(False);self._update_sequence_highlight(None);self.sequence_status.setText("完了: 100%");return
+            if self.sequence_executor.is_complete():self.sequence_timer.stop();self.timer.stop();self.sequence_execute.setEnabled(True);self.sequence_stop.setEnabled(False);self._update_sequence_highlight(None);self.sequence_status.setText("完了: 100%");return
             self._update_sequence_highlight(current.sequence_id if current else None);self.sequence_status.setText(f"実行中: {self.sequence_executor.progress()}%  {current.sequence_id if current else ''}")
-        except Exception as exc:self.sequence_timer.stop();self.sequence_executor.stop("error");self.sequence_execute.setEnabled(True);self.sequence_stop.setEnabled(False);self._update_sequence_highlight(None);self.sequence_status.setText(f"Sequence ERROR: {exc}");logger.exception("Sequence execution failed");QMessageBox.critical(self,"Sequence Error",str(exc))
+        except Exception as exc:self.sequence_timer.stop();self.timer.stop();self.sequence_executor.stop("error");self.sequence_execute.setEnabled(True);self.sequence_stop.setEnabled(False);self._update_sequence_highlight(None);self.sequence_status.setText(f"Sequence ERROR: {exc}");logger.exception("Sequence execution failed");QMessageBox.critical(self,"Sequence Error",str(exc))
 
     def _stop_sequences(self):
-        self.sequence_timer.stop();self.sequence_executor.stop("operator_stop");self.sequence_execute.setEnabled(True);self.sequence_stop.setEnabled(False);self._update_sequence_highlight(None);self.sequence_status.setText("停止")
+        self.sequence_timer.stop();self.timer.stop();self.sequence_executor.stop("operator_stop");self.sequence_execute.setEnabled(True);self.sequence_stop.setEnabled(False);self._update_sequence_highlight(None);self.sequence_status.setText("停止")
 
 def build_context():
     serial_controller=SerialController(serial_port="/dev/ttyACM0",baudrate=57600)
