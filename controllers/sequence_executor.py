@@ -1,15 +1,14 @@
-"""Hardware-agnostic sequence execution state machine.
+"""Hardware-agnostic recipe sequence executor.
 
-The executor deliberately does not send motor commands.  It coordinates
-ordered recipe rows, enabled/skip state, conditions, pause/resume checkpoints,
-and delegates the actual operation to an adapter supplied by the caller.
+The executor owns sequencing, conditions, skip state, progress and resume
+state. Hardware/simulation behavior stays behind the adapter boundary.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from time import time
-from typing import Any, Callable, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
-from .sequence import ConditionDefinition, SequenceDefinition, SequenceResult, sequences_from_recipe
+from .sequence import SequenceDefinition, SequenceResult, sequences_from_recipe
 
 
 @dataclass
@@ -19,14 +18,15 @@ class SequenceExecutionState:
     instance_id: Any = None
     sequence_index: int = 0
     paused: bool = False
+    paused_elapsed_sec: float = 0.0
+    results: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
 
 class SequenceExecutor:
-    """Execute a declarative recipe one sequence at a time.
+    """Execute a declarative recipe one row at a time.
 
-    Adapter contract (all methods optional):
-      start_sequence(sequence), tick(sequence), stop_sequence(sequence),
-      read_metric(metric), save_checkpoint(state), clear_checkpoint().
+    Adapter methods are optional: start_sequence, tick, stop_sequence and
+    read_metric. A checkpoint store may implement save(state) and clear().
     """
 
     def __init__(self, adapter=None, checkpoint_store=None):
@@ -45,13 +45,23 @@ class SequenceExecutor:
             for item in self.sequences:
                 item.enabled = item.sequence_id in enabled
         self.results = [SequenceResult(item.sequence_id) for item in self.sequences]
-        self.state = SequenceExecutionState(
-            recipe_name=str(recipe.name).upper(),
-            recipe_version=str(getattr(recipe, "version", "1")),
-        )
+        self.state = SequenceExecutionState(str(recipe.name).upper(), str(getattr(recipe, "version", "1")))
         return self.sequences
 
-    def skip_disabled(self):
+    def load_sequences(self, sequences: Iterable[SequenceDefinition], recipe_name="CUSTOM", recipe_version="1"):
+        self.sequences = list(sequences)
+        self.sequences.sort(key=lambda x: x.order)
+        self.results = [SequenceResult(x.sequence_id) for x in self.sequences]
+        self.state = SequenceExecutionState(recipe_name, recipe_version)
+        return self.sequences
+
+    def apply_enabled(self, enabled_ids: Iterable[str]):
+        enabled = set(enabled_ids)
+        for item in self.sequences:
+            item.enabled = item.sequence_id in enabled
+        self._mark_disabled()
+
+    def _mark_disabled(self):
         for item, result in zip(self.sequences, self.results):
             if not item.enabled and result.status == "PENDING":
                 result.status = "SKIPPED"
@@ -60,14 +70,17 @@ class SequenceExecutor:
     def start(self, instance_id=None, resume_index=0):
         if not self.sequences or self.state is None:
             raise RuntimeError("No recipe loaded")
-        if resume_index < 0 or resume_index >= len(self.sequences):
+        if not 0 <= resume_index < len(self.sequences):
             raise ValueError("Invalid sequence index")
         self.state.instance_id = instance_id
         self.state.sequence_index = resume_index
         self.state.paused = False
+        self.state.paused_elapsed_sec = 0.0
         self.running = True
         self.paused = False
-        self.skip_disabled()
+        self._mark_disabled()
+        self._skip_forward()
+        self._save_checkpoint()
         return self.current()
 
     def current(self):
@@ -75,47 +88,59 @@ class SequenceExecutor:
             return None
         return self.sequences[self.state.sequence_index]
 
+    def _skip_forward(self):
+        while self.state and self.state.sequence_index < len(self.sequences):
+            item = self.sequences[self.state.sequence_index]
+            result = self.results[self.state.sequence_index]
+            if item.enabled and result.status not in {"SKIPPED", "COMPLETE"}:
+                break
+            self.state.sequence_index += 1
+        if self.is_complete():
+            self.running = False
+            self._clear_checkpoint()
+
     def advance(self):
         if self.state is None:
             return None
         self.state.sequence_index += 1
+        self._skip_forward()
         return self.current()
 
     def pause(self):
         if not self.running or self.paused:
             return False
+        sequence = self.current()
+        result = self.results[self.state.sequence_index]
+        if result.status == "RUNNING" and result.started_at is not None:
+            self.state.paused_elapsed_sec = max(0.0, time() - result.started_at)
+        if sequence is not None and self.adapter and hasattr(self.adapter, "stop_sequence"):
+            self.adapter.stop_sequence(sequence)
         self.paused = True
-        if self.state:
-            self.state.paused = True
-            self._save_checkpoint()
+        self.state.paused = True
+        self._save_checkpoint()
         return True
 
     def resume(self):
         if not self.running or not self.paused:
             return False
+        result = self.results[self.state.sequence_index]
+        if result.status == "RUNNING":
+            result.started_at = time() - self.state.paused_elapsed_sec
         self.paused = False
-        if self.state:
-            self.state.paused = False
-            self._save_checkpoint()
+        self.state.paused = False
+        self.state.paused_elapsed_sec = 0.0
+        self._save_checkpoint()
         return True
 
     def execute_current(self, now: Optional[float] = None):
-        """Perform one scheduler step.
-
-        A caller can invoke this periodically from a Qt timer or controller
-        loop. The adapter owns all hardware interaction.
-        """
         if not self.running or self.paused:
             return self.current()
+        self._skip_forward()
         sequence = self.current()
         if sequence is None:
-            self.running = False
             return None
-        result = self.results[self.state.sequence_index]
-        if result.status == "SKIPPED":
-            self.advance()
-            return self.current()
         now = time() if now is None else now
+        result = self.results[self.state.sequence_index]
         if result.status == "PENDING":
             result.status = "RUNNING"
             result.started_at = now
@@ -123,9 +148,10 @@ class SequenceExecutor:
                 self.adapter.start_sequence(sequence)
         if self.adapter and hasattr(self.adapter, "tick"):
             self.adapter.tick(sequence)
+
         if self._conditions_met(sequence):
             self._complete_current(now, "condition_met")
-        elif sequence.duration_sec is not None and now - result.started_at >= sequence.duration_sec:
+        elif sequence.duration_sec is not None and result.started_at is not None and now - result.started_at >= sequence.duration_sec:
             self._complete_current(now, "duration_elapsed")
         self._save_checkpoint()
         return self.current()
@@ -135,9 +161,15 @@ class SequenceExecutor:
         if sequence is not None and self.adapter and hasattr(self.adapter, "stop_sequence"):
             self.adapter.stop_sequence(sequence)
         self.running = False
+        self.paused = False
         if self.state:
             self.state.paused = False
         self._clear_checkpoint()
+        if sequence is not None and self.results and self.state.sequence_index < len(self.results):
+            result = self.results[self.state.sequence_index]
+            if result.status == "RUNNING":
+                result.status = "STOPPED"
+                result.reason = reason
 
     def is_complete(self):
         return self.state is not None and self.state.sequence_index >= len(self.sequences)
@@ -146,6 +178,14 @@ class SequenceExecutor:
         if not self.sequences or self.state is None:
             return 0
         return int(min(self.state.sequence_index, len(self.sequences)) / len(self.sequences) * 100)
+
+    def current_elapsed(self, now: Optional[float] = None):
+        if self.state is None or self.is_complete():
+            return 0.0
+        result = self.results[self.state.sequence_index]
+        if result.started_at is None:
+            return 0.0
+        return max(0.0, (time() if now is None else now) - result.started_at)
 
     def _complete_current(self, now, reason):
         sequence = self.current()
@@ -166,17 +206,13 @@ class SequenceExecutor:
     def _conditions_met(self, sequence):
         if not sequence.conditions:
             return False
-        values = []
+        checks = []
         for condition in sequence.conditions:
             actual = self._read_metric(condition.metric)
-            if actual is None:
-                values.append(False)
-                continue
-            values.append(_compare(float(actual), condition.operator, condition.value))
-        groups = {condition.group for condition in sequence.conditions}
-        if "ANY" in groups:
-            return any(values)
-        return all(values)
+            checks.append(False if actual is None else _compare(float(actual), condition.operator, condition.value))
+        if any(c.group == "ANY" for c in sequence.conditions):
+            return any(checks)
+        return all(checks)
 
     def _read_metric(self, metric):
         if self.adapter and hasattr(self.adapter, "read_metric"):
@@ -184,8 +220,13 @@ class SequenceExecutor:
         return None
 
     def _save_checkpoint(self):
-        if self.checkpoint_store and self.state:
-            self.checkpoint_store.save(self.state)
+        if not self.checkpoint_store or not self.state:
+            return
+        self.state.results = {r.sequence_id: {
+            "status": r.status, "started_at": r.started_at, "ended_at": r.ended_at,
+            "elapsed_sec": r.elapsed_sec, "reason": r.reason,
+        } for r in self.results}
+        self.checkpoint_store.save(self.state)
 
     def _clear_checkpoint(self):
         if self.checkpoint_store and hasattr(self.checkpoint_store, "clear"):
@@ -193,11 +234,5 @@ class SequenceExecutor:
 
 
 def _compare(actual, operator, expected):
-    return {
-        "<": actual < expected,
-        "<=": actual <= expected,
-        "==": actual == expected,
-        ">=": actual >= expected,
-        ">": actual > expected,
-        "!=": actual != expected,
-    }[operator]
+    return {"<": actual < expected, "<=": actual <= expected, "==": actual == expected,
+            ">=": actual >= expected, ">": actual > expected, "!=": actual != expected}[operator]
