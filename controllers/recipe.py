@@ -1,10 +1,4 @@
-"""
-Break-in Recipe Definition
-MOTOR_BREAKIN_V3
-
-Recipe files remain declarative; this module converts them into the
-controller's typed recipe model.
-"""
+"""Break-in Recipe Definition / MOTOR_BREAKIN_V3."""
 
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
@@ -25,15 +19,16 @@ class BreakinPhase:
     max_duration_sec: Optional[int] = None
     peak_margin_ratio: float = 0.05
     peak_min_current: float = 0.50
+    conditions: List[Dict[str, Any]] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "BreakinPhase":
         known = {
             "name", "duration_sec", "pwm", "direction", "control",
-            "target_voltage", "start_voltage", "end_voltage",
-            "pwm_min", "pwm_max", "max_duration_sec",
-            "peak_margin_ratio", "peak_min_current"
+            "target_voltage", "start_voltage", "end_voltage", "pwm_min",
+            "pwm_max", "max_duration_sec", "peak_margin_ratio",
+            "peak_min_current", "conditions"
         }
         duration = data.get("duration_sec", data.get("max_duration_sec", 0))
         return cls(
@@ -50,6 +45,7 @@ class BreakinPhase:
             max_duration_sec=(None if data.get("max_duration_sec") is None else max(0, int(data["max_duration_sec"]))),
             peak_margin_ratio=max(0.0, min(0.50, float(data.get("peak_margin_ratio", 0.05)))),
             peak_min_current=max(0.0, float(data.get("peak_min_current", 0.50))),
+            conditions=list(data.get("conditions", []) or []),
             metadata={k: v for k, v in data.items() if k not in known},
         )
 
@@ -72,12 +68,6 @@ class BreakinRecipe:
         return sum(p.duration_sec for p in self.phases)
 
     def sequences(self):
-        """Return the declarative sequence view of this recipe.
-
-        This is an adapter over the existing phase model, so existing
-        controller execution remains unchanged while new UI/simulator code
-        can consume a common sequence representation.
-        """
         from .sequence import sequences_from_recipe
         return sequences_from_recipe(self)
 
@@ -105,23 +95,12 @@ class BreakinRecipe:
 
 
 def default_speed_recipe():
-    return BreakinRecipe("SPEED", [
-        BreakinPhase("START", 60, 80),
-        BreakinPhase("MID", 120, 150),
-        BreakinPhase("HIGH", 180, 220),
-    ])
+    return BreakinRecipe("SPEED", [BreakinPhase("START", 60, 80), BreakinPhase("MID", 120, 150), BreakinPhase("HIGH", 180, 220)])
 
 
 def default_torque_recipe():
-    return BreakinRecipe("TORQUE", [
-        BreakinPhase("LOW", 120, 100),
-        BreakinPhase("LOAD", 180, 180),
-    ])
+    return BreakinRecipe("TORQUE", [BreakinPhase("LOW", 120, 100), BreakinPhase("LOAD", 180, 180)])
 
 
 def default_balance_recipe():
-    return BreakinRecipe("BALANCE", [
-        BreakinPhase("START", 60, 90),
-        BreakinPhase("MID", 120, 160),
-        BreakinPhase("FINISH", 120, 210),
-    ])
+    return BreakinRecipe("BALANCE", [BreakinPhase("START", 60, 90), BreakinPhase("MID", 120, 160), BreakinPhase("FINISH", 120, 210)])
