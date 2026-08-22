@@ -1,0 +1,1 @@
+Implementation committed on feature/battery-tab-ui. Real DB E2E verification remains the gate for final handoff.
