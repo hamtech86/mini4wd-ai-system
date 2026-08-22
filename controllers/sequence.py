@@ -8,11 +8,7 @@ simulator.
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-_ALLOWED_COMMANDS = {
-    "FWD", "REV", "STOP", "REST", "WAIT", "RAMP", "MEASURE",
-    "BENCHMARK", "END", "PWM", "VOLTAGE", "VOLTAGE_RAMP",
-    "BRUSH_PEAK_APPROACH",
-}
+_ALLOWED_COMMANDS = {"FWD", "REV", "STOP", "REST", "WAIT", "RAMP", "MEASURE", "BENCHMARK", "END", "PWM", "VOLTAGE", "VOLTAGE_RAMP", "BRUSH_PEAK_APPROACH"}
 
 
 @dataclass(frozen=True)
@@ -32,12 +28,7 @@ class ConditionDefinition:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]):
-        return cls(
-            metric=str(data["metric"]),
-            operator=str(data.get("operator", ">=")),
-            value=float(data["value"]),
-            group=str(data.get("group", "ALL")).upper(),
-        )
+        return cls(str(data["metric"]), str(data.get("operator", ">=")), float(data["value"]), str(data.get("group", "ALL")).upper())
 
 
 @dataclass
@@ -69,43 +60,31 @@ class SequenceDefinition:
     @classmethod
     def from_phase(cls, phase, order: int, enabled: bool = True):
         return cls(
-            sequence_id=f"{order:02d}_{phase.name}",
-            order=order,
-            command=_command_from_control(phase.control),
-            enabled=enabled,
-            direction=phase.direction,
-            pwm=phase.pwm,
-            duration_sec=phase.duration_sec,
+            sequence_id=f"{order:02d}_{phase.name}", order=order,
+            command=_command_from_control(phase.control), enabled=enabled,
+            direction=phase.direction, pwm=phase.pwm, duration_sec=phase.duration_sec,
             parameters={
-                "control": phase.control,
-                "target_voltage": phase.target_voltage,
-                "start_voltage": phase.start_voltage,
-                "end_voltage": phase.end_voltage,
-                "pwm_min": phase.pwm_min,
-                "pwm_max": phase.pwm_max,
+                "control": phase.control, "target_voltage": phase.target_voltage,
+                "start_voltage": phase.start_voltage, "end_voltage": phase.end_voltage,
+                "pwm_min": phase.pwm_min, "pwm_max": phase.pwm_max,
                 "max_duration_sec": phase.max_duration_sec,
                 "peak_margin_ratio": phase.peak_margin_ratio,
                 "peak_min_current": phase.peak_min_current,
             },
+            conditions=[ConditionDefinition.from_dict(x) for x in phase.conditions],
             metadata=dict(phase.metadata),
         )
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any], order: int):
         return cls(
-            sequence_id=str(data.get("id", data.get("name", f"STEP_{order:02d}"))),
-            order=order,
-            command=data.get("command", data.get("control", "PWM")),
-            enabled=bool(data.get("enabled", True)),
-            direction=data.get("direction"),
-            pwm=data.get("pwm"),
+            sequence_id=str(data.get("id", data.get("name", f"STEP_{order:02d}"))), order=order,
+            command=data.get("command", data.get("control", "PWM")), enabled=bool(data.get("enabled", True)),
+            direction=data.get("direction"), pwm=data.get("pwm"),
             duration_sec=data.get("duration_sec", data.get("max_duration_sec")),
             parameters=dict(data.get("parameters", {})),
             conditions=[ConditionDefinition.from_dict(x) for x in data.get("conditions", [])],
-            metadata={k: v for k, v in data.items() if k not in {
-                "id", "name", "command", "control", "enabled", "direction", "pwm",
-                "duration_sec", "max_duration_sec", "parameters", "conditions"
-            }},
+            metadata={k: v for k, v in data.items() if k not in {"id", "name", "command", "control", "enabled", "direction", "pwm", "duration_sec", "max_duration_sec", "parameters", "conditions"}},
         )
 
 
@@ -120,12 +99,7 @@ class SequenceResult:
 
 
 def _command_from_control(control: str) -> str:
-    return {
-        "PWM": "FWD",
-        "VOLTAGE": "FWD",
-        "VOLTAGE_RAMP": "RAMP",
-        "BRUSH_PEAK_APPROACH": "FWD",
-    }.get(str(control).upper(), str(control).upper())
+    return {"PWM": "FWD", "VOLTAGE": "FWD", "VOLTAGE_RAMP": "RAMP", "BRUSH_PEAK_APPROACH": "FWD"}.get(str(control).upper(), str(control).upper())
 
 
 def sequences_from_recipe(recipe) -> List[SequenceDefinition]:
