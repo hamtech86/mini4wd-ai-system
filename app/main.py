@@ -30,6 +30,12 @@ class MainWindow(BaseMainWindow):
         central=self.centralWidget()
         if central is None:return
         scroll=central.findChild(QScrollArea); self.motor_page=central; self.motor_content=scroll.widget() if scroll is not None else None
+        if self.motor_content is None:return
+        layout=self.motor_content.layout()
+        if layout is None:return
+        for i in range(layout.count()):
+            item=layout.itemAt(i); widget=item.widget() if item else None
+            if widget is not None and widget.objectName()=="legacy_device_connection": layout.removeWidget(widget); widget.setParent(None); widget.deleteLater(); break
 
     def _build_integrated_ui(self):
         old_central=self.takeCentralWidget() or self.motor_page; root=QWidget(); root_layout=QVBoxLayout(root); root_layout.setContentsMargins(5,5,5,5)
@@ -143,8 +149,13 @@ class MainWindow(BaseMainWindow):
         self.sequence_timer.stop();self.sequence_executor.stop("operator_stop");self.sequence_execute.setEnabled(True);self.sequence_stop.setEnabled(False);self._update_sequence_highlight(None);self.sequence_status.setText("停止")
 
 def build_context():
-    serial_controller=SerialController(serial_port="/dev/ttyACM0",baudrate=57600);serial_controller.connect();print("SERIAL CONNECTED /dev/ttyACM0 57600")
-    battery_serial_controller=BatterySerial(port="/dev/ttyUSB0",baudrate=57600);builder=ApplicationBuilder();context=builder.build();context["serial_controller"]=serial_controller;context["battery_serial_controller"]=battery_serial_controller;return context
+    serial_controller=SerialController(serial_port="/dev/ttyACM0",baudrate=57600)
+    serial_controller.connect()
+    print("SERIAL CONNECTED /dev/ttyACM0 57600")
+    builder=ApplicationBuilder(serial_controller=serial_controller)
+    breakin_controller=builder.build_breakin_controller()
+    battery_serial_controller=BatterySerial(port="/dev/ttyUSB0",baudrate=57600)
+    return {"serial_controller":serial_controller,"breakin_controller":breakin_controller,"battery_serial_controller":battery_serial_controller}
 
 def main():
     app=QApplication(sys.argv);context=build_context();window=MainWindow(context);window.show();return app.exec_()
