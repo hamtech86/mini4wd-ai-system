@@ -97,9 +97,14 @@ class MainWindow(BaseMainWindow):
         self.setCentralWidget(root)
 
     def _motor_controller(self):
+        """Return the canonical motor serial controller used by BreakinController."""
         controller = getattr(self, "serial_controller", None)
-        if controller is None:
-            controller = getattr(getattr(self, "breakin_controller", None), "serial_controller", None)
+        if controller is not None:
+            return controller
+        controller = getattr(getattr(self, "breakin_controller", None), "serial", None)
+        if controller is not None:
+            return controller
+        controller = getattr(getattr(self, "breakin_controller", None), "serial_controller", None)
         return controller
 
     def connect_motor_serial(self):
