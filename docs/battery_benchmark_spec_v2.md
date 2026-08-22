@@ -6,19 +6,17 @@ Battery Benchmark Result is the stable, analysis-ready summary derived from a co
 
 ## Required measurement data
 
-Each valid measurement sample must retain elapsed time and the measured electrical values. The existing `measurement.elapsed_time` is the time axis for analysis.
+Each valid measurement sample must retain elapsed time and measured electrical values. The existing `measurement.elapsed_time` is the time axis for analysis.
 
 Minimum analysis inputs:
 
 - elapsed time (s)
-- voltage
+- voltage (CH1 or CH2)
 - current
 - power when available
 - measurement state
 
 ## Benchmark Result fields
-
-The following fields are required or derived:
 
 - `start_voltage`: first valid voltage in the actual discharge measurement interval
 - `end_voltage`: last valid voltage in the actual discharge measurement interval
@@ -36,16 +34,14 @@ The following fields are required or derived:
 ## Rules
 
 1. Start/end voltage are derived automatically from raw Measurement data; they are not manually entered.
-2. Discharge time is derived from the Measurement elapsed-time axis; it is not manually entered.
-3. `voltage_drop` is calculated from start/end voltage, not from max/min voltage.
-4. A Benchmark Result is registered only for a completed discharge session.
-5. STOP, CANCEL, or ERROR sessions are not eligible for formal Benchmark Result registration.
-6. Raw Measurement data is preserved so the Analysis project can recompute additional metrics later.
-7. Battery Analysis must consume Benchmark Result plus raw Measurement when a time-series analysis is required.
+2. Start/end voltage derivation supports independent CH1 and CH2 sessions by using the populated voltage channel.
+3. Discharge time is derived from the Measurement elapsed-time axis; it is not manually entered.
+4. `voltage_drop` is calculated from start/end voltage, not max/min voltage.
+5. A Benchmark Result is registered only for a completed discharge session.
+6. STOP, CANCEL, or ERROR sessions are not eligible for formal Benchmark Result registration.
+7. Raw Measurement data is preserved so Analysis can recompute additional metrics later.
 8. Battery-specific schema changes must not modify or delete shared Motor/Measurement data.
 
-## Analysis handoff
+## E2E acceptance criterion
 
-The Battery Analysis project can rely on the following stable baseline:
-
-`start_voltage`, `end_voltage`, `avg_voltage`, `voltage_drop`, `avg_current`, `max_current`, `avg_power`, `max_power`, `discharge_time_s`, `capacity_mah`, `energy_wh`, and the raw `elapsed_time` series.
+The feature is considered complete only when an existing real Measurement session is used to populate `start_voltage`, `end_voltage`, and `voltage_drop` in `battery_benchmark_result`, and the stored values are verified against the raw Measurement rows.
