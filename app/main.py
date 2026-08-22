@@ -12,11 +12,12 @@ from communication.serial_controller import SerialController
 from app.application_builder import ApplicationBuilder
 from ui.resume_controls import install_resume_controls, bind_resume_api
 from ui.battery_database_ui import BatteryDatabaseDialog
+from ui.recipe_sequence_panel import RecipeSequencePanel
 
 class MainWindow(BaseMainWindow):
-    """Main UI with operator-facing motor results and Battery DB registration."""
+    """Main UI with operator-facing motor results, Recipe/Sequence and Battery DB registration."""
     def __init__(self, context=None):
-        super().__init__(context); bind_resume_api(type(self)); install_resume_controls(self); self._build_top_controls(); self._build_estimated_result_panel(); self._build_battery_db_button()
+        super().__init__(context); bind_resume_api(type(self)); install_resume_controls(self); self._build_top_controls(); self._build_sequence_panel(); self._build_estimated_result_panel(); self._build_battery_db_button()
     def _content_layout(self):
         central=self.centralWidget(); scroll=central.findChild(QScrollArea) if central is not None else None; content=scroll.widget() if scroll is not None else None; return content.layout() if content is not None else None, content
     def _build_top_controls(self):
@@ -34,16 +35,25 @@ class MainWindow(BaseMainWindow):
         self.serial_disconnect_button.clicked.connect(self.disconnect_motor_serial)
         row.addWidget(self.serial_status); row.addWidget(self.serial_connect_button); row.addWidget(self.serial_disconnect_button)
         root.insertWidget(0,box)
+    def _build_sequence_panel(self):
+        layout, content=self._content_layout()
+        if layout is None: return
+        self.sequence_panel=RecipeSequencePanel(self.recipe_engine, content)
+        self.sequence_enabled_ids=set()
+        self.sequence_panel.enabled_changed.connect(self._sequence_selection_changed)
+        self.sequence_panel.preset_loaded.connect(lambda _: self._sequence_selection_changed(self.sequence_panel.enabled_ids()))
+        layout.insertWidget(2,self.sequence_panel)
+        self._sequence_selection_changed(self.sequence_panel.enabled_ids())
+    def _sequence_selection_changed(self, enabled_ids):
+        self.sequence_enabled_ids=set(enabled_ids or [])
     def connect_motor_serial(self):
         controller=getattr(self,"serial_controller",None)
         if controller is None: controller=getattr(getattr(self,"breakin_controller",None),"serial_controller",None)
         if controller is None:
             QMessageBox.warning(self,"Motor Connection","Serial controller is not available."); return
         if controller.connected: return
-        if controller.connect():
-            self.serial_status.setText("MOTOR: CONNECTED  /dev/ttyACM0 @ 57600"); self.serial_connect_button.setEnabled(False); self.serial_disconnect_button.setEnabled(True)
-        else:
-            self.serial_status.setText("MOTOR: CONNECTION FAILED  /dev/ttyACM0"); self.serial_connect_button.setEnabled(True); self.serial_disconnect_button.setEnabled(False)
+        if controller.connect(): self.serial_status.setText("MOTOR: CONNECTED  /dev/ttyACM0 @ 57600"); self.serial_connect_button.setEnabled(False); self.serial_disconnect_button.setEnabled(True)
+        else: self.serial_status.setText("MOTOR: CONNECTION FAILED  /dev/ttyACM0"); self.serial_connect_button.setEnabled(True); self.serial_disconnect_button.setEnabled(False)
     def disconnect_motor_serial(self):
         controller=getattr(self,"serial_controller",None)
         if controller is None: controller=getattr(getattr(self,"breakin_controller",None),"serial_controller",None)
@@ -112,7 +122,6 @@ class ApplicationRuntimeBuilder:
     SERIAL_PORT="/dev/ttyACM0"; SERIAL_BAUDRATE=57600
     def __init__(self): self.serial_controller=None
     def build_context(self):
-        # Controller is created but deliberately NOT connected during application startup.
         self.serial_controller=SerialController(serial_port=self.SERIAL_PORT,baudrate=self.SERIAL_BAUDRATE)
         builder=ApplicationBuilder(serial_controller=self.serial_controller)
         return {"serial_controller":self.serial_controller,"breakin_controller":builder.build_breakin_controller(),"serial_connected":False}
