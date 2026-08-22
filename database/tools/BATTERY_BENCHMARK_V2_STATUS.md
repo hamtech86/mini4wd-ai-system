@@ -1,0 +1,1 @@
+Implementation status: automatic start/end voltage and voltage_drop derivation is implemented in the Battery Benchmark schema and migration. The user's real database must run the migration and verification tool before the handoff is marked E2E verified.
