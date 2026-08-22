@@ -4,7 +4,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path: sys.path.insert(0, str(PROJECT_ROOT))
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QApplication, QMessageBox, QGroupBox, QGridLayout, QLabel, QPushButton, QScrollArea, QHBoxLayout
+from PyQt5.QtWidgets import QApplication, QMessageBox, QGroupBox, QGridLayout, QLabel, QPushButton, QScrollArea, QHBoxLayout, QVBoxLayout, QWidget
 from loguru import logger
 from config import APP_NAME, APP_VERSION, LOG_DIR
 from ui.main_window import MainWindow as BaseMainWindow
@@ -16,48 +16,43 @@ from ui.battery_database_ui import BatteryDatabaseDialog
 class MainWindow(BaseMainWindow):
     """Main UI with operator-facing motor results and Battery DB registration."""
     def __init__(self, context=None):
-        super().__init__(context); bind_resume_api(type(self)); install_resume_controls(self); self._build_serial_controls(); self._build_estimated_result_panel(); self._build_battery_db_button()
+        super().__init__(context); bind_resume_api(type(self)); install_resume_controls(self); self._build_top_controls(); self._build_estimated_result_panel(); self._build_battery_db_button()
     def _content_layout(self):
         central=self.centralWidget(); scroll=central.findChild(QScrollArea) if central is not None else None; content=scroll.widget() if scroll is not None else None; return content.layout() if content is not None else None, content
-    def _build_serial_controls(self):
-        layout, content=self._content_layout()
-        if layout is None: return
-        box=QGroupBox("MOTOR DEVICE CONNECTION")
+    def _build_top_controls(self):
+        central=self.centralWidget()
+        if central is None: return
+        root=central.layout()
+        if root is None: return
+        box=QGroupBox("DEVICE CONNECTION")
         row=QHBoxLayout(box)
-        self.serial_status=QLabel("DISCONNECTED  /dev/ttyACM0")
-        self.serial_connect_button=QPushButton("CONNECT")
-        self.serial_disconnect_button=QPushButton("DISCONNECT")
+        self.serial_status=QLabel("MOTOR: DISCONNECTED  /dev/ttyACM0")
+        self.serial_connect_button=QPushButton("MOTOR CONNECT")
+        self.serial_disconnect_button=QPushButton("MOTOR DISCONNECT")
         self.serial_disconnect_button.setEnabled(False)
         self.serial_connect_button.clicked.connect(self.connect_motor_serial)
         self.serial_disconnect_button.clicked.connect(self.disconnect_motor_serial)
         row.addWidget(self.serial_status); row.addWidget(self.serial_connect_button); row.addWidget(self.serial_disconnect_button)
-        layout.addWidget(box)
+        root.insertWidget(0,box)
     def connect_motor_serial(self):
         controller=getattr(self,"serial_controller",None)
+        if controller is None: controller=getattr(getattr(self,"breakin_controller",None),"serial_controller",None)
         if controller is None:
-            controller=getattr(getattr(self,"breakin_controller",None),"serial_controller",None)
-        if controller is None:
-            QMessageBox.warning(self,"Motor Connection","Serial controller is not available.")
-            return
-        if controller.connected:
-            return
+            QMessageBox.warning(self,"Motor Connection","Serial controller is not available."); return
+        if controller.connected: return
         if controller.connect():
-            self.serial_status.setText("CONNECTED  /dev/ttyACM0 @ 57600")
-            self.serial_connect_button.setEnabled(False); self.serial_disconnect_button.setEnabled(True)
+            self.serial_status.setText("MOTOR: CONNECTED  /dev/ttyACM0 @ 57600"); self.serial_connect_button.setEnabled(False); self.serial_disconnect_button.setEnabled(True)
         else:
-            self.serial_status.setText("CONNECTION FAILED  /dev/ttyACM0")
-            self.serial_connect_button.setEnabled(True); self.serial_disconnect_button.setEnabled(False)
+            self.serial_status.setText("MOTOR: CONNECTION FAILED  /dev/ttyACM0"); self.serial_connect_button.setEnabled(True); self.serial_disconnect_button.setEnabled(False)
     def disconnect_motor_serial(self):
         controller=getattr(self,"serial_controller",None)
-        if controller is None:
-            controller=getattr(getattr(self,"breakin_controller",None),"serial_controller",None)
+        if controller is None: controller=getattr(getattr(self,"breakin_controller",None),"serial_controller",None)
         if controller is not None:
             try:
                 if controller.connected: controller.stop_breakin()
             except Exception: logger.exception("Failed to stop motor before disconnect")
             controller.disconnect()
-        self.serial_status.setText("DISCONNECTED  /dev/ttyACM0")
-        self.serial_connect_button.setEnabled(True); self.serial_disconnect_button.setEnabled(False)
+        self.serial_status.setText("MOTOR: DISCONNECTED  /dev/ttyACM0"); self.serial_connect_button.setEnabled(True); self.serial_disconnect_button.setEnabled(False)
     def _build_battery_db_button(self):
         layout, content=self._content_layout()
         if layout is None: return
@@ -117,6 +112,7 @@ class ApplicationRuntimeBuilder:
     SERIAL_PORT="/dev/ttyACM0"; SERIAL_BAUDRATE=57600
     def __init__(self): self.serial_controller=None
     def build_context(self):
+        # Controller is created but deliberately NOT connected during application startup.
         self.serial_controller=SerialController(serial_port=self.SERIAL_PORT,baudrate=self.SERIAL_BAUDRATE)
         builder=ApplicationBuilder(serial_controller=self.serial_controller)
         return {"serial_controller":self.serial_controller,"breakin_controller":builder.build_breakin_controller(),"serial_connected":False}
