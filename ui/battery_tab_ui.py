@@ -1,7 +1,7 @@
 """Integrated Battery UI shell.
 
-Keeps Battery operation separate from the Motor Break-in UI while preserving
-manual Instance/Result registration and the existing 5A device contract.
+Battery serial connection is owned by the top-level device connection area.
+This tab contains only Battery operation, instance assignment and database UI.
 """
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel, QPushButton, QComboBox, QTabWidget
 from ui.battery_database_ui import BatteryDatabaseDialog
@@ -14,14 +14,6 @@ class BatteryTab(QWidget):
 
     def _build(self):
         root = QVBoxLayout(self)
-        connection = QGroupBox("BATTERY DEVICE CONNECTION")
-        row = QHBoxLayout(connection)
-        self.status = QLabel("BATTERY: DISCONNECTED  /dev/ttyUSB0")
-        self.connect_button = QPushButton("BATTERY CONNECT")
-        self.disconnect_button = QPushButton("BATTERY DISCONNECT")
-        self.disconnect_button.setEnabled(False)
-        row.addWidget(self.status); row.addWidget(self.connect_button); row.addWidget(self.disconnect_button)
-        root.addWidget(connection)
 
         tabs = QTabWidget()
         operation = QWidget(); op = QVBoxLayout(operation)
