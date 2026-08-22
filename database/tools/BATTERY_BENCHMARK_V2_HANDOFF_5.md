@@ -1,0 +1,1 @@
+The required E2E gate is the real database verification command. Do not rely on schema-only confirmation.
