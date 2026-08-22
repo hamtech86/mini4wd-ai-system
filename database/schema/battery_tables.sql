@@ -35,6 +35,8 @@ CREATE TABLE IF NOT EXISTS battery_benchmark_result (
     instance_id TEXT,
     analysis_version TEXT NOT NULL,
     measurement_count INTEGER NOT NULL DEFAULT 0,
+    start_voltage REAL,
+    end_voltage REAL,
     avg_voltage REAL,
     avg_current REAL,
     avg_power REAL,
