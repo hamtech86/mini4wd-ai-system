@@ -1,0 +1,1 @@
+Run migrate_battery_benchmark_v2.py, then verify_battery_benchmark_v2.py. Acceptance requires BATTERY_BENCHMARK_V2_E2E_PASS.
