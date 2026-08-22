@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS battery_instance (
     serial_number TEXT,
     nickname TEXT,
     notes TEXT,
+    lifecycle_status TEXT NOT NULL DEFAULT 'ACTIVE',
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
     is_deleted INTEGER NOT NULL DEFAULT 0,
@@ -65,10 +66,11 @@ CREATE INDEX IF NOT EXISTS idx_benchmark_instance ON battery_benchmark_result(in
 
 -- Tamiya Neo Champ preset.
 -- Official current product page: ITEM 15420; minimum capacity 950mAh.
--- The database stores the minimum guaranteed capacity as the nominal reference,
--- rather than inventing a measured/typical capacity.
 INSERT OR IGNORE INTO battery_model
     (model_code, name, chemistry, nominal_voltage, capacity_nominal_mah, manufacturer, data_confidence, notes)
 VALUES
     ('NEO_CHAMP', 'Neo Champ', 'NiMH', 1.2, 950.0, 'Tamiya', 1.0,
      'Tamiya ITEM 15420. Capacity: Min. 950mAh per current official product specification.');
+
+-- Upgrade an existing database without destroying instance history.
+ALTER TABLE battery_instance ADD COLUMN lifecycle_status TEXT NOT NULL DEFAULT 'ACTIVE';
