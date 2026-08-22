@@ -1,0 +1,1 @@
+Do not mark Battery Analysis input as fully confirmed until the real database verifier passes. Raw Measurement remains preserved.

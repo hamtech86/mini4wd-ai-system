@@ -1,0 +1,1 @@
+The implementation now derives start_voltage, end_voltage, and voltage_drop from raw Measurement. Run migrate_battery_benchmark_v2.py and then verify_battery_benchmark_v2.py against the real database. Do not mark the Analysis handoff E2E-complete until the verifier prints BATTERY_BENCHMARK_V2_E2E_PASS.

@@ -1,0 +1,1 @@
+Handoff gate: implementation complete, real-DB E2E verification pending. The required path is raw Measurement -> first/last valid voltage -> Benchmark Result start_voltage/end_voltage -> voltage_drop = start - end.
