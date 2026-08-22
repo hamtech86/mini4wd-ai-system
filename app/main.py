@@ -4,7 +4,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path: sys.path.insert(0, str(PROJECT_ROOT))
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QApplication, QMessageBox, QGroupBox, QGridLayout, QLabel, QPushButton, QScrollArea
+from PyQt5.QtWidgets import QApplication, QMessageBox, QGroupBox, QGridLayout, QLabel, QPushButton, QScrollArea, QHBoxLayout
 from loguru import logger
 from config import APP_NAME, APP_VERSION, LOG_DIR
 from ui.main_window import MainWindow as BaseMainWindow
@@ -16,21 +16,54 @@ from ui.battery_database_ui import BatteryDatabaseDialog
 class MainWindow(BaseMainWindow):
     """Main UI with operator-facing motor results and Battery DB registration."""
     def __init__(self, context=None):
-        super().__init__(context); bind_resume_api(type(self)); install_resume_controls(self); self._build_estimated_result_panel(); self._build_battery_db_button()
-    def _build_battery_db_button(self):
-        central = self.centralWidget()
-        scroll = central.findChild(QScrollArea) if central is not None else None
-        content = scroll.widget() if scroll is not None else None
-        layout = content.layout() if content is not None else None
+        super().__init__(context); bind_resume_api(type(self)); install_resume_controls(self); self._build_serial_controls(); self._build_estimated_result_panel(); self._build_battery_db_button()
+    def _content_layout(self):
+        central=self.centralWidget(); scroll=central.findChild(QScrollArea) if central is not None else None; content=scroll.widget() if scroll is not None else None; return content.layout() if content is not None else None, content
+    def _build_serial_controls(self):
+        layout, content=self._content_layout()
         if layout is None: return
-        button = QPushButton("BATTERY DATABASE / INSTANCE & RESULT REGISTRATION", content)
-        button.setMinimumHeight(44)
-        button.setEnabled(True)
-        button.clicked.connect(self.open_battery_database)
-        layout.addWidget(button)
-        self.battery_database_button = button
+        box=QGroupBox("MOTOR DEVICE CONNECTION")
+        row=QHBoxLayout(box)
+        self.serial_status=QLabel("DISCONNECTED  /dev/ttyACM0")
+        self.serial_connect_button=QPushButton("CONNECT")
+        self.serial_disconnect_button=QPushButton("DISCONNECT")
+        self.serial_disconnect_button.setEnabled(False)
+        self.serial_connect_button.clicked.connect(self.connect_motor_serial)
+        self.serial_disconnect_button.clicked.connect(self.disconnect_motor_serial)
+        row.addWidget(self.serial_status); row.addWidget(self.serial_connect_button); row.addWidget(self.serial_disconnect_button)
+        layout.addWidget(box)
+    def connect_motor_serial(self):
+        controller=getattr(self,"serial_controller",None)
+        if controller is None:
+            controller=getattr(getattr(self,"breakin_controller",None),"serial_controller",None)
+        if controller is None:
+            QMessageBox.warning(self,"Motor Connection","Serial controller is not available.")
+            return
+        if controller.connected:
+            return
+        if controller.connect():
+            self.serial_status.setText("CONNECTED  /dev/ttyACM0 @ 57600")
+            self.serial_connect_button.setEnabled(False); self.serial_disconnect_button.setEnabled(True)
+        else:
+            self.serial_status.setText("CONNECTION FAILED  /dev/ttyACM0")
+            self.serial_connect_button.setEnabled(True); self.serial_disconnect_button.setEnabled(False)
+    def disconnect_motor_serial(self):
+        controller=getattr(self,"serial_controller",None)
+        if controller is None:
+            controller=getattr(getattr(self,"breakin_controller",None),"serial_controller",None)
+        if controller is not None:
+            try:
+                if controller.connected: controller.stop_breakin()
+            except Exception: logger.exception("Failed to stop motor before disconnect")
+            controller.disconnect()
+        self.serial_status.setText("DISCONNECTED  /dev/ttyACM0")
+        self.serial_connect_button.setEnabled(True); self.serial_disconnect_button.setEnabled(False)
+    def _build_battery_db_button(self):
+        layout, content=self._content_layout()
+        if layout is None: return
+        button=QPushButton("BATTERY DATABASE / INSTANCE & RESULT REGISTRATION",content); button.setMinimumHeight(44); button.setEnabled(True); button.clicked.connect(self.open_battery_database); layout.addWidget(button); self.battery_database_button=button
     def open_battery_database(self):
-        dialog=BatteryDatabaseDialog(self.db_path, self); dialog.exec_()
+        dialog=BatteryDatabaseDialog(self.db_path,self); dialog.exec_()
     def _build_estimated_result_panel(self):
         content=self.centralWidget(); layout=content.layout() if content is not None else None
         if layout is None: return
@@ -84,18 +117,16 @@ class ApplicationRuntimeBuilder:
     SERIAL_PORT="/dev/ttyACM0"; SERIAL_BAUDRATE=57600
     def __init__(self): self.serial_controller=None
     def build_context(self):
-        self.serial_controller=SerialController(serial_port=self.SERIAL_PORT,baudrate=self.SERIAL_BAUDRATE); connected=self.serial_controller.connect()
-        if connected: logger.info("Arduino serial connected: {} @ {} baud",self.SERIAL_PORT,self.SERIAL_BAUDRATE)
-        else: logger.warning("Arduino serial connection failed: {} @ {} baud",self.SERIAL_PORT,self.SERIAL_BAUDRATE)
-        builder=ApplicationBuilder(serial_controller=self.serial_controller); return {"serial_controller":self.serial_controller,"breakin_controller":builder.build_breakin_controller(),"serial_connected":connected}
+        self.serial_controller=SerialController(serial_port=self.SERIAL_PORT,baudrate=self.SERIAL_BAUDRATE)
+        builder=ApplicationBuilder(serial_controller=self.serial_controller)
+        return {"serial_controller":self.serial_controller,"breakin_controller":builder.build_breakin_controller(),"serial_connected":False}
     def close(self):
         if self.serial_controller is None: return
         try:
             if self.serial_controller.connected: self.serial_controller.stop_breakin()
         except Exception: logger.exception("Failed to stop Arduino during shutdown")
         finally:
-            try:
-                self.serial_controller.disconnect()
+            try: self.serial_controller.disconnect()
             except Exception: logger.exception("Failed to disconnect Arduino serial port")
 
 def setup_logger():
