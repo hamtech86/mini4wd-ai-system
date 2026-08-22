@@ -4,7 +4,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path: sys.path.insert(0, str(PROJECT_ROOT))
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QApplication, QMessageBox, QGroupBox, QGridLayout, QLabel, QPushButton
+from PyQt5.QtWidgets import QApplication, QMessageBox, QGroupBox, QGridLayout, QLabel, QPushButton, QScrollArea
 from loguru import logger
 from config import APP_NAME, APP_VERSION, LOG_DIR
 from ui.main_window import MainWindow as BaseMainWindow
@@ -18,9 +18,17 @@ class MainWindow(BaseMainWindow):
     def __init__(self, context=None):
         super().__init__(context); bind_resume_api(type(self)); install_resume_controls(self); self._build_estimated_result_panel(); self._build_battery_db_button()
     def _build_battery_db_button(self):
-        content=self.centralWidget(); layout=content.layout() if content is not None else None
+        central = self.centralWidget()
+        scroll = central.findChild(QScrollArea) if central is not None else None
+        content = scroll.widget() if scroll is not None else None
+        layout = content.layout() if content is not None else None
         if layout is None: return
-        button=QPushButton("BATTERY DATABASE / INSTANCE & RESULT REGISTRATION"); button.setMinimumHeight(40); button.clicked.connect(self.open_battery_database); layout.addWidget(button); self.battery_database_button=button
+        button = QPushButton("BATTERY DATABASE / INSTANCE & RESULT REGISTRATION", content)
+        button.setMinimumHeight(44)
+        button.setEnabled(True)
+        button.clicked.connect(self.open_battery_database)
+        layout.addWidget(button)
+        self.battery_database_button = button
     def open_battery_database(self):
         dialog=BatteryDatabaseDialog(self.db_path, self); dialog.exec_()
     def _build_estimated_result_panel(self):
@@ -86,7 +94,8 @@ class ApplicationRuntimeBuilder:
             if self.serial_controller.connected: self.serial_controller.stop_breakin()
         except Exception: logger.exception("Failed to stop Arduino during shutdown")
         finally:
-            try: self.serial_controller.disconnect()
+            try:
+                self.serial_controller.disconnect()
             except Exception: logger.exception("Failed to disconnect Arduino serial port")
 
 def setup_logger():
