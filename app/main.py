@@ -6,7 +6,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtWidgets import QApplication, QMessageBox, QGroupBox, QGridLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget, QTabWidget, QHBoxLayout, QCheckBox
+from PyQt5.QtWidgets import QApplication, QMessageBox, QGroupBox, QGridLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget, QTabWidget, QHBoxLayout, QCheckBox, QProgressBar
 from loguru import logger
 from ui.main_window import MainWindow as BaseMainWindow
 from communication.serial_controller import SerialController
@@ -98,9 +98,11 @@ class MainWindow(BaseMainWindow):
         layout.addWidget(box)
 
     def _build_recipe_sequence_panel(self):
-        self.recipe_engine=RecipeEngine();self.sequence_adapter=BreakinSequenceAdapter(self.breakin_controller);self.sequence_executor=SequenceExecutor(adapter=self.sequence_adapter);self.sequence_timer=QTimer(self);self.sequence_timer.setInterval(100);self.sequence_timer.timeout.connect(self._sequence_tick)
+        self.recipe_engine=RecipeEngine();self.sequence_adapter=BreakinSequenceAdapter(self.breakin_controller);self.sequence_executor=SequenceExecutor(adapter=self.sequence_adapter);self.sequence_timer=QTimer(self);self.sequence_timer.setInterval(100);self.sequence_timer.timeout.connect(self._sequence_tick);self.sequence_selected_total=0
         box=QGroupBox("SEQUENCE");root=QVBoxLayout(box);actions=QHBoxLayout();self.sequence_all=QPushButton("全選択");self.sequence_none=QPushButton("全解除");self.sequence_all.clicked.connect(lambda:self._set_sequence_checks(True));self.sequence_none.clicked.connect(lambda:self._set_sequence_checks(False));self.sequence_execute=QPushButton("選択Sequenceを実行");self.sequence_stop=QPushButton("Sequence停止");self.sequence_stop.setEnabled(False);self.sequence_execute.clicked.connect(self._execute_selected_sequences);self.sequence_stop.clicked.connect(self._stop_sequences)
-        actions.addWidget(self.sequence_all);actions.addWidget(self.sequence_none);actions.addStretch();actions.addWidget(self.sequence_execute);actions.addWidget(self.sequence_stop);root.addLayout(actions);self.sequence_status=QLabel("未実行");root.addWidget(self.sequence_status);scroll=QScrollArea();scroll.setWidgetResizable(True);body=QWidget();self.sequence_layout=QVBoxLayout(body);scroll.setWidget(body);root.addWidget(scroll,1);self.sequence_checks=[];layout=self.motor_content.layout() if self.motor_content is not None else None
+        actions.addWidget(self.sequence_all);actions.addWidget(self.sequence_none);actions.addStretch();actions.addWidget(self.sequence_execute);actions.addWidget(self.sequence_stop);root.addLayout(actions)
+        self.sequence_progress=QProgressBar();self.sequence_progress.setRange(0,100);self.sequence_progress.setValue(0);self.sequence_progress.setFormat("Sequence Progress: %p%")
+        root.addWidget(self.sequence_progress);self.sequence_status=QLabel("未実行");root.addWidget(self.sequence_status);scroll=QScrollArea();scroll.setWidgetResizable(True);body=QWidget();self.sequence_layout=QVBoxLayout(body);scroll.setWidget(body);root.addWidget(scroll,1);self.sequence_checks=[];layout=self.motor_content.layout() if self.motor_content is not None else None
         if layout is not None:layout.insertWidget(1,box)
         self._load_recipe_sequence(self.recipe_engine.names()[0] if self.recipe_engine.names() else None)
 
@@ -116,13 +118,20 @@ class MainWindow(BaseMainWindow):
         self.sequence_checks=[]
         for sequence in recipe.sequences():
             check=QCheckBox(f"{sequence.order:02d} | {sequence.sequence_id} | {sequence.command} | {sequence.direction or '-'} | PWM {sequence.pwm if sequence.pwm is not None else '-'} | {sequence.duration_sec if sequence.duration_sec is not None else '-'}s");check.setChecked(sequence.enabled);self.sequence_layout.addWidget(check);self.sequence_checks.append((sequence.sequence_id,check))
-        self.sequence_layout.addStretch();self._update_sequence_highlight(None);self.sequence_status.setText(f"{recipe.name}: {len(self.sequence_checks)} Sequence")
+        self.sequence_layout.addStretch();self._update_sequence_highlight(None);self.sequence_progress.setValue(0);self.sequence_status.setText(f"{recipe.name}: {len(self.sequence_checks)} Sequence")
 
     def _set_sequence_checks(self,checked):
         for _,check in self.sequence_checks:check.setChecked(checked)
 
     def _update_sequence_highlight(self,active_id):
         for sid,check in self.sequence_checks:check.setStyleSheet("QCheckBox { background: palette(highlight); color: palette(highlighted-text); font-weight: bold; padding: 4px; border-radius: 3px; }" if sid==active_id else "QCheckBox { padding: 4px; }")
+
+    def _update_sequence_progress(self):
+        total=self.sequence_selected_total
+        if total<=0:self.sequence_progress.setValue(0);return
+        completed=sum(1 for result in self.sequence_executor.results if result.status=="COMPLETE" and result.sequence_id in self.sequence_selected_ids)
+        value=int(completed*100/total)
+        self.sequence_progress.setValue(min(100,value));self.sequence_progress.setFormat(f"Sequence Progress: {completed}/{total}  %p%")
 
     def _execute_selected_sequences(self):
         name=self._current_recipe_name();recipe=self.recipe_engine.get(name)
@@ -131,6 +140,7 @@ class MainWindow(BaseMainWindow):
         if not enabled_ids:self.sequence_status.setText("実施するSequenceが選択されていません");return
         controller=self._motor_controller()
         if controller is None or not getattr(controller,"connected",False):QMessageBox.warning(self,"Sequence","先にMOTOR CONNECTを実行してください。");return
+        self.sequence_selected_ids=enabled_ids;self.sequence_selected_total=len(enabled_ids);self.sequence_progress.setValue(0);self.sequence_progress.setFormat(f"Sequence Progress: 0/{self.sequence_selected_total}  %p%")
         self.sequence_executor.load_recipe(recipe,enabled_ids=enabled_ids);self.sequence_executor.start();self.sequence_timer.start();self.timer.start();self.sequence_execute.setEnabled(False);self.sequence_stop.setEnabled(True);current=self.sequence_executor.current();self._update_sequence_highlight(current.sequence_id if current else None);self.sequence_status.setText(f"実行中: {recipe.name}  0%")
 
     def start_run(self):
@@ -140,8 +150,8 @@ class MainWindow(BaseMainWindow):
 
     def _sequence_tick(self):
         try:
-            current=self.sequence_executor.execute_current()
-            if self.sequence_executor.is_complete():self.sequence_timer.stop();self.timer.stop();self.sequence_execute.setEnabled(True);self.sequence_stop.setEnabled(False);self._update_sequence_highlight(None);self.sequence_status.setText("完了: 100%");return
+            current=self.sequence_executor.execute_current();self._update_sequence_progress()
+            if self.sequence_executor.is_complete():self.sequence_timer.stop();self.timer.stop();self.sequence_progress.setValue(100);self.sequence_progress.setFormat(f"Sequence Progress: {self.sequence_selected_total}/{self.sequence_selected_total}  100%");self.sequence_execute.setEnabled(True);self.sequence_stop.setEnabled(False);self._update_sequence_highlight(None);self.sequence_status.setText("完了: 100%");return
             self._update_sequence_highlight(current.sequence_id if current else None);self.sequence_status.setText(f"実行中: {self.sequence_executor.progress()}%  {current.sequence_id if current else ''}")
         except Exception as exc:self.sequence_timer.stop();self.timer.stop();self.sequence_executor.stop("error");self.sequence_execute.setEnabled(True);self.sequence_stop.setEnabled(False);self._update_sequence_highlight(None);self.sequence_status.setText(f"Sequence ERROR: {exc}");logger.exception("Sequence execution failed");QMessageBox.critical(self,"Sequence Error",str(exc))
 
