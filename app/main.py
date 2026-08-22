@@ -6,15 +6,15 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QApplication, QMessageBox, QGroupBox, QGridLayout, QLabel, QPushButton, QScrollArea, QHBoxLayout, QVBoxLayout, QWidget, QTabWidget
+from PyQt5.QtWidgets import QApplication, QMessageBox, QGroupBox, QGridLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget, QTabWidget
 from loguru import logger
 from config import APP_NAME, APP_VERSION, LOG_DIR
 from ui.main_window import MainWindow as BaseMainWindow
 from communication.serial_controller import SerialController
+from battery_system.serial import BatterySerial
 from app.application_builder import ApplicationBuilder
 from ui.resume_controls import install_resume_controls, bind_resume_api
 from ui.battery_tab_ui import BatteryTab
-
 
 class MainWindow(BaseMainWindow):
     """Main UI with separate Motor Break-in and Battery tabs."""
@@ -24,10 +24,10 @@ class MainWindow(BaseMainWindow):
         install_resume_controls(self)
         self._extract_motor_page()
         self._build_estimated_result_panel()
+        self.battery_serial_controller = context.get("battery_serial_controller") if context else None
         self._build_integrated_ui()
 
     def _extract_motor_page(self):
-        """Remove legacy top/device widgets from the Motor page before tab integration."""
         central = self.centralWidget()
         if central is None:
             return
@@ -39,7 +39,6 @@ class MainWindow(BaseMainWindow):
         layout = self.motor_content.layout()
         if layout is None:
             return
-        # Remove the legacy device connection group, if present.
         for i in range(layout.count()):
             item = layout.itemAt(i)
             widget = item.widget() if item else None
@@ -48,7 +47,6 @@ class MainWindow(BaseMainWindow):
                 widget.setParent(None)
                 widget.deleteLater()
                 break
-        # Remove the old Battery DB button, if present.
         for i in range(layout.count() - 1, -1, -1):
             item = layout.itemAt(i)
             widget = item.widget() if item else None
@@ -89,7 +87,7 @@ class MainWindow(BaseMainWindow):
 
         tabs = QTabWidget()
         tabs.addTab(old_central, "MOTOR BREAK-IN")
-        self.battery_tab = BatteryTab(self.db_path, self)
+        self.battery_tab = BatteryTab(self.db_path, transport=self.battery_serial_controller, parent=self)
         tabs.addTab(self.battery_tab, "BATTERY")
         root_layout.addWidget(tabs, 1)
         self.setCentralWidget(root)
@@ -131,24 +129,27 @@ class MainWindow(BaseMainWindow):
         self.motor_disconnect.setEnabled(False)
 
     def connect_battery_serial(self):
-        controller = getattr(self, "battery_serial_controller", None)
+        controller = self.battery_serial_controller
         if controller is None:
             QMessageBox.warning(self, "Battery Connection", "Battery serial controller is not available.")
             return
         if controller.connected:
             return
-        if controller.connect():
-            self.battery_serial_status.setText("BATTERY: CONNECTED  /dev/ttyUSB0 @ 57600")
-            self.battery_connect.setEnabled(False)
-            self.battery_disconnect.setEnabled(True)
-            self.battery_tab.status.setText("BATTERY: CONNECTED  /dev/ttyUSB0 @ 57600")
-        else:
+        if not controller.connect():
             self.battery_serial_status.setText("BATTERY: CONNECTION FAILED  /dev/ttyUSB0")
-            self.battery_tab.status.setText("BATTERY: CONNECTION FAILED  /dev/ttyUSB0")
+            return
+        self.battery_serial_status.setText("BATTERY: CONNECTED  /dev/ttyUSB0 @ 57600")
+        self.battery_connect.setEnabled(False)
+        self.battery_disconnect.setEnabled(True)
+        self.battery_tab.set_connected(True)
 
     def disconnect_battery_serial(self):
-        controller = getattr(self, "battery_serial_controller", None)
+        controller = self.battery_serial_controller
         if controller is not None:
+            try:
+                controller.stop()
+            except Exception:
+                pass
             try:
                 controller.disconnect()
             except Exception:
@@ -156,10 +157,9 @@ class MainWindow(BaseMainWindow):
         self.battery_serial_status.setText("BATTERY: DISCONNECTED  /dev/ttyUSB0")
         self.battery_connect.setEnabled(True)
         self.battery_disconnect.setEnabled(False)
-        self.battery_tab.status.setText("BATTERY: DISCONNECTED  /dev/ttyUSB0")
+        self.battery_tab.set_connected(False)
 
     def _build_estimated_result_panel(self):
-        # Keep existing Motor result extension, but do not add it outside the Motor tab.
         content = self.motor_content
         layout = content.layout() if content is not None else None
         if layout is None:
@@ -256,27 +256,18 @@ class MainWindow(BaseMainWindow):
             for value in self.estimated_result.values():
                 value.setText("NOT AVAILABLE")
 
-
 class ApplicationRuntimeBuilder:
     MOTOR_PORT = "/dev/ttyACM0"
     BATTERY_PORT = "/dev/ttyUSB0"
     SERIAL_BAUDRATE = 57600
-
     def __init__(self):
         self.serial_controller = None
         self.battery_serial_controller = None
-
     def build_context(self):
         self.serial_controller = SerialController(serial_port=self.MOTOR_PORT, baudrate=self.SERIAL_BAUDRATE)
-        self.battery_serial_controller = SerialController(serial_port=self.BATTERY_PORT, baudrate=self.SERIAL_BAUDRATE)
+        self.battery_serial_controller = BatterySerial(port=self.BATTERY_PORT, baudrate=self.SERIAL_BAUDRATE)
         builder = ApplicationBuilder(serial_controller=self.serial_controller)
-        return {
-            "serial_controller": self.serial_controller,
-            "breakin_controller": builder.build_breakin_controller(),
-            "serial_connected": False,
-            "battery_serial_controller": self.battery_serial_controller,
-        }
-
+        return {"serial_controller": self.serial_controller, "breakin_controller": builder.build_breakin_controller(), "serial_connected": False, "battery_serial_controller": self.battery_serial_controller}
     def close(self):
         for controller in (self.serial_controller, self.battery_serial_controller):
             if controller is None:
@@ -287,12 +278,10 @@ class ApplicationRuntimeBuilder:
             except Exception:
                 logger.exception("Failed to disconnect serial device during shutdown")
 
-
 def setup_logger():
     logger.remove()
     logger.add(sys.stdout, level="INFO", colorize=True)
     logger.add(LOG_DIR / "system.log", rotation="10 MB", retention=10, encoding="utf-8", level="DEBUG")
-
 
 def main():
     setup_logger()
@@ -303,7 +292,6 @@ def main():
     try:
         context = runtime.build_context()
         window = MainWindow(context)
-        window.battery_serial_controller = runtime.battery_serial_controller
         window.show()
         app.aboutToQuit.connect(runtime.close)
         return app.exec()
@@ -312,7 +300,6 @@ def main():
         runtime.close()
         QMessageBox.critical(None, "Fatal Error", "致命的なエラーが発生しました。\nsystem.log を確認してください。")
         return 1
-
 
 if __name__ == "__main__":
     sys.exit(main())
