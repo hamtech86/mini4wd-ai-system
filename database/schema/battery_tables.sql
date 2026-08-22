@@ -66,38 +66,38 @@ CREATE INDEX IF NOT EXISTS idx_battery_instance_model ON battery_instance(batter
 CREATE INDEX IF NOT EXISTS idx_benchmark_session ON battery_benchmark_result(session_id);
 CREATE INDEX IF NOT EXISTS idx_benchmark_instance ON battery_benchmark_result(instance_id);
 
--- Populate analysis-critical voltage fields from the raw Measurement log.
--- The raw measurement table remains the source of truth; Benchmark Result stores
--- the derived values as a stable snapshot for downstream Analysis.
+-- Derive analysis-critical voltage fields from the raw Measurement log.
+-- COALESCE supports both independent CH1/CH2 session layouts: whichever voltage
+-- column is populated for the session becomes the source of truth.
 CREATE TRIGGER IF NOT EXISTS trg_battery_benchmark_derive_measurement_fields
 AFTER INSERT ON battery_benchmark_result
 FOR EACH ROW
 BEGIN
     UPDATE battery_benchmark_result
        SET start_voltage = (
-               SELECT voltage1 FROM measurement
+               SELECT COALESCE(voltage1, voltage2) FROM measurement
                 WHERE session_id = NEW.session_id
-                  AND voltage1 IS NOT NULL
+                  AND COALESCE(voltage1, voltage2) IS NOT NULL
                 ORDER BY elapsed_time ASC
                 LIMIT 1
            ),
            end_voltage = (
-               SELECT voltage1 FROM measurement
+               SELECT COALESCE(voltage1, voltage2) FROM measurement
                 WHERE session_id = NEW.session_id
-                  AND voltage1 IS NOT NULL
+                  AND COALESCE(voltage1, voltage2) IS NOT NULL
                 ORDER BY elapsed_time DESC
                 LIMIT 1
            ),
            voltage_drop = (
-               SELECT voltage1 FROM measurement
+               SELECT COALESCE(voltage1, voltage2) FROM measurement
                 WHERE session_id = NEW.session_id
-                  AND voltage1 IS NOT NULL
+                  AND COALESCE(voltage1, voltage2) IS NOT NULL
                 ORDER BY elapsed_time ASC
                 LIMIT 1
            ) - (
-               SELECT voltage1 FROM measurement
+               SELECT COALESCE(voltage1, voltage2) FROM measurement
                 WHERE session_id = NEW.session_id
-                  AND voltage1 IS NOT NULL
+                  AND COALESCE(voltage1, voltage2) IS NOT NULL
                 ORDER BY elapsed_time DESC
                 LIMIT 1
            )
