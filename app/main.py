@@ -30,9 +30,6 @@ class MainWindow(BaseMainWindow):
         self.battery_serial_controller = context.get("battery_serial_controller") if context else None
         self._build_recipe_sequence_panel()
         self._build_integrated_ui()
-        # The legacy START BREAK-IN button remains visible for layout
-        # compatibility, but non-benchmark recipes must use the selected
-        # Sequence checkboxes rather than the old blocking phase runner.
         if hasattr(self, "start"):
             self.start.setText("START SELECTED SEQUENCE")
 
@@ -203,18 +200,8 @@ class MainWindow(BaseMainWindow):
         self.sequence_timer.setInterval(100)
         self.sequence_timer.timeout.connect(self._sequence_tick)
 
-        box = QGroupBox("RECIPE / SEQUENCE")
+        box = QGroupBox("SEQUENCE")
         root = QVBoxLayout(box)
-        toolbar = QHBoxLayout()
-        toolbar.addWidget(QLabel("プリセット"))
-        self.recipe_combo = QComboBox()
-        self.recipe_combo.addItems(self.recipe_engine.names())
-        toolbar.addWidget(self.recipe_combo, 1)
-        self.recipe_load = QPushButton("読み込み")
-        self.recipe_load.clicked.connect(lambda: self._load_recipe_sequence(self.recipe_combo.currentText()))
-        toolbar.addWidget(self.recipe_load)
-        root.addLayout(toolbar)
-
         actions = QHBoxLayout()
         self.sequence_all = QPushButton("全選択")
         self.sequence_none = QPushButton("全解除")
@@ -245,8 +232,12 @@ class MainWindow(BaseMainWindow):
         self.sequence_checks = []
         layout = self.motor_content.layout() if self.motor_content is not None else None
         if layout is not None:
-            layout.addWidget(box)
-        self._load_recipe_sequence(self.recipe_combo.currentText())
+            # The legacy Recipe selector is in the first operator group.
+            # Put the new Sequence directly below that group instead of at
+            # the bottom of the legacy Motor page.
+            insert_index = 1 if layout.count() >= 1 else 0
+            layout.insertWidget(insert_index, box)
+        self._load_recipe_sequence(self.recipe_engine.names()[0] if self.recipe_engine.names() else None)
 
     def _load_recipe_sequence(self, name):
         recipe = self.recipe_engine.get(name)
@@ -265,11 +256,20 @@ class MainWindow(BaseMainWindow):
             self.sequence_layout.addWidget(check)
             self.sequence_checks.append((sequence.sequence_id, check))
         self.sequence_layout.addStretch()
+        self._update_sequence_highlight(None)
         self.sequence_status.setText(f"{recipe.name}: {len(self.sequence_checks)} Sequence")
 
     def _set_sequence_checks(self, checked):
         for _, check in self.sequence_checks:
             check.setChecked(checked)
+
+    def _update_sequence_highlight(self, active_id):
+        """Highlight only the Sequence currently being executed."""
+        for sid, check in self.sequence_checks:
+            if sid == active_id:
+                check.setStyleSheet("QCheckBox { background: palette(highlight); color: palette(highlighted-text); font-weight: bold; padding: 4px; border-radius: 3px; }")
+            else:
+                check.setStyleSheet("QCheckBox { padding: 4px; }")
 
     def _execute_selected_sequences(self):
         recipe = self.recipe_engine.get(self.recipe_combo.currentText())
@@ -288,6 +288,8 @@ class MainWindow(BaseMainWindow):
         self.sequence_timer.start()
         self.sequence_execute.setEnabled(False)
         self.sequence_stop.setEnabled(True)
+        current = self.sequence_executor.current()
+        self._update_sequence_highlight(current.sequence_id if current else None)
         self.sequence_status.setText(f"実行中: {recipe.name}  0%")
 
     def start_run(self):
@@ -315,14 +317,17 @@ class MainWindow(BaseMainWindow):
                 self.sequence_timer.stop()
                 self.sequence_execute.setEnabled(True)
                 self.sequence_stop.setEnabled(False)
+                self._update_sequence_highlight(None)
                 self.sequence_status.setText("完了: 100%")
                 return
+            self._update_sequence_highlight(current.sequence_id if current else None)
             self.sequence_status.setText(f"実行中: {self.sequence_executor.progress()}%  {current.sequence_id if current else ''}")
         except Exception as exc:
             self.sequence_timer.stop()
             self.sequence_executor.stop("error")
             self.sequence_execute.setEnabled(True)
             self.sequence_stop.setEnabled(False)
+            self._update_sequence_highlight(None)
             self.sequence_status.setText(f"Sequence ERROR: {exc}")
             logger.exception("Sequence execution failed")
             QMessageBox.critical(self, "Sequence Error", str(exc))
@@ -332,6 +337,7 @@ class MainWindow(BaseMainWindow):
         self.sequence_executor.stop("operator_stop")
         self.sequence_execute.setEnabled(True)
         self.sequence_stop.setEnabled(False)
+        self._update_sequence_highlight(None)
         self.sequence_status.setText("停止")
 
     @staticmethod
