@@ -106,7 +106,7 @@ END;
 
 -- Tamiya Neo Champ preset.
 INSERT OR IGNORE INTO battery_model
-    (model_code,model_code,name,chemistry,nominal_voltage,capacity_nominal_mah,manufacturer,data_confidence,notes)
+    (model_code, name, chemistry, nominal_voltage, capacity_nominal_mah, manufacturer, data_confidence, notes)
 VALUES
-    ('NEO_CHAMP','NEO_CHAMP','Neo Champ','NiMH',1.2,950.0,'Tamiya',1.0,
+    ('NEO_CHAMP', 'Neo Champ', 'NiMH', 1.2, 950.0, 'Tamiya', 1.0,
      'Tamiya Neo Champ preset. Nominal voltage 1.2V; nominal capacity 950mAh.');
