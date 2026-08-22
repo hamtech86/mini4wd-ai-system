@@ -1,0 +1,1 @@
+E2E gate: run migration then verifier on the real database. Only a PASS result closes the handoff.
