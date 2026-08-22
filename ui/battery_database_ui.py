@@ -52,7 +52,7 @@ class BatteryDatabaseDialog(QDialog):
         if not iid: return
         with self._db() as db: row=db.execute("SELECT battery_model_id,serial_number,nickname,notes,COALESCE(lifecycle_status,'ACTIVE') FROM battery_instance WHERE instance_id=?",(iid,)).fetchone()
         if not row: return
-        mid,serial,nickname,notes,status=row; self.iid.setText(iid); self.iid.setReadOnly(True); idx=self.model.findData(mid); self.model.setCurrentIndex(idx); self.serial.setText(serial or ''); self.nickname.setText(nickname or ''); self.notes.setText(notes or ''); self.status_combo.setCurrentText(status)
+        mid,serial,nickname,notes,status=row; self.iid.setText(str(iid)); self.iid.setReadOnly(True); idx=self.model.findData(mid); self.model.setCurrentIndex(idx); self.serial.setText(serial or ''); self.nickname.setText(nickname or ''); self.notes.setText(notes or ''); self.status_combo.setCurrentText(status)
     def _register_instance(self):
         iid=self.iid.text().strip()
         if not iid or self.model.currentData() is None: QMessageBox.warning(self,"Battery Instance","Instance IDとBattery Modelを指定してください。"); return
@@ -70,10 +70,12 @@ class BatteryDatabaseDialog(QDialog):
         self.session.clear()
         with self._db() as db:
             cols={r[1] for r in db.execute("PRAGMA table_info(measurement_session)").fetchall()}
-            if 'status' in cols:
-                rows=db.execute("SELECT session_id FROM measurement_session WHERE status='COMPLETE' ORDER BY start_time DESC").fetchall()
+            if 'result' in cols and 'end_datetime' in cols:
+                rows=db.execute("SELECT session_id FROM measurement_session WHERE result='COMPLETE' ORDER BY COALESCE(end_datetime,start_datetime,created_at) DESC").fetchall()
+            elif 'end_datetime' in cols:
+                rows=db.execute("SELECT session_id FROM measurement_session WHERE end_datetime IS NOT NULL ORDER BY COALESCE(end_datetime,start_datetime,created_at) DESC").fetchall()
             else:
-                rows=db.execute("SELECT session_id FROM measurement_session WHERE end_time IS NOT NULL ORDER BY end_time DESC").fetchall()
+                rows=db.execute("SELECT session_id FROM measurement_session ORDER BY session_id DESC").fetchall()
         for (sid,) in rows: self.session.addItem(str(sid),sid)
     def _register_result(self):
         sid=self.session.currentData() or self.session.currentText().strip(); iid=self.result_instance.currentData()
@@ -81,9 +83,16 @@ class BatteryDatabaseDialog(QDialog):
         try:
             with self._db() as db:
                 cols={r[1] for r in db.execute("PRAGMA table_info(measurement_session)").fetchall()}
-                row=db.execute("SELECT status FROM measurement_session WHERE session_id=?",(sid,)).fetchone() if 'status' in cols else db.execute("SELECT end_time FROM measurement_session WHERE session_id=?",(sid,)).fetchone()
+                if 'result' in cols:
+                    row=db.execute("SELECT result FROM measurement_session WHERE session_id=?",(sid,)).fetchone()
+                    session_result=row[0] if row else None
+                elif 'end_datetime' in cols:
+                    row=db.execute("SELECT end_datetime FROM measurement_session WHERE session_id=?",(sid,)).fetchone()
+                    session_result='COMPLETE' if row and row[0] else 'RUNNING'
+                else:
+                    row=db.execute("SELECT session_id FROM measurement_session WHERE session_id=?",(sid,)).fetchone()
+                    session_result='COMPLETE' if row else None
             if not row: raise ManualRegistrationError("SessionがDBに存在しません")
-            session_result=row[0] if 'status' in cols else ('COMPLETE' if row[0] else 'RUNNING')
             validate_manual_registration(session_result=session_result,quality_ok=self.quality.isChecked(),operator_confirmed=self.operator.isChecked())
             values=(sid,iid,self.version.text().strip() or "battery-benchmark-v1",self.count.value(),self.avg_v.value(),self.avg_i.value(),self.avg_p.value(),self.max_i.value(),self.max_p.value(),self.duration.value(),self.drop.value(),self.cap.value(),self.energy.value())
             with self._db() as db: db.execute("INSERT OR REPLACE INTO battery_benchmark_result (session_id,instance_id,analysis_version,measurement_count,avg_voltage,avg_current,avg_power,max_current,max_power,discharge_time_s,voltage_drop,capacity_mah,energy_wh) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",values); db.commit()
