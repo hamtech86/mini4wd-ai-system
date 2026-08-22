@@ -66,7 +66,7 @@ CREATE INDEX IF NOT EXISTS idx_battery_instance_model ON battery_instance(batter
 CREATE INDEX IF NOT EXISTS idx_benchmark_session ON battery_benchmark_result(session_id);
 CREATE INDEX IF NOT EXISTS idx_benchmark_instance ON battery_benchmark_result(instance_id);
 
--- Populate analysis-critical voltage/time fields from the raw Measurement log.
+-- Populate analysis-critical voltage fields from the raw Measurement log.
 -- The raw measurement table remains the source of truth; Benchmark Result stores
 -- the derived values as a stable snapshot for downstream Analysis.
 CREATE TRIGGER IF NOT EXISTS trg_battery_benchmark_derive_measurement_fields
@@ -89,20 +89,24 @@ BEGIN
                 LIMIT 1
            ),
            voltage_drop = (
-               SELECT MAX(voltage1) FROM measurement
+               SELECT voltage1 FROM measurement
                 WHERE session_id = NEW.session_id
                   AND voltage1 IS NOT NULL
+                ORDER BY elapsed_time ASC
+                LIMIT 1
            ) - (
-               SELECT MIN(voltage1) FROM measurement
+               SELECT voltage1 FROM measurement
                 WHERE session_id = NEW.session_id
                   AND voltage1 IS NOT NULL
+                ORDER BY elapsed_time DESC
+                LIMIT 1
            )
      WHERE result_id = NEW.result_id;
 END;
 
 -- Tamiya Neo Champ preset.
 INSERT OR IGNORE INTO battery_model
-    (model_code, name, chemistry, nominal_voltage, capacity_nominal_mah, manufacturer, data_confidence, notes)
+    (model_code,model_code,name,chemistry,nominal_voltage,capacity_nominal_mah,manufacturer,data_confidence,notes)
 VALUES
-    ('NEO_CHAMP', 'Neo Champ', 'NiMH', 1.2, 950.0, 'Tamiya', 1.0,
+    ('NEO_CHAMP','NEO_CHAMP','Neo Champ','NiMH',1.2,950.0,'Tamiya',1.0,
      'Tamiya Neo Champ preset. Nominal voltage 1.2V; nominal capacity 950mAh.');
