@@ -92,7 +92,8 @@ class BatteryDatabaseDialog(QDialog):
         try:
             with self._db() as db:
                 rows = db.execute("SELECT session_id FROM measurement_session WHERE result='COMPLETE' ORDER BY start_datetime DESC").fetchall()
-            for (sid,) in rows: self.session.addItem(sid, sid)
+            for (sid,) in rows:
+                self.session.addItem(str(sid), sid)
         except sqlite3.Error as exc:
             QMessageBox.warning(self, "Battery Database", f"Measurement Sessionを読み込めません。\n{exc}")
 
