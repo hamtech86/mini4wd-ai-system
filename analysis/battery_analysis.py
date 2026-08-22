@@ -29,6 +29,8 @@ class BatteryAnalysisResult:
     discharge_time_s: Optional[float]
     capacity_mah: Optional[float]
     energy_wh: Optional[float]
+    start_voltage: Optional[float]
+    end_voltage: Optional[float]
     voltage_drop: Optional[float]
     voltage_drop_rate: Optional[float]
     voltage_stddev: Optional[float]
@@ -62,9 +64,9 @@ def analyze_benchmark_result(
 ) -> BatteryAnalysisResult:
     """Generate a deterministic Battery Analysis Result from one benchmark.
 
-    The current benchmark schema contains voltage_drop but not start/end
-    voltage. Therefore voltage_drop_rate is deliberately left unavailable
-    rather than estimating it from average voltage.
+    start_voltage/end_voltage/voltage_drop are treated as canonical persisted
+    Benchmark Result inputs when available. voltage_drop_rate is calculated
+    only from those persisted values; it is never inferred from average voltage.
     """
     warnings: list[str] = []
 
@@ -80,8 +82,22 @@ def analyze_benchmark_result(
     if internal_resistance is None:
         warnings.append("internal_resistance_not_evaluated")
 
-    # No start/end voltage fields exist in the current Benchmark Result.
-    warnings.append("voltage_drop_rate_unavailable_without_start_end_voltage")
+    start_voltage = _number(benchmark_result, "start_voltage")
+    end_voltage = _number(benchmark_result, "end_voltage")
+    voltage_drop = _number(benchmark_result, "voltage_drop")
+
+    if start_voltage is None:
+        warnings.append("start_voltage_unavailable")
+    if end_voltage is None:
+        warnings.append("end_voltage_unavailable")
+    if voltage_drop is None:
+        warnings.append("voltage_drop_unavailable")
+
+    voltage_drop_rate = None
+    if start_voltage is not None and end_voltage is not None and start_voltage != 0:
+        voltage_drop_rate = (start_voltage - end_voltage) / start_voltage
+    else:
+        warnings.append("voltage_drop_rate_unavailable")
 
     # No approved thresholds exist yet, so do not manufacture a rank.
     warnings.append("evaluation_thresholds_not_configured")
@@ -110,8 +126,10 @@ def analyze_benchmark_result(
         discharge_time_s=_number(benchmark_result, "discharge_time_s"),
         capacity_mah=_number(benchmark_result, "capacity_mah"),
         energy_wh=_number(benchmark_result, "energy_wh"),
-        voltage_drop=_number(benchmark_result, "voltage_drop"),
-        voltage_drop_rate=None,
+        start_voltage=start_voltage,
+        end_voltage=end_voltage,
+        voltage_drop=voltage_drop,
+        voltage_drop_rate=voltage_drop_rate,
         voltage_stddev=voltage_stddev,
         current_stddev=current_stddev,
         power_stddev=power_stddev,
