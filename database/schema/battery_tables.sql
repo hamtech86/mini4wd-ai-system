@@ -1,5 +1,5 @@
 -- Battery Database + Benchmark Analysis
--- Additive schema. Battery 5A Standalone firmware is not modified.
+-- Additive, idempotent schema. Does not modify shared measurement tables.
 
 CREATE TABLE IF NOT EXISTS battery_model (
     battery_model_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -65,12 +65,12 @@ CREATE INDEX IF NOT EXISTS idx_benchmark_session ON battery_benchmark_result(ses
 CREATE INDEX IF NOT EXISTS idx_benchmark_instance ON battery_benchmark_result(instance_id);
 
 -- Tamiya Neo Champ preset.
--- Official current product page: ITEM 15420; minimum capacity 950mAh.
 INSERT OR IGNORE INTO battery_model
     (model_code, name, chemistry, nominal_voltage, capacity_nominal_mah, manufacturer, data_confidence, notes)
 VALUES
     ('NEO_CHAMP', 'Neo Champ', 'NiMH', 1.2, 950.0, 'Tamiya', 1.0,
-     'Tamiya ITEM 15420. Capacity: Min. 950mAh per current official product specification.');
+     'Tamiya Neo Champ preset. Nominal voltage 1.2V; nominal capacity 950mAh.');
 
--- Upgrade an existing database without destroying instance history.
-ALTER TABLE battery_instance ADD COLUMN lifecycle_status TEXT NOT NULL DEFAULT 'ACTIVE';
+-- Compatibility upgrade for databases created before lifecycle_status existed.
+-- SQLite has no portable IF NOT EXISTS form for ADD COLUMN, so the UI performs
+-- a guarded migration based on PRAGMA table_info before using the column.
