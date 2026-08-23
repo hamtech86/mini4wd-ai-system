@@ -1,15 +1,24 @@
 """Hardware-agnostic sequence execution state machine.
 
-The executor deliberately does not send motor commands.  It coordinates
+The executor deliberately does not send motor commands. It coordinates
 ordered recipe rows, enabled/skip state, conditions, pause/resume checkpoints,
 and delegates the actual operation to an adapter supplied by the caller.
+
+Phase transition rule:
+* Same direction: keep the motor running and hand the next PWM/control value
+  directly to the adapter. No implicit STOP is inserted.
+* Direction change: STOP, wait a fixed safety interval, then start the next
+  phase.
 """
 
 from dataclasses import dataclass
 from time import time
-from typing import Any, Callable, Dict, Iterable, List, Optional
+from typing import Any, Iterable, List, Optional
 
-from .sequence import ConditionDefinition, SequenceDefinition, SequenceResult, sequences_from_recipe
+from .sequence import SequenceDefinition, SequenceResult, sequences_from_recipe
+
+
+DEFAULT_DIRECTION_CHANGE_PAUSE_SEC = 1.0
 
 
 @dataclass
@@ -22,12 +31,7 @@ class SequenceExecutionState:
 
 
 class SequenceExecutor:
-    """Execute a declarative recipe one sequence at a time.
-
-    Adapter contract (all methods optional):
-      start_sequence(sequence), tick(sequence), stop_sequence(sequence),
-      read_metric(metric), save_checkpoint(state), clear_checkpoint().
-    """
+    """Execute a declarative recipe one sequence at a time."""
 
     def __init__(self, adapter=None, checkpoint_store=None):
         self.adapter = adapter
@@ -37,6 +41,8 @@ class SequenceExecutor:
         self.state: Optional[SequenceExecutionState] = None
         self.running = False
         self.paused = False
+        self.transition_pause_until: Optional[float] = None
+        self.direction_change_pause_sec = DEFAULT_DIRECTION_CHANGE_PAUSE_SEC
 
     def load_recipe(self, recipe, enabled_ids: Optional[Iterable[str]] = None):
         enabled = None if enabled_ids is None else set(enabled_ids)
@@ -49,6 +55,7 @@ class SequenceExecutor:
             recipe_name=str(recipe.name).upper(),
             recipe_version=str(getattr(recipe, "version", "1")),
         )
+        self.transition_pause_until = None
         return self.sequences
 
     def skip_disabled(self):
@@ -67,6 +74,7 @@ class SequenceExecutor:
         self.state.paused = False
         self.running = True
         self.paused = False
+        self.transition_pause_until = None
         self.skip_disabled()
         return self.current()
 
@@ -75,10 +83,17 @@ class SequenceExecutor:
             return None
         return self.sequences[self.state.sequence_index]
 
+    def _next_enabled_index(self, start_index):
+        for index in range(start_index, len(self.sequences)):
+            if self.sequences[index].enabled:
+                return index
+        return None
+
     def advance(self):
         if self.state is None:
             return None
-        self.state.sequence_index += 1
+        next_index = self._next_enabled_index(self.state.sequence_index + 1)
+        self.state.sequence_index = len(self.sequences) if next_index is None else next_index
         return self.current()
 
     def pause(self):
@@ -100,33 +115,43 @@ class SequenceExecutor:
         return True
 
     def execute_current(self, now: Optional[float] = None):
-        """Perform one scheduler step.
-
-        A caller can invoke this periodically from a Qt timer or controller
-        loop. The adapter owns all hardware interaction.
-        """
+        """Perform one scheduler step without blocking the caller."""
         if not self.running or self.paused:
             return self.current()
         sequence = self.current()
         if sequence is None:
             self.running = False
             return None
+
+        now = time() if now is None else now
+
+        # Direction-change safety pause is deliberately non-blocking so the
+        # Qt/UI scheduler remains responsive.
+        if self.transition_pause_until is not None:
+            if now < self.transition_pause_until:
+                self._save_checkpoint()
+                return sequence
+            self.transition_pause_until = None
+
         result = self.results[self.state.sequence_index]
         if result.status == "SKIPPED":
             self.advance()
             return self.current()
-        now = time() if now is None else now
+
         if result.status == "PENDING":
             result.status = "RUNNING"
             result.started_at = now
             if self.adapter and hasattr(self.adapter, "start_sequence"):
                 self.adapter.start_sequence(sequence)
+
         if self.adapter and hasattr(self.adapter, "tick"):
             self.adapter.tick(sequence)
+
         if self._conditions_met(sequence):
             self._complete_current(now, "condition_met")
         elif sequence.duration_sec is not None and now - result.started_at >= sequence.duration_sec:
             self._complete_current(now, "duration_elapsed")
+
         self._save_checkpoint()
         return self.current()
 
@@ -135,6 +160,7 @@ class SequenceExecutor:
         if sequence is not None and self.adapter and hasattr(self.adapter, "stop_sequence"):
             self.adapter.stop_sequence(sequence)
         self.running = False
+        self.transition_pause_until = None
         if self.state:
             self.state.paused = False
         self._clear_checkpoint()
@@ -145,7 +171,9 @@ class SequenceExecutor:
     def progress(self):
         if not self.sequences or self.state is None:
             return 0
-        return int(min(self.state.sequence_index, len(self.sequences)) / len(self.sequences) * 100)
+        completed = sum(1 for result in self.results if result.status in ("COMPLETE", "SKIPPED"))
+        enabled = sum(1 for item in self.sequences if item.enabled)
+        return 0 if enabled == 0 else int(min(completed, enabled) / enabled * 100)
 
     def _complete_current(self, now, reason):
         sequence = self.current()
@@ -156,12 +184,38 @@ class SequenceExecutor:
         result.ended_at = now
         result.elapsed_sec = max(0.0, now - (result.started_at or now))
         result.reason = reason
-        if self.adapter and hasattr(self.adapter, "stop_sequence"):
-            self.adapter.stop_sequence(sequence)
-        self.advance()
-        if self.is_complete():
+
+        next_index = self._next_enabled_index(self.state.sequence_index + 1)
+        if next_index is None:
+            if self.adapter and hasattr(self.adapter, "stop_sequence"):
+                self.adapter.stop_sequence(sequence)
+            self.state.sequence_index = len(self.sequences)
             self.running = False
             self._clear_checkpoint()
+            return
+
+        next_sequence = self.sequences[next_index]
+        current_direction = str(sequence.direction or "FWD").upper()
+        next_direction = str(next_sequence.direction or "FWD").upper()
+        self.state.sequence_index = next_index
+
+        if current_direction != next_direction:
+            if self.adapter and hasattr(self.adapter, "stop_sequence"):
+                self.adapter.stop_sequence(sequence)
+            pause_sec = self._direction_change_pause(next_sequence)
+            self.transition_pause_until = now + pause_sec
+        else:
+            # Same direction: deliberately do NOT call stop_sequence(). The
+            # next start_sequence() changes PWM/control directly.
+            self.transition_pause_until = None
+
+    def _direction_change_pause(self, sequence):
+        params = sequence.parameters or {}
+        try:
+            value = float(params.get("direction_change_pause_sec", self.direction_change_pause_sec))
+        except (TypeError, ValueError):
+            value = self.direction_change_pause_sec
+        return max(0.0, value)
 
     def _conditions_met(self, sequence):
         if not sequence.conditions:
