@@ -1,7 +1,7 @@
 """Adapter between the generic SequenceExecutor and BreakinController.
 
 This bridge intentionally reuses the controller's existing serial and
-measurement primitives.  It does not call BreakinController.start(), so the
+measurement primitives. It does not call BreakinController.start(), so the
 legacy blocking phase loop is not nested inside the new executor.
 """
 
@@ -22,7 +22,16 @@ class BreakinSequenceAdapter:
             self.controller.serial.reverse()
         else:
             self.controller.serial.forward()
-        pwm = sequence.pwm if sequence.pwm is not None else 0
+
+        phase = self.to_phase(sequence)
+        control = phase.control
+        if control in ("VOLTAGE", "VOLTAGE_RAMP", "BRUSH_PEAK_APPROACH"):
+            target = phase.start_voltage if control == "VOLTAGE_RAMP" else phase.target_voltage
+            pwm = self.controller._initial_pwm_for_voltage(target or 0.0, phase)
+        else:
+            pwm = sequence.pwm if sequence.pwm is not None else 0
+            pwm = max(phase.pwm_min, min(phase.pwm_max, int(pwm)))
+
         self.controller.current_pwm = pwm
         self.controller.serial.set_pwm(pwm)
 
@@ -33,11 +42,20 @@ class BreakinSequenceAdapter:
         self._last_measurement = measurement
         if measurement is None:
             return
-        control = str(sequence.parameters.get("control", "PWM")).upper()
+
+        control = phase.control
         if control == "VOLTAGE" and phase.target_voltage is not None:
             self.controller._voltage_control(phase, measurement)
         elif control == "VOLTAGE_RAMP":
             self.controller._voltage_ramp_control(phase)
+        elif control == "BRUSH_PEAK_APPROACH":
+            current = self.controller._current_from_measurement(measurement)
+            peak = self.controller._estimate_brush_peak_current()
+            if peak >= phase.peak_min_current and current >= peak * (1.0 - phase.peak_margin_ratio):
+                self.controller.brush_peak_reached = True
+                self.controller.serial.set_pwm(0)
+            else:
+                self.controller._voltage_control(phase, measurement)
 
     def stop_sequence(self, sequence):
         self.controller.serial.set_pwm(0)
@@ -50,19 +68,18 @@ class BreakinSequenceAdapter:
                 return float(value)
             except (TypeError, ValueError):
                 return None
-        # Analysis-derived values can be supplied by the controller/engine in
-        # the future without changing the generic SequenceExecutor contract.
         return None
 
     @staticmethod
     def to_phase(sequence):
         params = sequence.parameters or {}
+        control = str(params.get("control", "PWM")).upper()
         return BreakinPhase(
             name=sequence.sequence_id,
             duration_sec=float(sequence.duration_sec or 0.0),
             pwm=int(sequence.pwm or 0),
             direction=sequence.direction or "FWD",
-            control=str(params.get("control", "PWM")),
+            control=control,
             target_voltage=params.get("target_voltage"),
             start_voltage=params.get("start_voltage"),
             end_voltage=params.get("end_voltage"),
