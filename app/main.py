@@ -18,10 +18,12 @@ from controllers.recipe_engine import RecipeEngine
 from controllers.sequence_executor import SequenceExecutor
 from controllers.breakin_sequence_adapter import BreakinSequenceAdapter
 from workers.breakin_worker import BreakinWorker
+from analysis.analysis_engine import AnalysisEngine
 
 class MainWindow(BaseMainWindow):
     def __init__(self, context=None):
         super().__init__(context)
+        self.analysis_engine=AnalysisEngine(str(PROJECT_ROOT / "config"))
         bind_resume_api(type(self)); install_resume_controls(self); self._extract_motor_page(); self._build_estimated_result_panel()
         self.battery_serial_controller = context.get("battery_serial_controller") if context else None
         self._build_recipe_sequence_panel(); self._build_integrated_ui()
@@ -97,6 +99,21 @@ class MainWindow(BaseMainWindow):
         for index,(title,key) in enumerate(labels):
             card=QGroupBox(title);card_layout=QGridLayout(card);value=self.estimated_result[key];value.setAlignment(Qt.AlignCenter);value.setStyleSheet("font-size:16px;font-weight:bold;");card_layout.addWidget(value,0,0);grid.addWidget(card,index//2,index%2)
         layout.addWidget(box)
+
+    def _update_estimated_result(self):
+        measurement=getattr(getattr(self,"breakin_controller",None),"measurement_manager",None)
+        measurement=getattr(measurement,"last_measurement",None)
+        if measurement is None:return
+        try:
+            analysis=self.analysis_engine.analyze(measurement)
+            performance=analysis.performance
+            brush=analysis.brush
+            self.estimated_result["UNLOADED_RPM"].setText(f"{performance.estimated_no_load_rpm.value:.0f} rpm")
+            self.estimated_result["TORQUE"].setText(f"{performance.estimated_torque.value:.2f} g·cm")
+            self.estimated_result["BRUSH_SCORE"].setText(f"{brush.peak_score.value:+.1f} / 10")
+            self.estimated_result["WEIGHT"].setText(f"{performance.estimated_supported_weight.value:.0f} g")
+        except Exception:
+            logger.exception("Failed to calculate estimated performance")
 
     def _build_recipe_sequence_panel(self):
         self.recipe_engine=RecipeEngine();self.sequence_adapter=BreakinSequenceAdapter(self.breakin_controller);self.sequence_executor=SequenceExecutor(adapter=self.sequence_adapter);self.sequence_timer=QTimer(self);self.sequence_timer.setInterval(100);self.sequence_timer.timeout.connect(self._sequence_tick);self.sequence_selected_total=0
@@ -201,6 +218,10 @@ class MainWindow(BaseMainWindow):
 
     def start_run(self):
         self._execute_selected_sequences()
+
+    def complete(self,data,benchmark):
+        super().complete(data,benchmark)
+        self._update_estimated_result()
 
     def stop_run(self):
         try:
