@@ -17,6 +17,7 @@ from ui.battery_tab_ui import BatteryTab
 from controllers.recipe_engine import RecipeEngine
 from controllers.sequence_executor import SequenceExecutor
 from controllers.breakin_sequence_adapter import BreakinSequenceAdapter
+from workers.breakin_worker import BreakinWorker
 
 class MainWindow(BaseMainWindow):
     def __init__(self, context=None):
@@ -113,7 +114,7 @@ class MainWindow(BaseMainWindow):
     def _recipe_selection_changed(self,index):
         name=self.recipe.itemData(index) if hasattr(self,"recipe") else None
         if name == self.BENCHMARK_KEY:
-            self._clear_sequence_panel("BENCHMARK: Sequence対象外")
+            self._load_benchmark_sequence()
             return
         self._load_recipe_sequence(name)
 
@@ -122,6 +123,15 @@ class MainWindow(BaseMainWindow):
             item=self.sequence_layout.takeAt(0);widget=item.widget()
             if widget is not None:widget.deleteLater()
         self.sequence_checks=[];self.sequence_progress.setValue(0);self.sequence_status.setText(status)
+
+    def _load_benchmark_sequence(self):
+        self._clear_sequence_panel("Motor Benchmark Test: Sequenceを選択してください")
+        check=QCheckBox("01 | BENCHMARK_3V | BENCHMARK | FWD | 3.00 V / 30 s")
+        check.setChecked(True)
+        self.sequence_layout.addWidget(check)
+        self.sequence_checks=[(self.BENCHMARK_KEY,check)]
+        self.sequence_layout.addStretch()
+        self.sequence_status.setText("Motor Benchmark Test: 1 Sequence")
 
     def _load_recipe_sequence(self,name):
         recipe=self.recipe_engine.get(name)
@@ -166,7 +176,14 @@ class MainWindow(BaseMainWindow):
         self.sequence_status.setText(f"実行中: {current.sequence_id}  {progress}%  残り {remaining:.1f}s" if remaining is not None else f"実行中: {current.sequence_id}  {progress}%  条件待ち")
 
     def _execute_selected_sequences(self):
-        name=self._current_recipe_name();recipe=self.recipe_engine.get(name)
+        name=self._current_recipe_name()
+        if name==self.BENCHMARK_KEY:
+            enabled_ids={sid for sid,check in self.sequence_checks if check.isChecked()}
+            if self.BENCHMARK_KEY not in enabled_ids:
+                self.sequence_status.setText("Benchmark Sequenceが選択されていません");return
+            self._start_benchmark()
+            return
+        recipe=self.recipe_engine.get(name)
         if recipe is None:self.sequence_status.setText("レシピが選択されていません");return
         enabled_ids={sid for sid,check in self.sequence_checks if check.isChecked()}
         if not enabled_ids:self.sequence_status.setText("実施するSequenceが選択されていません");return
@@ -175,9 +192,14 @@ class MainWindow(BaseMainWindow):
         self.sequence_selected_ids=enabled_ids;self.sequence_selected_total=len(enabled_ids);self.sequence_progress.setValue(0);self.sequence_progress.setFormat(f"Sequence Progress: 0/{self.sequence_selected_total}  %p%")
         self.sequence_executor.load_recipe(recipe,enabled_ids=enabled_ids);self.sequence_executor.start();self.sequence_timer.start();self.timer.start();self.sequence_execute.setEnabled(False);self.sequence_stop.setEnabled(True);self.start.setEnabled(False);self.stop.setEnabled(True);self.manager.setEnabled(False);self.instance.setEnabled(False);self.recipe.setEnabled(False);self.update_db.setEnabled(False);self.copy.setEnabled(False);self.result["STATUS"].setText("RUNNING");self.run_state.setText("STARTING...");current=self.sequence_executor.current();self._update_sequence_highlight(current.sequence_id if current else None);self._update_sequence_main_ui(current)
 
+    def _start_benchmark(self):
+        if not self.breakin_controller:
+            QMessageBox.warning(self,"Controller","BreakinController is not available.");return
+        self.database_updated=False;self.last_result_data=None;self.last_result_benchmark=True;self.database_status.setText("DATABASE: NOT UPDATED");self.update_db.setEnabled(False);self.copy.setEnabled(False);self.start.setEnabled(False);self.manager.setEnabled(False);self.instance.setEnabled(False);self.recipe.setEnabled(False);self.stop.setEnabled(True);self.result["STATUS"].setText("RUNNING");self.run_state.setText("STARTING...")
+        self.breakin_worker=BreakinWorker(self.breakin_controller,None,True)
+        self.breakin_worker.completed.connect(lambda data:self.complete(data,True));self.breakin_worker.failed.connect(self.failed);self.breakin_worker.finished.connect(self.finished);self.timer.start();self.breakin_worker.start()
+
     def start_run(self):
-        selected_name=self._current_recipe_name()
-        if selected_name==self.BENCHMARK_KEY:return super().start_run()
         self._execute_selected_sequences()
 
     def stop_run(self):
@@ -204,7 +226,6 @@ class MainWindow(BaseMainWindow):
         self.sequence_timer.stop();self.timer.stop();self.sequence_executor.stop("operator_stop");self.sequence_execute.setEnabled(True);self.sequence_stop.setEnabled(False);self.stop.setEnabled(False);self.start.setEnabled(True);self.manager.setEnabled(True);self.instance.setEnabled(True);self.recipe.setEnabled(True);self._update_sequence_highlight(None);self.sequence_status.setText("停止");self.run_state.setText("STOPPED")
 
 def build_context():
-    # Construct controllers without opening hardware ports. Connection is explicit via the UI.
     serial_controller=SerialController(serial_port="/dev/ttyACM0",baudrate=57600)
     builder=ApplicationBuilder(serial_controller=serial_controller)
     breakin_controller=builder.build_breakin_controller()
