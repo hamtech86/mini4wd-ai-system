@@ -159,9 +159,8 @@ class MainWindow(BaseMainWindow):
         self.sequence_timer.stop();self.timer.stop();self.sequence_executor.stop("operator_stop");self.sequence_execute.setEnabled(True);self.sequence_stop.setEnabled(False);self._update_sequence_highlight(None);self.sequence_status.setText("停止")
 
 def build_context():
+    # Construct controllers without opening hardware ports. Connection is explicit via the UI.
     serial_controller=SerialController(serial_port="/dev/ttyACM0",baudrate=57600)
-    serial_controller.connect()
-    print("SERIAL CONNECTED /dev/ttyACM0 57600")
     builder=ApplicationBuilder(serial_controller=serial_controller)
     breakin_controller=builder.build_breakin_controller()
     battery_serial_controller=BatterySerial(port="/dev/ttyUSB0",baudrate=57600)
