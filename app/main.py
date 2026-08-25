@@ -138,15 +138,18 @@ class MainWindow(BaseMainWindow):
         progress=int(self.sequence_executor.progress());total=max(1,self.sequence_selected_total);completed=sum(1 for result in self.sequence_executor.results if result.status in ("COMPLETE","SKIPPED") and result.sequence_id in self.sequence_selected_ids)
         c=self.breakin_controller;m=getattr(getattr(c,"measurement_manager",None),"last_measurement",None) if c else None
         self.run_state.setText("RUNNING")
+        result=self.sequence_executor.results[self.sequence_executor.state.sequence_index] if self.sequence_executor.state is not None and self.sequence_executor.state.sequence_index<len(self.sequence_executor.results) else None
+        remaining=self.sequence_executor.remaining_sec()
+        elapsed=result.elapsed_sec if result is not None else 0.0
         if hasattr(self,"progress"):
-            values={"STEP":f"{min(completed+1,total)} / {total}","PHASE":getattr(current,"sequence_id","--"),"DIR":getattr(current,"direction","FWD"),"PWM":getattr(current,"pwm",0),"VOLT":f"{float(getattr(m,'motor_voltage',0)):.2f} V" if m else "--","CURRENT":f"{float(getattr(m,'current_avg',0)):.3f} A" if m else "--","ELAPSED":"--","REMAIN":f"{float(getattr(current,'duration_sec',0) or 0):.1f} s"}
+            values={"STEP":f"{min(completed+1,total)} / {total}","PHASE":getattr(current,"sequence_id","--"),"DIR":getattr(current,"direction","FWD"),"PWM":getattr(current,"pwm",0),"VOLT":f"{float(getattr(m,'motor_voltage',0)):.2f} V" if m else "--","CURRENT":f"{float(getattr(m,'current_avg',0)):.3f} A" if m else "--","ELAPSED":f"{elapsed:.1f} s","REMAIN":f"{remaining:.1f} s" if remaining is not None else "条件待ち"}
             for key,value in values.items():
                 if key in self.progress:self.progress[key].setText(str(value))
         if hasattr(self,"live"):
             values={"DIR":getattr(current,"direction","FWD"),"PWM":getattr(current,"pwm",0),"RPM":self._latest_rpm() if hasattr(self,"_latest_rpm") else "--","V":f"{float(getattr(m,'motor_voltage',0)):.2f} V" if m else "--","A":f"{float(getattr(m,'current_avg',0)):.3f} A" if m else "--","STATE":"RUNNING","TEMP":f"{float(getattr(m,'motor_temperature',0)):.1f} C" if m else "--","Arduino":"CONNECTED"}
             for key,value in values.items():
                 if key in self.live:self.live[key].setText(str(value))
-        self.sequence_status.setText(f"実行中: {current.sequence_id}  {progress}%")
+        self.sequence_status.setText(f"実行中: {current.sequence_id}  {progress}%  残り {remaining:.1f}s" if remaining is not None else f"実行中: {current.sequence_id}  {progress}%  条件待ち")
 
     def _execute_selected_sequences(self):
         name=self._current_recipe_name();recipe=self.recipe_engine.get(name)
