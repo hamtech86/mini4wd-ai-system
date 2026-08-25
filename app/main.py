@@ -104,14 +104,28 @@ class MainWindow(BaseMainWindow):
         self.sequence_progress=QProgressBar();self.sequence_progress.setRange(0,100);self.sequence_progress.setValue(0);self.sequence_progress.setFormat("Sequence Progress: %p%")
         root.addWidget(self.sequence_progress);self.sequence_status=QLabel("未実行");root.addWidget(self.sequence_status);scroll=QScrollArea();scroll.setWidgetResizable(True);body=QWidget();self.sequence_layout=QVBoxLayout(body);scroll.setWidget(body);root.addWidget(scroll,1);self.sequence_checks=[];layout=self.motor_content.layout() if self.motor_content is not None else None
         if layout is not None:layout.insertWidget(1,box)
-        self._load_recipe_sequence(self.recipe_engine.names()[0] if self.recipe_engine.names() else None)
+        self.recipe.currentIndexChanged.connect(self._recipe_selection_changed)
+        self._recipe_selection_changed(self.recipe.currentIndex())
 
     def _current_recipe_name(self):
         return self.recipe.currentData() if hasattr(self,"recipe") else None
 
+    def _recipe_selection_changed(self,index):
+        name=self.recipe.itemData(index) if hasattr(self,"recipe") else None
+        if name == self.BENCHMARK_KEY:
+            self._clear_sequence_panel("BENCHMARK: Sequence対象外")
+            return
+        self._load_recipe_sequence(name)
+
+    def _clear_sequence_panel(self,status):
+        while self.sequence_layout.count():
+            item=self.sequence_layout.takeAt(0);widget=item.widget()
+            if widget is not None:widget.deleteLater()
+        self.sequence_checks=[];self.sequence_progress.setValue(0);self.sequence_status.setText(status)
+
     def _load_recipe_sequence(self,name):
         recipe=self.recipe_engine.get(name)
-        if recipe is None:self.sequence_status.setText("レシピが見つかりません");return
+        if recipe is None:self._clear_sequence_panel("レシピが見つかりません");return
         while self.sequence_layout.count():
             item=self.sequence_layout.takeAt(0);widget=item.widget()
             if widget is not None:widget.deleteLater()
