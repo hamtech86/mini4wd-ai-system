@@ -133,6 +133,21 @@ class MainWindow(BaseMainWindow):
         value=int(completed*100/total)
         self.sequence_progress.setValue(min(100,value));self.sequence_progress.setFormat(f"Sequence Progress: {completed}/{total}  %p%")
 
+    def _update_sequence_main_ui(self,current):
+        if current is None:return
+        progress=int(self.sequence_executor.progress());total=max(1,self.sequence_selected_total);completed=sum(1 for result in self.sequence_executor.results if result.status in ("COMPLETE","SKIPPED") and result.sequence_id in self.sequence_selected_ids)
+        c=self.breakin_controller;m=getattr(getattr(c,"measurement_manager",None),"last_measurement",None) if c else None
+        self.run_state.setText("RUNNING")
+        if hasattr(self,"progress"):
+            values={"STEP":f"{min(completed+1,total)} / {total}","PHASE":getattr(current,"sequence_id","--"),"DIR":getattr(current,"direction","FWD"),"PWM":getattr(current,"pwm",0),"VOLT":f"{float(getattr(m,'motor_voltage',0)):.2f} V" if m else "--","CURRENT":f"{float(getattr(m,'current_avg',0)):.3f} A" if m else "--","ELAPSED":"--","REMAIN":f"{float(getattr(current,'duration_sec',0) or 0):.1f} s"}
+            for key,value in values.items():
+                if key in self.progress:self.progress[key].setText(str(value))
+        if hasattr(self,"live"):
+            values={"DIR":getattr(current,"direction","FWD"),"PWM":getattr(current,"pwm",0),"RPM":self._latest_rpm() if hasattr(self,"_latest_rpm") else "--","V":f"{float(getattr(m,'motor_voltage',0)):.2f} V" if m else "--","A":f"{float(getattr(m,'current_avg',0)):.3f} A" if m else "--","STATE":"RUNNING","TEMP":f"{float(getattr(m,'motor_temperature',0)):.1f} C" if m else "--","Arduino":"CONNECTED"}
+            for key,value in values.items():
+                if key in self.live:self.live[key].setText(str(value))
+        self.sequence_status.setText(f"実行中: {current.sequence_id}  {progress}%")
+
     def _execute_selected_sequences(self):
         name=self._current_recipe_name();recipe=self.recipe_engine.get(name)
         if recipe is None:self.sequence_status.setText("レシピが選択されていません");return
@@ -141,22 +156,35 @@ class MainWindow(BaseMainWindow):
         controller=self._motor_controller()
         if controller is None or not getattr(controller,"connected",False):QMessageBox.warning(self,"Sequence","先にMOTOR CONNECTを実行してください。");return
         self.sequence_selected_ids=enabled_ids;self.sequence_selected_total=len(enabled_ids);self.sequence_progress.setValue(0);self.sequence_progress.setFormat(f"Sequence Progress: 0/{self.sequence_selected_total}  %p%")
-        self.sequence_executor.load_recipe(recipe,enabled_ids=enabled_ids);self.sequence_executor.start();self.sequence_timer.start();self.timer.start();self.sequence_execute.setEnabled(False);self.sequence_stop.setEnabled(True);current=self.sequence_executor.current();self._update_sequence_highlight(current.sequence_id if current else None);self.sequence_status.setText(f"実行中: {recipe.name}  0%")
+        self.sequence_executor.load_recipe(recipe,enabled_ids=enabled_ids);self.sequence_executor.start();self.sequence_timer.start();self.timer.start();self.sequence_execute.setEnabled(False);self.sequence_stop.setEnabled(True);self.start.setEnabled(False);self.stop.setEnabled(True);self.manager.setEnabled(False);self.instance.setEnabled(False);self.recipe.setEnabled(False);self.update_db.setEnabled(False);self.copy.setEnabled(False);self.result["STATUS"].setText("RUNNING");self.run_state.setText("STARTING...");current=self.sequence_executor.current();self._update_sequence_highlight(current.sequence_id if current else None);self._update_sequence_main_ui(current)
 
     def start_run(self):
         selected_name=self._current_recipe_name()
         if selected_name==self.BENCHMARK_KEY:return super().start_run()
         self._execute_selected_sequences()
 
+    def stop_run(self):
+        try:
+            if self.breakin_controller:self.breakin_controller.emergency_stop()
+        finally:
+            self.sequence_timer.stop();self.timer.stop()
+            if hasattr(self,"sequence_executor"):self.sequence_executor.stop("emergency_stop")
+            self.sequence_execute.setEnabled(True);self.sequence_stop.setEnabled(False);self.stop.setEnabled(False);self.start.setEnabled(True);self.manager.setEnabled(True);self.instance.setEnabled(True);self.recipe.setEnabled(True);self.run_state.setText("EMERGENCY STOP");self.result["STATUS"].setText("EMERGENCY STOP");self.sequence_status.setText("緊急停止");self._update_sequence_highlight(None)
+
     def _sequence_tick(self):
         try:
             current=self.sequence_executor.execute_current();self._update_sequence_progress()
-            if self.sequence_executor.is_complete():self.sequence_timer.stop();self.timer.stop();self.sequence_progress.setValue(100);self.sequence_progress.setFormat(f"Sequence Progress: {self.sequence_selected_total}/{self.sequence_selected_total}  100%");self.sequence_execute.setEnabled(True);self.sequence_stop.setEnabled(False);self._update_sequence_highlight(None);self.sequence_status.setText("完了: 100%");return
-            self._update_sequence_highlight(current.sequence_id if current else None);self.sequence_status.setText(f"実行中: {self.sequence_executor.progress()}%  {current.sequence_id if current else ''}")
-        except Exception as exc:self.sequence_timer.stop();self.timer.stop();self.sequence_executor.stop("error");self.sequence_execute.setEnabled(True);self.sequence_stop.setEnabled(False);self._update_sequence_highlight(None);self.sequence_status.setText(f"Sequence ERROR: {exc}");logger.exception("Sequence execution failed");QMessageBox.critical(self,"Sequence Error",str(exc))
+            if self.sequence_executor.is_complete():
+                self.sequence_timer.stop();self.timer.stop();self.sequence_progress.setValue(100);self.sequence_progress.setFormat(f"Sequence Progress: {self.sequence_selected_total}/{self.sequence_selected_total}  100%");self.sequence_execute.setEnabled(True);self.sequence_stop.setEnabled(False);self.stop.setEnabled(False);self._update_sequence_highlight(None)
+                try:self.complete({},False)
+                except Exception:logger.exception("Failed to populate legacy result cards from Sequence result")
+                self.start.setEnabled(True);self.manager.setEnabled(True);self.instance.setEnabled(True);self.recipe.setEnabled(True);self.sequence_status.setText("完了: 100%");return
+            self._update_sequence_main_ui(current);self._update_sequence_highlight(current.sequence_id if current else None)
+        except Exception as exc:
+            self.sequence_timer.stop();self.timer.stop();self.sequence_executor.stop("error");self.sequence_execute.setEnabled(True);self.sequence_stop.setEnabled(False);self.stop.setEnabled(False);self.start.setEnabled(True);self.manager.setEnabled(True);self.instance.setEnabled(True);self.recipe.setEnabled(True);self._update_sequence_highlight(None);self.sequence_status.setText(f"Sequence ERROR: {exc}");self.result["STATUS"].setText("ERROR");logger.exception("Sequence execution failed");QMessageBox.critical(self,"Sequence Error",str(exc))
 
     def _stop_sequences(self):
-        self.sequence_timer.stop();self.timer.stop();self.sequence_executor.stop("operator_stop");self.sequence_execute.setEnabled(True);self.sequence_stop.setEnabled(False);self._update_sequence_highlight(None);self.sequence_status.setText("停止")
+        self.sequence_timer.stop();self.timer.stop();self.sequence_executor.stop("operator_stop");self.sequence_execute.setEnabled(True);self.sequence_stop.setEnabled(False);self.stop.setEnabled(False);self.start.setEnabled(True);self.manager.setEnabled(True);self.instance.setEnabled(True);self.recipe.setEnabled(True);self._update_sequence_highlight(None);self.sequence_status.setText("停止");self.run_state.setText("STOPPED")
 
 def build_context():
     # Construct controllers without opening hardware ports. Connection is explicit via the UI.
