@@ -3,9 +3,10 @@
 Recipe -> Phase Control -> Arduino -> Measurement -> Analysis.
 
 The break-in phases are execution-only. After the recipe completes, a
-separate 3 V / 3 s benchmark is run and only benchmark measurements are fed
-to the performance/weight analysis. This prevents startup/hand-spin latency
-and transient break-in values from contaminating the estimate.
+separate 3 V / 30 s benchmark is run and only benchmark measurements are fed
+to the performance/weight analysis. A settling period is excluded so
+startup/hand-spin latency and transient break-in values cannot contaminate
+the estimate.
 """
 
 import time
@@ -17,8 +18,8 @@ from .recipe import BreakinPhase, BreakinRecipe
 class BreakinController:
     VOLTAGE_KP = 20.0
     CONTROL_INTERVAL_SEC = 0.1
-    BENCHMARK_DURATION_SEC = 3.0
-    BENCHMARK_SETTLE_SEC = 0.3
+    BENCHMARK_DURATION_SEC = 30.0
+    BENCHMARK_SETTLE_SEC = 1.0
     BENCHMARK_TARGET_VOLTAGE = 3.00
     DEFAULT_SAFETY = {
         "max_motor_temperature": 70.0,
@@ -46,7 +47,7 @@ class BreakinController:
         self.abort_reason = None
 
     def start(self, recipe):
-        """Execute break-in, then benchmark, then perform final analysis."""
+        """Execute break-in, then 30 s benchmark, then perform final analysis."""
         self.phase_manager = PhaseManager(recipe)
         self.running = True
         self.measurements = []
@@ -81,8 +82,8 @@ class BreakinController:
             self.emergency_stop()
             raise
 
-    def benchmark_3v(self, duration_sec=3.0):
-        """Run only the standalone 3 V benchmark used for estimation."""
+    def benchmark_3v(self, duration_sec=30.0):
+        """Run only the 3 V / 30 s benchmark used for estimation."""
         self.running = True
         self.measurements = []
         self.benchmark_measurements = []
@@ -100,7 +101,7 @@ class BreakinController:
     def _run_benchmark(self, duration_sec):
         """Run a settled 3 V benchmark and retain benchmark samples only."""
         phase = BreakinPhase(
-            name="BENCHMARK_3V_3S",
+            name="BENCHMARK_3V_30S",
             duration_sec=float(duration_sec),
             pwm=80,
             direction="FWD",
@@ -117,11 +118,12 @@ class BreakinController:
         self.current_pwm = phase.pwm
         self.serial.set_pwm(self.current_pwm)
 
-        # Give a manually-started/stationary motor time to begin rotating.
-        # These samples are deliberately NOT part of the benchmark data.
+        # A hand-spun motor may need a short period before it produces a valid
+        # running measurement. These samples are deliberately NOT benchmark
+        # data, so a startup zero cannot become part of the estimate.
         settle_end = time.time() + self.BENCHMARK_SETTLE_SEC
         while self.running and time.time() < settle_end:
-            measurement = self._collect_measurement(phase, target=self.benchmark_measurements)
+            measurement = self._collect_measurement(phase, target=None)
             if phase.control == "VOLTAGE" and phase.target_voltage is not None:
                 self._voltage_control(phase, measurement)
             safety = self._safety_violation(measurement)
@@ -131,8 +133,9 @@ class BreakinController:
                 return
             time.sleep(self.CONTROL_INTERVAL_SEC)
 
-        # Clear settling samples so startup/hand-spin zeros cannot affect
-        # the final estimate. The 3 s benchmark starts after settling.
+        # The actual estimation window begins only after settling. Samples
+        # collected during break-in and the hand-spin/startup period are never
+        # sent to analysis.
         self.benchmark_measurements.clear()
         start = time.time()
         while self.running and time.time() - start < duration_sec:
