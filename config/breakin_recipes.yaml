@@ -6,9 +6,10 @@
 # Analysis decides the final motor classification.
 # PWM is the existing 0..255 command range.
 # The BENCHMARK stage is voltage-controlled at 3.00 V.
+# It is a dedicated post-break-in measurement stage.
 # =====================================================
 
-version: "2.0"
+version: "2.1"
 
 common:
   benchmark:
@@ -16,7 +17,8 @@ common:
     target_voltage: 3.00
     voltage_tolerance: 0.05
     direction: FWD
-    duration_sec: 120
+    settle_sec: 1.0
+    duration_sec: 30
     min_samples: 30
   safety:
     max_motor_temperature: 70.0
@@ -25,7 +27,7 @@ common:
 
 recipes:
   ATOMIC_25K:
-    description: "Atomic/Tune copper-brush high-speed recipe; 3 V benchmark targets 25,000 rpm class."
+    description: "Atomic/Tune copper-brush high-speed recipe with post-break-in 3 V benchmark."
     brush: COPPER
     family: TUNE
     objective: SPEED
@@ -38,10 +40,9 @@ recipes:
       - {name: CONDITION, pwm: 120, duration_sec: 360}
       - {name: HIGH, pwm: 165, duration_sec: 480}
       - {name: FINISH, pwm: 200, duration_sec: 300}
-      - {name: BENCHMARK_3V, control: VOLTAGE, target_voltage: 3.00, pwm_min: 35, pwm_max: 120, duration_sec: 120, direction: FWD}
 
   TORQUE_TUNE_23K:
-    description: "Torque Tune copper-brush recipe; 3 V benchmark targets 23,000 rpm class while retaining torque."
+    description: "Torque Tune copper-brush recipe with post-break-in 3 V benchmark."
     brush: COPPER
     family: TUNE
     objective: TORQUE
@@ -54,10 +55,9 @@ recipes:
       - {name: LOW_MID, pwm: 110, duration_sec: 420}
       - {name: LOAD, pwm: 145, duration_sec: 480}
       - {name: FINISH, pwm: 180, duration_sec: 240}
-      - {name: BENCHMARK_3V, control: VOLTAGE, target_voltage: 3.00, pwm_min: 35, pwm_max: 120, duration_sec: 120, direction: FWD}
 
   TUNE_OPTIMIZED:
-    description: "General copper-brush optimization; does not force a single RPM target."
+    description: "General copper-brush optimization with post-break-in 3 V benchmark."
     brush: COPPER
     family: TUNE
     objective: BALANCE
@@ -70,10 +70,9 @@ recipes:
       - {name: CONDITION, pwm: 110, duration_sec: 360}
       - {name: MID, pwm: 145, duration_sec: 420}
       - {name: FINISH, pwm: 185, duration_sec: 300}
-      - {name: BENCHMARK_3V, control: VOLTAGE, target_voltage: 3.00, pwm_min: 35, pwm_max: 120, duration_sec: 120, direction: FWD}
 
   DASH_OPTIMIZED:
-    description: "Carbon-brush Dash optimization; prioritizes high-speed performance without treating RPM alone as the pass criterion."
+    description: "Carbon-brush Dash optimization with post-break-in 3 V benchmark."
     brush: CARBON
     family: DASH
     objective: BALANCE
@@ -86,7 +85,6 @@ recipes:
       - {name: CONDITION, pwm: 105, duration_sec: 420}
       - {name: HIGH, pwm: 150, duration_sec: 480}
       - {name: FINISH, pwm: 190, duration_sec: 300}
-      - {name: BENCHMARK_3V, control: VOLTAGE, target_voltage: 3.00, pwm_min: 35, pwm_max: 120, duration_sec: 120, direction: FWD}
 
 aliases:
   TORQUE_TUNE: TORQUE_TUNE_23K
