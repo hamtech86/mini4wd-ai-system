@@ -47,6 +47,7 @@ class PerformanceResult:
     """Motor performance estimates used by the UI/result contract."""
     estimated_no_load_rpm: EstimatedValue = field(default_factory=EstimatedValue)
     estimated_torque: EstimatedValue = field(default_factory=EstimatedValue)
+    available_torque: EstimatedValue = field(default_factory=EstimatedValue)
     estimated_supported_weight: EstimatedValue = field(default_factory=EstimatedValue)
     required_torque_130g: EstimatedValue = field(default_factory=EstimatedValue)
     torque_margin_130g: EstimatedValue = field(default_factory=EstimatedValue)
