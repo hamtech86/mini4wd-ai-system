@@ -37,12 +37,12 @@ class PerformanceAnalysis:
         result = PerformanceResult()
         performance = self.config["performance"]
         reference = performance.get("reference_vehicle", {})
-        reference_gear = float(reference.get("gear_ratio", 3.5))
-        reference_tire = float(reference.get("tire_diameter_mm", 24.0))
 
         current = abs(float(features.average_current or features.current or 0.0))
 
         # RPM priority: measured RPM -> Motor Model nominal RPM -> unavailable.
+        # When nominal RPM is used, it represents the Motor Model's no-load RPM
+        # estimate, not an RPM calculated from voltage.
         measured_rpm = float(features.rpm or 0.0)
         model_rpm = self._model_value(motor_model, "nominal_rpm")
         model_confidence = self._confidence(
@@ -84,25 +84,17 @@ class PerformanceAnalysis:
                 confidence=0.0,
             )
 
-        # Reference vehicle calculation.
-        # Only gear ratio and tire diameter are considered. The baseline
-        # coefficient is retained as the system's reference calibration:
-        # at 3.5:1 and 24 mm, 1 g·cm corresponds to 12 g of reference weight.
-        # This is a reference index, not a claim of physically supported mass.
-        torque = result.estimated_torque.value
-        baseline_weight_per_torque = 12.0
-        if torque > 0 and reference_gear > 0 and reference_tire > 0:
-            gear_factor = reference_gear / 3.5
-            tire_factor = 24.0 / reference_tire
-            supported_weight = torque * baseline_weight_per_torque * gear_factor * tire_factor
-            weight_confidence = model_confidence
-        else:
-            supported_weight = 0.0
-            weight_confidence = 0.0
-
+        # Supported vehicle weight is intentionally NOT calculated yet.
+        # Gear ratio (3.5:1) and tire diameter (24 mm) are retained as the
+        # reference vehicle definition, but they cannot by themselves convert
+        # motor torque into a physically valid vehicle mass. A conversion also
+        # requires a validated traction/acceleration/vehicle calibration.
+        # The former arbitrary 12 g/(g·cm) coefficient produced nonsensical
+        # values such as 6 g for the observed Atomic Tune result and is removed.
+        _ = reference
         result.estimated_supported_weight = EstimatedValue(
-            value=max(0.0, supported_weight),
+            value=0.0,
             unit="g",
-            confidence=weight_confidence,
+            confidence=0.0,
         )
         return result
