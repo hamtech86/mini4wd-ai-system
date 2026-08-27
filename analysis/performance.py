@@ -9,6 +9,9 @@ from analysis.models import EstimatedValue, FeatureSet, PerformanceResult
 class PerformanceAnalysis:
     """Estimate motor performance using measured data and master-model data."""
 
+    GRAVITY_MPS2 = 9.80665
+    GCM_TO_NM = 9.80665e-5
+
     def __init__(self, config: dict[str, Any]):
         self.config = config
 
@@ -29,6 +32,23 @@ class PerformanceAnalysis:
         except (TypeError, ValueError):
             return default
 
+    def _required_torque_gcm(self, weight_g: float, reference: dict[str, Any]) -> float:
+        """Required motor torque for the fixed reference vehicle conditions."""
+        mass_kg = max(0.0, float(weight_g)) / 1000.0
+        acceleration = max(
+            0.0, float(reference.get("reference_acceleration_mps2", 3.0))
+        )
+        efficiency = float(reference.get("drivetrain_efficiency", 0.75))
+        efficiency = max(1e-9, min(1.0, efficiency))
+        gear_ratio = max(0.0, float(reference.get("gear_ratio", 3.5)))
+        radius_m = max(0.0, float(reference.get("tire_diameter_mm", 24.0))) / 2000.0
+        if mass_kg <= 0 or acceleration <= 0 or gear_ratio <= 0 or radius_m <= 0:
+            return 0.0
+
+        wheel_force_n = mass_kg * acceleration / efficiency
+        motor_torque_nm = wheel_force_n * radius_m / gear_ratio
+        return motor_torque_nm / self.GCM_TO_NM
+
     def analyze(
         self,
         features: FeatureSet,
@@ -37,11 +57,12 @@ class PerformanceAnalysis:
         result = PerformanceResult()
         performance = self.config["performance"]
         reference = performance.get("reference_vehicle", {})
+        weight_config = performance.get("weight", {})
 
         current = abs(float(features.average_current or features.current or 0.0))
 
-        # RPM: measured RPM has priority. Otherwise use the Motor Model nominal
-        # RPM as the no-load RPM estimate. Never derive RPM from voltage.
+        # RPM: measured RPM has priority. Otherwise use Motor Model nominal RPM
+        # as the no-load estimate. Never derive RPM from voltage.
         measured_rpm = float(features.rpm or 0.0)
         model_rpm = self._model_value(motor_model, "nominal_rpm")
         model_confidence = self._confidence(
@@ -58,68 +79,71 @@ class PerformanceAnalysis:
             rpm_confidence = 0.0
 
         result.estimated_no_load_rpm = EstimatedValue(
-            value=rpm,
-            unit="rpm",
-            confidence=rpm_confidence,
+            value=rpm, unit="rpm", confidence=rpm_confidence
         )
 
-        # Operating torque estimate remains based on the Motor Model torque
-        # coefficient and the measured current.
+        # Provisional individual torque estimate. The coefficient comes only
+        # from Motor Model; measured current supplies the individual state.
         nominal_torque = self._model_value(motor_model, "nominal_torque_gcm")
         nominal_current_ma = self._model_value(motor_model, "nominal_current_ma")
-        if (nominal_torque is not None and nominal_torque > 0 and
-                nominal_current_ma is not None and nominal_current_ma > 0):
+        if (
+            nominal_torque is not None and nominal_torque > 0
+            and nominal_current_ma is not None and nominal_current_ma > 0
+        ):
             torque_coefficient = nominal_torque / (nominal_current_ma / 1000.0)
-            torque = max(0.0, current * torque_coefficient)
-            result.estimated_torque = EstimatedValue(
-                value=torque,
-                unit="g·cm",
-                confidence=model_confidence,
-            )
+            estimated_torque = max(0.0, current * torque_coefficient)
+            torque_confidence = model_confidence
         else:
-            result.estimated_torque = EstimatedValue(
-                value=0.0,
-                unit="g·cm",
-                confidence=0.0,
-            )
+            estimated_torque = 0.0
+            torque_confidence = 0.0
 
-        # Supported weight is a defined reference metric, not a direct claim of
-        # maximum race weight. It uses the Motor Model's rated/load torque,
-        # because the unloaded running current cannot represent vehicle load.
-        #
-        # F_wheel(gf) = T_motor(gf*cm) * gear_ratio / tire_radius(cm)
-        # m(g) = F_wheel(gf) * g(cm/s^2) / reference_acceleration(cm/s^2)
-        #
-        # The only vehicle inputs are the requested reference gear ratio 3.5:1
-        # and tire diameter 24 mm. Drivetrain efficiency is deliberately 100%
-        # in this baseline so no additional vehicle factor is introduced.
-        gear_ratio = float(reference.get("gear_ratio", 3.5))
-        tire_diameter_mm = float(reference.get("tire_diameter_mm", 24.0))
-        reference_acceleration = float(reference.get("reference_acceleration_mps2", 3.0))
-        tire_radius_cm = tire_diameter_mm / 20.0
-        gravity_cm_s2 = 981.0
-        rated_torque = nominal_torque if nominal_torque and nominal_torque > 0 else 0.0
+        result.estimated_torque = EstimatedValue(
+            value=estimated_torque, unit="g·cm", confidence=torque_confidence
+        )
 
-        if gear_ratio > 0 and tire_radius_cm > 0 and reference_acceleration > 0 and rated_torque > 0:
-            supported_weight = (
-                rated_torque
-                * gear_ratio
-                / tire_radius_cm
-                * gravity_cm_s2
-                / (reference_acceleration * 100.0)
-            )
-            result.estimated_supported_weight = EstimatedValue(
-                value=max(0.0, supported_weight),
-                unit="g",
-                confidence=model_confidence,
-            )
-        else:
-            # Mandatory UI field: if the model has no torque yet, return a
-            # numeric zero rather than replacing the required field with text.
-            result.estimated_supported_weight = EstimatedValue(
-                value=0.0,
-                unit="g",
-                confidence=0.0,
-            )
+        # Required torque is deliberately kept separate from motor torque.
+        # The 130 g value is the primary reference; 140 g is a comparison point.
+        reference_weight = float(reference.get("reference_weight_g", 130.0))
+        required_130 = self._required_torque_gcm(reference_weight, reference)
+        result.required_torque_130g = EstimatedValue(
+            value=required_130, unit="g·cm", confidence=1.0 if required_130 > 0 else 0.0
+        )
+        margin_130 = estimated_torque / required_130 if required_130 > 0 else 0.0
+        result.torque_margin_130g = EstimatedValue(
+            value=max(0.0, margin_130), unit="ratio", confidence=torque_confidence
+        )
 
+        # Evaluate the complete mandatory 115–155 g profile in 5 g steps.
+        raw_profile = weight_config.get(
+            "weight_profile_g", reference.get(
+                "weight_profile_g", [115, 120, 125, 130, 135, 140, 145, 150, 155]
+            )
+        )
+        try:
+            weights = sorted({float(w) for w in raw_profile if float(w) > 0})
+        except (TypeError, ValueError):
+            weights = [115.0, 120.0, 125.0, 130.0, 135.0, 140.0, 145.0, 150.0, 155.0]
+
+        threshold = float(weight_config.get("margin_threshold", 1.0))
+        profile = []
+        supported_weight = 0.0
+        for weight_g in weights:
+            required = self._required_torque_gcm(weight_g, reference)
+            margin = estimated_torque / required if required > 0 else 0.0
+            supported = margin >= threshold
+            profile.append({
+                "weight_g": weight_g,
+                "required_torque_gcm": required,
+                "torque_margin": max(0.0, margin),
+                "supported": 1.0 if supported else 0.0,
+            })
+            if supported:
+                supported_weight = weight_g
+
+        result.weight_profile = profile
+        result.estimated_supported_weight = EstimatedValue(
+            value=supported_weight,
+            unit="g",
+            confidence=torque_confidence,
+        )
         return result
