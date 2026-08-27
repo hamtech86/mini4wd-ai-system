@@ -48,8 +48,10 @@ class PerformanceResult:
     estimated_no_load_rpm: EstimatedValue = field(default_factory=EstimatedValue)
     estimated_torque: EstimatedValue = field(default_factory=EstimatedValue)
     estimated_supported_weight: EstimatedValue = field(default_factory=EstimatedValue)
+    required_torque_130g: EstimatedValue = field(default_factory=EstimatedValue)
+    torque_margin_130g: EstimatedValue = field(default_factory=EstimatedValue)
+    weight_profile: List[Dict[str, float]] = field(default_factory=list)
 
-    # Backward-compatible aliases retained for existing consumers.
     @property
     def estimated_rpm(self) -> EstimatedValue:
         return self.estimated_no_load_rpm
