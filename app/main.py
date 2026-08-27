@@ -64,7 +64,7 @@ class MainWindow(BaseMainWindow):
         if layout is None: return
         self.estimated_result={"UNLOADED_RPM":QLabel("--"),"TORQUE":QLabel("--"),"BRUSH_SCORE":QLabel("--"),"WEIGHT":QLabel("--")}
         box=QGroupBox("ESTIMATED PERFORMANCE / 推定値"); grid=QGridLayout(box)
-        labels=(("無負荷回転数（推定）","UNLOADED_RPM"),("トルク（推定）","TORQUE"),("ブラシピーク（推定）","BRUSH_SCORE"),("対応車重（推定）","WEIGHT"))
+        labels=(("無負荷回転数（推定）","UNLOADED_RPM"),("トルク（推定）","TORQUE"),("ブラシピーク（解析）","BRUSH_SCORE"),("対応車重（暫定推定）","WEIGHT"))
         for index,(title,key) in enumerate(labels):
             card=QGroupBox(title); card_layout=QGridLayout(card); value=self.estimated_result[key]; value.setAlignment(Qt.AlignCenter); value.setStyleSheet("font-size:16px;font-weight:bold;"); card_layout.addWidget(value,0,0); grid.addWidget(card,index//2,index%2)
         layout.addWidget(box)
@@ -85,24 +85,64 @@ class MainWindow(BaseMainWindow):
         return None
     def _measurement_series(self):
         controller=self.breakin_controller; return list(getattr(controller,"measurements",[]) or []) if controller else []
+    def _analysis_series(self):
+        data=getattr(self,"last_result_data",None)
+        if isinstance(data,list): return [item for item in data if hasattr(item,"performance")]
+        return [data] if hasattr(data,"performance") else []
     def _estimated_values(self):
-        measurements=self._measurement_series(); voltages=[self._as_float(self._measurement_value(m,"motor_voltage","voltage"),0.0) for m in measurements]; currents=[abs(self._as_float(self._measurement_value(m,"current_avg","current","current1"),0.0)) for m in measurements]; voltages=[v for v in voltages if v>0.01]; currents=[a for a in currents if a>0.001]
-        average_voltage=sum(voltages)/len(voltages) if voltages else 0.0; average_current=sum(currents)/len(currents) if currents else 0.0; peak_current=max(currents) if currents else 0.0; estimated_rpm=max(0.0,average_voltage*5000.0); estimated_torque=max(0.0,average_current*10.0)
-        if estimated_torque>0:
-            reference_weight=estimated_torque*12.0; recommended_min=max(115.0,reference_weight-10.0); recommended_max=min(155.0,reference_weight+10.0); recommended_max=max(recommended_max,recommended_min); weight_text=f"{recommended_min:.0f}～{recommended_max:.0f} g"
-        else: weight_text="データ不足"
-        brush_score=max(-10.0,min(10.0,10.0-peak_current*5.0)) if currents else None
-        if brush_score is None: brush_text="データ不足"
-        elif brush_score>=7.0: brush_text=f"{brush_score:+.1f} / 10　新品寄り"
-        elif brush_score>=2.0: brush_text=f"{brush_score:+.1f} / 10　馴染み中"
-        elif brush_score>-2.0: brush_text=f"{brush_score:+.1f} / 10　PEAK / 完璧"
-        elif brush_score>-7.0: brush_text=f"{brush_score:+.1f} / 10　摩耗傾向"
-        else: brush_text=f"{brush_score:+.1f} / 10　故障域"
-        return estimated_rpm,estimated_torque,brush_text,weight_text
+        """Use AnalysisEngine outputs instead of duplicating provisional formulas in the UI.
+
+        Display precision reflects the resolution of the source measurements; it does
+        not imply calibration accuracy. Weight remains provisional until the physical
+        vehicle-suitability model is calibrated against real chassis data.
+        """
+        analyses=self._analysis_series()
+        if not analyses:
+            return "データ不足", "データ不足", "データ不足", "校正データ不足"
+
+        rpm_values=[self._as_float(getattr(a.performance.estimated_no_load_rpm,"value",None),0.0) for a in analyses]
+        torque_values=[self._as_float(getattr(a.performance.estimated_torque,"value",None),0.0) for a in analyses]
+        weight_values=[self._as_float(getattr(a.performance.estimated_supported_weight,"value",None),0.0) for a in analyses]
+        rpm_values=[v for v in rpm_values if v>0]
+        torque_values=[v for v in torque_values if v>0]
+        weight_values=[v for v in weight_values if v>0]
+
+        rpm=(sum(rpm_values)/len(rpm_values)) if rpm_values else 0.0
+        torque=(sum(torque_values)/len(torque_values)) if torque_values else 0.0
+        weight=(sum(weight_values)/len(weight_values)) if weight_values else 0.0
+
+        brush_scores=[]
+        brush_conditions=[]
+        brush_peaks=[]
+        for analysis in analyses:
+            brush=getattr(analysis,"brush",None)
+            if brush is None: continue
+            score=self._as_float(getattr(getattr(brush,"peak_score",None),"value",None),0.0)
+            peak=self._as_float(getattr(getattr(brush,"peak_position",None),"value",None),0.0)
+            brush_scores.append(score)
+            if peak>0: brush_peaks.append(peak)
+            condition=str(getattr(brush,"brush_condition","UNKNOWN") or "UNKNOWN")
+            brush_conditions.append(condition)
+
+        if brush_scores:
+            brush_score=sum(brush_scores)/len(brush_scores)
+            peak=max(brush_peaks) if brush_peaks else 0.0
+            condition=max(set(brush_conditions), key=brush_conditions.count) if brush_conditions else "UNKNOWN"
+            brush_text=f"{brush_score:+.1f} / 10　{condition}　peak {peak:.3f} A" if peak>0 else f"{brush_score:+.1f} / 10　{condition}"
+        else:
+            brush_text="データ不足"
+
+        rpm_text=f"{rpm:,.0f} rpm" if rpm>0 else "データ不足"
+        torque_text=f"{torque:.2f} g·cm" if torque>0 else "データ不足"
+        # Do not invent a 115–155 g range. The current weight conversion is explicitly
+        # provisional in the Analysis module, so show the derived value and its status.
+        weight_text=f"{weight:,.0f} g（暫定）" if weight>0 else "校正データ不足"
+        return rpm_text,torque_text,brush_text,weight_text
     def _refresh_estimated_values(self):
         if not hasattr(self,"estimated_result"): return
-        rpm,torque,brush_text,weight_text=self._estimated_values(); self.estimated_result["UNLOADED_RPM"].setText(f"{rpm:,.0f} rpm" if rpm>0 else "データ不足"); self.estimated_result["TORQUE"].setText(f"{torque:.2f} g·cm" if torque>0 else "データ不足"); self.estimated_result["BRUSH_SCORE"].setText(brush_text); self.estimated_result["WEIGHT"].setText(weight_text)
-    def complete(self,data,benchmark): super().complete(data,benchmark); self._refresh_estimated_values()
+        rpm,torque,brush_text,weight_text=self._estimated_values(); self.estimated_result["UNLOADED_RPM"].setText(rpm); self.estimated_result["TORQUE"].setText(torque); self.estimated_result["BRUSH_SCORE"].setText(brush_text); self.estimated_result["WEIGHT"].setText(weight_text)
+    def complete(self,data,benchmark):
+        super().complete(data,benchmark); self._refresh_estimated_values()
     def failed(self,message):
         super().failed(message)
         if hasattr(self,"estimated_result"):
