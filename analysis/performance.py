@@ -40,9 +40,8 @@ class PerformanceAnalysis:
 
         current = abs(float(features.average_current or features.current or 0.0))
 
-        # RPM priority: measured RPM -> Motor Model nominal RPM -> unavailable.
-        # When nominal RPM is used, it represents the Motor Model's no-load RPM
-        # estimate, not an RPM calculated from voltage.
+        # RPM: measured RPM has priority. Otherwise use the Motor Model nominal
+        # RPM as the no-load RPM estimate. Never derive RPM from voltage.
         measured_rpm = float(features.rpm or 0.0)
         model_rpm = self._model_value(motor_model, "nominal_rpm")
         model_confidence = self._confidence(
@@ -64,8 +63,8 @@ class PerformanceAnalysis:
             confidence=rpm_confidence,
         )
 
-        # Torque coefficient comes ONLY from the selected Motor Model:
-        # nominal_torque_gcm / nominal_current_A.
+        # Operating torque estimate remains based on the Motor Model torque
+        # coefficient and the measured current.
         nominal_torque = self._model_value(motor_model, "nominal_torque_gcm")
         nominal_current_ma = self._model_value(motor_model, "nominal_current_ma")
         if (nominal_torque is not None and nominal_torque > 0 and
@@ -84,17 +83,43 @@ class PerformanceAnalysis:
                 confidence=0.0,
             )
 
-        # Supported vehicle weight is intentionally NOT calculated yet.
-        # Gear ratio (3.5:1) and tire diameter (24 mm) are retained as the
-        # reference vehicle definition, but they cannot by themselves convert
-        # motor torque into a physically valid vehicle mass. A conversion also
-        # requires a validated traction/acceleration/vehicle calibration.
-        # The former arbitrary 12 g/(g·cm) coefficient produced nonsensical
-        # values such as 6 g for the observed Atomic Tune result and is removed.
-        _ = reference
-        result.estimated_supported_weight = EstimatedValue(
-            value=0.0,
-            unit="g",
-            confidence=0.0,
-        )
+        # Supported weight is a defined reference metric, not a direct claim of
+        # maximum race weight. It uses the Motor Model's rated/load torque,
+        # because the unloaded running current cannot represent vehicle load.
+        #
+        # F_wheel(gf) = T_motor(gf*cm) * gear_ratio / tire_radius(cm)
+        # m(g) = F_wheel(gf) * g(cm/s^2) / reference_acceleration(cm/s^2)
+        #
+        # The only vehicle inputs are the requested reference gear ratio 3.5:1
+        # and tire diameter 24 mm. Drivetrain efficiency is deliberately 100%
+        # in this baseline so no additional vehicle factor is introduced.
+        gear_ratio = float(reference.get("gear_ratio", 3.5))
+        tire_diameter_mm = float(reference.get("tire_diameter_mm", 24.0))
+        reference_acceleration = float(reference.get("reference_acceleration_mps2", 3.0))
+        tire_radius_cm = tire_diameter_mm / 20.0
+        gravity_cm_s2 = 981.0
+        rated_torque = nominal_torque if nominal_torque and nominal_torque > 0 else 0.0
+
+        if gear_ratio > 0 and tire_radius_cm > 0 and reference_acceleration > 0 and rated_torque > 0:
+            supported_weight = (
+                rated_torque
+                * gear_ratio
+                / tire_radius_cm
+                * gravity_cm_s2
+                / (reference_acceleration * 100.0)
+            )
+            result.estimated_supported_weight = EstimatedValue(
+                value=max(0.0, supported_weight),
+                unit="g",
+                confidence=model_confidence,
+            )
+        else:
+            # Mandatory UI field: if the model has no torque yet, return a
+            # numeric zero rather than replacing the required field with text.
+            result.estimated_supported_weight = EstimatedValue(
+                value=0.0,
+                unit="g",
+                confidence=0.0,
+            )
+
         return result
