@@ -63,9 +63,6 @@ class BreakinController:
                 raise RuntimeError(self.abort_reason)
 
             self.stop()
-
-            # stop() intentionally disarms the execution loop. Re-arm only for
-            # the dedicated benchmark that follows the break-in.
             self.running = True
             self._run_benchmark(self.BENCHMARK_DURATION_SEC)
             if self.abort_reason:
@@ -118,12 +115,15 @@ class BreakinController:
         self.current_pwm = phase.pwm
         self.serial.set_pwm(self.current_pwm)
 
-        # A hand-spun motor may need a short period before it produces a valid
-        # running measurement. These samples are deliberately NOT benchmark
-        # data, so a startup zero cannot become part of the estimate.
+        # Allow a manually-started/stationary motor to begin rotating. These
+        # samples are intentionally stored outside both analysis and the
+        # operator-facing benchmark measurement list.
+        settling_measurements = []
         settle_end = time.time() + self.BENCHMARK_SETTLE_SEC
         while self.running and time.time() < settle_end:
-            measurement = self._collect_measurement(phase, target=None)
+            measurement = self._collect_measurement(
+                phase, target=settling_measurements
+            )
             if phase.control == "VOLTAGE" and phase.target_voltage is not None:
                 self._voltage_control(phase, measurement)
             safety = self._safety_violation(measurement)
@@ -139,7 +139,9 @@ class BreakinController:
         self.benchmark_measurements.clear()
         start = time.time()
         while self.running and time.time() - start < duration_sec:
-            measurement = self._collect_measurement(phase, target=self.benchmark_measurements)
+            measurement = self._collect_measurement(
+                phase, target=self.benchmark_measurements
+            )
             if phase.control == "VOLTAGE" and phase.target_voltage is not None:
                 self._voltage_control(phase, measurement)
             safety = self._safety_violation(measurement)
