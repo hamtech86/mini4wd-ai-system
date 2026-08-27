@@ -2,8 +2,10 @@
 
 Recipe -> Phase Control -> Arduino -> Measurement -> Analysis.
 
-Recipe stages may use ordinary PWM control or closed-loop motor-voltage
-control. The latter is used by the common 3 V benchmark.
+The break-in phases are execution-only. After the recipe completes, a
+separate 3 V / 3 s benchmark is run and only benchmark measurements are fed
+to the performance/weight analysis. This prevents startup/hand-spin latency
+and transient break-in values from contaminating the estimate.
 """
 
 import time
@@ -15,6 +17,9 @@ from .recipe import BreakinPhase, BreakinRecipe
 class BreakinController:
     VOLTAGE_KP = 20.0
     CONTROL_INTERVAL_SEC = 0.1
+    BENCHMARK_DURATION_SEC = 3.0
+    BENCHMARK_SETTLE_SEC = 0.3
+    BENCHMARK_TARGET_VOLTAGE = 3.00
     DEFAULT_SAFETY = {
         "max_motor_temperature": 70.0,
         "max_current": 5.0,
@@ -34,15 +39,18 @@ class BreakinController:
             self.safety_config.update(safety_config)
         self.running = False
         self.measurements = []
+        self.benchmark_measurements = []
         self.session = None
         self.current_phase = None
         self.current_pwm = 0
         self.abort_reason = None
 
     def start(self, recipe):
+        """Execute break-in, then benchmark, then perform final analysis."""
         self.phase_manager = PhaseManager(recipe)
         self.running = True
         self.measurements = []
+        self.benchmark_measurements = []
         self.abort_reason = None
         if self.session_manager:
             self.session = self.session_manager.start("BREAKIN")
@@ -52,7 +60,16 @@ class BreakinController:
                 self.phase_manager.next_phase()
             if self.abort_reason:
                 raise RuntimeError(self.abort_reason)
+
             self.stop()
+
+            # Final estimation must use a clean, dedicated benchmark rather
+            # than arbitrary measurements collected during break-in.
+            self._run_benchmark(self.BENCHMARK_DURATION_SEC)
+            if self.abort_reason:
+                raise RuntimeError(self.abort_reason)
+
+            self.measurements = list(self.benchmark_measurements)
             result = self.analyze(self.measurements)
             if self.session_manager:
                 self.session_manager.finish("COMPLETE")
@@ -63,35 +80,74 @@ class BreakinController:
             self.emergency_stop()
             raise
 
-    def benchmark_3v(self, duration_sec=10):
-        """Run a standalone 3 V motor benchmark without a break-in recipe.
+    def benchmark_3v(self, duration_sec=3.0):
+        """Run only the standalone 3 V benchmark used for estimation."""
+        self.running = True
+        self.measurements = []
+        self.benchmark_measurements = []
+        self.abort_reason = None
+        try:
+            self._run_benchmark(float(duration_sec))
+            if self.abort_reason:
+                raise RuntimeError(self.abort_reason)
+            self.measurements = list(self.benchmark_measurements)
+            return self.analyze(self.measurements)
+        except Exception:
+            self.emergency_stop()
+            raise
 
-        The short default duration is intentionally test-oriented. The normal
-        recipe benchmark remains the authoritative 120 s measurement defined
-        in breakin_recipes.yaml.
-        """
+    def _run_benchmark(self, duration_sec):
+        """Run a settled 3 V benchmark and retain benchmark samples only."""
         phase = BreakinPhase(
-            name="BENCHMARK_3V_TEST",
+            name="BENCHMARK_3V_3S",
             duration_sec=float(duration_sec),
             pwm=80,
             direction="FWD",
             control="VOLTAGE",
-            target_voltage=3.00,
+            target_voltage=self.BENCHMARK_TARGET_VOLTAGE,
             pwm_min=35,
             pwm_max=120,
         )
-        recipe = BreakinRecipe(
-            name="MOTOR_BENCHMARK_TEST",
-            description="Standalone 3 V motor benchmark test",
-            brush="UNKNOWN",
-            family="BENCHMARK",
-            objective="MEASUREMENT",
-            phases=[phase],
-            target_rpm=None,
-            torque_priority=0.50,
-            version="2.0",
-        )
-        return self.start(recipe)
+        self.current_phase = phase
+        self.abort_reason = None
+        self.benchmark_measurements = []
+
+        self.serial.forward()
+        self.current_pwm = phase.pwm
+        self.serial.set_pwm(self.current_pwm)
+
+        # Give a manually-started/stationary motor time to begin rotating.
+        # These samples are deliberately NOT part of the benchmark data.
+        settle_end = time.time() + self.BENCHMARK_SETTLE_SEC
+        while self.running and time.time() < settle_end:
+            measurement = self._collect_measurement(phase, target=self.benchmark_measurements)
+            if phase.control == "VOLTAGE" and phase.target_voltage is not None:
+                self._voltage_control(phase, measurement)
+            safety = self._safety_violation(measurement)
+            if safety:
+                self.abort_reason = safety
+                self.emergency_stop()
+                return
+            time.sleep(self.CONTROL_INTERVAL_SEC)
+
+        # Clear the settling samples so zero/stalled startup values cannot
+        # affect the final estimate. The benchmark starts after settling.
+        self.benchmark_measurements.clear()
+        start = time.time()
+        while self.running and time.time() - start < duration_sec:
+            measurement = self._collect_measurement(phase, target=self.benchmark_measurements)
+            if phase.control == "VOLTAGE" and phase.target_voltage is not None:
+                self._voltage_control(phase, measurement)
+            safety = self._safety_violation(measurement)
+            if safety:
+                self.abort_reason = safety
+                self.emergency_stop()
+                return
+            time.sleep(self.CONTROL_INTERVAL_SEC)
+
+        self.serial.set_pwm(0)
+        time.sleep(0.2)
+        self.running = False
 
     def execute_phase(self, phase):
         self.current_phase = phase
@@ -164,7 +220,7 @@ class BreakinController:
             return f"SAFETY: PWM {self.current_pwm} > {max_pwm}"
         return None
 
-    def _collect_measurement(self, phase):
+    def _collect_measurement(self, phase, target=None):
         if not self.measurement_manager:
             return None
         measurement = self.measurement_manager.collect()
@@ -172,7 +228,8 @@ class BreakinController:
             measurement["phase"] = phase
             measurement["phase_pwm"] = self.current_pwm
             measurement["phase_direction"] = phase.direction
-        self.measurements.append(measurement)
+        destination = self.measurements if target is None else target
+        destination.append(measurement)
         return measurement
 
     def analyze(self, measurements):
