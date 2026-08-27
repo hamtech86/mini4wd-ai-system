@@ -1,4 +1,4 @@
-"""Performance estimation from measured voltage/current and Motor Model data."""
+"""Performance estimation from measured data and Motor Model master data."""
 from __future__ import annotations
 
 from typing import Any, Optional
@@ -7,7 +7,7 @@ from analysis.models import EstimatedValue, FeatureSet, PerformanceResult
 
 
 class PerformanceAnalysis:
-    """Estimate motor performance using measured features and master-model data."""
+    """Estimate motor performance without inventing unsupported precision."""
 
     def __init__(self, config: dict[str, Any]):
         self.config = config
@@ -22,6 +22,13 @@ class PerformanceAnalysis:
         except (TypeError, ValueError):
             return None
 
+    @staticmethod
+    def _confidence(value: Any, default: float = 0.0) -> float:
+        try:
+            return max(0.0, min(1.0, float(value)))
+        except (TypeError, ValueError):
+            return default
+
     def analyze(
         self,
         features: FeatureSet,
@@ -29,65 +36,60 @@ class PerformanceAnalysis:
     ) -> PerformanceResult:
         result = PerformanceResult()
         performance = self.config["performance"]
-        rpm_cfg = performance["rpm"]
-        weight_cfg = performance["weight"]
 
         voltage = float(features.average_voltage or features.voltage or 0.0)
-        current = float(features.average_current or features.current or 0.0)
+        current = abs(float(features.average_current or features.current or 0.0))
 
-        # RPM remains an estimate from measured motor voltage until measured
-        # RPM samples are available. If the master model has nominal RPM,
-        # expose it as the model reference rather than silently replacing the
-        # measurement-derived estimate.
+        # RPM priority: measured RPM -> Motor Model nominal RPM -> unavailable.
+        # Do not turn voltage into a fabricated RPM value.
+        measured_rpm = float(features.rpm or 0.0)
         model_rpm = self._model_value(motor_model, "nominal_rpm")
-        rpm = model_rpm if model_rpm and model_rpm > 0 else max(
-            0.0, voltage * float(rpm_cfg["voltage_gain"])
+        model_confidence = self._confidence(
+            self._model_value(motor_model, "data_confidence"), 0.0
         )
-        rpm_confidence = (
-            self._model_value(motor_model, "data_confidence")
-            if model_rpm and model_rpm > 0 else float(rpm_cfg["default_confidence"])
-        )
+        if measured_rpm > 0:
+            rpm = measured_rpm
+            rpm_confidence = 1.0
+        elif model_rpm is not None and model_rpm > 0:
+            rpm = model_rpm
+            rpm_confidence = model_confidence
+        else:
+            rpm = 0.0
+            rpm_confidence = 0.0
+
         result.estimated_no_load_rpm = EstimatedValue(
             value=rpm,
             unit="rpm",
-            confidence=max(0.0, min(1.0, float(rpm_confidence or 0.0))),
+            confidence=rpm_confidence,
         )
 
-        # Torque coefficient is derived ONLY from the selected Motor Model:
-        # nominal_torque_gcm / nominal_current_A. The old UI/config fallback
-        # (current * 10) is intentionally not used anymore.
+        # Torque coefficient comes ONLY from the selected Motor Model:
+        # nominal_torque_gcm / nominal_current_A.
+        # The former fixed current*10 fallback is intentionally removed.
         nominal_torque = self._model_value(motor_model, "nominal_torque_gcm")
         nominal_current_ma = self._model_value(motor_model, "nominal_current_ma")
-        torque_confidence = self._model_value(motor_model, "data_confidence") or 0.0
-        if nominal_torque and nominal_torque > 0 and nominal_current_ma and nominal_current_ma > 0:
+        if (nominal_torque is not None and nominal_torque > 0 and
+                nominal_current_ma is not None and nominal_current_ma > 0):
             torque_coefficient = nominal_torque / (nominal_current_ma / 1000.0)
             torque = max(0.0, current * torque_coefficient)
             result.estimated_torque = EstimatedValue(
                 value=torque,
                 unit="g·cm",
-                confidence=max(0.0, min(1.0, torque_confidence)),
+                confidence=model_confidence,
             )
         else:
-            # No model data means no defensible torque estimate.
             result.estimated_torque = EstimatedValue(
                 value=0.0,
                 unit="g·cm",
                 confidence=0.0,
             )
 
-        # Weight is still explicitly provisional and can only be calculated
-        # when a model-based torque estimate exists.
-        torque = result.estimated_torque.value
-        supported_weight = (
-            max(0.0, torque * float(weight_cfg["torque_gain"]))
-            if torque > 0 else 0.0
-        )
+        # Vehicle weight is not a motor-only physical constant. The former
+        # arbitrary torque*12 conversion is therefore not exposed as a precise
+        # parameter until a validated vehicle/course model exists.
         result.estimated_supported_weight = EstimatedValue(
-            value=supported_weight,
+            value=0.0,
             unit="g",
-            confidence=(
-                float(weight_cfg["default_confidence"])
-                if supported_weight > 0 else 0.0
-            ),
+            confidence=0.0,
         )
         return result
