@@ -82,8 +82,9 @@ class PerformanceAnalysis:
             value=rpm, unit="rpm", confidence=rpm_confidence
         )
 
-        # Provisional individual torque estimate. The coefficient comes only
-        # from Motor Model; measured current supplies the individual state.
+        # The current-based value is a provisional operating-point estimate.
+        # It must NOT be used as the supported-weight capability while the
+        # break-in measurement is not a calibrated torque operating point.
         nominal_torque = self._model_value(motor_model, "nominal_torque_gcm")
         nominal_current_ma = self._model_value(motor_model, "nominal_current_ma")
         if (
@@ -101,6 +102,17 @@ class PerformanceAnalysis:
             value=estimated_torque, unit="g·cm", confidence=torque_confidence
         )
 
+        # Available Torque is the Motor Model capability until an explicit
+        # calibration model is available. This prevents low-PWM break-in
+        # current from being incorrectly interpreted as the motor's maximum
+        # torque and avoids false supported-weight values such as a few grams.
+        available_torque = max(0.0, nominal_torque or 0.0)
+        result.available_torque = EstimatedValue(
+            value=available_torque,
+            unit="g·cm",
+            confidence=model_confidence if available_torque > 0 else 0.0,
+        )
+
         # Required torque is deliberately kept separate from motor torque.
         # The 130 g value is the primary reference; 140 g is a comparison point.
         reference_weight = float(reference.get("reference_weight_g", 130.0))
@@ -108,9 +120,10 @@ class PerformanceAnalysis:
         result.required_torque_130g = EstimatedValue(
             value=required_130, unit="g·cm", confidence=1.0 if required_130 > 0 else 0.0
         )
-        margin_130 = estimated_torque / required_130 if required_130 > 0 else 0.0
+        margin_130 = available_torque / required_130 if required_130 > 0 else 0.0
         result.torque_margin_130g = EstimatedValue(
-            value=max(0.0, margin_130), unit="ratio", confidence=torque_confidence
+            value=max(0.0, margin_130), unit="ratio",
+            confidence=model_confidence if available_torque > 0 else 0.0,
         )
 
         # Evaluate the complete mandatory 115–155 g profile in 5 g steps.
@@ -129,7 +142,7 @@ class PerformanceAnalysis:
         supported_weight = 0.0
         for weight_g in weights:
             required = self._required_torque_gcm(weight_g, reference)
-            margin = estimated_torque / required if required > 0 else 0.0
+            margin = available_torque / required if required > 0 else 0.0
             supported = margin >= threshold
             profile.append({
                 "weight_g": weight_g,
@@ -144,6 +157,6 @@ class PerformanceAnalysis:
         result.estimated_supported_weight = EstimatedValue(
             value=supported_weight,
             unit="g",
-            confidence=torque_confidence,
+            confidence=model_confidence if available_torque > 0 else 0.0,
         )
         return result
