@@ -1,30 +1,33 @@
-analysis_version: "1.1"
+analysis_version: "1.2"
 
 performance:
 
   reference_vehicle:
 
+    # Fixed reference vehicle for future calibration/modeling.
     gear_ratio: 3.5
-
     tire_diameter_mm: 24.0
 
-    # Only gear ratio and tire diameter are used for the reference weight estimate.
-    # The reference conversion is retained as the system's current calibration
-    # baseline; it is not a claim of universal physical vehicle capacity.
-    weight_per_torque_g_per_gcm: 12.0
+    # No weight conversion coefficient is used until it is physically
+    # calibrated against real Mini 4WD vehicle data.
 
   rpm:
 
-    # Voltage-to-RPM conversion is disabled until a validated calibration exists.
+    # Voltage-to-RPM conversion is disabled.
+    # If measured RPM is unavailable, Motor Model nominal_rpm is displayed
+    # as the estimated no-load RPM.
     voltage_gain: 0.0
     default_confidence: 0.0
 
   torque:
 
-    # Torque coefficient is derived from Motor Model data.
+    # Torque coefficient is derived from Motor Model data only.
     current_gain: 0.0
     default_confidence: 0.0
 
   weight:
 
+    # Supported vehicle weight is unavailable until a validated physical
+    # calibration exists. Do not derive it from an arbitrary multiplier.
     default_confidence: 0.0
+    calibrated: false
