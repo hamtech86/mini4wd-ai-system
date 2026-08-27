@@ -63,8 +63,9 @@ class BreakinController:
 
             self.stop()
 
-            # Final estimation must use a clean, dedicated benchmark rather
-            # than arbitrary measurements collected during break-in.
+            # stop() intentionally disarms the execution loop. Re-arm only for
+            # the dedicated benchmark that follows the break-in.
+            self.running = True
             self._run_benchmark(self.BENCHMARK_DURATION_SEC)
             if self.abort_reason:
                 raise RuntimeError(self.abort_reason)
@@ -130,8 +131,8 @@ class BreakinController:
                 return
             time.sleep(self.CONTROL_INTERVAL_SEC)
 
-        # Clear the settling samples so zero/stalled startup values cannot
-        # affect the final estimate. The benchmark starts after settling.
+        # Clear settling samples so startup/hand-spin zeros cannot affect
+        # the final estimate. The 3 s benchmark starts after settling.
         self.benchmark_measurements.clear()
         start = time.time()
         while self.running and time.time() - start < duration_sec:
