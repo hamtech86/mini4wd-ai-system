@@ -1,4 +1,4 @@
-analysis_version: "1.3"
+analysis_version: "1.4"
 
 performance:
 
@@ -11,8 +11,10 @@ performance:
 
     # Supported weight is defined as the mass that can receive the
     # reference acceleration from the Motor Model rated/load torque.
-    # 3.0 m/s^2 is a fixed analysis criterion, not a user vehicle parameter.
-    reference_acceleration_mps2: 3.0
+    # 4.0 m/s^2 is a fixed analysis criterion, not a user vehicle parameter.
+    # It is intentionally stricter than the previous 3.0 m/s^2 baseline,
+    # because the Atomic-Tuned 2 at ~130 g is observed to feel power-limited.
+    reference_acceleration_mps2: 4.0
 
   rpm:
 
