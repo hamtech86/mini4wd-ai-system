@@ -28,6 +28,8 @@ class FeatureSet:
     direction: str = ""
     state: str = ""
     quality: float = 1.0
+    brush_peak_current: float = 0.0
+    current_ripple: float = 0.0
 
 
 @dataclass
@@ -45,17 +47,39 @@ class ValidationResult:
 
 @dataclass
 class PerformanceResult:
-    estimated_rpm: EstimatedValue = field(default_factory=EstimatedValue)
+    """Motor performance estimates used by the UI/result contract."""
+    estimated_no_load_rpm: EstimatedValue = field(default_factory=EstimatedValue)
     estimated_torque: EstimatedValue = field(default_factory=EstimatedValue)
-    estimated_weight: EstimatedValue = field(default_factory=EstimatedValue)
+    available_torque: EstimatedValue = field(default_factory=EstimatedValue)
+    estimated_supported_weight: EstimatedValue = field(default_factory=EstimatedValue)
+    required_torque_130g: EstimatedValue = field(default_factory=EstimatedValue)
+    torque_margin_130g: EstimatedValue = field(default_factory=EstimatedValue)
+    weight_profile: List[Dict[str, float]] = field(default_factory=list)
     weight_suitability: WeightSuitabilityResult | None = None
+
+    @property
+    def estimated_rpm(self) -> EstimatedValue:
+        return self.estimated_no_load_rpm
+
+    @estimated_rpm.setter
+    def estimated_rpm(self, value: EstimatedValue) -> None:
+        self.estimated_no_load_rpm = value
+
+    @property
+    def estimated_weight(self) -> EstimatedValue:
+        return self.estimated_supported_weight
+
+    @estimated_weight.setter
+    def estimated_weight(self, value: EstimatedValue) -> None:
+        self.estimated_supported_weight = value
 
 
 @dataclass
 class BrushResult:
     peak_detected: bool = False
-    peak_position: float = 0.0
+    peak_position: EstimatedValue = field(default_factory=EstimatedValue)
     brush_condition: str = "UNKNOWN"
+    peak_score: EstimatedValue = field(default_factory=EstimatedValue)
     confidence: float = 0.0
     explanation: str = ""
 
