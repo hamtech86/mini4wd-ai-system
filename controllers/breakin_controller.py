@@ -89,7 +89,6 @@ class BreakinController:
             pass
 
     def pause(self):
-        """Pause safely while preserving the current phase position."""
         if not self.running or self.paused:
             return False
         self.phase_elapsed_before_pause = self.phase_elapsed_sec()
@@ -100,7 +99,6 @@ class BreakinController:
         return True
 
     def resume(self):
-        """Resume the currently active phase from its saved elapsed position."""
         if not self.running or not self.paused:
             return False
         self.paused = False
@@ -115,12 +113,6 @@ class BreakinController:
         return True
 
     def resume_from_checkpoint(self, recipe, instance_id=None):
-        """Start a recipe from a compatible checkpoint.
-
-        A checkpoint is accepted only when recipe and instance match.  A
-        mismatched instance/recipe deliberately starts nowhere rather than
-        risking application of a stale motor-control state.
-        """
         checkpoint = self.resume_checkpoint()
         if not checkpoint:
             raise RuntimeError("No resumable break-in checkpoint")
@@ -297,14 +289,17 @@ class BreakinController:
         for measurement in self.measurements:
             value = self._measurement_value(measurement, "brush_peak_current", None)
             if value is not None:
-                try: values.append(float(value))
-                except (TypeError, ValueError): pass
+                try:
+                    values.append(float(value))
+                except (TypeError, ValueError):
+                    pass
         if values:
             return max(values)
         return max((self._current_from_measurement(m) for m in self.measurements), default=0.0)
 
     def _initial_pwm_for_voltage(self, target_voltage, phase):
-        if target_voltage <= 0: return phase.pwm_min
+        if target_voltage <= 0:
+            return phase.pwm_min
         return max(phase.pwm_min, min(phase.pwm_max, int(round((target_voltage / 9.0) * 180.0))))
 
     def _voltage_ramp_control(self, phase):
@@ -321,23 +316,30 @@ class BreakinController:
         self._voltage_control(error_target, measurement)
 
     def phase_elapsed_sec(self):
-        if self.phase_started_at is None: return 0.0
+        if self.phase_started_at is None:
+            return 0.0
         return max(0.0, time.time() - self.phase_started_at)
 
     @staticmethod
     def _measurement_value(measurement, name, default=0.0):
-        if measurement is None: return default
-        if isinstance(measurement, dict): return measurement.get(name, default)
+        if measurement is None:
+            return default
+        if isinstance(measurement, dict):
+            return measurement.get(name, default)
         return getattr(measurement, name, default)
 
     @classmethod
     def _current_from_measurement(cls, measurement):
         current = cls._measurement_value(measurement, "current_avg", None)
         if current is not None:
-            try: return abs(float(current))
-            except (TypeError, ValueError): pass
-        return max(abs(float(cls._measurement_value(measurement, "current1", 0.0) or 0.0)),
-                   abs(float(cls._measurement_value(measurement, "current2", 0.0) or 0.0)))
+            try:
+                return abs(float(current))
+            except (TypeError, ValueError):
+                pass
+        return max(
+            abs(float(cls._measurement_value(measurement, "current1", 0.0) or 0.0)),
+            abs(float(cls._measurement_value(measurement, "current2", 0.0) or 0.0)),
+        )
 
     @staticmethod
     def _value(measurement, name, default=0.0):
@@ -345,9 +347,11 @@ class BreakinController:
 
     def _voltage_control(self, phase, measurement):
         voltage = float(self._value(measurement, "motor_voltage", 0.0) or 0.0)
-        if voltage <= 0: return
+        if voltage <= 0:
+            return
         error = float(phase.target_voltage) - voltage
-        if abs(error) <= 0.02: return
+        if abs(error) <= 0.02:
+            return
         new_pwm = max(phase.pwm_min, min(phase.pwm_max, self.current_pwm + int(round(self.VOLTAGE_KP * error))))
         if new_pwm != self.current_pwm:
             self.current_pwm = new_pwm
@@ -359,13 +363,17 @@ class BreakinController:
         max_pwm = int(self.safety_config.get("max_pwm", 255) or 255)
         temperature = float(self._value(measurement, "motor_temperature", 0.0) or 0.0)
         current = self._current_from_measurement(measurement)
-        if max_temp > 0 and temperature >= max_temp: return f"SAFETY: motor temperature {temperature:.1f}C >= {max_temp:.1f}C"
-        if max_current > 0 and current >= max_current: return f"SAFETY: current {current:.2f}A >= {max_current:.2f}A"
-        if self.current_pwm > max_pwm: return f"SAFETY: PWM {self.current_pwm} > {max_pwm}"
+        if max_temp > 0 and temperature >= max_temp:
+            return f"SAFETY: motor temperature {temperature:.1f}C >= {max_temp:.1f}C"
+        if max_current > 0 and current >= max_current:
+            return f"SAFETY: current {current:.2f}A >= {max_current:.2f}A"
+        if self.current_pwm > max_pwm:
+            return f"SAFETY: PWM {self.current_pwm} > {max_pwm}"
         return None
 
     def _collect_measurement(self, phase):
-        if not self.measurement_manager: return None
+        if not self.measurement_manager:
+            return None
         measurement = self.measurement_manager.collect()
         if measurement is not None:
             if isinstance(measurement, dict):
@@ -375,19 +383,44 @@ class BreakinController:
             self.measurements.append(measurement)
         return measurement
 
+    def _get_active_motor_model(self):
+        """Return the master Motor Model for the selected Motor Instance."""
+        if self.database is None or self.active_instance_id is None:
+            return None
+        try:
+            from database.repository.motor_instance_repository import MotorInstanceRepository
+            from database.repository.motor_repository import MotorRepository
+            instance = MotorInstanceRepository(self.database).get_by_id(self.active_instance_id)
+            if not instance:
+                return None
+            model_id = instance.get("motor_model_id")
+            if model_id is None:
+                return None
+            return MotorRepository(self.database).get_by_id(model_id)
+        except Exception:
+            return None
+
     def analyze(self, measurements):
-        if self.analysis_engine is None: return measurements
-        return [self.analysis_engine.analyze(measurement) for measurement in measurements]
+        if self.analysis_engine is None:
+            return measurements
+        motor_model = self._get_active_motor_model()
+        return [
+            self.analysis_engine.analyze(measurement, motor_model=motor_model)
+            for measurement in measurements
+        ]
 
     def stop(self):
         self.running = False
         self.paused = False
-        if hasattr(self.serial, "stop_breakin"): self.serial.stop_breakin()
+        if hasattr(self.serial, "stop_breakin"):
+            self.serial.stop_breakin()
         self.serial.set_pwm(0)
 
     def emergency_stop(self):
         self.running = False
         self.paused = False
         self._save_checkpoint()
-        if hasattr(self.serial, "emergency_stop"): self.serial.emergency_stop()
-        else: self.stop()
+        if hasattr(self.serial, "emergency_stop"):
+            self.serial.emergency_stop()
+        else:
+            self.stop()
