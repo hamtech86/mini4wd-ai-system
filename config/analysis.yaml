@@ -8,24 +8,23 @@ performance:
 
     tire_diameter_mm: 24.0
 
-    # Other vehicle parameters are intentionally not considered here.
+    # Only gear ratio and tire diameter are used for the reference weight estimate.
+    # The reference conversion is retained as the system's current calibration
+    # baseline; it is not a claim of universal physical vehicle capacity.
+    weight_per_torque_g_per_gcm: 12.0
 
   rpm:
 
     # Voltage-to-RPM conversion is disabled until a validated calibration exists.
     voltage_gain: 0.0
-
     default_confidence: 0.0
 
   torque:
 
     # Torque coefficient is derived from Motor Model data.
     current_gain: 0.0
-
     default_confidence: 0.0
 
   weight:
 
-    # Weight is calculated against the fixed reference vehicle above.
-    # No chassis, tire grip, brake, course, or aerodynamic parameters are used.
     default_confidence: 0.0
