@@ -292,10 +292,33 @@ class BreakinController:
             self.measurements.append(measurement)
         return measurement
 
+    def _resolve_motor_model(self):
+        """Resolve the canonical Motor Model from the active Motor Instance."""
+        if self.database is None or self.active_instance_id is None:
+            return None
+        try:
+            from database.repository.motor_instance_repository import MotorInstanceRepository
+            from database.repository.motor_repository import MotorRepository
+            instance_repo = MotorInstanceRepository(self.database)
+            motor_repo = MotorRepository(self.database)
+            instance = instance_repo.get_by_id(self.active_instance_id)
+            if not instance:
+                return None
+            model_id = instance.get("motor_model_id")
+            if model_id is None:
+                return None
+            return motor_repo.get_by_id(model_id)
+        except Exception:
+            return None
+
     def analyze(self, measurements):
         if self.analysis_engine is None:
             return measurements
-        return [self.analysis_engine.analyze(measurement) for measurement in measurements]
+        motor_model = self._resolve_motor_model()
+        return [
+            self.analysis_engine.analyze(measurement, motor_model=motor_model)
+            for measurement in measurements
+        ]
 
     def stop(self):
         self.running = False
