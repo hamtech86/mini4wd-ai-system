@@ -1,9 +1,9 @@
 """Benchmark-aware Break-in Controller.
 
 The common motor benchmark does not start its official measurement window at
-button press time.  It first waits for a measurable, stable operating point at
-3.00 V.  Stabilization samples are deliberately discarded from the official
-benchmark sample set and therefore cannot contaminate AI-analysis RAW LOG.
+button press time. It first waits for a measurable, stable operating point.
+Stabilization samples are deliberately discarded from the official benchmark
+sample set and therefore cannot contaminate AI-analysis RAW LOG.
 """
 
 import time
@@ -15,7 +15,7 @@ class BenchmarkBreakinController(BreakinController):
     """BreakinController with condition-based benchmark start detection."""
 
     BENCHMARK_TARGET_VOLTAGE = 3.00
-    BENCHMARK_VOLTAGE_TOLERANCE = 0.10
+    BENCHMARK_START_VOLTAGE = 1.50
     BENCHMARK_MIN_CURRENT = 0.05
     BENCHMARK_STABLE_WINDOW_SEC = 0.50
     BENCHMARK_MAX_VOLTAGE_SPREAD = 0.10
@@ -43,14 +43,14 @@ class BenchmarkBreakinController(BreakinController):
         if not self.running:
             return
 
-        # Only measurements collected after the start condition belongs to the
-        # official benchmark.  Stabilization samples are intentionally removed.
+        # Only measurements collected after the start condition belong to the
+        # official benchmark. Stabilization samples are intentionally removed.
         self.measurements = []
         self.benchmark_state = "BENCHMARK_RUNNING"
         self.benchmark_started_at = time.time()
         self.benchmark_start_reason = (
-            "3V voltage in range, measurable current present, "
-            "voltage stable, PWM stable for 0.5s"
+            "motor voltage >= 1.50 V, measurable current >= 0.05 A, "
+            "and stable voltage/PWM for 0.5 s"
         )
         super().execute_phase(phase, resume_elapsed=0.0)
         if self.abort_reason:
@@ -62,19 +62,17 @@ class BenchmarkBreakinController(BreakinController):
         started = time.monotonic()
         stable_samples = []
         self.current_phase = phase
-        self.current_phase_index = self.phase_manager.current_index()
+        self.current_phase_index = phase_index = self.phase_manager.current_index()
         self.phase_elapsed_before_pause = 0.0
         self.phase_started_at = time.time()
         self.serial.forward()
-        self.current_pwm = self._initial_pwm_for_voltage(
-            self.BENCHMARK_TARGET_VOLTAGE, phase
-        )
+        self.current_pwm = self._initial_pwm_for_voltage(self.BENCHMARK_TARGET_VOLTAGE, phase)
         self.serial.set_pwm(self.current_pwm)
 
         while self.running:
             if time.monotonic() - started >= self.BENCHMARK_START_TIMEOUT_SEC:
                 self.abort_reason = (
-                    "BENCHMARK START TIMEOUT: stable 3 V operating condition "
+                    "BENCHMARK START TIMEOUT: measurable stable motor operation "
                     "was not detected within 15 seconds"
                 )
                 self.emergency_stop()
@@ -115,17 +113,21 @@ class BenchmarkBreakinController(BreakinController):
         voltage = float(self._value(measurement, "motor_voltage", 0.0) or 0.0)
         current = self._current_from_measurement(measurement)
         return (
-            self.BENCHMARK_TARGET_VOLTAGE - self.BENCHMARK_VOLTAGE_TOLERANCE
-            <= voltage
-            <= self.BENCHMARK_TARGET_VOLTAGE + self.BENCHMARK_VOLTAGE_TOLERANCE
+            voltage >= self.BENCHMARK_START_VOLTAGE
             and current >= self.BENCHMARK_MIN_CURRENT
             and self.current_pwm >= phase.pwm_min
         )
 
     def _stable_window_ok(self, samples):
         measurements = [measurement for _, measurement in samples]
-        voltages = [float(self._value(m, "motor_voltage", 0.0) or 0.0) for m in measurements]
-        pwms = [int(self._value(m, "pwm", self.current_pwm) or self.current_pwm) for m in measurements]
+        voltages = [
+            float(self._value(m, "motor_voltage", 0.0) or 0.0)
+            for m in measurements
+        ]
+        pwms = [
+            int(self._value(m, "pwm", self.current_pwm) or self.current_pwm)
+            for m in measurements
+        ]
         return (
             max(voltages) - min(voltages) <= self.BENCHMARK_MAX_VOLTAGE_SPREAD
             and max(pwms) - min(pwms) <= self.BENCHMARK_MAX_PWM_SPREAD
