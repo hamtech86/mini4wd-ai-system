@@ -13,7 +13,7 @@ DatabaseManager
 """
 
 from analysis.analysis_engine import AnalysisEngine
-from controllers.breakin_controller import BreakinController
+from controllers.benchmark_controller import BenchmarkBreakinController
 from measurement.measurement_manager import MeasurementManager
 from database.manager.database_manager import DatabaseManager
 
@@ -36,7 +36,7 @@ class ApplicationBuilder:
 
         analysis_engine = self.analysis_engine or AnalysisEngine()
 
-        return BreakinController(
+        return BenchmarkBreakinController(
             serial_controller=self.serial_controller,
             measurement_manager=measurement_manager,
             analysis_engine=analysis_engine,
