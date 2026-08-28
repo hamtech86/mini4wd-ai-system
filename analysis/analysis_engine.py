@@ -16,7 +16,7 @@ from analysis.brush import BrushAnalysis
 from analysis.breakin_strategy import BreakinStrategy
 from analysis.required_torque import RequiredTorqueAnalysis, VehicleSpec
 from analysis.scoring import Scoring
-from analysis.models import AnalysisResult, FeatureSet
+from analysis.models import AnalysisResult, FeatureSet, EstimatedValue
 
 
 class AnalysisEngine:
@@ -63,7 +63,6 @@ class AnalysisEngine:
         benchmark_model: Mapping[str, Any] | None = None,
         vehicle_spec: VehicleSpec | Mapping[str, float] | None = None,
     ) -> AnalysisResult:
-        """Analyze a session and use complete history for brush peak state."""
         items = list(measurements)
         if not items:
             return AnalysisResult(
@@ -83,7 +82,28 @@ class AnalysisEngine:
         result.confidence = min(result.confidence or 1.0, result.brush.confidence or 1.0)
         return result
 
+    def _supported_weight(self, motor_torque_gcm: float) -> float:
+        """Return the maximum supported standard weight, 115-155 g in 5 g steps."""
+        torque = max(0.0, float(motor_torque_gcm))
+        supported = 0.0
+        for weight_g in range(115, 156, 5):
+            requirement = self.required_torque.calculate(VehicleSpec(weight_g=weight_g))
+            if torque >= requirement.required_torque_gcm.value:
+                supported = float(weight_g)
+        return supported
+
     def _apply_vehicle_requirement(self, score, performance, vehicle_spec) -> None:
+        # Always expose the model-based supported-weight estimate when a motor
+        # model is linked. It is derived from the physics model, not torque*12.
+        if performance.nominal_torque_gcm > 0:
+            supported = self._supported_weight(performance.estimated_torque.value)
+            performance.estimated_supported_weight = EstimatedValue(
+                supported, "g", performance.estimated_torque.confidence * 0.85
+            )
+            score.details["estimated_supported_weight_g"] = supported
+        else:
+            score.details["estimated_supported_weight_g"] = None
+
         if vehicle_spec is None:
             score.details["required_torque_met"] = None
             return
@@ -98,7 +118,6 @@ class AnalysisEngine:
             "traction_limited": requirement.traction_limited,
             "required_torque_met": margin >= 0,
         })
-        # Minimum torque is a hard gate. Excess torque receives no additional score.
         if margin < 0:
             score.total_score = min(score.total_score, 49.0)
             score.rank = "D"
