@@ -42,7 +42,7 @@ class MockAnalysisEngine:
     def __init__(self):
         self.measurements = []
 
-    def analyze(self, measurement):
+    def analyze(self, measurement, motor_model=None):
         self.measurements.append(measurement)
         return {"result": "dummy", "sample": measurement["sample"]}
 
