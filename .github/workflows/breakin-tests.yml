@@ -21,6 +21,7 @@ jobs:
         run: |
           python -m pytest -q \
             tests/test_breakin_controller.py \
+            tests/test_benchmark_controller.py \
             tests/test_recipe_engine.py
 
   test-battery:
