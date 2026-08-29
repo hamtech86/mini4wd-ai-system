@@ -1,32 +1,31 @@
-analysis_version: "1.6"
+analysis_version: "1.7"
 
 performance:
 
   reference_vehicle:
-    # Fixed reference vehicle used by the motor/vehicle torque model.
+    # User-defined physical inputs for the motor/vehicle estimate.
+    # Course characteristics are intentionally not included here.
     gear_ratio: 3.5
     tire_diameter_mm: 24.0
+
+    # Explicit model assumptions. These are not measured course values and
+    # must not be presented as actual vehicle conditions.
     drivetrain_efficiency: 0.75
-    # Practical race-acceleration benchmark. This is a calibration constant,
-    # not a claim about instantaneous peak acceleration on every course.
     reference_acceleration_mps2: 20.0
-    reference_weight_g: 130.0
-    comparison_weight_g: 140.0
-    weight_profile_g: [115, 120, 125, 130, 135, 140, 145, 150, 155]
+
+    # IMPORTANT: no fixed 130 g reference is used by the calculation.
+    # The displayed torque-equivalent weight is calculated from available
+    # torque, gear ratio, tire diameter, acceleration and efficiency.
+    weight_profile_g: [100, 110, 120, 130, 140, 150, 160, 170, 180]
 
   rpm:
-    # Voltage-to-RPM conversion is disabled.
-    # KY-024/measured RPM remains a reference observation only. If the Motor
-    # Model is available, nominal RPM is used as the formal no-load estimate
-    # until a calibrated RPM measurement is introduced.
+    # Voltage-to-RPM conversion remains disabled until calibrated data exists.
     voltage_gain: 0.0
     default_confidence: 0.0
 
   torque:
-    # IMPORTANT: measured break-in current is not converted directly to torque.
-    # nominal_current_ma is not a calibrated stall/load-current measurement.
-    # Estimated/Available Torque therefore uses Motor Model nominal_torque_gcm
-    # as the current baseline. Individual calibration can be added later.
+    # Break-in current is diagnostic input only; it is not a calibrated
+    # load/stall current and therefore is not converted directly to torque.
     current_gain: 0.0
     default_confidence: 0.0
 
