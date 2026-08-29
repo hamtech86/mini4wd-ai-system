@@ -1,1 +1,2 @@
 log_id,motor,test_type,date,sequence,file,notes
+MOTOR-000001,アトミックチューン,トルクベーシック,2026-08-29,000001,data/motor_logs/MOTOR-000001.txt,"PWM40/PWM60/PWM80, FWD; 電圧条件は原ログ上で未確定"
