@@ -8,6 +8,8 @@ from PyQt5.QtWidgets import QApplication, QMessageBox, QGroupBox, QGridLayout, Q
 from loguru import logger
 from config import APP_NAME, APP_VERSION, LOG_DIR
 from ui.main_window import MainWindow as BaseMainWindow
+from ui.motor_analysis_display import MotorVoltageResultWidget
+from analysis.three_volt_window import extract_3v_window, motor_voltage
 from communication.serial_controller import SerialController
 from app.application_builder import ApplicationBuilder
 from ui.resume_controls import install_resume_controls, bind_resume_api
@@ -16,7 +18,7 @@ from ui.battery_database_ui import BatteryDatabaseDialog
 class MainWindow(BaseMainWindow):
     """Main UI with operator-facing motor results and Battery DB registration."""
     def __init__(self, context=None):
-        super().__init__(context); bind_resume_api(type(self)); install_resume_controls(self); self._build_top_controls(); self._build_estimated_result_panel(); self._build_battery_db_button()
+        super().__init__(context); bind_resume_api(type(self)); install_resume_controls(self); self._build_top_controls(); self._build_estimated_result_panel(); self._build_voltage_result_panel(); self._build_battery_db_button()
     def _content_layout(self):
         central=self.centralWidget(); scroll=central.findChild(QScrollArea) if central is not None else None; content=scroll.widget() if scroll is not None else None; return content.layout() if content is not None else None, content
     def _build_top_controls(self):
@@ -68,6 +70,11 @@ class MainWindow(BaseMainWindow):
         for index,(title,key) in enumerate(labels):
             card=QGroupBox(title); card_layout=QGridLayout(card); value=self.estimated_result[key]; value.setAlignment(Qt.AlignCenter); value.setStyleSheet("font-size:16px;font-weight:bold;"); card_layout.addWidget(value,0,0); grid.addWidget(card,index//2,index%2)
         layout.addWidget(box)
+    def _build_voltage_result_panel(self):
+        layout, _ = self._content_layout()
+        if layout is None: return
+        self.voltage_result_widget=MotorVoltageResultWidget(self)
+        layout.addWidget(self.voltage_result_widget)
     @staticmethod
     def _as_float(value,default=0.0):
         try: return float(value)
@@ -141,12 +148,48 @@ class MainWindow(BaseMainWindow):
     def _refresh_estimated_values(self):
         if not hasattr(self,"estimated_result"): return
         rpm,torque,brush_text,weight_text=self._estimated_values(); self.estimated_result["UNLOADED_RPM"].setText(rpm); self.estimated_result["TORQUE"].setText(torque); self.estimated_result["BRUSH_SCORE"].setText(brush_text); self.estimated_result["WEIGHT"].setText(weight_text)
+    def _refresh_voltage_result(self):
+        """Derive the voltage panel from RAW measurements only.
+
+        3.0 V is never synthesized: if the log does not reach 3.0 V the panel
+        explicitly reports that fact. The 2.8 V values are a transparent
+        proportional projection from the selected 3 V measurement.
+        """
+        if not hasattr(self,"voltage_result_widget"): return
+        window=extract_3v_window(self._measurement_series())
+        sample=window.max_voltage_sample
+        if sample is None:
+            self.voltage_result_widget.set_values(reached_3v=False)
+            return
+        voltage=motor_voltage(sample)
+        rpm=self._measurement_value(sample,"rpm","RPM","revolutions_per_minute")
+        current=self._measurement_value(sample,"current_avg","average_current","current")
+        power=self._measurement_value(sample,"power")
+        if voltage <= 0:
+            self.voltage_result_widget.set_values(reached_3v=window.reached_3v)
+            return
+        ratio=2.80/3.00
+        projected_rpm=self._as_float(rpm,None)*ratio if rpm is not None else None
+        projected_current=self._as_float(current,None)*ratio if current is not None else None
+        projected_power=self._as_float(power,None)*ratio*ratio if power is not None else None
+        self.voltage_result_widget.set_values(
+            measured_voltage=voltage,
+            measured_rpm=rpm,
+            measured_current=current,
+            measured_power=power,
+            projected_rpm=projected_rpm,
+            projected_current=projected_current,
+            projected_power=projected_power,
+            reached_3v=window.reached_3v,
+        )
     def complete(self,data,benchmark):
-        super().complete(data,benchmark); self._refresh_estimated_values()
+        super().complete(data,benchmark); self._refresh_estimated_values(); self._refresh_voltage_result()
     def failed(self,message):
         super().failed(message)
         if hasattr(self,"estimated_result"):
             for value in self.estimated_result.values(): value.setText("NOT AVAILABLE")
+        if hasattr(self,"voltage_result_widget"):
+            self.voltage_result_widget.set_values(reached_3v=False)
 
 class ApplicationRuntimeBuilder:
     SERIAL_PORT="/dev/ttyACM0"; SERIAL_BAUDRATE=57600
