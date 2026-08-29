@@ -178,6 +178,11 @@ class MainWindow(QMainWindow):
         self.copy.setMinimumHeight(36)
         self.copy.clicked.connect(self.copy_result)
         buttons.addWidget(self.copy)
+        self.raw_log = QPushButton("生ログ")
+        self.raw_log.setEnabled(False)
+        self.raw_log.setMinimumHeight(36)
+        self.raw_log.clicked.connect(self.copy_raw_log)
+        buttons.addWidget(self.raw_log)
         self.update_db = QPushButton("UPDATE DATABASE")
         self.update_db.setEnabled(False)
         self.update_db.setMinimumHeight(36)
@@ -330,6 +335,7 @@ class MainWindow(QMainWindow):
         self.database_status.setText("DATABASE: NOT UPDATED")
         self.update_db.setEnabled(False)
         self.copy.setEnabled(False)
+        self.raw_log.setEnabled(False)
         self.start.setEnabled(False)
         self.manager.setEnabled(False)
         self.instance.setEnabled(False)
@@ -375,6 +381,7 @@ class MainWindow(QMainWindow):
         self.result["BENCHMARK"].setText("3.00 V / 30 s" if benchmark else "--")
         self.result["SUMMARY"].setText("ベンチマーク測定完了" if benchmark else "ブレイクイン完了")
         self.copy.setEnabled(True)
+        self.raw_log.setEnabled(True)
         self.update_db.setEnabled(self.instance.currentData() is not None)
         self.database_status.setText("DATABASE: NOT UPDATED / 結果確認後に更新")
 
@@ -384,6 +391,7 @@ class MainWindow(QMainWindow):
         self.result["STATUS"].setText("ERROR")
         self.result["SUMMARY"].setText(message)
         self.copy.setEnabled(True)
+        self.raw_log.setEnabled(True)
         self.update_db.setEnabled(False)
         self.database_status.setText("DATABASE: NOT UPDATED / ERROR")
 
@@ -400,6 +408,30 @@ class MainWindow(QMainWindow):
         text = "\n".join(f"{key}: {widget.text()}" for key, widget in self.result.items())
         QApplication.clipboard().setText(text)
         self.copy.setText("COPIED")
+
+    def copy_raw_log(self):
+        measurements = list(getattr(self.breakin_controller, "measurements", []) or []) if self.breakin_controller else []
+        rows = []
+        for measurement in measurements:
+            if isinstance(measurement, dict):
+                rows.append(measurement)
+            elif hasattr(measurement, "__dict__"):
+                rows.append(vars(measurement))
+            else:
+                rows.append(str(measurement))
+        if rows:
+            text = json.dumps(rows, ensure_ascii=False, indent=2, default=str)
+        elif self.last_result_data is not None:
+            if isinstance(self.last_result_data, dict):
+                text = json.dumps(self.last_result_data, ensure_ascii=False, indent=2, default=str)
+            elif hasattr(self.last_result_data, "__dict__"):
+                text = json.dumps(vars(self.last_result_data), ensure_ascii=False, indent=2, default=str)
+            else:
+                text = str(self.last_result_data)
+        else:
+            text = "RAW LOG: NOT AVAILABLE"
+        QApplication.clipboard().setText(text)
+        self.raw_log.setText("生ログ COPIED")
 
     def update_database(self):
         if self.database_updated:
