@@ -26,45 +26,53 @@ class ResumeWorker(QThread):
 
 def install_resume_controls(window):
     """Install PAUSE/RESUME and raw-log verification controls."""
-    if hasattr(window, "pause_button"):
-        return
+    # PAUSE/RESUME may already be installed by another UI layer.
+    # Raw-log control must still be installed in that case.
+    if not hasattr(window, "pause_button"):
+        window.resume_worker = None
+        window.pause_button = QPushButton("PAUSE")
+        window.resume_button = QPushButton("RESUME")
+        window.pause_button.setEnabled(False)
+        window.resume_button.setEnabled(False)
+        window.pause_button.setMinimumHeight(32)
+        window.resume_button.setMinimumHeight(32)
+        window.pause_button.clicked.connect(window.pause_run)
+        window.resume_button.clicked.connect(window.resume_run)
 
-    window.resume_worker = None
-    window.pause_button = QPushButton("PAUSE")
-    window.resume_button = QPushButton("RESUME")
-    window.pause_button.setEnabled(False)
-    window.resume_button.setEnabled(False)
-    window.pause_button.setMinimumHeight(32)
-    window.resume_button.setMinimumHeight(32)
-    window.pause_button.clicked.connect(window.pause_run)
-    window.resume_button.clicked.connect(window.resume_run)
+        runtime_group = None
+        for group in window.findChildren(QGroupBox):
+            if group.title().startswith("②"):
+                runtime_group = group
+                break
 
-    runtime_group = None
-    result_group = None
-    for group in window.findChildren(QGroupBox):
-        if group.title().startswith("②"):
-            runtime_group = group
-        elif group.title() == "③ 結果":
-            result_group = group
+        if runtime_group is not None and runtime_group.layout() is not None:
+            row = QHBoxLayout()
+            row.addWidget(window.pause_button)
+            row.addWidget(window.resume_button)
+            runtime_group.layout().addItem(row)
 
-    if runtime_group is not None and runtime_group.layout() is not None:
-        row = QHBoxLayout()
-        row.addWidget(window.pause_button)
-        row.addWidget(window.resume_button)
-        runtime_group.layout().addItem(row)
+    if not hasattr(window, "raw_log_copy_button"):
+        result_group = None
+        for group in window.findChildren(QGroupBox):
+            if group.title() == "③ 結果":
+                result_group = group
+                break
 
-    window.raw_log_copy_button = QPushButton("生ログをクリップボードに登録")
-    window.raw_log_copy_button.setEnabled(False)
-    window.raw_log_copy_button.setMinimumHeight(36)
-    window.raw_log_copy_button.clicked.connect(lambda: copy_raw_log(window))
+        window.raw_log_copy_button = QPushButton("生ログをクリップボードに登録")
+        window.raw_log_copy_button.setEnabled(False)
+        window.raw_log_copy_button.setMinimumHeight(36)
+        window.raw_log_copy_button.clicked.connect(lambda: copy_raw_log(window))
 
-    if result_group is not None and result_group.layout() is not None:
-        row = QHBoxLayout()
-        row.addWidget(window.raw_log_copy_button)
-        result_group.layout().addItem(row)
+        if result_group is not None and result_group.layout() is not None:
+            row = QHBoxLayout()
+            row.addWidget(window.raw_log_copy_button)
+            result_group.layout().addItem(row)
 
     if hasattr(window, "timer"):
-        window.timer.timeout.connect(window.refresh_resume_state)
+        try:
+            window.timer.timeout.connect(window.refresh_resume_state)
+        except Exception:
+            pass
 
 
 def _raw_log_controller(window):
