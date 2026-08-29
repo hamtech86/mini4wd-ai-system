@@ -1,21 +1,18 @@
-analysis_version: "1.7"
+analysis_version: "1.8"
 
 performance:
-
   reference_vehicle:
-    # User-defined physical inputs for the motor/vehicle estimate.
-    # Course characteristics are intentionally not included here.
+    # Fixed physical inputs requested for the motor estimate.
+    # Course characteristics are intentionally excluded.
     gear_ratio: 3.5
     tire_diameter_mm: 24.0
 
-    # Explicit model assumptions. These are not measured course values and
-    # must not be presented as actual vehicle conditions.
-    drivetrain_efficiency: 0.75
-    reference_acceleration_mps2: 20.0
+    # No assumed acceleration or drivetrain efficiency is used for the
+    # motor-analysis result. These values must not silently influence weight.
+    reference_acceleration_mps2: null
+    drivetrain_efficiency: null
 
-    # IMPORTANT: no fixed 130 g reference is used by the calculation.
-    # The displayed torque-equivalent weight is calculated from available
-    # torque, gear ratio, tire diameter, acceleration and efficiency.
+    # Display candidates only; they are not used to manufacture a result.
     weight_profile_g: [100, 110, 120, 130, 140, 150, 160, 170, 180]
 
   rpm:
@@ -25,19 +22,17 @@ performance:
 
   torque:
     # Break-in current is diagnostic input only; it is not a calibrated
-    # load/stall current and therefore is not converted directly to torque.
+    # load/stall current and therefore must not be converted directly to torque.
     current_gain: 0.0
     default_confidence: 0.0
 
   weight:
-    # Race-use bands based on Torque Margin.
-    # >= 1.30: recommended
-    # >= 1.10: acceptable
-    # >= 1.00: limit
-    # <  1.00: unsuitable
-    recommended_margin: 1.30
-    acceptable_margin: 1.10
-    limit_margin: 1.00
-    margin_threshold: 1.00
+    # Weight estimation is unavailable until a calibrated motor-performance
+    # relationship exists. Do not derive weight from arbitrary acceleration
+    # or drivetrain-efficiency assumptions.
+    recommended_margin: null
+    acceptable_margin: null
+    limit_margin: null
+    margin_threshold: null
     default_confidence: 0.0
     calibrated: false
