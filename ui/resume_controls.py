@@ -1,6 +1,6 @@
 """UI controls for safe recipe pause/resume."""
 
-from PyQt5.QtCore import QThread, pyqtSignal
+from PyQt5.QtCore import QThread, pyqtSignal, QTimer
 from PyQt5.QtWidgets import QApplication, QGroupBox, QHBoxLayout, QMessageBox, QPushButton
 
 
@@ -27,7 +27,6 @@ class ResumeWorker(QThread):
 def install_resume_controls(window):
     """Install PAUSE/RESUME and raw-log verification controls."""
     # PAUSE/RESUME may already be installed by another UI layer.
-    # Raw-log control must still be installed in that case.
     if not hasattr(window, "pause_button"):
         window.resume_worker = None
         window.pause_button = QPushButton("PAUSE")
@@ -51,28 +50,42 @@ def install_resume_controls(window):
             row.addWidget(window.resume_button)
             runtime_group.layout().addItem(row)
 
+    # The integrated application builds the final MOTOR BREAK-IN page after
+    # this installer is called. If ③ 結果 does not exist yet, retry after the
+    # current event-loop turn so the button is attached to the actual UI.
     if not hasattr(window, "raw_log_copy_button"):
-        result_group = None
-        for group in window.findChildren(QGroupBox):
-            if group.title() == "③ 結果":
-                result_group = group
-                break
-
-        window.raw_log_copy_button = QPushButton("生ログをクリップボードに登録")
-        window.raw_log_copy_button.setEnabled(False)
-        window.raw_log_copy_button.setMinimumHeight(36)
-        window.raw_log_copy_button.clicked.connect(lambda: copy_raw_log(window))
-
-        if result_group is not None and result_group.layout() is not None:
-            row = QHBoxLayout()
-            row.addWidget(window.raw_log_copy_button)
-            result_group.layout().addItem(row)
+        _install_raw_log_button(window)
+        if not hasattr(window, "raw_log_copy_button"):
+            QTimer.singleShot(0, lambda: _install_raw_log_button(window))
 
     if hasattr(window, "timer"):
         try:
             window.timer.timeout.connect(window.refresh_resume_state)
         except Exception:
             pass
+
+
+def _install_raw_log_button(window):
+    if hasattr(window, "raw_log_copy_button"):
+        return
+
+    result_group = None
+    for group in window.findChildren(QGroupBox):
+        if group.title() == "③ 結果":
+            result_group = group
+            break
+
+    if result_group is None or result_group.layout() is None:
+        return
+
+    window.raw_log_copy_button = QPushButton("生ログをクリップボードに登録")
+    window.raw_log_copy_button.setEnabled(False)
+    window.raw_log_copy_button.setMinimumHeight(36)
+    window.raw_log_copy_button.clicked.connect(lambda: copy_raw_log(window))
+
+    row = QHBoxLayout()
+    row.addWidget(window.raw_log_copy_button)
+    result_group.layout().addItem(row)
 
 
 def _raw_log_controller(window):
