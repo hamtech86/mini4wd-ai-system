@@ -15,15 +15,19 @@ from battery_system.serial import BatterySerial
 from app.application_builder import ApplicationBuilder
 from ui.resume_controls import install_resume_controls,bind_resume_api
 from ui.battery_tab_ui import BatteryTab
-from ui.battery_database_ui import BatteryDatabaseDialog
 
 class MainWindow(BaseMainWindow):
     """Main UI with separate Motor Break-in and Battery tabs."""
     def __init__(self,context=None):
-        super().__init__(context); bind_resume_api(type(self)); install_resume_controls(self)
-        self._extract_motor_page(); self._build_estimated_result_panel(); self._build_voltage_result_panel()
-        self.battery_serial_controller=context.get("battery_serial_controller") if context else None
-        self._build_integrated_ui()
+        super().__init__(context)
+        bind_resume_api(type(self)); install_resume_controls(self)
+        context=context if isinstance(context,dict) else {}
+        # BaseMainWindow receives the BreakinController, but the operator
+        # connection controls must use the exact SerialController instance
+        # created by ApplicationRuntimeBuilder.
+        self.serial_controller=context.get("serial_controller")
+        self.battery_serial_controller=context.get("battery_serial_controller")
+        self._extract_motor_page(); self._build_estimated_result_panel(); self._build_voltage_result_panel(); self._build_integrated_ui()
     def _extract_motor_page(self):
         central=self.centralWidget()
         if central is None:return
@@ -43,16 +47,16 @@ class MainWindow(BaseMainWindow):
         self.battery_serial_status=QLabel("BATTERY: DISCONNECTED  /dev/ttyUSB0"); self.battery_connect=QPushButton("BATTERY CONNECT"); self.battery_disconnect=QPushButton("BATTERY DISCONNECT"); self.battery_disconnect.setEnabled(False)
         self.motor_connect.clicked.connect(self.connect_motor_serial); self.motor_disconnect.clicked.connect(self.disconnect_motor_serial); self.battery_connect.clicked.connect(self.connect_battery_serial); self.battery_disconnect.clicked.connect(self.disconnect_battery_serial)
         row.addWidget(self.motor_serial_status,0,0); row.addWidget(self.motor_connect,0,1); row.addWidget(self.motor_disconnect,0,2); row.addWidget(self.battery_serial_status,1,0); row.addWidget(self.battery_connect,1,1); row.addWidget(self.battery_disconnect,1,2); root_layout.addWidget(device_box)
-        tabs=QTabWidget(); tabs.addTab(old_central,"MOTOR BREAK-IN"); self.battery_tab=BatteryTab(self.db_path,transport=self.battery_serial_controller,parent=self); tabs.addTab(self.battery_tab,"BATTERY"); root_layout.addWidget(tabs,1); self.setCentralWidget(root)
+        tabs=QTabWidget(); tabs.addTab(old_central,"MOTOR BREAK-IN")
+        self.battery_tab=BatteryTab(self.db_path,transport=self.battery_serial_controller,parent=self); tabs.addTab(self.battery_tab,"BATTERY"); root_layout.addWidget(tabs,1); self.setCentralWidget(root)
     def _motor_controller(self):
-        c=getattr(self,"serial_controller",None)
-        return c if c is not None else getattr(getattr(self,"breakin_controller",None),"serial_controller",None)
+        return self.serial_controller
     def connect_motor_serial(self):
         c=self._motor_controller()
-        if c is None: QMessageBox.warning(self,"Motor Connection","Motor serial controller is not available."); return
+        if c is None: QMessageBox.warning(self,"Motor Connection","Serial controller is not available."); return
         if c.connected:return
         if c.connect(): self.motor_serial_status.setText("MOTOR: CONNECTED  /dev/ttyACM0 @ 57600"); self.motor_connect.setEnabled(False); self.motor_disconnect.setEnabled(True)
-        else:self.motor_serial_status.setText(f"MOTOR: CONNECTION FAILED  /dev/ttyACM0 ({getattr(c,'last_error','')})")
+        else: self.motor_serial_status.setText(f"MOTOR: CONNECTION FAILED  /dev/ttyACM0 ({getattr(c,'last_error','serial connection failed')})")
     def disconnect_motor_serial(self):
         c=self._motor_controller()
         if c is not None:
