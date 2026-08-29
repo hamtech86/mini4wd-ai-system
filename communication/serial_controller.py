@@ -27,6 +27,7 @@ class SerialController:
         self.last_pwm = 0
         self.direction = "FWD"
         self.command_log = []
+        self.last_raw_data = None
 
     def connect(self):
         if serial is None:
@@ -83,13 +84,7 @@ class SerialController:
         return command
 
     def read_measurement(self):
-        """Read the newest DATA frame available from Arduino.
-
-        Firmware emits READY/RUN DATA periodically.  Consuming only one
-        line per controller tick can leave the application behind a backlog
-        of READY frames. Drain the current input buffer and return the last
-        DATA frame so the controller works on the latest motor state.
-        """
+        """Read the newest DATA frame and retain the exact raw CSV string."""
         if not (self.connected and self.serial):
             return None
 
@@ -102,5 +97,8 @@ class SerialController:
             print("SERIAL RX:", decoded)
             if decoded.startswith("DATA,"):
                 latest_data = decoded
+
+        if latest_data is not None:
+            self.last_raw_data = latest_data
 
         return latest_data
