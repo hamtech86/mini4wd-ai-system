@@ -21,7 +21,7 @@ performance:
     # Torque is the input to the simple supported-weight conversion.
     # The break-in current is NOT converted directly to torque.
     current_gain: 0.0
-    default_confidence: 0.0
+    default_confidence: 1.0
 
   weight:
     # Simple project conversion:
