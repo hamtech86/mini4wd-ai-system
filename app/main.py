@@ -1,5 +1,6 @@
 """MINI4WD AI SYSTEM / MOTOR_BREAKIN_V3 application entry point."""
 import sys
+import sqlite3
 from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -91,11 +92,25 @@ class MainWindow(BaseMainWindow):
             except Exception:logger.exception("Failed to disconnect battery serial")
         self.battery_serial_status.setText("BATTERY: DISCONNECTED  /dev/ttyUSB0");self.battery_connect.setEnabled(True);self.battery_disconnect.setEnabled(False);self.battery_tab.set_connected(False)
 
+    def _selected_motor_spec(self):
+        instance_id=self.instance.currentData() if hasattr(self,"instance") else None
+        if instance_id is None:return {}
+        try:
+            conn=sqlite3.connect(f"file:{self.db_path}?mode=ro",uri=True)
+            row=conn.execute("SELECT mm.nominal_voltage,mm.nominal_rpm,mm.nominal_current_ma,mm.nominal_torque_gcm FROM motor_instance mi JOIN motor_model mm ON mm.motor_model_id=mi.motor_model_id WHERE mi.instance_id=?",(int(instance_id),)).fetchone()
+            conn.close()
+            if not row:return {}
+            return {"nominal_voltage":row[0],"nominal_rpm":row[1],"nominal_current_ma":row[2],"nominal_torque_gcm":row[3]}
+        except Exception:
+            logger.exception("Failed to load motor nominal specification")
+            return {}
+
     def _build_estimated_result_panel(self):
         content=self.motor_content; layout=content.layout() if content is not None else None
         if layout is None:return
-        self.estimated_result={"UNLOADED_RPM":QLabel("--"),"TORQUE":QLabel("--"),"BRUSH_SCORE":QLabel("--"),"WEIGHT":QLabel("--")};box=QGroupBox("ESTIMATED PERFORMANCE / 推定値");grid=QGridLayout(box)
-        labels=(("無負荷回転数（推定）","UNLOADED_RPM"),("トルク（推定）","TORQUE"),("ブラシピーク（推定）","BRUSH_SCORE"),("対応車重（推定）","WEIGHT"))
+        self.estimated_result={"RPM_3V":QLabel("--"),"RPM_28V":QLabel("--"),"TORQUE_3V":QLabel("--"),"TORQUE_28V":QLabel("--"),"WEIGHT":QLabel("--")}
+        box=QGroupBox("ESTIMATED PERFORMANCE / 推定値");grid=QGridLayout(box)
+        labels=(("3.0V換算 推定RPM","RPM_3V"),("2.8V換算 推定RPM","RPM_28V"),("3.0V換算 推定トルク","TORQUE_3V"),("2.8V換算 推定トルク","TORQUE_28V"),("対応車重（推定）","WEIGHT"))
         for index,(title,key) in enumerate(labels):
             card=QGroupBox(title);card_layout=QGridLayout(card);value=self.estimated_result[key];value.setAlignment(Qt.AlignCenter);value.setStyleSheet("font-size:16px;font-weight:bold;");card_layout.addWidget(value,0,0);grid.addWidget(card,index//2,index%2)
         layout.addWidget(box)
@@ -105,12 +120,12 @@ class MainWindow(BaseMainWindow):
         measurement=getattr(measurement,"last_measurement",None)
         if measurement is None:return
         try:
-            analysis=self.analysis_engine.analyze(measurement)
+            analysis=self.analysis_engine.analyze(measurement,self._selected_motor_spec())
             performance=analysis.performance
-            brush=analysis.brush
-            self.estimated_result["UNLOADED_RPM"].setText(f"{performance.estimated_no_load_rpm.value:.0f} rpm")
-            self.estimated_result["TORQUE"].setText(f"{performance.estimated_torque.value:.2f} g·cm")
-            self.estimated_result["BRUSH_SCORE"].setText(f"{brush.peak_score.value:+.1f} / 10")
+            self.estimated_result["RPM_3V"].setText(f"{performance.estimated_rpm_3v.value:.0f} rpm")
+            self.estimated_result["RPM_28V"].setText(f"{performance.estimated_rpm_28v.value:.0f} rpm")
+            self.estimated_result["TORQUE_3V"].setText(f"{performance.estimated_torque_3v.value:.2f} g·cm")
+            self.estimated_result["TORQUE_28V"].setText(f"{performance.estimated_torque_28v.value:.2f} g·cm")
             self.estimated_result["WEIGHT"].setText(f"{performance.estimated_supported_weight.value:.0f} g")
         except Exception:
             logger.exception("Failed to calculate estimated performance")
