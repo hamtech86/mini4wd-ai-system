@@ -1,4 +1,4 @@
-analysis_version: "1.8"
+analysis_version: "1.9"
 
 performance:
   reference_vehicle:
@@ -7,32 +7,26 @@ performance:
     gear_ratio: 3.5
     tire_diameter_mm: 24.0
 
-    # No assumed acceleration or drivetrain efficiency is used for the
-    # motor-analysis result. These values must not silently influence weight.
+    # These are retained as vehicle reference metadata only.
     reference_acceleration_mps2: null
     drivetrain_efficiency: null
 
-    # Display candidates only; they are not used to manufacture a result.
     weight_profile_g: [100, 110, 120, 130, 140, 150, 160, 170, 180]
 
   rpm:
-    # Voltage-to-RPM conversion remains disabled until calibrated data exists.
     voltage_gain: 0.0
     default_confidence: 0.0
 
   torque:
-    # Break-in current is diagnostic input only; it is not a calibrated
-    # load/stall current and therefore must not be converted directly to torque.
+    # Torque is the input to the simple supported-weight conversion.
+    # The break-in current is NOT converted directly to torque.
     current_gain: 0.0
     default_confidence: 0.0
 
   weight:
-    # Weight estimation is unavailable until a calibrated motor-performance
-    # relationship exists. Do not derive weight from arbitrary acceleration
-    # or drivetrain-efficiency assumptions.
-    recommended_margin: null
-    acceptable_margin: null
-    limit_margin: null
-    margin_threshold: null
-    default_confidence: 0.0
-    calibrated: false
+    # Simple project conversion:
+    # 121.2 g·cm torque -> 130 g supported weight.
+    # Therefore supported_weight_g = torque_gcm * 130 / 121.2.
+    torque_to_weight_g_per_gcm: 1.0726072607
+    default_confidence: 1.0
+    calibrated: true
