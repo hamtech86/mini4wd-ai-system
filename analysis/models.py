@@ -49,7 +49,12 @@ class PerformanceResult:
     estimated_torque: EstimatedValue = field(default_factory=EstimatedValue)
     estimated_supported_weight: EstimatedValue = field(default_factory=EstimatedValue)
 
-    # Backward-compatible aliases retained for existing consumers.
+    # Four mandatory reference-voltage estimates.
+    estimated_rpm_3v: EstimatedValue = field(default_factory=EstimatedValue)
+    estimated_rpm_28v: EstimatedValue = field(default_factory=EstimatedValue)
+    estimated_torque_3v: EstimatedValue = field(default_factory=EstimatedValue)
+    estimated_torque_28v: EstimatedValue = field(default_factory=EstimatedValue)
+
     @property
     def estimated_rpm(self) -> EstimatedValue:
         return self.estimated_no_load_rpm
