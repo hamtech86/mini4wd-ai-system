@@ -1,7 +1,7 @@
 """UI controls for safe recipe pause/resume."""
 
 from PyQt5.QtCore import QThread, pyqtSignal
-from PyQt5.QtWidgets import QGroupBox, QHBoxLayout, QMessageBox, QPushButton
+from PyQt5.QtWidgets import QApplication, QGroupBox, QHBoxLayout, QMessageBox, QPushButton
 
 
 class ResumeWorker(QThread):
@@ -25,7 +25,7 @@ class ResumeWorker(QThread):
 
 
 def install_resume_controls(window):
-    """Install PAUSE/RESUME controls without changing the stable UI structure."""
+    """Install PAUSE/RESUME and raw-log verification controls."""
     if hasattr(window, "pause_button"):
         return
 
@@ -40,18 +40,48 @@ def install_resume_controls(window):
     window.resume_button.clicked.connect(window.resume_run)
 
     runtime_group = None
+    result_group = None
     for group in window.findChildren(QGroupBox):
         if group.title().startswith("②"):
             runtime_group = group
-            break
+        elif group.title() == "③ 結果":
+            result_group = group
+
     if runtime_group is not None and runtime_group.layout() is not None:
         row = QHBoxLayout()
         row.addWidget(window.pause_button)
         row.addWidget(window.resume_button)
         runtime_group.layout().addItem(row)
 
+    window.raw_log_copy_button = QPushButton("生ログをクリップボードに登録")
+    window.raw_log_copy_button.setEnabled(False)
+    window.raw_log_copy_button.setMinimumHeight(36)
+    window.raw_log_copy_button.clicked.connect(lambda: copy_raw_log(window))
+
+    if result_group is not None and result_group.layout() is not None:
+        row = QHBoxLayout()
+        row.addWidget(window.raw_log_copy_button)
+        result_group.layout().addItem(row)
+
     if hasattr(window, "timer"):
         window.timer.timeout.connect(window.refresh_resume_state)
+
+
+def _raw_log_controller(window):
+    controller = getattr(window, "breakin_controller", None)
+    if controller is None:
+        return None
+    return getattr(controller, "serial_controller", None) or getattr(controller, "serial", None)
+
+
+def copy_raw_log(window):
+    controller = _raw_log_controller(window)
+    raw = getattr(controller, "last_raw_data", None) if controller is not None else None
+    if not raw:
+        QMessageBox.information(window, "生ログ", "コピー可能なDATA生ログがまだありません。")
+        return
+    QApplication.clipboard().setText(raw)
+    window.raw_log_copy_button.setText("生ログを登録済み")
 
 
 def _checkpoint_for_window(window):
@@ -86,6 +116,10 @@ def refresh_resume_state(window):
 
     window.pause_button.setEnabled(running and not paused)
     window.resume_button.setEnabled(paused or (not running and resumable))
+
+    raw_controller = _raw_log_controller(window)
+    if hasattr(window, "raw_log_copy_button"):
+        window.raw_log_copy_button.setEnabled(bool(getattr(raw_controller, "last_raw_data", None)))
 
     if paused:
         window.run_state.setText("PAUSED / RESUME AVAILABLE")
