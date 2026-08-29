@@ -9,6 +9,8 @@ from analysis.models import EstimatedValue, FeatureSet, PerformanceResult
 class PerformanceAnalysis:
     """Estimate motor torque and supported weight from measured current."""
 
+    DEFINITION_VERSION = "torque-weight-v6-estimated-current"
+
     def __init__(self, config: dict[str, Any]):
         self.config = config
 
@@ -38,12 +40,12 @@ class PerformanceAnalysis:
         features: FeatureSet,
         motor_model: Optional[dict[str, Any]] = None,
     ) -> PerformanceResult:
-        """Estimate torque from RAW current and nominal motor specifications.
+        """Estimate torque from RAW LOG average current.
 
         This is explicitly an estimate, not a direct torque measurement.
-        The provisional torque-per-amp coefficient is derived from the motor
-        model's nominal torque and nominal current, then applied to the RAW
-        LOG average motor current.
+        The torque-per-current coefficient is derived from the motor model's
+        nominal torque and nominal current, then applied to the RAW LOG
+        average motor current.
         """
         result = PerformanceResult()
         performance = self.config.get("performance", {})
@@ -85,6 +87,7 @@ class PerformanceAnalysis:
             torque_coefficient = nominal_torque / nominal_current_a
 
         if measured_current is not None and torque_coefficient is not None:
+            # v6: RAW LOG average current × nominal torque / nominal current.
             torque = max(0.0, measured_current) * torque_coefficient
             torque_source = "RAW_CURRENT_X_NOMINAL_TORQUE_CURRENT_COEFFICIENT"
             torque_confidence = float(
@@ -112,13 +115,12 @@ class PerformanceAnalysis:
             confidence=torque_confidence,
         )
 
-        # Simple project rule: 121.2 g·cm corresponds to 130 g.
+        # The v6 weight conversion is configuration-owned. Do not use a
+        # vehicle's observed/test weight as an input to the calculation.
         torque_to_weight = float(
-            weight_config.get(
-                "torque_to_weight_g_per_gcm", 130.0 / 121.2
-            )
+            weight_config.get("torque_to_weight_g_per_gcm", 0.0)
         )
-        supported_weight = torque * torque_to_weight
+        supported_weight = max(0.0, torque * torque_to_weight)
         result.estimated_supported_weight = EstimatedValue(
             value=supported_weight,
             unit="g",
@@ -128,20 +130,24 @@ class PerformanceAnalysis:
         result.weight_profile = [
             {
                 "weight_g": float(weight),
-                "required_torque_gcm": float(weight) / torque_to_weight,
+                "required_torque_gcm": (
+                    float(weight) / torque_to_weight
+                    if torque_to_weight > 0
+                    else 0.0
+                ),
             }
             for weight in reference.get("weight_profile_g", [])
         ]
         result.weight_suitability = {
             "status": (
                 "CALCULATED_FROM_ESTIMATED_TORQUE"
-                if torque_confidence > 0
-                else "UNAVAILABLE_NO_TORQUE"
+                if torque_confidence > 0 and torque_to_weight > 0
+                else "UNAVAILABLE_NO_TORQUE_TO_WEIGHT_CONVERSION"
             ),
             "reason": (
-                "Torque is estimated from RAW LOG average current using a "
-                "provisional coefficient derived from motor nominal torque "
-                "and nominal current. Supported weight is a direct torque-to-weight conversion."
+                "Torque is estimated from RAW LOG average current using the "
+                "motor-model nominal torque/current coefficient. Supported "
+                "weight is calculated from the configured v6 torque-to-weight conversion."
             ),
             "gear_ratio": float(reference.get("gear_ratio", 3.5)),
             "tire_diameter_mm": float(reference.get("tire_diameter_mm", 24.0)),
@@ -155,6 +161,6 @@ class PerformanceAnalysis:
             "torque_gcm": torque,
             "torque_source": torque_source,
             "torque_to_weight_g_per_gcm": torque_to_weight,
-            "definition_version": "torque-weight-v6-estimated-current",
+            "definition_version": self.DEFINITION_VERSION,
         }
         return result
