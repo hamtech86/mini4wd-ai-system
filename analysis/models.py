@@ -1,4 +1,4 @@
-"""Analysis Engine data models for MOTOR_BREAKIN_V3."""
+"""Fresh result contracts for the rebuilt Motor Analysis pipeline."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -17,7 +17,7 @@ class FeatureSet:
     voltage: float = 0.0
     current: float = 0.0
     pwm: float = 0.0
-    rpm: float = 0.0
+    rpm: float = 0.0  # retained for compatibility; Motor Analysis must not consume it
     average_voltage: float = 0.0
     average_current: float = 0.0
     temperature: float = 0.0
@@ -27,6 +27,8 @@ class FeatureSet:
     quality: float = 1.0
     brush_peak_current: float = 0.0
     current_ripple: float = 0.0
+    average_power: float = 0.0
+    voltage_ripple: float = 0.0
 
 
 @dataclass
@@ -44,12 +46,12 @@ class ValidationResult:
 
 @dataclass
 class PerformanceResult:
-    """Motor performance estimates used by the UI/result contract."""
+    """The complete rebuilt Motor Analysis result contract."""
     estimated_no_load_rpm: EstimatedValue = field(default_factory=EstimatedValue)
     estimated_torque: EstimatedValue = field(default_factory=EstimatedValue)
+    brush_peak_life_cycle: EstimatedValue = field(default_factory=EstimatedValue)
     estimated_supported_weight: EstimatedValue = field(default_factory=EstimatedValue)
 
-    # Four mandatory reference-voltage estimates.
     estimated_rpm_3v: EstimatedValue = field(default_factory=EstimatedValue)
     estimated_rpm_28v: EstimatedValue = field(default_factory=EstimatedValue)
     estimated_torque_3v: EstimatedValue = field(default_factory=EstimatedValue)
@@ -122,7 +124,7 @@ class AnalysisResult:
     brush: BrushResult = field(default_factory=BrushResult)
     strategy: StrategyResult = field(default_factory=StrategyResult)
     score: ScoreResult = field(default_factory=ScoreResult)
-    analysis_version: str = "1.0"
-    algorithm_version: str = "1.0"
+    analysis_version: str = "2.0"
+    algorithm_version: str = "2.0"
     config_version: str = "1.0"
     recipe_version: str = "1.0"
