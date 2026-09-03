@@ -13,6 +13,7 @@ from ui.main_window import MainWindow as BaseMainWindow
 from communication.serial_controller import SerialController
 from battery_system.serial import BatterySerial
 from app.application_builder import ApplicationBuilder
+from app.raw_log_paste import install_raw_log_paste_ui
 from ui.resume_controls import install_resume_controls, bind_resume_api
 from ui.battery_tab_ui import BatteryTab
 from controllers.recipe_engine import RecipeEngine
@@ -26,6 +27,7 @@ class MainWindow(BaseMainWindow):
         super().__init__(context)
         self.analysis_engine=AnalysisEngine(str(PROJECT_ROOT / "config"))
         bind_resume_api(type(self)); install_resume_controls(self); self._extract_motor_page(); self._build_estimated_result_panel()
+        install_raw_log_paste_ui(self)
         self.battery_serial_controller = context.get("battery_serial_controller") if context else None
         self._build_recipe_sequence_panel(); self._build_integrated_ui()
         if hasattr(self,"start"): self.start.setText("START SELECTED SEQUENCE")
