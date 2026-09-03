@@ -115,9 +115,18 @@ class RawLogPastePanel(QGroupBox):
                 measurement,
                 self.window._selected_motor_spec(),
             )
-            self.window._update_estimated_result_from_measurement(
-                measurement, analysis
-            )
+            performance = analysis.performance
+            result = getattr(self.window, "estimated_result", {})
+            values = {
+                "RPM_3V": f"{performance.estimated_rpm_3v.value:.0f} rpm",
+                "RPM_28V": f"{performance.estimated_rpm_28v.value:.0f} rpm",
+                "TORQUE_3V": f"{performance.estimated_torque_3v.value:.2f} g·cm",
+                "TORQUE_28V": f"{performance.estimated_torque_28v.value:.2f} g·cm",
+                "WEIGHT": f"{performance.estimated_supported_weight.value:.0f} g",
+            }
+            for key, text in values.items():
+                if key in result:
+                    result[key].setText(text)
             self.status.setText(
                 f"DATA rows: {len(self.measurements)} / "
                 f"selected: {index + 1}"
