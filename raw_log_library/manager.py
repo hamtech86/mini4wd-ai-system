@@ -1,6 +1,6 @@
 """Common manager for immutable Motor/Battery raw logs.
 
-The manager treats ``log_id`` as the logical entry point.  Raw bytes/text are
+The manager treats ``log_id`` as the logical entry point. Raw bodies are
 stored separately from editable management metadata, so metadata updates do
 not modify the original log body.
 """
@@ -15,21 +15,10 @@ from typing import Dict, List, Optional
 
 
 INDEX_FIELDS = [
-    "log_id",
-    "device_type",
-    "device_model",
-    "firmware_version",
-    "device_instance_id",
-    "channel",
-    "motor_id",
-    "battery_id",
-    "measurement_session_id",
-    "acquired_at",
-    "measurement_condition",
-    "source_reference",
-    "raw_path",
-    "metadata_path",
-    "notes",
+    "log_id", "device_type", "device_model", "firmware_version",
+    "device_instance_id", "channel", "motor_id", "battery_id",
+    "measurement_session_id", "acquired_at", "measurement_condition",
+    "source_reference", "raw_path", "metadata_path", "notes",
 ]
 
 
@@ -58,11 +47,11 @@ class RawLogLibrary:
         self.index_path = self.root / "index.csv"
 
     def _device_dir(self, record: RawLog) -> Path:
-        if record.device_type.upper() not in {"MOTOR", "BATTERY"}:
+        kind = record.device_type.upper()
+        if kind not in {"MOTOR", "BATTERY"}:
             raise ValueError("device_type must be MOTOR or BATTERY")
-        individual_id = record.motor_id if record.device_type.upper() == "MOTOR" else record.battery_id
-        individual_id = individual_id or "UNASSIGNED"
-        return self.root / record.device_type.lower() / individual_id
+        individual_id = record.motor_id if kind == "MOTOR" else record.battery_id
+        return self.root / record.device_type.lower() / (individual_id or "UNASSIGNED")
 
     def _metadata_path(self, record: RawLog) -> Path:
         return self._device_dir(record) / "metadata.json"
@@ -74,7 +63,7 @@ class RawLogLibrary:
         return {field: "" if row.get(field) is None else str(row.get(field)) for field in INDEX_FIELDS}
 
     def register(self, record: RawLog, raw_body: str, extension: str = ".log") -> Path:
-        """Register a new raw log; refuse to overwrite an existing raw body."""
+        """Register a new raw log and refuse to overwrite its raw body."""
         if not record.log_id:
             raise ValueError("log_id is required")
         if not extension.startswith("."):
@@ -84,17 +73,23 @@ class RawLogLibrary:
         device_dir.mkdir(parents=True, exist_ok=True)
         raw_path = device_dir / f"{record.log_id}{extension}"
         metadata_path = self._metadata_path(record)
-
         if raw_path.exists():
             raise FileExistsError(f"immutable raw log already exists: {raw_path}")
-        if metadata_path.exists():
-            raise FileExistsError(f"metadata already exists for individual: {metadata_path}")
 
-        # Write raw body exactly as supplied. No parsing, normalization, or derived values.
+        # One metadata.json is maintained per individual, keyed by log_id.
+        metadata = {}
+        if metadata_path.exists():
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            if not isinstance(metadata, dict):
+                raise ValueError(f"invalid metadata store: {metadata_path}")
+            if record.log_id in metadata:
+                raise FileExistsError(f"metadata already exists for log_id: {record.log_id}")
+
+        # Raw body is written exactly as supplied. No parsing or derived values.
         raw_path.write_text(raw_body, encoding="utf-8", newline="")
+        metadata[record.log_id] = asdict(record)
         metadata_path.write_text(
-            json.dumps(asdict(record), ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
+            json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
         self._append_index(self._index_row(record, raw_path))
         return raw_path
@@ -110,22 +105,24 @@ class RawLogLibrary:
         data = asdict(record)
         data.update(changes)
         updated = RawLog(**{key: data.get(key) for key in asdict(record)})
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata[log_id] = asdict(updated)
         metadata_path.write_text(
-            json.dumps(asdict(updated), ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
+            json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
         self._rewrite_index_row(updated, raw_path)
         return updated
 
     def get(self, log_id: str) -> tuple[RawLog, Path, Path]:
-        """Resolve a log by logical ``log_id`` rather than by storage path."""
-        rows = self._read_index()
-        for row in rows:
-            if row.get("log_id") == log_id:
-                metadata_path = self.root / row["metadata_path"]
-                raw_path = self.root / row["raw_path"]
-                data = json.loads(metadata_path.read_text(encoding="utf-8"))
-                return RawLog(**data), raw_path, metadata_path
+        """Resolve a log by logical ``log_id``, not by storage path."""
+        for row in self._read_index():
+            if row.get("log_id") != log_id:
+                continue
+            metadata_path = self.root / row["metadata_path"]
+            raw_path = self.root / row["raw_path"]
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            data = metadata[log_id]
+            return RawLog(**data), raw_path, metadata_path
         raise KeyError(f"unknown log_id: {log_id}")
 
     def read_raw(self, log_id: str) -> str:
@@ -134,13 +131,11 @@ class RawLogLibrary:
         return raw_path.read_text(encoding="utf-8")
 
     def list_logs(self, device_type: Optional[str] = None) -> List[RawLog]:
-        rows = self._read_index()
         result: List[RawLog] = []
-        for row in rows:
+        for row in self._read_index():
             if device_type and row.get("device_type", "").upper() != device_type.upper():
                 continue
-            _, _, metadata_path = self.get(row["log_id"])
-            result.append(RawLog(**json.loads(metadata_path.read_text(encoding="utf-8"))))
+            result.append(self.get(row["log_id"])[0])
         return result
 
     def _read_index(self) -> List[Dict[str, str]]:
@@ -160,14 +155,12 @@ class RawLogLibrary:
 
     def _rewrite_index_row(self, record: RawLog, raw_path: Path) -> None:
         rows = self._read_index()
-        found = False
         replacement = self._index_row(record, raw_path)
         for i, row in enumerate(rows):
             if row.get("log_id") == record.log_id:
                 rows[i] = replacement
-                found = True
                 break
-        if not found:
+        else:
             raise KeyError(f"unknown log_id: {record.log_id}")
         with self.index_path.open("w", encoding="utf-8", newline="") as fh:
             writer = csv.DictWriter(fh, fieldnames=INDEX_FIELDS)
