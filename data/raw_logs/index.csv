@@ -1,0 +1,1 @@
+log_id,device_type,device_model,firmware_version,device_instance_id,channel,motor_id,battery_id,measurement_session_id,acquired_at,measurement_condition,source_reference,raw_path,metadata_path,notes
