@@ -61,6 +61,15 @@ class SerialController:
         return self.serial.is_connected
 
     @property
+    def raw_log(self):
+        """Current serial connection's raw-log snapshot."""
+        return self.serial.raw_log
+
+    @property
+    def has_raw_log(self):
+        return self.serial.has_raw_log
+
+    @property
     def direction(self):
         return getattr(self, "_direction", "FWD")
 
