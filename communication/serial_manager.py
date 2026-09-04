@@ -30,6 +30,7 @@ from app.constants import (
 )
 
 from communication.csv_parser import CSVParser
+from communication.raw_log_collector import RawLogCollector
 
 
 class SerialReader(QThread):
@@ -38,10 +39,11 @@ class SerialReader(QThread):
     received = pyqtSignal(dict)
     error = pyqtSignal(str)
 
-    def __init__(self, serial_port):
+    def __init__(self, serial_port, raw_log_collector=None):
         super().__init__()
         self.serial_port = serial_port
         self.parser = CSVParser()
+        self.raw_log_collector = raw_log_collector
         self.running = True
 
     def stop(self):
@@ -58,13 +60,13 @@ class SerialReader(QThread):
                     self.msleep(5)
                     continue
 
-                line = (
-                    self.serial_port
-                    .readline()
-                    .decode("utf-8", errors="ignore")
-                    .strip()
-                )
+                # Keep the received serial text before any parsing/stripping.
+                raw_line = self.serial_port.readline().decode("utf-8", errors="ignore")
+                if self.raw_log_collector is not None:
+                    self.raw_log_collector.append(raw_line)
 
+                # CSVParser keeps its existing line-oriented contract.
+                line = raw_line.rstrip("\r\n")
                 if not line:
                     continue
 
@@ -89,10 +91,20 @@ class SerialManager(QObject):
         super().__init__()
         self.serial = None
         self.reader = None
+        self.raw_log_collector = RawLogCollector()
 
     @property
     def is_connected(self):
         return self.serial is not None and self.serial.is_open
+
+    @property
+    def raw_log(self):
+        """Current connection's immutable raw-log snapshot."""
+        return self.raw_log_collector.snapshot()
+
+    @property
+    def has_raw_log(self):
+        return self.raw_log_collector.has_data
 
     @staticmethod
     def available_ports():
@@ -110,8 +122,9 @@ class SerialManager(QObject):
 
             self.serial.reset_input_buffer()
             self.serial.reset_output_buffer()
+            self.raw_log_collector.reset()
 
-            self.reader = SerialReader(self.serial)
+            self.reader = SerialReader(self.serial, self.raw_log_collector)
             self.reader.received.connect(self.received)
             self.reader.error.connect(self.error)
             self.reader.start()
