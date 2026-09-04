@@ -97,9 +97,9 @@ def _raw_log_controller(window):
 
 def copy_raw_log(window):
     controller = _raw_log_controller(window)
-    raw = getattr(controller, "last_raw_data", None) if controller is not None else None
+    raw = getattr(controller, "raw_log", None) if controller is not None else None
     if not raw:
-        QMessageBox.information(window, "生ログ", "コピー可能なDATA生ログがまだありません。")
+        QMessageBox.information(window, "生ログ", "コピー可能な生ログがまだありません。")
         return
     QApplication.clipboard().setText(raw)
     window.raw_log_copy_button.setText("生ログを登録済み")
@@ -140,7 +140,7 @@ def refresh_resume_state(window):
 
     raw_controller = _raw_log_controller(window)
     if hasattr(window, "raw_log_copy_button"):
-        window.raw_log_copy_button.setEnabled(bool(getattr(raw_controller, "last_raw_data", None)))
+        window.raw_log_copy_button.setEnabled(bool(getattr(raw_controller, "raw_log", None)))
 
     if paused:
         window.run_state.setText("PAUSED / RESUME AVAILABLE")
