@@ -46,7 +46,7 @@ class RawLogLibrary:
     """Filesystem-backed raw-log library with an immutable raw-body boundary."""
 
     ID_WIDTH = 6
-    _ID_PATTERN = re.compile(r"^(MOTOR|BATTERY)-(\d{6})$")
+    _ID_PATTERN = re.compile(r"^(MOTOR|BATTERY)-(\d{6})(?:_|$)")
 
     def __init__(self, root: str | Path = "data/raw_logs") -> None:
         self.root = Path(root)
@@ -84,8 +84,8 @@ class RawLogLibrary:
 
         # Compatibility guard: historical logs may exist outside the current
         # index. Their IDs are never rewritten, but their numbers must not be
-        # reissued. Scan the Local library and the surrounding data tree for
-        # canonical legacy IDs (for example data/motor_logs/MOTOR-000001_*).
+        # reissued. Scan the Local library and surrounding data tree for
+        # canonical legacy IDs such as MOTOR-000001_SOURCE.md.
         for search_root in (self.root / kind.lower(), self.root.parent):
             if not search_root.exists():
                 continue
@@ -94,7 +94,7 @@ class RawLogLibrary:
             except OSError:
                 continue
             for path in paths:
-                match = self._ID_PATTERN.fullmatch(path.stem)
+                match = self._ID_PATTERN.match(path.stem)
                 if match and match.group(1) == kind:
                     maximum = max(maximum, int(match.group(2)))
 
