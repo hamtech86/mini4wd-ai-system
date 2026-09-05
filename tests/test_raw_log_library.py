@@ -44,6 +44,18 @@ def test_existing_storage_id_is_not_reissued(tmp_path):
     assert record.log_id == "MOTOR-000004"
 
 
+def test_legacy_suffixed_id_is_reserved(tmp_path):
+    library = RawLogLibrary(tmp_path)
+    legacy_dir = tmp_path / "legacy" / "motor_logs"
+    legacy_dir.mkdir(parents=True)
+    (legacy_dir / "MOTOR-000004_SOURCE.md").write_text("legacy\n", encoding="utf-8")
+
+    record = RawLog(device_type="MOTOR")
+    library.register(record, "new\n")
+
+    assert record.log_id == "MOTOR-000005"
+
+
 def test_caller_cannot_supply_new_log_id_and_metadata_cannot_change_it(tmp_path):
     library = RawLogLibrary(tmp_path)
 
