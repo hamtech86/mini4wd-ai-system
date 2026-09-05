@@ -13,8 +13,7 @@ FULL_PACKAGE = "FULL_PACKAGE"
 
 
 def _collect(self, phase):
-    measurement = self._collect_measurement(phase)
-    return measurement
+    return self._collect_measurement(phase)
 
 
 def _safety(self, measurement):
@@ -93,7 +92,6 @@ def _begin(self, benchmark_type, instance_id=None, purpose="MEASUREMENT"):
     self.benchmark_type = benchmark_type
     self.benchmark_purpose = purpose
     self.benchmark_baseline_pwm = None
-    self.benchmark_phase_log = []
     self.session = None
     if self.session_manager:
         try:
@@ -121,44 +119,55 @@ def run_benchmark(self, benchmark_type=STANDARD_3V30S, instance_id=None, purpose
     self.current_pwm = self._initial_pwm_for_voltage(3.00, stable_phase)
     self.serial.forward()
     self.serial.set_pwm(self.current_pwm)
-    if not _wait_for_stable_3v(self, stable_phase, 2.0):
-        if self.session is not None: self.session.error()
-        if self.measurement_manager is not None: self.measurement_manager.logger.stop()
-        self._finalize_benchmark_raw_log()
-        raise RuntimeError(self.abort_reason or "Benchmark stopped before 3.00 V stability was established")
+    try:
+        if not _wait_for_stable_3v(self, stable_phase, 2.0):
+            raise RuntimeError(self.abort_reason or "Benchmark stopped before 3.00 V stability was established")
 
-    self.benchmark_baseline_pwm = int(self.current_pwm)
-    stable_measure = BreakinPhase("STABLE_3V_30S", 30, self.current_pwm, "FWD", "VOLTAGE", 3.00, pwm_min=35, pwm_max=120)
-    self.current_phase = stable_measure
-    self.current_phase_index = 1
-    if not _timed_voltage(self, stable_measure, 30.0):
-        raise RuntimeError(self.abort_reason or "Benchmark stopped")
+        self.benchmark_baseline_pwm = int(self.current_pwm)
+        stable_measure = BreakinPhase("STABLE_3V_30S", 30, self.current_pwm, "FWD", "VOLTAGE", 3.00, pwm_min=35, pwm_max=120)
+        self.current_phase = stable_measure
+        self.current_phase_index = 0
+        if not _timed_voltage(self, stable_measure, 30.0):
+            raise RuntimeError(self.abort_reason or "Benchmark stopped")
 
-    if benchmark_type == STANDARD_3V30S:
-        self._finish_benchmark([stable_measure])
+        if benchmark_type == STANDARD_3V30S:
+            self._finish_benchmark([stable_measure])
+            return self.measurements
+
+        plus = max(0, min(255, int(round(self.benchmark_baseline_pwm * 1.05))))
+        plus_phase = BreakinPhase("PWM_PLUS_5_30S", 30, plus, "FWD", "PWM", pwm_min=0, pwm_max=255)
+        self.current_phase = plus_phase; self.current_phase_index = 1; self.current_pwm = plus
+        self.serial.set_pwm(plus)
+        if not _timed_pwm(self, plus_phase, 30.0): raise RuntimeError(self.abort_reason or "Benchmark stopped")
+
+        return_phase_1 = BreakinPhase("RETURN_3V_BUFFER_10S_1", 10, self.current_pwm, "FWD", "VOLTAGE", 3.00, pwm_min=35, pwm_max=120)
+        self.current_phase = return_phase_1; self.current_phase_index = 2
+        if not _timed_voltage(self, return_phase_1, 10.0): raise RuntimeError(self.abort_reason or "Benchmark stopped")
+
+        minus = max(0, min(255, int(round(self.benchmark_baseline_pwm * 0.95))))
+        minus_phase = BreakinPhase("PWM_MINUS_5_30S", 30, minus, "FWD", "PWM", pwm_min=0, pwm_max=255)
+        self.current_phase = minus_phase; self.current_phase_index = 3; self.current_pwm = minus
+        self.serial.set_pwm(minus)
+        if not _timed_pwm(self, minus_phase, 30.0): raise RuntimeError(self.abort_reason or "Benchmark stopped")
+
+        return_phase_2 = BreakinPhase("RETURN_3V_BUFFER_10S_2", 10, self.current_pwm, "FWD", "VOLTAGE", 3.00, pwm_min=35, pwm_max=120)
+        self.current_phase = return_phase_2; self.current_phase_index = 4
+        if not _timed_voltage(self, return_phase_2, 10.0): raise RuntimeError(self.abort_reason or "Benchmark stopped")
+        self._finish_benchmark([stable_measure, plus_phase, return_phase_1, minus_phase, return_phase_2])
         return self.measurements
-
-    plus = max(0, min(255, int(round(self.benchmark_baseline_pwm * 1.05))))
-    plus_phase = BreakinPhase("PWM_PLUS_5_30S", 30, plus, "FWD", "PWM", pwm_min=0, pwm_max=255)
-    self.current_phase = plus_phase; self.current_phase_index = 2; self.current_pwm = plus
-    self.serial.set_pwm(plus)
-    if not _timed_pwm(self, plus_phase, 30.0): raise RuntimeError(self.abort_reason or "Benchmark stopped")
-
-    return_phase_1 = BreakinPhase("RETURN_3V_BUFFER_10S_1", 10, self.current_pwm, "FWD", "VOLTAGE", 3.00, pwm_min=35, pwm_max=120)
-    self.current_phase = return_phase_1; self.current_phase_index = 3
-    if not _timed_voltage(self, return_phase_1, 10.0): raise RuntimeError(self.abort_reason or "Benchmark stopped")
-
-    minus = max(0, min(255, int(round(self.benchmark_baseline_pwm * 0.95))))
-    minus_phase = BreakinPhase("PWM_MINUS_5_30S", 30, minus, "FWD", "PWM", pwm_min=0, pwm_max=255)
-    self.current_phase = minus_phase; self.current_phase_index = 4; self.current_pwm = minus
-    self.serial.set_pwm(minus)
-    if not _timed_pwm(self, minus_phase, 30.0): raise RuntimeError(self.abort_reason or "Benchmark stopped")
-
-    return_phase_2 = BreakinPhase("RETURN_3V_BUFFER_10S_2", 10, self.current_pwm, "FWD", "VOLTAGE", 3.00, pwm_min=35, pwm_max=120)
-    self.current_phase = return_phase_2; self.current_phase_index = 5
-    if not _timed_voltage(self, return_phase_2, 10.0): raise RuntimeError(self.abort_reason or "Benchmark stopped")
-    self._finish_benchmark([stable_measure, plus_phase, return_phase_1, minus_phase, return_phase_2])
-    return self.measurements
+    except Exception:
+        self.serial.set_pwm(0)
+        self.current_pwm = 0
+        self.running = False
+        if self.session is not None:
+            if self.abort_reason:
+                self.session.error()
+            else:
+                self.session.cancel()
+        if self.measurement_manager is not None:
+            self.measurement_manager.logger.stop()
+        self._finalize_benchmark_raw_log()
+        raise
 
 
 def _finish_benchmark(self, phases):
