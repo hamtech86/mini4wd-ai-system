@@ -99,12 +99,16 @@ class SerialManager(QObject):
 
     @property
     def raw_log(self):
-        """Current connection's immutable raw-log snapshot."""
+        """Current measurement/connection raw-log snapshot."""
         return self.raw_log_collector.snapshot()
 
     @property
     def has_raw_log(self):
         return self.raw_log_collector.has_data
+
+    def reset_raw_log(self):
+        """Start a fresh raw-log capture without reconnecting the port."""
+        self.raw_log_collector.reset()
 
     @staticmethod
     def available_ports():
