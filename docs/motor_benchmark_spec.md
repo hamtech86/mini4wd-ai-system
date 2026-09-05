@@ -42,6 +42,12 @@ START / startup
     -> END
 ```
 
+### 4.1 Meaning of 3.0 V
+
+The **3.0 V benchmark condition represents the nominal electrical condition of two dry-cell batteries used for Mini 4WD running**.
+
+Accordingly, 3.0 V is a benchmark reference condition for relating motor measurements to practical Mini 4WD operation. It is not a claim that an actual two-cell battery pack remains exactly 3.0 V under all operating conditions.
+
 The objective is to provide a simple common baseline for repeated measurements and individual comparison.
 
 The exact raw time-series remains the authoritative result; the benchmark does not define what constitutes a good or bad motor.
@@ -53,9 +59,9 @@ The full package uses the following sequence:
 ```text
 START / startup
     -> 3.0 V stable drive
-    -> PWM +5 %
+    -> PWM +5 % relative to baseline PWM
     -> 3.0 V return / stable drive
-    -> PWM -5 %
+    -> PWM -5 % relative to baseline PWM
     -> 3.0 V return / stable drive
     -> END drive
     -> END
@@ -73,19 +79,50 @@ This allows cases such as a motor whose magnetization/break-in process was unsuc
 
 Operate at the benchmark target of 3.0 V and retain the raw time-series.
 
+For FULL_PACKAGE, the **baseline PWM is the actual PWM value established while the motor is in the 3.0 V stable-drive condition immediately before the first PWM perturbation**.
+
+The baseline is therefore not a separately entered nominal PWM value. It is the PWM value actually used by the control system to establish the 3.0 V benchmark condition.
+
+The baseline PWM value must be retained in the raw log/session data when available so that the later analysis can reconstruct the applied perturbation.
+
 ### 5.3 PWM +5 % / return to 3.0 V
 
-Increase PWM by 5 % relative to the applicable baseline PWM, retain the raw time-series, then return to the 3.0 V stable-drive condition.
+Increase PWM by **5 % relative to the baseline PWM** established in Section 5.2 and retain the raw time-series during the perturbation.
 
-The benchmark does not prescribe an interpretation of the response.
+The purpose of this change is to create a small experimental perturbation for observing the motor's response to a PWM change, while avoiding a deliberately large PWM change that could substantially alter the motor's operating condition.
+
+The 5 % value is an **experimental condition, not an evaluation threshold, score boundary, or final performance criterion**. Its suitability remains subject to later real-machine verification and may be revised based on acquired data.
+
+After the +5 % perturbation, return to the **3.0 V benchmark condition** before proceeding to the -5 % perturbation.
+
+Returning to 3.0 V means restoring the benchmark's voltage condition; it does not redefine the baseline PWM. The baseline PWM remains the value recorded from the original 3.0 V stable-drive condition.
+
+The benchmark does not prescribe an interpretation of the observed response.
 
 ### 5.4 PWM -5 % / return to 3.0 V
 
-Decrease PWM by 5 % relative to the applicable baseline PWM, retain the raw time-series, then return to the 3.0 V stable-drive condition.
+Decrease PWM by **5 % relative to the same baseline PWM** defined in Section 5.2, retain the raw time-series, then return to the **3.0 V benchmark condition**.
+
+The +5 % and -5 % perturbations therefore use the same reference PWM. They are not calculated successively from one another.
+
+The purpose is to make the response to a small PWM decrease observable while keeping the experimental condition symmetric around the original baseline PWM.
 
 The benchmark does not prescribe an interpretation of the response.
 
-### 5.5 End drive
+### 5.5 PWM bounds and implementation interpretation
+
+The ±5 % perturbation is defined mathematically relative to the recorded baseline PWM:
+
+```text
+PWM_plus  = baseline_PWM × 1.05
+PWM_minus = baseline_PWM × 0.95
+```
+
+The resulting command must remain within the valid PWM command range of the hardware/software implementation. If integer PWM commands are required, the implementation must use a deterministic rounding rule and retain the resulting commanded PWM in the raw log.
+
+No additional performance meaning is assigned to the resulting PWM value.
+
+### 5.6 End drive
 
 For the normal benchmark termination, **command PWM to zero immediately rather than using a fade-out**.
 
@@ -114,6 +151,10 @@ Motor Instance
             |     +-- STANDARD_3V30S
             |     +-- FULL_PACKAGE
             |
+            +-- purpose (when supported)
+            |     +-- measurement
+            |     +-- break-in / conditioning
+            |
             +-- raw log
 ```
 
@@ -123,9 +164,9 @@ Example:
 
 ```text
 MOTOR-000001
-  Session-001  STANDARD_3V30S
+  Session-001  STANDARD_3V30S  (measurement)
   Session-002  FULL_PACKAGE   (break-in / conditioning)
-  Session-003  STANDARD_3V30S
+  Session-003  STANDARD_3V30S  (measurement)
 ```
 
 This permits later comparison without guessing which procedure produced a log.
@@ -154,6 +195,8 @@ At minimum, the raw record should retain the existing measurement fields for:
 - measurement/session linkage;
 - benchmark mode at the session level.
 
+For FULL_PACKAGE, the baseline PWM and the commanded PWM during each perturbation should be retained where supported, so that the +5 % / -5 % experimental condition can be reconstructed without inference from later calculations.
+
 Phase/state labels are desirable where supported, but they must not cause loss of the underlying time-series data.
 
 ## 10. Explicit non-goals
@@ -171,6 +214,8 @@ This specification does **not** define:
 - final evaluation logic;
 - machine-learning features or labels.
 
+The ±5 % PWM change is also **not** an evaluation threshold or performance criterion. It is a provisional experimental perturbation condition whose validity will be checked against real-machine data.
+
 Those decisions remain downstream of benchmark data acquisition and subsequent logic validation.
 
 ## 11. Review / acceptance target
@@ -178,12 +223,13 @@ Those decisions remain downstream of benchmark data acquisition and subsequent l
 The benchmark design is ready for Command Tower review when the reviewer can confirm all of the following:
 
 1. Exactly two selectable benchmark modes exist: `STANDARD_3V30S` and `FULL_PACKAGE`.
-2. `STANDARD_3V30S` provides the common 3.0 V / 30 s raw-log baseline.
-3. `FULL_PACKAGE` records startup, 3.0 V stable operation, PWM +5 %, return to 3.0 V, PWM -5 %, return to 3.0 V, and clear termination.
+2. `STANDARD_3V30S` provides the common 3.0 V / 30 s raw-log baseline, with 3.0 V representing the nominal two-dry-cell Mini 4WD running condition.
+3. `FULL_PACKAGE` records startup, 3.0 V stable operation, PWM +5 % relative to the original 3.0 V stable-drive PWM, return to 3.0 V, PWM -5 % relative to the same original baseline PWM, return to 3.0 V, and clear termination.
 4. Difficult-start motors can be recorded without imposing an evaluation judgment.
-5. `FULL_PACKAGE` can also be used as the break-in / conditioning procedure.
+5. `FULL_PACKAGE` can also be used as the break-in / conditioning procedure, with purpose kept separate from benchmark type.
 6. The selected benchmark mode is stored by the Library Manager / Measurement Session.
 7. Raw time-series data remains the source of truth.
 8. No unvalidated evaluation logic has been introduced.
+9. The ±5 % change remains a provisional experimental condition subject to real-machine validation, not a final evaluation criterion.
 
 Implementation is intentionally outside the scope of this specification. Any implementation or schema change should proceed only after Command Tower review/approval.
