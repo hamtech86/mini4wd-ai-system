@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from PyQt5.QtWidgets import (
+    QDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -115,7 +116,8 @@ class RawLogManagerExtension:
             QMessageBox.critical(self.manager, "Raw Log", str(exc))
             return
 
-        dialog = QWidget(self.manager, windowTitle=f"Raw Body — {self.selected_log_id}")
+        dialog = QDialog(self.manager)
+        dialog.setWindowTitle(f"Raw Body — {self.selected_log_id}")
         dialog.resize(900, 600)
         layout = QVBoxLayout(dialog)
         text = QLineEdit()
