@@ -62,12 +62,16 @@ class SerialController:
 
     @property
     def raw_log(self):
-        """Current serial connection's raw-log snapshot."""
+        """Current measurement/connection raw-log snapshot."""
         return self.serial.raw_log
 
     @property
     def has_raw_log(self):
         return self.serial.has_raw_log
+
+    def reset_raw_log(self):
+        """Start a fresh raw-log capture without reconnecting the port."""
+        return self.serial.reset_raw_log()
 
     @property
     def direction(self):
