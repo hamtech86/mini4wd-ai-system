@@ -111,7 +111,10 @@ class MotorInstanceUI:
 
     def open_manager(self):
         from motor_system.python.ui.motor_manager_ui import MotorManagerUI
+        from ui.raw_log_manager_extension import install_raw_log_manager_extension
+
         self._manager_window = MotorManagerUI()
+        install_raw_log_manager_extension(self._manager_window)
         self._manager_window.setAttribute(55, True)
         self._manager_window.show()
         self._manager_window.raise_()
