@@ -21,6 +21,8 @@ from controllers.sequence_executor import SequenceExecutor
 from controllers.breakin_sequence_adapter import BreakinSequenceAdapter
 from workers.breakin_worker import BreakinWorker
 from analysis.analysis_engine import AnalysisEngine
+from controllers.session_controller import SessionController
+from controllers.motor_benchmark import STANDARD_3V30S, FULL_PACKAGE
 
 class MainWindow(BaseMainWindow):
     def __init__(self, context=None):
@@ -159,13 +161,16 @@ class MainWindow(BaseMainWindow):
         self.sequence_checks=[];self.sequence_progress.setValue(0);self.sequence_status.setText(status)
 
     def _load_benchmark_sequence(self):
-        self._clear_sequence_panel("Motor Benchmark Test: Sequenceを選択してください")
-        check=QCheckBox("01 | BENCHMARK_3V | BENCHMARK | FWD | 3.00 V / 30 s")
-        check.setChecked(True)
-        self.sequence_layout.addWidget(check)
-        self.sequence_checks=[(self.BENCHMARK_KEY,check)]
+        self._clear_sequence_panel("Motor Benchmark: benchmark modeを選択してください")
+        standard=QCheckBox("01 | STANDARD_3V30S | 3.00 V stable → 30 s")
+        full=QCheckBox("02 | FULL_PACKAGE | stable 30 s → +5% 30 s → return 10 s → -5% 30 s → return 10 s")
+        standard.setChecked(True)
+        standard.setProperty("benchmark_type", STANDARD_3V30S)
+        full.setProperty("benchmark_type", FULL_PACKAGE)
+        self.sequence_layout.addWidget(standard);self.sequence_layout.addWidget(full)
+        self.sequence_checks=[(self.BENCHMARK_KEY,standard),(self.BENCHMARK_KEY,full)]
         self.sequence_layout.addStretch()
-        self.sequence_status.setText("Motor Benchmark Test: 1 Sequence")
+        self.sequence_status.setText("Motor Benchmark: STANDARD_3V30S / FULL_PACKAGE")
 
     def _load_recipe_sequence(self,name):
         recipe=self.recipe_engine.get(name)
@@ -212,10 +217,10 @@ class MainWindow(BaseMainWindow):
     def _execute_selected_sequences(self):
         name=self._current_recipe_name()
         if name==self.BENCHMARK_KEY:
-            enabled_ids={sid for sid,check in self.sequence_checks if check.isChecked()}
-            if self.BENCHMARK_KEY not in enabled_ids:
-                self.sequence_status.setText("Benchmark Sequenceが選択されていません");return
-            self._start_benchmark()
+            selected=[check for sid,check in self.sequence_checks if sid==self.BENCHMARK_KEY and check.isChecked()]
+            if len(selected)!=1:
+                self.sequence_status.setText("STANDARD_3V30S または FULL_PACKAGE を1つ選択してください");return
+            self._start_benchmark(selected[0].property("benchmark_type"))
             return
         recipe=self.recipe_engine.get(name)
         if recipe is None:self.sequence_status.setText("レシピが選択されていません");return
@@ -226,9 +231,12 @@ class MainWindow(BaseMainWindow):
         self.sequence_selected_ids=enabled_ids;self.sequence_selected_total=len(enabled_ids);self.sequence_progress.setValue(0);self.sequence_progress.setFormat(f"Sequence Progress: 0/{self.sequence_selected_total}  %p%")
         self.sequence_executor.load_recipe(recipe,enabled_ids=enabled_ids);self.sequence_executor.start();self.sequence_timer.start();self.timer.start();self.sequence_execute.setEnabled(False);self.sequence_stop.setEnabled(True);self.start.setEnabled(False);self.stop.setEnabled(True);self.manager.setEnabled(False);self.instance.setEnabled(False);self.recipe.setEnabled(False);self.update_db.setEnabled(False);self.copy.setEnabled(False);self.result["STATUS"].setText("RUNNING");self.run_state.setText("STARTING...");current=self.sequence_executor.current();self._update_sequence_highlight(current.sequence_id if current else None);self._update_sequence_main_ui(current)
 
-    def _start_benchmark(self):
+    def _start_benchmark(self, benchmark_type=STANDARD_3V30S):
         if not self.breakin_controller:
             QMessageBox.warning(self,"Controller","BreakinController is not available.");return
+        controller=self._motor_controller()
+        if controller is None or not getattr(controller,"connected",False):QMessageBox.warning(self,"Benchmark","先にMOTOR CONNECTを実行してください。");return
+        self.breakin_controller.selected_benchmark_type=benchmark_type
         self.database_updated=False;self.last_result_data=None;self.last_result_benchmark=True;self.database_status.setText("DATABASE: NOT UPDATED");self.update_db.setEnabled(False);self.copy.setEnabled(False);self.start.setEnabled(False);self.manager.setEnabled(False);self.instance.setEnabled(False);self.recipe.setEnabled(False);self.stop.setEnabled(True);self.result["STATUS"].setText("RUNNING");self.run_state.setText("STARTING...")
         self.breakin_worker=BreakinWorker(self.breakin_controller,None,True)
         self.breakin_worker.completed.connect(lambda data:self.complete(data,True));self.breakin_worker.failed.connect(self.failed);self.breakin_worker.finished.connect(self.finished);self.timer.start();self.breakin_worker.start()
@@ -265,7 +273,8 @@ class MainWindow(BaseMainWindow):
 
 def build_context():
     serial_controller=SerialController(serial_port="/dev/ttyACM0",baudrate=57600)
-    builder=ApplicationBuilder(serial_controller=serial_controller)
+    session_controller=SessionController()
+    builder=ApplicationBuilder(serial_controller=serial_controller,session_manager=session_controller)
     breakin_controller=builder.build_breakin_controller()
     battery_serial_controller=BatterySerial(port="/dev/ttyUSB0",baudrate=57600)
     return {"serial_controller":serial_controller,"breakin_controller":breakin_controller,"battery_serial_controller":battery_serial_controller}
