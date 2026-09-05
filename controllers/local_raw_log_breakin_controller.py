@@ -23,8 +23,6 @@ class LocalRawLogBreakinController(BreakinController):
         self.last_raw_log_path = None
 
     def start(self, recipe, instance_id=None, resume=False):
-        # The collector is connection-scoped for compatibility. Establish the
-        # measurement boundary immediately before the measurement begins.
         if hasattr(self.serial, "reset_raw_log"):
             self.serial.reset_raw_log()
         try:
@@ -42,6 +40,14 @@ class LocalRawLogBreakinController(BreakinController):
 
         session_id = getattr(self.session, "session_id", None)
         firmware = getattr(self.session, "firmware_version", "") or ""
+        benchmark_type = getattr(self, "benchmark_type", None) or self.active_recipe_name or ""
+        baseline_pwm = getattr(self, "benchmark_baseline_pwm", None)
+        purpose = getattr(self, "benchmark_purpose", None)
+        notes = ""
+        if baseline_pwm is not None:
+            notes = f"baseline_pwm={baseline_pwm}"
+        if purpose:
+            notes = f"{notes}; purpose={purpose}" if notes else f"purpose={purpose}"
         record = RawLog(
             device_type="MOTOR",
             firmware_version=firmware,
@@ -49,7 +55,8 @@ class LocalRawLogBreakinController(BreakinController):
             motor_id=self.active_instance_id,
             measurement_session_id=session_id,
             acquired_at=datetime.now().isoformat(timespec="seconds"),
-            measurement_condition=self.active_recipe_name or "",
+            measurement_condition=benchmark_type,
+            notes=notes,
         )
         path = self.raw_log_library.register(record, raw_body)
         self.last_raw_log_id = record.log_id
