@@ -84,10 +84,16 @@ class RawLogLibrary:
 
         # Compatibility guard: historical logs may exist outside the current
         # index. Their IDs are never rewritten, but their numbers must not be
-        # reissued. Scan only the device-type storage tree for canonical IDs.
-        device_root = self.root / kind.lower()
-        if device_root.exists():
-            for path in device_root.rglob(f"{prefix}*.log"):
+        # reissued. Scan the Local library and the surrounding data tree for
+        # canonical legacy IDs (for example data/motor_logs/MOTOR-000001_*).
+        for search_root in (self.root / kind.lower(), self.root.parent):
+            if not search_root.exists():
+                continue
+            try:
+                paths = search_root.rglob(f"{prefix}*")
+            except OSError:
+                continue
+            for path in paths:
                 match = self._ID_PATTERN.fullmatch(path.stem)
                 if match and match.group(1) == kind:
                     maximum = max(maximum, int(match.group(2)))
