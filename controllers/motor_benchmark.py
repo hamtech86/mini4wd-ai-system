@@ -12,24 +12,8 @@ STANDARD_3V30S = "STANDARD_3V30S"
 FULL_PACKAGE = "FULL_PACKAGE"
 
 
-def _phase(name, duration, control="VOLTAGE", pwm=0, target=3.00):
-    return BreakinPhase(
-        name=name,
-        duration_sec=duration,
-        pwm=pwm,
-        direction="FWD",
-        control=control,
-        target_voltage=target if control == "VOLTAGE" else None,
-        pwm_min=35 if control == "VOLTAGE" else 0,
-        pwm_max=120 if control == "VOLTAGE" else 255,
-        metadata={"benchmark_type": getattr(_phase, "benchmark_type", "")},
-    )
-
-
 def _collect(self, phase):
     measurement = self._collect_measurement(phase)
-    if measurement is not None and self.session is not None:
-        self.session.add_measurement()
     return measurement
 
 
@@ -110,32 +94,38 @@ def _begin(self, benchmark_type, instance_id=None, purpose="MEASUREMENT"):
     self.benchmark_purpose = purpose
     self.benchmark_baseline_pwm = None
     self.benchmark_phase_log = []
+    self.session = None
     if self.session_manager:
         try:
             self.session = self.session_manager.start("BREAKIN", instance_id=self.active_instance_id)
         except TypeError:
             self.session = self.session_manager.start("BREAKIN")
+    if self.session is not None:
+        self.session.benchmark_type = benchmark_type
+        self.session.purpose = purpose
+        self.session.notes = f"benchmark_type={benchmark_type}; purpose={purpose}"
+    if self.measurement_manager is not None:
+        self.measurement_manager.session = self.session
         if self.session is not None:
-            self.session.benchmark_type = benchmark_type
-            self.session.purpose = purpose
-            self.session.notes = f"benchmark_type={benchmark_type}; purpose={purpose}"
+            self.measurement_manager.logger.start(self.session.session_id)
+            self.measurement_manager.filters.reset()
 
 
 def run_benchmark(self, benchmark_type=STANDARD_3V30S, instance_id=None, purpose="MEASUREMENT"):
     if benchmark_type not in (STANDARD_3V30S, FULL_PACKAGE):
         raise ValueError(f"Unsupported benchmark type: {benchmark_type}")
     _begin(self, benchmark_type, instance_id, purpose)
-    stable_phase = BreakinPhase("STABLE_3V_START", 0, 60, "FWD", "VOLTAGE", 3.00, pwm_min=35, pwm_max=120)
+    stable_phase = BreakinPhase("STABILITY_GATE_2S", 0, 60, "FWD", "VOLTAGE", 3.00, pwm_min=35, pwm_max=120)
     self.current_phase = stable_phase
     self.current_phase_index = 0
     self.current_pwm = self._initial_pwm_for_voltage(3.00, stable_phase)
     self.serial.forward()
     self.serial.set_pwm(self.current_pwm)
     if not _wait_for_stable_3v(self, stable_phase, 2.0):
-        if self.session_manager and self.session: self.session.error()
+        if self.session is not None: self.session.error()
+        if self.measurement_manager is not None: self.measurement_manager.logger.stop()
         self._finalize_benchmark_raw_log()
-        if self.abort_reason: raise RuntimeError(self.abort_reason)
-        raise RuntimeError("Benchmark stopped before 3.00 V stability was established")
+        raise RuntimeError(self.abort_reason or "Benchmark stopped before 3.00 V stability was established")
 
     self.benchmark_baseline_pwm = int(self.current_pwm)
     stable_measure = BreakinPhase("STABLE_3V_30S", 30, self.current_pwm, "FWD", "VOLTAGE", 3.00, pwm_min=35, pwm_max=120)
@@ -145,7 +135,7 @@ def run_benchmark(self, benchmark_type=STANDARD_3V30S, instance_id=None, purpose
         raise RuntimeError(self.abort_reason or "Benchmark stopped")
 
     if benchmark_type == STANDARD_3V30S:
-        self._finish_benchmark()
+        self._finish_benchmark([stable_measure])
         return self.measurements
 
     plus = max(0, min(255, int(round(self.benchmark_baseline_pwm * 1.05))))
@@ -167,17 +157,20 @@ def run_benchmark(self, benchmark_type=STANDARD_3V30S, instance_id=None, purpose
     return_phase_2 = BreakinPhase("RETURN_3V_BUFFER_10S_2", 10, self.current_pwm, "FWD", "VOLTAGE", 3.00, pwm_min=35, pwm_max=120)
     self.current_phase = return_phase_2; self.current_phase_index = 5
     if not _timed_voltage(self, return_phase_2, 10.0): raise RuntimeError(self.abort_reason or "Benchmark stopped")
-    self._finish_benchmark()
+    self._finish_benchmark([stable_measure, plus_phase, return_phase_1, minus_phase, return_phase_2])
     return self.measurements
 
 
-def _finish_benchmark(self):
+def _finish_benchmark(self, phases):
     self.serial.set_pwm(0)
     self.current_pwm = 0
     self.running = False
-    if self.session_manager and self.session:
-        self.session.notes += f"; baseline_pwm={self.benchmark_baseline_pwm}; phases=STABLE_3V_30S,PWM_PLUS_5_30S,RETURN_3V_BUFFER_10S_1,PWM_MINUS_5_30S,RETURN_3V_BUFFER_10S_2"
+    phase_names = ",".join(phase.name for phase in phases)
+    if self.session is not None:
+        self.session.notes += f"; baseline_pwm={self.benchmark_baseline_pwm}; phases={phase_names}"
         self.session.finish()
+    if self.measurement_manager is not None:
+        self.measurement_manager.logger.stop()
     self._finalize_benchmark_raw_log()
 
 
@@ -192,9 +185,7 @@ def _finalize_benchmark_raw_log(self):
 def install_benchmark_support():
     def benchmark_3v(self, duration_sec=30, instance_id=None):
         benchmark_type = getattr(self, "selected_benchmark_type", STANDARD_3V30S)
-        if benchmark_type == FULL_PACKAGE:
-            return run_benchmark(self, FULL_PACKAGE, instance_id=instance_id)
-        return run_benchmark(self, STANDARD_3V30S, instance_id=instance_id)
+        return run_benchmark(self, benchmark_type, instance_id=instance_id)
     BreakinController.benchmark_3v = benchmark_3v
     BreakinController.run_benchmark = run_benchmark
 
