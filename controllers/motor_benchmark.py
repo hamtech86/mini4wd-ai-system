@@ -26,6 +26,8 @@ def _safety(self, measurement):
 
 
 def _wait_for_stable_3v(self, phase, stable_sec=2.0):
+    self.phase_started_at = time.time()
+    self.phase_elapsed_before_pause = 0.0
     stable_since = None
     while self.running:
         if self.paused:
@@ -49,6 +51,8 @@ def _wait_for_stable_3v(self, phase, stable_sec=2.0):
 
 
 def _timed_voltage(self, phase, duration):
+    self.phase_started_at = time.time()
+    self.phase_elapsed_before_pause = 0.0
     started = time.monotonic()
     while self.running and time.monotonic() - started < duration:
         if self.paused:
@@ -63,6 +67,8 @@ def _timed_voltage(self, phase, duration):
 
 
 def _timed_pwm(self, phase, duration):
+    self.phase_started_at = time.time()
+    self.phase_elapsed_before_pause = 0.0
     started = time.monotonic()
     while self.running and time.monotonic() - started < duration:
         if self.paused:
