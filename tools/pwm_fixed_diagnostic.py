@@ -3,8 +3,9 @@
 This temporary diagnostic bypasses automatic voltage control and does not alter
 STANDARD_3V30S / FULL_PACKAGE behavior.
 
-It first finds the lowest PWM that actually produces motor current/rotation
-indication, then measures fixed PWM points around the 3V operating region.
+It first finds the lowest PWM that produces an electrical response, then
+measures fixed PWM points around that region. Only samples that are actually
+RUN at the commanded PWM are used for the steady-state summary.
 """
 from __future__ import annotations
 
@@ -26,11 +27,14 @@ STEP_PWM = 1
 START_TEST_SEC = 2.0
 MEASURE_DURATION_SEC = 10.0
 DEFAULT_BAUDRATE = 57600
+STEADY_START_DELAY_SEC = 0.5
+FIXED_WINDOW_BELOW = 3
+FIXED_WINDOW_ABOVE = 3
 
 
 def parse_data(line: str):
     fields = [x.strip() for x in line.split(",")]
-    if len(fields) < 16 or fields[0] != "DATA":
+    if len(fields) < 26 or fields[0] != "DATA":
         return None
     try:
         return {
@@ -38,7 +42,7 @@ def parse_data(line: str):
             "current_avg": float(fields[14]),
             "motor_voltage": float(fields[10]),
             "pwm": int(float(fields[11])),
-            "state": fields[5],
+            "state": fields[13],
         }
     except (ValueError, IndexError):
         return None
@@ -63,32 +67,51 @@ def collect_for(serial, raw_writer, test_pwm, duration):
     started = time.monotonic()
     while time.monotonic() - started < duration:
         measurements.extend(read_and_record(serial, raw_writer, test_pwm))
-        raw_writer.writerow([test_pwm, datetime.now().isoformat(timespec="milliseconds"), ""])
         time.sleep(0.01)
     return measurements
 
 
-def summarize(pwm, measurements):
-    if not measurements:
+def run_samples(measurements, test_pwm):
+    return [
+        m for m in measurements
+        if m["state"] == "RUN" and m["pwm"] == test_pwm
+    ]
+
+
+def summarize(pwm, measurements, steady_only=False):
+    source = measurements
+    if steady_only:
+        source = run_samples(measurements, pwm)
+
+    if not source:
         return {
-            "test_pwm": pwm, "samples": 0,
-            "motor_voltage_mean": "", "motor_voltage_min": "",
-            "motor_voltage_max": "", "motor_voltage_range": "",
-            "current_mean": "", "current_min": "", "current_max": "",
-            "state_values": "", "actual_pwm_values": "",
+            "test_pwm": pwm,
+            "samples": 0,
+            "motor_voltage_mean": "",
+            "motor_voltage_min": "",
+            "motor_voltage_max": "",
+            "motor_voltage_range": "",
+            "motor_voltage_sd": "",
+            "current_mean": "",
+            "current_min": "",
+            "current_max": "",
+            "state_values": "",
+            "actual_pwm_values": "",
         }
 
-    values = [m["motor_voltage"] for m in measurements]
-    currents = [m["current_avg"] for m in measurements]
-    states = sorted(set(m["state"] for m in measurements))
-    actual_pwms = sorted(set(m["pwm"] for m in measurements))
+    values = [m["motor_voltage"] for m in source]
+    currents = [m["current_avg"] for m in source]
+    states = sorted(set(m["state"] for m in source))
+    actual_pwms = sorted(set(m["pwm"] for m in source))
     return {
         "test_pwm": pwm,
-        "samples": len(measurements),
+        "samples": len(source),
         "motor_voltage_mean": round(statistics.mean(values), 4),
         "motor_voltage_min": round(min(values), 4),
         "motor_voltage_max": round(max(values), 4),
         "motor_voltage_range": round(max(values) - min(values), 4),
+        "motor_voltage_sd": round(statistics.pstdev(values), 4)
+        if len(values) > 1 else 0.0,
         "current_mean": round(statistics.mean(currents), 4),
         "current_min": round(min(currents), 4),
         "current_max": round(max(currents), 4),
@@ -129,11 +152,11 @@ def run(args):
                 measurements = collect_for(
                     serial, raw_writer, pwm, START_TEST_SEC
                 )
-                result = summarize(pwm, measurements)
+                result = summarize(pwm, measurements, steady_only=True)
                 summary.append(result)
 
                 print(
-                    f"PWM={pwm}: samples={result['samples']}, "
+                    f"PWM={pwm}: RUN samples={result['samples']}, "
                     f"Vmean={result['motor_voltage_mean']}, "
                     f"Imean={result['current_mean']}, "
                     f"Vrange={result['motor_voltage_range']}, "
@@ -141,9 +164,7 @@ def run(args):
                     f"actual_pwm={result['actual_pwm_values']}"
                 )
 
-                # A non-zero current is used only as an electrical indication
-                # that the motor/driver is responding. This is not an evaluation
-                # threshold and does not replace physical observation.
+                # Electrical response only; this is not an evaluation threshold.
                 if (
                     measurements
                     and max(abs(m["current_avg"]) for m in measurements) >= 0.10
@@ -156,31 +177,34 @@ def run(args):
             if start_pwm_found is None:
                 print("NO ELECTRICAL START RESPONSE FOUND IN SEARCH RANGE")
             else:
-                # Re-test the found point and the next several PWM counts to
-                # characterize the low-PWM region before the 3V measurement.
-                for pwm in range(
-                    start_pwm_found,
-                    min(start_pwm_found + 10, END_PWM) + 1
-                ):
+                low = max(0, start_pwm_found - FIXED_WINDOW_BELOW)
+                high = min(END_PWM, start_pwm_found + FIXED_WINDOW_ABOVE)
+                print(
+                    f"\n=== FIXED PWM WINDOW {low}..{high}, "
+                    f"{args.duration:.1f}s each ==="
+                )
+
+                for pwm in range(low, high + 1):
                     print(f"\n=== FIXED PWM {pwm} / {args.duration:.1f}s ===")
                     serial.stop_breakin()
                     time.sleep(0.5)
                     serial.set_pwm(pwm)
                     serial.send_command("START")
-                    time.sleep(0.2)
+                    time.sleep(STEADY_START_DELAY_SEC)
 
                     measurements = collect_for(
                         serial, raw_writer, pwm, args.duration
                     )
-                    result = summarize(pwm, measurements)
+                    result = summarize(pwm, measurements, steady_only=True)
                     summary.append(result)
                     print(
-                        f"PWM={pwm}: Vmean={result['motor_voltage_mean']}, "
+                        f"PWM={pwm}: RUN samples={result['samples']}, "
+                        f"Vmean={result['motor_voltage_mean']}, "
                         f"Vmin={result['motor_voltage_min']}, "
                         f"Vmax={result['motor_voltage_max']}, "
                         f"Vrange={result['motor_voltage_range']}, "
+                        f"Vsd={result['motor_voltage_sd']}, "
                         f"Imean={result['current_mean']}, "
-                        f"state={result['state_values']}, "
                         f"actual_pwm={result['actual_pwm_values']}"
                     )
 
@@ -195,8 +219,9 @@ def run(args):
         fieldnames = [
             "test_pwm", "samples", "motor_voltage_mean",
             "motor_voltage_min", "motor_voltage_max",
-            "motor_voltage_range", "current_mean", "current_min",
-            "current_max", "state_values", "actual_pwm_values",
+            "motor_voltage_range", "motor_voltage_sd",
+            "current_mean", "current_min", "current_max",
+            "state_values", "actual_pwm_values",
         ]
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
