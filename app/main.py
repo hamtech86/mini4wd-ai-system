@@ -149,8 +149,8 @@ class MainWindow(BaseMainWindow):
 
     def _recipe_selection_changed(self,index):
         name=self.recipe.itemData(index) if hasattr(self,"recipe") else None
-        if name == self.BENCHMARK_KEY:
-            self._load_benchmark_sequence()
+        if name in (STANDARD_3V30S, FULL_PACKAGE):
+            self._load_benchmark_sequence(name)
             return
         self._load_recipe_sequence(name)
 
@@ -160,17 +160,19 @@ class MainWindow(BaseMainWindow):
             if widget is not None:widget.deleteLater()
         self.sequence_checks=[];self.sequence_progress.setValue(0);self.sequence_status.setText(status)
 
-    def _load_benchmark_sequence(self):
-        self._clear_sequence_panel("Motor Benchmark: benchmark modeを選択してください")
-        standard=QCheckBox("01 | STANDARD_3V30S | 3.00 V stable → 30 s")
-        full=QCheckBox("02 | FULL_PACKAGE | stable 30 s → +5% 30 s → return 10 s → -5% 30 s → return 10 s")
-        standard.setChecked(True)
-        standard.setProperty("benchmark_type", STANDARD_3V30S)
-        full.setProperty("benchmark_type", FULL_PACKAGE)
-        self.sequence_layout.addWidget(standard);self.sequence_layout.addWidget(full)
-        self.sequence_checks=[(self.BENCHMARK_KEY,standard),(self.BENCHMARK_KEY,full)]
+    def _load_benchmark_sequence(self, benchmark_type):
+        self._clear_sequence_panel(f"Motor Benchmark: {benchmark_type}")
+        check=QCheckBox(
+            "01 | STANDARD_3V30S | 3.00 V stable → 30 s"
+            if benchmark_type == STANDARD_3V30S
+            else "01 | FULL_PACKAGE | stable 30 s → +5% 30 s → return 10 s → -5% 30 s → return 10 s"
+        )
+        check.setChecked(True)
+        check.setProperty("benchmark_type", benchmark_type)
+        self.sequence_layout.addWidget(check)
+        self.sequence_checks=[(benchmark_type,check)]
         self.sequence_layout.addStretch()
-        self.sequence_status.setText("Motor Benchmark: STANDARD_3V30S / FULL_PACKAGE")
+        self.sequence_status.setText(f"Motor Benchmark: {benchmark_type}")
 
     def _load_recipe_sequence(self,name):
         recipe=self.recipe_engine.get(name)
@@ -216,11 +218,11 @@ class MainWindow(BaseMainWindow):
 
     def _execute_selected_sequences(self):
         name=self._current_recipe_name()
-        if name==self.BENCHMARK_KEY:
-            selected=[check for sid,check in self.sequence_checks if sid==self.BENCHMARK_KEY and check.isChecked()]
+        if name in (STANDARD_3V30S, FULL_PACKAGE):
+            selected=[check for sid,check in self.sequence_checks if sid==name and check.isChecked()]
             if len(selected)!=1:
-                self.sequence_status.setText("STANDARD_3V30S または FULL_PACKAGE を1つ選択してください");return
-            self._start_benchmark(selected[0].property("benchmark_type"))
+                self.sequence_status.setText(f"{name} が選択されていません");return
+            self._start_benchmark(name)
             return
         recipe=self.recipe_engine.get(name)
         if recipe is None:self.sequence_status.setText("レシピが選択されていません");return
