@@ -177,9 +177,9 @@ class MainWindow(BaseMainWindow):
     def _load_benchmark_sequence(self, benchmark_type):
         self._clear_sequence_panel(f"Motor Benchmark: {benchmark_type}")
         check=QCheckBox(
-            "01 | STANDARD_3V30S | 3.00 V stable → 30 s"
+            "01 | STANDARD_3V30S | PREPARE 2 s → 3.00 V target 30 s"
             if benchmark_type == STANDARD_3V30S
-            else "01 | FULL_PACKAGE | stable 30 s → +5% 30 s → return 10 s → -5% 30 s → return 10 s"
+            else "01 | FULL_PACKAGE | PREPARE 2 s → BASELINE 30 s → +5% 30 s → RETURN 10 s → -5% 30 s → RETURN 10 s"
         )
         check.setChecked(True)
         check.setProperty("benchmark_type", benchmark_type)
