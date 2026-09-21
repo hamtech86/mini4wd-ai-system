@@ -4,11 +4,10 @@ This tool intentionally bypasses automatic voltage control. It is not a benchmar
 and does not alter STANDARD_3V30S / FULL_PACKAGE behavior.
 
 Run from repository root:
-    python tools/pwm_fixed_diagnostic.py --port /dev/ttyACM0
+    python3 tools/pwm_fixed_diagnostic.py --port /dev/ttyACM0
 
 The default test points are PWM 43..50, 10 seconds each. During each point the
-PWM is held fixed and the received DATA frames are written unchanged to a
-diagnostic raw CSV. A summary CSV reports min/max/mean Motor V and current.
+PWM is held fixed and received DATA frames are written to a diagnostic raw CSV.
 """
 from __future__ import annotations
 
@@ -16,8 +15,12 @@ import argparse
 import csv
 import os
 import statistics
+import sys
 import time
 from datetime import datetime
+
+# Allow execution as "python3 tools/..." from the repository root.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from communication.serial_controller import SerialController
 
@@ -54,7 +57,6 @@ def run(args):
     if not serial.connect():
         raise RuntimeError(f"Serial connection failed: {args.port}")
 
-    rows = []
     summary = []
 
     try:
@@ -90,11 +92,6 @@ def run(args):
 
                         values.append(measurement["motor_voltage"])
                         currents.append(measurement["current_avg"])
-                        rows.append({
-                            "test_pwm": pwm,
-                            "received_at": received_at,
-                            **measurement,
-                        })
 
                     time.sleep(0.01)
 
@@ -136,6 +133,9 @@ def run(args):
     finally:
         serial.stop_breakin()
         serial.disconnect()
+
+    if not summary:
+        raise RuntimeError("No PWM measurement results were collected")
 
     with open(summary_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=summary[0].keys())
