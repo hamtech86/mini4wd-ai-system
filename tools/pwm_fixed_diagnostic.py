@@ -1,4 +1,4 @@
-"""Fixed-PWM motor-voltage diagnostic for real-machine 3V control investigation.
+""""Fixed-PWM motor-voltage diagnostic for real-machine 3V control investigation.
 
 This tool intentionally bypasses automatic voltage control. It is not a benchmark
 and does not alter STANDARD_3V30S / FULL_PACKAGE behavior.
@@ -19,11 +19,9 @@ import sys
 import time
 from datetime import datetime
 
-# Allow execution as "python3 tools/..." from the repository root.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from communication.serial_controller import SerialController
-
 
 PWM_VALUES = tuple(range(43, 51))
 DEFAULT_DURATION_SEC = 10.0
@@ -40,9 +38,24 @@ def parse_data(line: str):
             "current_avg": float(fields[14]),
             "motor_voltage": float(fields[10]),
             "pwm": int(float(fields[11])),
+            "state": fields[5],
         }
     except (ValueError, IndexError):
         return None
+
+
+def read_and_record(serial, raw_writer, test_pwm):
+    rows = []
+    while serial.serial and serial.serial.in_waiting:
+        raw = serial.serial.readline().decode("utf-8", errors="replace").strip()
+        if not raw:
+            continue
+        received_at = datetime.now().isoformat(timespec="milliseconds")
+        raw_writer.writerow([test_pwm, received_at, raw])
+        measurement = parse_data(raw)
+        if measurement is not None:
+            rows.append(measurement)
+    return rows
 
 
 def run(args):
@@ -60,39 +73,38 @@ def run(args):
     summary = []
 
     try:
-        serial.forward()
+        # Explicitly set PWM first, then START so firmware starts the motor
+        # with the commanded PWM. This diagnostic does not use voltage control.
+        serial.set_pwm(PWM_VALUES[0])
+        serial.send_command("START")
         time.sleep(0.5)
 
         with open(raw_path, "w", newline="", encoding="utf-8") as raw_file:
             raw_writer = csv.writer(raw_file)
             raw_writer.writerow(["test_pwm", "received_at", "raw_data"])
 
-            for pwm in PWM_VALUES:
-                print(f"\\n=== FIXED PWM {pwm} / {args.duration:.1f}s ===")
-                serial.set_pwm(pwm)
+            for index, pwm in enumerate(PWM_VALUES):
+                print(f"\n=== FIXED PWM {pwm} / {args.duration:.1f}s ===")
+
+                if index == 0:
+                    # First point is already running at this PWM.
+                    pass
+                else:
+                    serial.set_pwm(pwm)
+
                 started = time.monotonic()
                 values = []
                 currents = []
+                states = []
+                actual_pwms = []
 
                 while time.monotonic() - started < args.duration:
-                    while serial.serial and serial.serial.in_waiting:
-                        raw = serial.serial.readline().decode(
-                            "utf-8", errors="replace"
-                        ).strip()
-                        if not raw:
-                            continue
-
-                        received_at = datetime.now().isoformat(timespec="milliseconds")
-                        raw_writer.writerow([pwm, received_at, raw])
-                        raw_file.flush()
-
-                        measurement = parse_data(raw)
-                        if measurement is None:
-                            continue
-
+                    for measurement in read_and_record(serial, raw_writer, pwm):
                         values.append(measurement["motor_voltage"])
                         currents.append(measurement["current_avg"])
-
+                        states.append(measurement["state"])
+                        actual_pwms.append(measurement["pwm"])
+                    raw_file.flush()
                     time.sleep(0.01)
 
                 if values:
@@ -106,12 +118,18 @@ def run(args):
                         "current_mean": round(statistics.mean(currents), 4),
                         "current_min": round(min(currents), 4),
                         "current_max": round(max(currents), 4),
+                        "state_values": "|".join(sorted(set(states))),
+                        "actual_pwm_values": "|".join(
+                            str(x) for x in sorted(set(actual_pwms))
+                        ),
                     })
                     print(
                         f"PWM={pwm}: V mean={summary[-1]['motor_voltage_mean']:.4f}, "
                         f"min={summary[-1]['motor_voltage_min']:.4f}, "
                         f"max={summary[-1]['motor_voltage_max']:.4f}, "
-                        f"range={summary[-1]['motor_voltage_range']:.4f}"
+                        f"range={summary[-1]['motor_voltage_range']:.4f}, "
+                        f"states={summary[-1]['state_values']}, "
+                        f"actual_pwm={summary[-1]['actual_pwm_values']}"
                     )
                 else:
                     summary.append({
@@ -124,11 +142,16 @@ def run(args):
                         "current_mean": "",
                         "current_min": "",
                         "current_max": "",
+                        "state_values": "",
+                        "actual_pwm_values": "",
                     })
                     print(f"PWM={pwm}: DATA frame not received")
 
-                serial.set_pwm(0)
-                time.sleep(1.0)
+                if index < len(PWM_VALUES) - 1:
+                    serial.set_pwm(0)
+                    time.sleep(1.0)
+                    serial.set_pwm(PWM_VALUES[index + 1])
+                    time.sleep(0.2)
 
     finally:
         serial.stop_breakin()
@@ -142,7 +165,7 @@ def run(args):
         writer.writeheader()
         writer.writerows(summary)
 
-    print(f"\\nRaw diagnostic log: {raw_path}")
+    print(f"\nRaw diagnostic log: {raw_path}")
     print(f"Summary: {summary_path}")
 
 
