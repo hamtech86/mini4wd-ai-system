@@ -55,6 +55,20 @@ class MainWindow(BaseMainWindow):
         row.addWidget(self.motor_serial_status,0,0); row.addWidget(self.motor_connect,0,1); row.addWidget(self.motor_disconnect,0,2); row.addWidget(self.battery_serial_status,1,0); row.addWidget(self.battery_connect,1,1); row.addWidget(self.battery_disconnect,1,2)
         root_layout.addWidget(device_box); tabs=QTabWidget(); tabs.addTab(old_central,"MOTOR BREAK-IN"); self.battery_tab=BatteryTab(self.db_path,transport=self.battery_serial_controller,parent=self); tabs.addTab(self.battery_tab,"BATTERY"); root_layout.addWidget(tabs,1); self.setCentralWidget(root)
 
+    def load_recipes(self):
+        self.recipe.clear()
+        for name in self.recipe_engine.names():
+            self.recipe.addItem(name, name)
+        self.recipe.addItem(STANDARD_3V30S, STANDARD_3V30S)
+        self.recipe.addItem(FULL_PACKAGE, FULL_PACKAGE)
+
+    def recipe_changed(self, index):
+        name = self.recipe.itemData(index) if hasattr(self, "recipe") else None
+        if name in (STANDARD_3V30S, FULL_PACKAGE):
+            self._load_benchmark_sequence(name)
+            return
+        super().recipe_changed(index)
+
     def _motor_controller(self):
         controller=getattr(self,"serial_controller",None)
         if controller is not None:return controller
