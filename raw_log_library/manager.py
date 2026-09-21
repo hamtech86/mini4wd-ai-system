@@ -187,6 +187,33 @@ class RawLogLibrary:
             if record.measurement_session_id == measurement_session_id
         ]
 
+    @property
+    def github_status_path(self) -> Path:
+        return self.root / "github_status.json"
+
+    def get_github_status(self, log_id: str) -> Dict[str, str]:
+        self.get(log_id)
+        if not self.github_status_path.exists():
+            return {"status": "UNREGISTERED"}
+        data = json.loads(self.github_status_path.read_text(encoding="utf-8"))
+        value = data.get(log_id, {"status": "UNREGISTERED"})
+        return value if isinstance(value, dict) else {"status": "UNREGISTERED"}
+
+    def set_github_status(self, log_id: str, status: str, **details: str) -> None:
+        self.get(log_id)
+        path = self.github_status_path
+        data = {}
+        if path.exists():
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(loaded, dict):
+                raise ValueError(f"invalid GitHub status store: {path}")
+            data = loaded
+        value = {"status": status}
+        value.update({key: str(val) for key, val in details.items() if val is not None})
+        data[log_id] = value
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
     def _read_index(self) -> List[Dict[str, str]]:
         if not self.index_path.exists():
             return []
