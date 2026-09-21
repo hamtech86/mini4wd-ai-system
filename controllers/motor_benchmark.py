@@ -156,7 +156,10 @@ def run_benchmark(self, benchmark_type=STANDARD_3V30S, instance_id=None, purpose
         self._finish_benchmark([stable_measure, plus_phase, return_phase_1, minus_phase, return_phase_2])
         return self.measurements
     except Exception:
-        self.serial.set_pwm(0)
+        if hasattr(self.serial, "stop_breakin"):
+            self.serial.stop_breakin()
+        else:
+            self.serial.set_pwm(0)
         self.current_pwm = 0
         self.running = False
         if self.session is not None:
@@ -171,7 +174,10 @@ def run_benchmark(self, benchmark_type=STANDARD_3V30S, instance_id=None, purpose
 
 
 def _finish_benchmark(self, phases):
-    self.serial.set_pwm(0)
+    if hasattr(self.serial, "stop_breakin"):
+        self.serial.stop_breakin()
+    else:
+        self.serial.set_pwm(0)
     self.current_pwm = 0
     self.running = False
     phase_names = ",".join(phase.name for phase in phases)
