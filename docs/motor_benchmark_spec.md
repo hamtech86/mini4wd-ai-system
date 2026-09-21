@@ -37,10 +37,14 @@ Basic procedure:
 
 ```text
 START / startup
-    -> 3.00 V stable condition established
+    -> 3.00 V target control starts
+    -> fixed 2 s preparation time
     -> 30 s measurement
+    -> PWM = 0
     -> END
 ```
+
+The fixed 2-second preparation time is a procedural preparation interval only. It is not a voltage-stability condition and does not wait for measured voltage to enter a specified range.
 
 ### 4.1 Meaning of 3.0 V
 
@@ -52,35 +56,42 @@ The objective is to provide a simple common baseline for repeated measurements a
 
 The exact raw time-series remains the authoritative result; the benchmark does not define what constitutes a good or bad motor.
 
-## 5. 3.0 V stability condition
+## 5. 3.00 V target control and fixed preparation time
 
-The 3.0 V stability condition is a **process-start condition**, not a measurement pass/fail criterion.
+The benchmark uses **3.00 V as a control target**.
 
-The target voltage is **3.00 V**.
+The measured motor voltage is an **observed raw measurement value**, not a condition that must satisfy a specified range before measurement can start.
 
-The stable condition is established when the measured voltage remains continuously within:
+The former 2.95–3.05 V / 2-second stability gate is abolished.
 
-```text
-2.95 V <= V <= 3.05 V
-```
+After START, the control system begins 3.00 V target control and then waits for a **fixed 2-second preparation interval** before entering the timed measurement phase.
 
-for **2 seconds continuously**.
+The 2-second interval:
 
-Once this condition has been established, the applicable timed measurement phase begins.
+- is a fixed procedural preparation time;
+- is not a stability judgment;
+- does not require the measured voltage to remain within any range;
+- is not optimized experimentally;
+- does not define motor quality or benchmark success.
 
-The 2.95–3.05 V / 2-second condition is used only to establish that the motor has entered the intended 3.00 V benchmark operating condition before starting a timed phase. It does not define motor quality or benchmark success.
+Raw Log acquisition continues throughout the preparation interval.
 
-### 5.1 Voltage deviation during measurement
+Where phase/state information is supported, the preparation interval should be identifiable as `PREPARE`, followed by the applicable measurement phase.
 
-After a timed measurement phase has started, the 2.95–3.05 V range is **not used as an automatic pass/fail condition**.
+### 5.1 Voltage observation during preparation and measurement
 
-If the measured voltage leaves the 2.95–3.05 V range during a measurement phase:
+Measured motor voltage is retained continuously as Raw Log data.
 
-- the measurement is not automatically interrupted;
-- the session is not automatically marked as failed;
-- the actual voltage, current, time, PWM, and available state/phase data continue to be retained in the Raw Log.
+During the preparation interval and all timed measurement phases:
 
-The observed deviation is therefore treated as measured experimental data for later analysis rather than as an implementation-time judgment.
+- measured voltage is not used as a start gate;
+- measured voltage is not used as an automatic pass/fail condition;
+- voltage excursions do not automatically interrupt the measurement;
+- voltage excursions do not automatically mark the session as failed.
+
+The actual voltage, current, time, PWM, and available state/phase data continue to be retained in the Raw Log.
+
+Observed voltage behavior is therefore experimental data for later analysis rather than an implementation-time judgment.
 
 ## 6. Mode B: FULL_PACKAGE
 
@@ -88,17 +99,18 @@ The full package uses the following sequence:
 
 ```text
 START
-    -> 3.00 V stable condition established
-    -> 3.00 V stable measurement × 30 s
+    -> 3.00 V target control starts
+    -> fixed 2 s preparation time
+    -> 3.00 V target baseline measurement × 30 s
     -> PWM +5 % relative to baseline PWM × 30 s
-    -> 3.00 V return / buffer × 10 s
+    -> 3.00 V target return / buffer × 10 s
     -> PWM -5 % relative to the same baseline PWM × 30 s
-    -> 3.00 V return / buffer × 10 s
+    -> 3.00 V target return / buffer × 10 s
     -> PWM = 0
     -> END
 ```
 
-The **3.00 V stable × 30 s**, **PWM +5 % × 30 s**, and **PWM -5 % × 30 s** sections are timed measurement phases. The two **3.00 V return × 10 s** sections are transition/buffer phases and are not defined as comparison windows.
+The **2-second preparation interval** is a fixed procedural interval and is not a stability gate. The **3.00 V target × 30 s**, **PWM +5 % × 30 s**, and **PWM -5 % × 30 s** sections are timed measurement phases. The two **3.00 V return × 10 s** sections are fixed transition/buffer phases and are not defined as comparison windows.
 
 Each phase is retained in the raw log with its time position and available operating values.
 
@@ -112,7 +124,7 @@ This allows cases such as a motor whose magnetization/break-in process was unsuc
 
 Operate at the benchmark target of 3.00 V and retain the raw time-series.
 
-The 3.0 V stable condition must first be established according to Section 5. The **2.95–3.05 V range held continuously for 2 seconds is the condition for starting the timed 30-second stable measurement phase**.
+The 3.00 V target control starts according to Section 5. After the fixed 2-second preparation interval, the timed 30-second baseline measurement phase begins. No measured-voltage stability range is required to start that phase.
 
 For FULL_PACKAGE, the **baseline PWM is the actual PWM value established while the motor is in the initial 3.00 V stable-drive condition immediately before the first PWM perturbation**.
 
@@ -255,7 +267,7 @@ This specification does **not** define:
 
 The ±5 % PWM change is also **not** an evaluation threshold or performance criterion. It is a provisional experimental perturbation condition whose validity will be checked against real-machine data.
 
-The 2.95–3.05 V / 2-second stability condition is a **measurement-phase start condition only**. It is not an evaluation threshold, and leaving that voltage range after a timed measurement phase has started does not by itself cause automatic failure or termination.
+The former 2.95–3.05 V / 2-second stability condition is abolished. The fixed 2-second preparation interval is a procedural timing rule only; it is not an evaluation threshold, stability judgment, or measured-voltage gate.
 
 Those decisions remain downstream of benchmark data acquisition and subsequent logic validation.
 
@@ -265,8 +277,8 @@ The benchmark design is ready for Command Tower review when the reviewer can con
 
 1. Exactly two selectable benchmark modes exist: `STANDARD_3V30S` and `FULL_PACKAGE`.
 2. `STANDARD_3V30S` provides the common 3.0 V / 30 s raw-log baseline, with 3.0 V representing the nominal two-dry-cell Mini 4WD running condition.
-3. A 3.00 V stable condition is established by continuously remaining within 2.95–3.05 V for 2 seconds before the applicable timed measurement phase starts.
-4. The 3.0 V stability condition is a process-start condition only; voltage deviations during timed measurement are retained as raw data and do not automatically fail or terminate the benchmark.
+3. 3.00 V is used as the control target, followed by a fixed 2-second preparation interval before the applicable timed measurement phase starts.
+4. The 2-second preparation interval is not a stability condition; measured voltage is retained as Raw Log data and is not used as a start gate, automatic failure condition, or automatic termination condition.
 5. `FULL_PACKAGE` records 3.00 V stable operation for 30 s, PWM +5 % relative to the original 3.00 V stable-drive PWM for 30 s, a 10 s 3.00 V return/buffer, PWM -5 % relative to the same original baseline PWM for 30 s, a 10 s 3.00 V return/buffer, and clear termination.
 6. The two 10-second return phases are transition/buffer phases, not comparison windows.
 7. Difficult-start motors can be recorded without imposing an evaluation judgment.
