@@ -40,7 +40,7 @@ class LocalRawLogBreakinController(BreakinController):
 
         session_id = getattr(self.session, "session_id", None)
         firmware = getattr(self.session, "firmware_version", "") or ""
-        benchmark_type = getattr(self, "benchmark_type", None) or self.active_recipe_name or ""
+        benchmark_type = getattr(self, "selected_benchmark_type", None) or getattr(self, "benchmark_type", None) or self.active_recipe_name or ""
         baseline_pwm = getattr(self, "benchmark_baseline_pwm", None)
         purpose = getattr(self, "benchmark_purpose", None)
         notes = ""
