@@ -76,6 +76,34 @@ class MainWindow(BaseMainWindow):
         if controller is not None:return controller
         return getattr(getattr(self,"breakin_controller",None),"serial_controller",None)
 
+    def open_manager(self):
+        """Open the Motor Instance Manager with the Local Raw Log manager attached."""
+        try:
+            from motor_system.python.ui.motor_manager_ui import MotorManagerUI
+            from ui.raw_log_manager_extension import install_raw_log_manager_extension
+
+            instance_id = self.instance.currentData() if hasattr(self, "instance") else None
+            self.manager_window = MotorManagerUI()
+            extension = install_raw_log_manager_extension(self.manager_window)
+
+            if instance_id is not None:
+                self.manager_window.load_instance_into_form(instance_id)
+                self.manager_window.show_instance_detail(instance_id)
+                extension.refresh()
+
+            self.manager_window.setAttribute(Qt.WA_DeleteOnClose, True)
+            self.manager_window.destroyed.connect(self.load_instances)
+            self.manager_window.show()
+            self.manager_window.raise_()
+            self.manager_window.activateWindow()
+        except Exception as exc:
+            logger.exception("Failed to open Motor Instance Manager")
+            QMessageBox.critical(
+                self,
+                "Instance Manager",
+                f"Motor Instance Managerを起動できません。\n{type(exc).__name__}: {exc}",
+            )
+
     def connect_motor_serial(self):
         controller=self._motor_controller()
         if controller is None: QMessageBox.warning(self,"Motor Connection","Motor serial controller is not available."); return
