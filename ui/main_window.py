@@ -178,10 +178,10 @@ class MainWindow(QMainWindow):
         self.copy.setMinimumHeight(36)
         self.copy.clicked.connect(self.copy_result)
         buttons.addWidget(self.copy)
-        self.raw_log = QPushButton("生ログ")
+        self.raw_log = QPushButton("RAW LOG LIBRARY")
         self.raw_log.setEnabled(False)
         self.raw_log.setMinimumHeight(36)
-        self.raw_log.clicked.connect(self.copy_raw_log)
+        self.raw_log.clicked.connect(self.open_manager)
         buttons.addWidget(self.raw_log)
         self.update_db = QPushButton("UPDATE DATABASE")
         self.update_db.setEnabled(False)
@@ -431,7 +431,7 @@ class MainWindow(QMainWindow):
         else:
             text = "RAW LOG: NOT AVAILABLE"
         QApplication.clipboard().setText(text)
-        self.raw_log.setText("生ログ COPIED")
+        self.raw_log.setText("RAW LOG LIBRARY")
 
     def update_database(self):
         if self.database_updated:
