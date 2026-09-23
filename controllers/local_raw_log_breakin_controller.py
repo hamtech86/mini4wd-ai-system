@@ -77,11 +77,28 @@ class LocalRawLogBreakinController(BreakinController):
             notes = f"baseline_pwm={baseline_pwm}"
         if purpose:
             notes = f"{notes}; purpose={purpose}" if notes else f"purpose={purpose}"
+
+        # RawLog IDs are string fields. Database-backed instance/session
+        # identifiers may arrive as integers, but the Local Raw Log Library
+        # uses these values as filesystem path components, so normalize the
+        # identifier type at the persistence boundary.
+        def normalize_id(value, field_name):
+            if value is None or isinstance(value, str):
+                return value
+            if type(value) is int:
+                return str(value)
+            raise TypeError(
+                f"{field_name} must be str, int, or None; got {type(value).__name__}"
+            )
+
+        instance_id = normalize_id(self.active_instance_id, "instance_id")
+        session_id = normalize_id(session_id, "measurement_session_id")
+
         record = RawLog(
             device_type="MOTOR",
             firmware_version=firmware,
-            device_instance_id=self.active_instance_id,
-            motor_id=self.active_instance_id,
+            device_instance_id=instance_id,
+            motor_id=instance_id,
             measurement_session_id=session_id,
             acquired_at=datetime.now().isoformat(timespec="seconds"),
             measurement_condition=benchmark_type,
