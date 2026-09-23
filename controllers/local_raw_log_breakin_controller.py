@@ -35,19 +35,33 @@ class LocalRawLogBreakinController(BreakinController):
         except Exception:
             # A measurement that reached its end boundary must remain
             # recoverable even if a later finalization step fails.
-            self._register_raw_log()
+            self.finalize_benchmark_raw_log()
             raise
-        self._register_raw_log()
+        self.finalize_benchmark_raw_log()
         return result
 
     def _freeze_measurement_raw_log(self):
-        """Freeze the phase log and persist it before STOP/finalization."""
-        before = len(self._measurement_raw_log_parts)
+        """Freeze the phase log only; persistence is finalized once per benchmark."""
         super()._freeze_measurement_raw_log()
-        if len(self._measurement_raw_log_parts) <= before:
-            return
-        raw_body = self._measurement_raw_log_parts[-1]
-        self._register_raw_log(raw_body)
+
+    def finalize_benchmark_raw_log(self, raw_body=None):
+        """Persist the completed benchmark Raw Log.
+
+        This is the public finalization entry point used by benchmark
+        completion code. It is deliberately idempotent for the current
+        benchmark so STOP/finalization errors cannot create duplicate logs.
+        """
+        if raw_body is None:
+            raw_body = (
+                getattr(self, "measurement_raw_log", "")
+                or getattr(self.serial, "raw_log", "")
+                or ""
+            )
+        if not raw_body:
+            return None
+        if self.last_raw_log_id:
+            return self.raw_log_library.get(self.last_raw_log_id)[0]
+        return self._register_raw_log(raw_body)
 
 
     def _register_raw_log(self, raw_body=None):
