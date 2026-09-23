@@ -8,6 +8,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QPlainTextEdit,
     QMessageBox,
     QPushButton,
     QTableWidget,
@@ -171,16 +172,12 @@ class RawLogManagerExtension:
 
         dialog = QDialog(self.manager)
         dialog.setWindowTitle(f"Raw Body — {self.selected_log_id}")
-        dialog.resize(900, 600)
+        dialog.resize(1000, 700)
         layout = QVBoxLayout(dialog)
-        text = QLineEdit()
-        text.setReadOnly(True)
-        text.setText("Raw body is immutable. Use the library for full raw content.")
-        layout.addWidget(text)
-        body_view = QTableWidget(1, 1)
-        body_view.setHorizontalHeaderLabels(["Raw Body (read-only)"])
-        body_view.setItem(0, 0, QTableWidgetItem(body))
-        body_view.setEditTriggers(QTableWidget.NoEditTriggers)
+        body_view = QPlainTextEdit()
+        body_view.setReadOnly(True)
+        body_view.setLineWrapMode(QPlainTextEdit.NoWrap)
+        body_view.setPlainText(body)
         layout.addWidget(body_view, 1)
         dialog.show()
         self._raw_dialog = dialog
