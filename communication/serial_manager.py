@@ -11,6 +11,7 @@ Communication層は通信のみを担当する。
 
 from PyQt5.QtCore import QObject, QThread, pyqtSignal
 
+import time
 import serial
 import serial.tools.list_ports
 
@@ -80,7 +81,16 @@ class SerialReader(QThread):
 
 
 class SerialManager(QObject):
-    """Arduino通信管理"""
+    """Arduino通信管理.
+
+    Opening an Arduino Uno serial port normally toggles DTR and resets the
+    board.  The port can therefore be open before the firmware is ready to
+    accept the first command.  Keep the connection API synchronous and make
+    the controller report CONNECTED only after the boot/reset window has
+    settled.
+    """
+
+    ARDUINO_BOOT_SETTLE_SEC = 2.0
 
     connected = pyqtSignal()
     disconnected = pyqtSignal()
@@ -127,6 +137,14 @@ class SerialManager(QObject):
             self.serial.reset_input_buffer()
             self.serial.reset_output_buffer()
             self.raw_log_collector.reset()
+
+            # Opening a USB serial port resets the Arduino.  Do not expose
+            # the connection as ready until the firmware boot window has
+            # completed; otherwise the first Sequence command can race the
+            # reset and the operator is forced to reconnect manually.
+            time.sleep(self.ARDUINO_BOOT_SETTLE_SEC)
+            self.serial.reset_input_buffer()
+            self.serial.reset_output_buffer()
 
             self.reader = SerialReader(self.serial, self.raw_log_collector)
             self.reader.received.connect(self.received)

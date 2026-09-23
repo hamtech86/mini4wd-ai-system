@@ -21,6 +21,8 @@ from controllers.sequence_executor import SequenceExecutor
 from controllers.breakin_sequence_adapter import BreakinSequenceAdapter
 from workers.breakin_worker import BreakinWorker
 from analysis.analysis_engine import AnalysisEngine
+from controllers.session_controller import SessionController
+from controllers.motor_benchmark import STANDARD_3V30S, FULL_PACKAGE
 
 class MainWindow(BaseMainWindow):
     def __init__(self, context=None):
@@ -53,12 +55,56 @@ class MainWindow(BaseMainWindow):
         row.addWidget(self.motor_serial_status,0,0); row.addWidget(self.motor_connect,0,1); row.addWidget(self.motor_disconnect,0,2); row.addWidget(self.battery_serial_status,1,0); row.addWidget(self.battery_connect,1,1); row.addWidget(self.battery_disconnect,1,2)
         root_layout.addWidget(device_box); tabs=QTabWidget(); tabs.addTab(old_central,"MOTOR BREAK-IN"); self.battery_tab=BatteryTab(self.db_path,transport=self.battery_serial_controller,parent=self); tabs.addTab(self.battery_tab,"BATTERY"); root_layout.addWidget(tabs,1); self.setCentralWidget(root)
 
+    def load_recipes(self):
+        self.recipe.clear()
+        for name in self.recipe_engine.names():
+            self.recipe.addItem(name, name)
+        self.recipe.addItem(STANDARD_3V30S, STANDARD_3V30S)
+        self.recipe.addItem(FULL_PACKAGE, FULL_PACKAGE)
+
+    def recipe_changed(self, index):
+        name = self.recipe.itemData(index) if hasattr(self, "recipe") else None
+        if name in (STANDARD_3V30S, FULL_PACKAGE):
+            self._load_benchmark_sequence(name)
+            return
+        super().recipe_changed(index)
+
     def _motor_controller(self):
         controller=getattr(self,"serial_controller",None)
         if controller is not None:return controller
         controller=getattr(getattr(self,"breakin_controller",None),"serial",None)
         if controller is not None:return controller
         return getattr(getattr(self,"breakin_controller",None),"serial_controller",None)
+
+    def open_manager(self):
+        """Open the Motor Instance Manager with the Local Raw Log manager attached."""
+        try:
+            from motor_system.python.ui.motor_manager_ui import MotorManagerUI
+            from ui.raw_log_manager_extension import install_raw_log_manager_extension
+
+            instance_id = self.instance.currentData() if hasattr(self, "instance") else None
+            self.manager_window = MotorManagerUI()
+            extension = install_raw_log_manager_extension(self.manager_window)
+
+            if instance_id is not None:
+                self.manager_window.load_instance_into_form(instance_id)
+                self.manager_window.show_instance_detail(instance_id)
+                extension.refresh()
+                if hasattr(self.manager_window, "tabs"):
+                    self.manager_window.tabs.setCurrentWidget(extension.page)
+
+            self.manager_window.setAttribute(Qt.WA_DeleteOnClose, True)
+            self.manager_window.destroyed.connect(self.load_instances)
+            self.manager_window.show()
+            self.manager_window.raise_()
+            self.manager_window.activateWindow()
+        except Exception as exc:
+            logger.exception("Failed to open Motor Instance Manager")
+            QMessageBox.critical(
+                self,
+                "Instance Manager",
+                f"Motor Instance Managerを起動できません。\n{type(exc).__name__}: {exc}",
+            )
 
     def connect_motor_serial(self):
         controller=self._motor_controller()
@@ -147,8 +193,8 @@ class MainWindow(BaseMainWindow):
 
     def _recipe_selection_changed(self,index):
         name=self.recipe.itemData(index) if hasattr(self,"recipe") else None
-        if name == self.BENCHMARK_KEY:
-            self._load_benchmark_sequence()
+        if name in (STANDARD_3V30S, FULL_PACKAGE):
+            self._load_benchmark_sequence(name)
             return
         self._load_recipe_sequence(name)
 
@@ -158,14 +204,19 @@ class MainWindow(BaseMainWindow):
             if widget is not None:widget.deleteLater()
         self.sequence_checks=[];self.sequence_progress.setValue(0);self.sequence_status.setText(status)
 
-    def _load_benchmark_sequence(self):
-        self._clear_sequence_panel("Motor Benchmark Test: Sequenceを選択してください")
-        check=QCheckBox("01 | BENCHMARK_3V | BENCHMARK | FWD | 3.00 V / 30 s")
+    def _load_benchmark_sequence(self, benchmark_type):
+        self._clear_sequence_panel(f"Motor Benchmark: {benchmark_type}")
+        check=QCheckBox(
+            "01 | STANDARD_3V30S | PREPARE 2 s → 3.00 V target 30 s"
+            if benchmark_type == STANDARD_3V30S
+            else "01 | FULL_PACKAGE | PREPARE 2 s → BASELINE 30 s → +5% 30 s → RETURN 10 s → -5% 30 s → RETURN 10 s"
+        )
         check.setChecked(True)
+        check.setProperty("benchmark_type", benchmark_type)
         self.sequence_layout.addWidget(check)
-        self.sequence_checks=[(self.BENCHMARK_KEY,check)]
+        self.sequence_checks=[(benchmark_type,check)]
         self.sequence_layout.addStretch()
-        self.sequence_status.setText("Motor Benchmark Test: 1 Sequence")
+        self.sequence_status.setText(f"Motor Benchmark: {benchmark_type}")
 
     def _load_recipe_sequence(self,name):
         recipe=self.recipe_engine.get(name)
@@ -211,11 +262,11 @@ class MainWindow(BaseMainWindow):
 
     def _execute_selected_sequences(self):
         name=self._current_recipe_name()
-        if name==self.BENCHMARK_KEY:
-            enabled_ids={sid for sid,check in self.sequence_checks if check.isChecked()}
-            if self.BENCHMARK_KEY not in enabled_ids:
-                self.sequence_status.setText("Benchmark Sequenceが選択されていません");return
-            self._start_benchmark()
+        if name in (STANDARD_3V30S, FULL_PACKAGE):
+            selected=[check for sid,check in self.sequence_checks if sid==name and check.isChecked()]
+            if len(selected)!=1:
+                self.sequence_status.setText(f"{name} が選択されていません");return
+            self._start_benchmark(name)
             return
         recipe=self.recipe_engine.get(name)
         if recipe is None:self.sequence_status.setText("レシピが選択されていません");return
@@ -226,9 +277,12 @@ class MainWindow(BaseMainWindow):
         self.sequence_selected_ids=enabled_ids;self.sequence_selected_total=len(enabled_ids);self.sequence_progress.setValue(0);self.sequence_progress.setFormat(f"Sequence Progress: 0/{self.sequence_selected_total}  %p%")
         self.sequence_executor.load_recipe(recipe,enabled_ids=enabled_ids);self.sequence_executor.start();self.sequence_timer.start();self.timer.start();self.sequence_execute.setEnabled(False);self.sequence_stop.setEnabled(True);self.start.setEnabled(False);self.stop.setEnabled(True);self.manager.setEnabled(False);self.instance.setEnabled(False);self.recipe.setEnabled(False);self.update_db.setEnabled(False);self.copy.setEnabled(False);self.result["STATUS"].setText("RUNNING");self.run_state.setText("STARTING...");current=self.sequence_executor.current();self._update_sequence_highlight(current.sequence_id if current else None);self._update_sequence_main_ui(current)
 
-    def _start_benchmark(self):
+    def _start_benchmark(self, benchmark_type=STANDARD_3V30S):
         if not self.breakin_controller:
             QMessageBox.warning(self,"Controller","BreakinController is not available.");return
+        controller=self._motor_controller()
+        if controller is None or not getattr(controller,"connected",False):QMessageBox.warning(self,"Benchmark","先にMOTOR CONNECTを実行してください。");return
+        self.breakin_controller.selected_benchmark_type=benchmark_type
         self.database_updated=False;self.last_result_data=None;self.last_result_benchmark=True;self.database_status.setText("DATABASE: NOT UPDATED");self.update_db.setEnabled(False);self.copy.setEnabled(False);self.start.setEnabled(False);self.manager.setEnabled(False);self.instance.setEnabled(False);self.recipe.setEnabled(False);self.stop.setEnabled(True);self.result["STATUS"].setText("RUNNING");self.run_state.setText("STARTING...")
         self.breakin_worker=BreakinWorker(self.breakin_controller,None,True)
         self.breakin_worker.completed.connect(lambda data:self.complete(data,True));self.breakin_worker.failed.connect(self.failed);self.breakin_worker.finished.connect(self.finished);self.timer.start();self.breakin_worker.start()
@@ -265,7 +319,8 @@ class MainWindow(BaseMainWindow):
 
 def build_context():
     serial_controller=SerialController(serial_port="/dev/ttyACM0",baudrate=57600)
-    builder=ApplicationBuilder(serial_controller=serial_controller)
+    session_controller=SessionController()
+    builder=ApplicationBuilder(serial_controller=serial_controller,session_manager=session_controller)
     breakin_controller=builder.build_breakin_controller()
     battery_serial_controller=BatterySerial(port="/dev/ttyUSB0",baudrate=57600)
     return {"serial_controller":serial_controller,"breakin_controller":breakin_controller,"battery_serial_controller":battery_serial_controller}

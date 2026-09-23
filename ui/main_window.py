@@ -178,10 +178,10 @@ class MainWindow(QMainWindow):
         self.copy.setMinimumHeight(36)
         self.copy.clicked.connect(self.copy_result)
         buttons.addWidget(self.copy)
-        self.raw_log = QPushButton("生ログ")
+        self.raw_log = QPushButton("RAW LOG LIBRARY")
         self.raw_log.setEnabled(False)
         self.raw_log.setMinimumHeight(36)
-        self.raw_log.clicked.connect(self.copy_raw_log)
+        self.raw_log.clicked.connect(self.open_manager)
         buttons.addWidget(self.raw_log)
         self.update_db = QPushButton("UPDATE DATABASE")
         self.update_db.setEnabled(False)
@@ -361,6 +361,17 @@ class MainWindow(QMainWindow):
     def complete(self, data, benchmark):
         self.timer.stop()
         self.refresh_runtime()
+        # The worker can finish between 100 ms UI refresh ticks. In that
+        # case the last live frame may still show 0.1 s remaining even though
+        # the benchmark has already crossed its exact end boundary. Once the
+        # controller reports completion, the result view must represent the
+        # completed boundary, not the previous refresh frame.
+        phase = getattr(self.breakin_controller, "current_phase", None)
+        if phase is not None:
+            duration = float(getattr(phase, "duration_sec", 0) or 0)
+            if duration > 0:
+                self.progress["ELAPSED"].setText(f"{duration:.1f} s")
+                self.progress["REMAIN"].setText("0.0 s")
         self.run_state.setText("COMPLETE")
         self.last_result_data = data
         self.last_result_benchmark = benchmark
@@ -390,6 +401,17 @@ class MainWindow(QMainWindow):
         self.run_state.setText("ERROR")
         self.result["STATUS"].setText("ERROR")
         self.result["SUMMARY"].setText(message)
+
+        # A completion-stage failure can occur after the measurement loop has
+        # already crossed its exact boundary. Keep the measurement display at
+        # 0.0 s remaining in that case; the ERROR state still exposes the
+        # completion exception itself.
+        if "Benchmark completion failed at " in str(message):
+            phase = getattr(self.breakin_controller, "current_phase", None)
+            duration = float(getattr(phase, "duration_sec", 0) or 0) if phase is not None else 0.0
+            if duration > 0:
+                self.progress["ELAPSED"].setText(f"{duration:.1f} s")
+                self.progress["REMAIN"].setText("0.0 s")
         self.copy.setEnabled(True)
         self.raw_log.setEnabled(True)
         self.update_db.setEnabled(False)
@@ -431,7 +453,7 @@ class MainWindow(QMainWindow):
         else:
             text = "RAW LOG: NOT AVAILABLE"
         QApplication.clipboard().setText(text)
-        self.raw_log.setText("生ログ COPIED")
+        self.raw_log.setText("RAW LOG LIBRARY")
 
     def update_database(self):
         if self.database_updated:
