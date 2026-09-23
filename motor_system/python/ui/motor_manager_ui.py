@@ -13,7 +13,7 @@ from pathlib import Path
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
-    QApplication, QComboBox, QFormLayout, QGroupBox, QHBoxLayout, QLabel,
+    QApplication, QComboBox, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QLabel,
     QLineEdit, QMessageBox, QPushButton, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget, QDialog, QInputDialog,
 )
@@ -101,11 +101,12 @@ class MotorManagerUI(QWidget):
         self.detail_title.setStyleSheet("font-size:18px;font-weight:bold;")
         d.addWidget(self.detail_title)
 
-        form_box=QGroupBox("Instance Information"); form=QFormLayout(form_box)
-        self.model_box=QComboBox(); form.addRow("Motor Model",self.model_box)
-        self.serial_edit=QLineEdit(); form.addRow("Serial Number",self.serial_edit)
-        self.nickname_edit=QLineEdit(); form.addRow("Nickname",self.nickname_edit)
-        self.status_box=QComboBox(); form.addRow("Status",self.status_box)
+        form_box=QGroupBox("Instance Information"); form=QGridLayout(form_box)
+        self.model_box=QComboBox(); form.addWidget(QLabel("Motor Model"),0,0); form.addWidget(self.model_box,0,1)
+        self.serial_edit=QLineEdit(); form.addWidget(QLabel("Serial Number"),0,2); form.addWidget(self.serial_edit,0,3)
+        self.nickname_edit=QLineEdit(); form.addWidget(QLabel("Nickname"),1,0); form.addWidget(self.nickname_edit,1,1)
+        self.status_box=QComboBox(); form.addWidget(QLabel("Status"),1,2); form.addWidget(self.status_box,1,3)
+        form.setColumnStretch(1,1); form.setColumnStretch(3,1)
         d.addWidget(form_box)
 
         d.addWidget(QLabel("RawLog / History — all Instance-linked Raw Logs are shown; History is user-registered"))
