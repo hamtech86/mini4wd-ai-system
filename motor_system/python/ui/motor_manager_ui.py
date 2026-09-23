@@ -45,7 +45,7 @@ class MotorManagerUI(QWidget):
         self.status_box=QComboBox(); self.status_box.addItems(["NEW","ACTIVE","MAINTENANCE","RETIRED","ARCHIVED"]); form.addRow("Status",self.status_box); self.health_box=QComboBox(); self.health_box.addItems(["UNKNOWN","GOOD","WARNING","BAD"]); form.addRow("Health",self.health_box)
         self.purchase_edit=QLineEdit(); self.purchase_edit.setPlaceholderText("YYYY-MM-DD"); form.addRow("Purchase Date",self.purchase_edit); self.opened_edit=QLineEdit(); self.opened_edit.setPlaceholderText("YYYY-MM-DD"); form.addRow("Opened Date",self.opened_edit); layout.addWidget(box)
         buttons=QHBoxLayout(); self.save_button=QPushButton("Register"); self.save_button.clicked.connect(self.save_instance); buttons.addWidget(self.save_button); new_button=QPushButton("New"); new_button.clicked.connect(self.clear_form); buttons.addWidget(new_button); delete_button=QPushButton("Retire / Delete"); delete_button.clicked.connect(self.delete_instance); buttons.addWidget(delete_button); buttons.addStretch(); layout.addLayout(buttons)
-        self.instance_table=QTableWidget(); self.instance_table.setColumnCount(11); self.instance_table.setHorizontalHeaderLabels(["ID","Model","Serial","Nickname","Status","Health","Latest Session","Benchmark RPM","Anomaly","Created","Updated"]); self.instance_table.setSelectionBehavior(QTableWidget.SelectRows); self.instance_table.setSelectionMode(QTableWidget.ExtendedSelection); self.instance_table.setEditTriggers(QTableWidget.NoEditTriggers); self.instance_table.cellDoubleClicked.connect(self.open_selected_instance); layout.addWidget(self.instance_table); layout.addWidget(QLabel("Double-click an instance to edit/view history. Select multiple rows for comparison."))
+        self.instance_table=QTableWidget(); self.instance_table.setColumnCount(13); self.instance_table.setHorizontalHeaderLabels(["ID","Model","Serial","Nickname","Status","Health","Latest Session","Raw Logs","Latest Raw Log","Benchmark RPM","Anomaly","Created","Updated"]); self.instance_table.setSelectionBehavior(QTableWidget.SelectRows); self.instance_table.setSelectionMode(QTableWidget.ExtendedSelection); self.instance_table.setEditTriggers(QTableWidget.NoEditTriggers); self.instance_table.cellDoubleClicked.connect(self.open_selected_instance); layout.addWidget(self.instance_table); layout.addWidget(QLabel("Double-click an instance to edit/view history. Select multiple rows for comparison."))
 
     def setup_detail_tab(self):
         layout=QVBoxLayout(self.detail_tab); self.detail_title=QLabel("No instance selected"); self.detail_title.setStyleSheet("font-size:18px;font-weight:bold;"); layout.addWidget(self.detail_title); self.detail_info=QTableWidget(); self.detail_info.setColumnCount(2); self.detail_info.setHorizontalHeaderLabels(["Field","Value"]); self.detail_info.setEditTriggers(QTableWidget.NoEditTriggers); layout.addWidget(self.detail_info); layout.addWidget(QLabel("Measurement / Break-in History")); self.history_table=QTableWidget(); self.history_table.setColumnCount(10); self.history_table.setHorizontalHeaderLabels(["Session","Device","Device Model","Start","End","Result","Logs","Measured RPM","Benchmark RPM","Last Current mA"]); self.history_table.setEditTriggers(QTableWidget.NoEditTriggers); layout.addWidget(self.history_table)
@@ -77,7 +77,21 @@ class MotorManagerUI(QWidget):
             benchmark=self.instance_repo.get_latest_benchmark(data.get("instance_id")) if self._benchmark_table_available() else None
             model_name=data.get("motor_name"); model_code=data.get("model_code") or data.get("series")
             model_display=f"{model_name} ({model_code})" if model_name and model_code else (str(model_name) if model_name else str(data.get("motor_model_id") or ""))
-            values=[data.get("instance_id"),model_display,data.get("serial_number"),data.get("nickname"),data.get("status"),data.get("health_status"),data.get("latest_session_id"),benchmark.get("benchmark_rpm") if benchmark else None,data.get("anomaly_count",0),data.get("created_at"),data.get("updated_at")]
+            raw_count = 0
+            latest_raw_log = None
+            try:
+                from raw_log_library import RawLogLibrary
+                library = getattr(self, "_raw_log_library", None)
+                if library is None:
+                    library = RawLogLibrary()
+                    self._raw_log_library = library
+                records = [record for record in library.list_logs("MOTOR") if record.device_instance_id == str(data.get("instance_id"))]
+                raw_count = len(records)
+                if records:
+                    latest_raw_log = records[0].log_id
+            except Exception:
+                pass
+            values=[data.get("instance_id"),model_display,data.get("serial_number"),data.get("nickname"),data.get("status"),data.get("health_status"),data.get("latest_session_id"),raw_count,latest_raw_log,benchmark.get("benchmark_rpm") if benchmark else None,data.get("anomaly_count",0),data.get("created_at"),data.get("updated_at")]
             for c,value in enumerate(values):
                 item=QTableWidgetItem("" if value is None else str(value))
                 if c==0: item.setData(Qt.UserRole,data.get("instance_id"))
@@ -133,7 +147,22 @@ class MotorManagerUI(QWidget):
     def show_instance_detail(self,instance_id):
         data=self.instance_repo.get_by_id(instance_id)
         if not data:return
-        self.current_instance_id=instance_id; self.detail_title.setText(f"Instance {instance_id} — {data.get('nickname') or data.get('serial_number') or ''}")
+        self.current_instance_id=instance_id
+        raw_count = 0
+        latest_raw_log = None
+        try:
+            from raw_log_library import RawLogLibrary
+            library = getattr(self, "_raw_log_library", None)
+            if library is None:
+                library = RawLogLibrary()
+                self._raw_log_library = library
+            records = [record for record in library.list_logs("MOTOR") if record.device_instance_id == str(instance_id)]
+            raw_count = len(records)
+            if records:
+                latest_raw_log = records[0].log_id
+        except Exception:
+            pass
+        self.detail_title.setText(f"Instance {instance_id}  /  Raw Logs: {raw_count}  /  Latest: {latest_raw_log or '--'}")
         latest_benchmark=self.instance_repo.get_latest_benchmark(instance_id) if self._benchmark_table_available() else None; fields=[("Instance ID",data.get("instance_id")),("Motor Model ID",data.get("motor_model_id")),("Serial Number",data.get("serial_number")),("Nickname",data.get("nickname")),("Status",data.get("status")),("Health",data.get("health_status")),("Purchase Date",data.get("purchase_date")),("Opened Date",data.get("opened_date")),("Latest Session",data.get("latest_session_id")),("Latest Benchmark RPM",latest_benchmark.get("benchmark_rpm") if latest_benchmark else None),("Anomaly Count",data.get("anomaly_count")),("Consecutive Anomaly",data.get("consecutive_anomaly_count")),("Created",data.get("created_at")),("Updated",data.get("updated_at"))]
         self.detail_info.setRowCount(len(fields))
         for r,(key,value) in enumerate(fields): self.detail_info.setItem(r,0,QTableWidgetItem(key)); self.detail_info.setItem(r,1,QTableWidgetItem("" if value is None else str(value)))
