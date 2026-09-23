@@ -38,7 +38,7 @@ class MotorManagerUI(QWidget):
         self.db.connect()
         self.instance_repo = MotorInstanceRepository(self.db)
         self.motor_repo = MotorRepository(self.db)
-        self.raw_library = RawLogLibrary()
+        self.raw_library = RawLogLibrary(ROOT / "data" / "raw_logs")
         self.visibility = InstanceVisibilityStore()
         self.current_instance_id = None
         self.current_log_id = None
@@ -279,7 +279,7 @@ class MotorManagerUI(QWidget):
         sid=str(session.get("session_id"))
         note=log.notes if log else "—"
         logid=log.log_id if log else "—"
-        history="REGISTERED" if log else "—"
+        history="REGISTERED" if log and log.history_registered == "1" else "—"
         github=self.raw_library.get_github_status(log.log_id).get("status","UNREGISTERED") if log else "—"
         integrity=self._integrity(session,log) if log else "NO RAW LOG"
         vals=[sid,session.get("end_datetime") or session.get("start_datetime") or session.get("created_at") or "",
