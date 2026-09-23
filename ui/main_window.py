@@ -401,6 +401,17 @@ class MainWindow(QMainWindow):
         self.run_state.setText("ERROR")
         self.result["STATUS"].setText("ERROR")
         self.result["SUMMARY"].setText(message)
+
+        # A completion-stage failure can occur after the measurement loop has
+        # already crossed its exact boundary. Keep the measurement display at
+        # 0.0 s remaining in that case; the ERROR state still exposes the
+        # completion exception itself.
+        if "Benchmark completion failed at " in str(message):
+            phase = getattr(self.breakin_controller, "current_phase", None)
+            duration = float(getattr(phase, "duration_sec", 0) or 0) if phase is not None else 0.0
+            if duration > 0:
+                self.progress["ELAPSED"].setText(f"{duration:.1f} s")
+                self.progress["REMAIN"].setText("0.0 s")
         self.copy.setEnabled(True)
         self.raw_log.setEnabled(True)
         self.update_db.setEnabled(False)
