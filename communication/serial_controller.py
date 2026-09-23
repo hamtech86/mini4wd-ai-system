@@ -16,6 +16,10 @@ try:
 except ImportError:
     serial = None
 
+import time
+
+from communication.raw_log_collector import RawLogCollector
+
 
 class SerialController:
 
@@ -28,6 +32,20 @@ class SerialController:
         self.direction = "FWD"
         self.command_log = []
         self.last_raw_data = None
+        self.raw_log_collector = RawLogCollector()
+
+    @property
+    def raw_log(self):
+        """Exact raw serial text captured for the current measurement."""
+        return self.raw_log_collector.snapshot()
+
+    @property
+    def has_raw_log(self):
+        return self.raw_log_collector.has_data
+
+    def reset_raw_log(self):
+        """Start a new raw-log capture for the next measurement."""
+        self.raw_log_collector.reset()
 
     def connect(self):
         if serial is None:
@@ -39,6 +57,14 @@ class SerialController:
                 self.baudrate,
                 timeout=1
             )
+            self.serial.reset_input_buffer()
+            self.serial.reset_output_buffer()
+            # Opening an Arduino Uno serial port resets the board. Wait for
+            # firmware startup before reporting the port as ready.
+            time.sleep(2.0)
+            self.serial.reset_input_buffer()
+            self.serial.reset_output_buffer()
+            self.raw_log_collector.reset()
             self.connected = True
             print("SERIAL CONNECTED", self.serial_port, self.baudrate)
             return True
@@ -91,12 +117,16 @@ class SerialController:
         latest_data = None
         while self.serial.in_waiting:
             raw = self.serial.readline()
-            decoded = raw.decode("utf-8", errors="replace").strip()
+            decoded = raw.decode("utf-8", errors="replace")
             if not decoded:
                 continue
-            print("SERIAL RX:", decoded)
-            if decoded.startswith("DATA,"):
-                latest_data = decoded
+            self.raw_log_collector.append(decoded)
+            line = decoded.strip()
+            if not line:
+                continue
+            print("SERIAL RX:", line)
+            if line.startswith("DATA,"):
+                latest_data = line
 
         if latest_data is not None:
             self.last_raw_data = latest_data
