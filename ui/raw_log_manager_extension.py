@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PyQt5.QtWidgets import (
     QDialog,
     QFormLayout,
@@ -26,7 +28,7 @@ class RawLogManagerExtension:
 
     def __init__(self, manager):
         self.manager = manager
-        self.library = RawLogLibrary()
+        self.library = RawLogLibrary(Path(__file__).resolve().parents[1] / "data" / "raw_logs")
         self.selected_log_id = None
         self._build()
 
