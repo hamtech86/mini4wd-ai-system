@@ -269,7 +269,9 @@ class MotorManagerUI(QWidget):
             else:
                 for log in logs:
                     if str(log.device_instance_id)!=str(instance_id): continue
-                    if log.history_registered=="1": self._add_history_row(session,log)
+                    # Show all linked Raw Logs so an unregistered log can be
+                    # explicitly selected and registered into History.
+                    self._add_history_row(session,log)
         self.history_table.resizeColumnsToContents()
 
     def _add_history_row(self,session,log):
