@@ -263,14 +263,10 @@ class MotorManagerUI(QWidget):
         for session in sessions:
             sid=str(session.get("session_id"))
             logs=[x for x in self.raw_library.list_by_session(sid) if x.device_type.upper()=="MOTOR"]
-            if not logs:
-                # Sessions without Raw Logs remain visible as session information.
-                self._add_history_row(session,None)
-            else:
-                for log in logs:
-                    if str(log.device_instance_id)!=str(instance_id): continue
-                    # Show all linked Raw Logs so an unregistered log can be
-                    # explicitly selected and registered into History.
+            for log in logs:
+                if str(log.device_instance_id)!=str(instance_id): continue
+                # History contains only Raw Logs explicitly registered for History.
+                if log.history_registered == "1":
                     self._add_history_row(session,log)
         self.history_table.resizeColumnsToContents()
 
