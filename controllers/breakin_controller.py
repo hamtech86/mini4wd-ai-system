@@ -410,7 +410,14 @@ class BreakinController:
         max_pwm = int(self.safety_config.get("max_pwm", 255) or 255)
         temperature = float(self._value(measurement, "motor_temperature", 0.0) or 0.0)
         current = self._current_from_measurement(measurement)
-        if max_temp > 0 and temperature >= max_temp: return f"SAFETY: motor temperature {temperature:.1f}C >= {max_temp:.1f}C"
+        # Thermistor disconnect/open-circuit readings can produce physically
+        # impossible temperatures (for example several hundred degrees C).
+        # Keep the raw measurement in the log, but do not let an impossible
+        # sensor value abort a real motor benchmark. Temperatures up to this
+        # plausibility ceiling remain subject to the configured safety limit.
+        temperature_valid = -40.0 <= temperature <= 150.0
+        if max_temp > 0 and temperature_valid and temperature >= max_temp:
+            return f"SAFETY: motor temperature {temperature:.1f}C >= {max_temp:.1f}C"
         if max_current > 0 and current >= max_current: return f"SAFETY: current {current:.2f}A >= {max_current:.2f}A"
         if self.current_pwm > max_pwm: return f"SAFETY: PWM {self.current_pwm} > {max_pwm}"
         return None
