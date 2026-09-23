@@ -34,7 +34,7 @@ class LocalRawLogBreakinController(BreakinController):
         return result
 
     def _register_raw_log(self):
-        raw_body = getattr(self.serial, "raw_log", "") or ""
+        raw_body = getattr(self, "measurement_raw_log", "") or getattr(self.serial, "raw_log", "") or ""
         if not raw_body:
             return None
 
