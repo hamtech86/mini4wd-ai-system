@@ -53,6 +53,10 @@ class BreakinController:
         self.last_brush_peak_current = 0.0
         self.brush_peak_target_current = 0.0
         self.brush_peak_reached = False
+        # Raw serial data is collected only while a measurement phase is
+        # active. Each phase is frozen at its exact end boundary; anything
+        # received during STOP/finalization is intentionally discarded.
+        self._measurement_raw_log_parts = []
 
     # ------------------------- checkpoint / resume -------------------------
     def _save_checkpoint(self):
@@ -241,8 +245,32 @@ class BreakinController:
             self._execute_brush_peak_approach(phase, resume_elapsed)
         else:
             self._execute_standard_phase(phase, resume_elapsed)
+
+        # The measurement interval has ended here. Freeze the Raw Log BEFORE
+        # any STOP/finalization work. Data arriving after this boundary is
+        # deliberately discarded and must not contaminate the measurement.
+        self._freeze_measurement_raw_log()
+
         self.serial.set_pwm(0)
         time.sleep(0.2)
+
+    def _freeze_measurement_raw_log(self):
+        """Freeze only the Raw Log collected inside the measurement window."""
+        freeze = getattr(self.serial, "freeze_raw_log", None)
+        if callable(freeze):
+            raw_body = freeze()
+        else:
+            raw_body = getattr(self.serial, "raw_log", "") or ""
+            reset = getattr(self.serial, "reset_raw_log", None)
+            if callable(reset):
+                reset()
+        if raw_body:
+            self._measurement_raw_log_parts.append(raw_body)
+
+    @property
+    def measurement_raw_log(self):
+        """Raw Log containing only completed measurement-phase captures."""
+        return "".join(self._measurement_raw_log_parts)
 
     def _effective_elapsed(self):
         return self.phase_elapsed_before_pause + self.phase_elapsed_sec()
