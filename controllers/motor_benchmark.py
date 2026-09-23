@@ -241,6 +241,10 @@ def install_benchmark_support():
         return run_benchmark(self, benchmark_type, instance_id=instance_id)
     BreakinController.benchmark_3v = benchmark_3v
     BreakinController.run_benchmark = run_benchmark
+    # Public compatibility entry point. Some UI/legacy completion paths call
+    # finish_benchmark(), while the implementation historically used the
+    # private _finish_benchmark() helper.
+    BreakinController.finish_benchmark = _finish_benchmark
 
 
 install_benchmark_support()
