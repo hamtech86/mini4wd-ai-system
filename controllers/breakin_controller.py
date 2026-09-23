@@ -165,6 +165,11 @@ class BreakinController:
                 self.session = self.session_manager.start("BREAKIN", instance_id=instance_id)
             except TypeError:
                 self.session = self.session_manager.start("BREAKIN")
+        if self.session is not None:
+            benchmark_type = getattr(self, "selected_benchmark_type", None)
+            if benchmark_type:
+                self.session.benchmark_type = str(benchmark_type)
+                self.session.purpose = "MOTOR_BENCHMARK"
         try:
             while self.running and self.phase_manager.has_next():
                 self.execute_phase(

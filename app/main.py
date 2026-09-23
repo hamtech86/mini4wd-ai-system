@@ -90,6 +90,8 @@ class MainWindow(BaseMainWindow):
                 self.manager_window.load_instance_into_form(instance_id)
                 self.manager_window.show_instance_detail(instance_id)
                 extension.refresh()
+                if hasattr(self.manager_window, "tabs"):
+                    self.manager_window.tabs.setCurrentWidget(extension.page)
 
             self.manager_window.setAttribute(Qt.WA_DeleteOnClose, True)
             self.manager_window.destroyed.connect(self.load_instances)
