@@ -223,42 +223,40 @@ def run_benchmark(self, benchmark_type=STANDARD_3V30S, instance_id=None, purpose
         raise
 
 def _finish_benchmark(self, phases):
-    # Freeze exactly at the benchmark boundary. Serial data arriving after
-    # this point (including STOP/finalization lag) is not part of the log.
-    freeze = getattr(self, "_freeze_measurement_raw_log", None)
-    if callable(freeze):
-        freeze()
-    if hasattr(self.serial, "stop_breakin"):
-        self.serial.stop_breakin()
-    else:
-        self.serial.set_pwm(0)
-    self.current_pwm = 0
-    self.running = False
-    phase_names = ",".join(phase.name for phase in phases)
-    if self.session is not None:
-        try:
-            self.session.notes += f"; baseline_pwm={self.benchmark_baseline_pwm}; phases={phase_names}"
-            self.session.finish()
-        except Exception as exc:
-            raise RuntimeError(
-                f"Benchmark completion failed at session.finish: "
-                f"{type(exc).__name__}: {exc}"
-            ) from exc
-
-    if self.measurement_manager is not None:
-        try:
-            self.measurement_manager.logger.stop()
-        except Exception as exc:
-            raise RuntimeError(
-                f"Benchmark completion failed at logger.stop: "
-                f"{type(exc).__name__}: {exc}"
-            ) from exc
-
+    """Complete a benchmark and identify the exact failing finalization stage."""
+    stage = "freeze_raw_log"
     try:
+        freeze = getattr(self, "_freeze_measurement_raw_log", None)
+        if callable(freeze):
+            freeze()
+
+        stage = "serial_stop"
+        if hasattr(self.serial, "stop_breakin"):
+            self.serial.stop_breakin()
+        else:
+            self.serial.set_pwm(0)
+
+        self.current_pwm = 0
+        self.running = False
+
+        stage = "session_finish"
+        phase_names = ",".join(phase.name for phase in phases)
+        if self.session is not None:
+            self.session.notes += (
+                f"; baseline_pwm={self.benchmark_baseline_pwm}; "
+                f"phases={phase_names}"
+            )
+            self.session.finish()
+
+        stage = "logger_stop"
+        if self.measurement_manager is not None:
+            self.measurement_manager.logger.stop()
+
+        stage = "raw_log_finalize"
         self._finalize_benchmark_raw_log()
     except Exception as exc:
         raise RuntimeError(
-            f"Benchmark completion failed at raw_log.finalize: "
+            f"Benchmark completion failed at {stage}: "
             f"{type(exc).__name__}: {exc}"
         ) from exc
 
