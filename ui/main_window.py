@@ -361,6 +361,13 @@ class MainWindow(QMainWindow):
     def complete(self, data, benchmark):
         self.timer.stop()
         self.refresh_runtime()
+        # Completion can arrive between the 100 ms UI refresh ticks. Force the result view to the exact benchmark boundary.
+        phase = getattr(self.breakin_controller, "current_phase", None)
+        if phase is not None:
+            duration = float(getattr(phase, "duration_sec", 0) or 0)
+            if duration > 0:
+                self.progress["ELAPSED"].setText(f"{duration:.1f} s")
+                self.progress["REMAIN"].setText("0.0 s")
         self.run_state.setText("COMPLETE")
         self.last_result_data = data
         self.last_result_benchmark = benchmark
