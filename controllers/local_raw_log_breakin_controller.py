@@ -33,6 +33,9 @@ class LocalRawLogBreakinController(BreakinController):
         try:
             result = super().start(recipe, instance_id=instance_id, resume=resume)
         except Exception:
+            # Preserve the completed/raw capture even when the inherited
+            # controller reports a failure. Finalization is idempotent.
+            self.finalize_benchmark_raw_log()
             raise
         self.finalize_benchmark_raw_log()
         return result
@@ -77,11 +80,20 @@ class LocalRawLogBreakinController(BreakinController):
             notes = f"baseline_pwm={baseline_pwm}"
         if purpose:
             notes = f"{notes}; purpose={purpose}" if notes else f"purpose={purpose}"
+        # RawLog IDs are string fields. Database-backed instance/session
+        # identifiers may arrive as integers, but the Local Raw Log Library
+        # uses these values as filesystem path components, so normalize the
+        # identifier type at the persistence boundary.
+        instance_id = (
+            None if self.active_instance_id is None else str(self.active_instance_id)
+        )
+        session_id = None if session_id is None else str(session_id)
+
         record = RawLog(
             device_type="MOTOR",
             firmware_version=firmware,
-            device_instance_id=self.active_instance_id,
-            motor_id=self.active_instance_id,
+            device_instance_id=instance_id,
+            motor_id=instance_id,
             measurement_session_id=session_id,
             acquired_at=datetime.now().isoformat(timespec="seconds"),
             measurement_condition=benchmark_type,
