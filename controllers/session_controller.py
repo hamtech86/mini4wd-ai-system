@@ -55,9 +55,15 @@ class SessionController:
 
         return self._session
 
-    def finish(self):
-
-        if self._session is not None:
+    def finish(self, status=None):
+        """Finish the active session, accepting the controller's status contract."""
+        if self._session is None:
+            return
+        if str(status or "COMPLETE").upper() == "ERROR":
+            self._session.error()
+        elif str(status or "COMPLETE").upper() == "CANCELLED":
+            self._session.cancel()
+        else:
             self._session.finish()
 
     def cancel(self):

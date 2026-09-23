@@ -85,3 +85,23 @@ def test_adapter_persists_raw_log_when_breakin_fails(tmp_path, monkeypatch):
 
     assert len(library.registered) == 1
     assert library.registered[0][0].measurement_session_id == "session-123"
+
+
+def test_finalize_benchmark_raw_log_is_idempotent(tmp_path):
+    serial = FakeSerial()
+    library = FakeLibrary(tmp_path)
+    controller = LocalRawLogBreakinController(
+        serial_controller=serial,
+        raw_log_library=library,
+    )
+    controller.session = FakeSession()
+    controller.active_instance_id = "INSTANCE-003"
+    controller.active_recipe_name = "STANDARD_3V30S"
+    controller._measurement_raw_log_parts = ["PREP\n", "MEASURE\n"]
+
+    first = controller.finalize_benchmark_raw_log()
+    second = controller.finalize_benchmark_raw_log()
+
+    assert first.log_id == second.log_id == "MOTOR-000001"
+    assert len(library.registered) == 1
+    assert library.read_raw("MOTOR-000001") == "PREP\nMEASURE\n"

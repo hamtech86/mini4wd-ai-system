@@ -53,6 +53,11 @@ class BreakinController:
         self.last_brush_peak_current = 0.0
         self.brush_peak_target_current = 0.0
         self.brush_peak_reached = False
+        # Raw serial data is collected only while a measurement phase is
+        # active. Each phase is frozen at its exact end boundary; anything
+        # received during STOP/finalization is intentionally discarded.
+        self._measurement_raw_log_parts = []
+        self._measurement_boundary_reached = False
 
     # ------------------------- checkpoint / resume -------------------------
     def _save_checkpoint(self):
@@ -151,6 +156,8 @@ class BreakinController:
         self.last_brush_peak_current = 0.0
         self.brush_peak_target_current = 0.0
         self.brush_peak_reached = False
+        self._measurement_raw_log_parts = []
+        self._measurement_boundary_reached = False
 
         checkpoint = self.resume_checkpoint() if resume else None
         if checkpoint:
@@ -165,6 +172,11 @@ class BreakinController:
                 self.session = self.session_manager.start("BREAKIN", instance_id=instance_id)
             except TypeError:
                 self.session = self.session_manager.start("BREAKIN")
+        if self.session is not None:
+            benchmark_type = getattr(self, "selected_benchmark_type", None)
+            if benchmark_type:
+                self.session.benchmark_type = str(benchmark_type)
+                self.session.purpose = "MOTOR_BENCHMARK"
         try:
             while self.running and self.phase_manager.has_next():
                 self.execute_phase(
@@ -193,6 +205,14 @@ class BreakinController:
             raise
         finally:
             self.phase_started_at = None
+
+    def finalize_benchmark_raw_log(self, raw_body=None):
+        """Finalize a benchmark Raw Log when supported by a persistence adapter."""
+        return None
+
+    def _finalize_benchmark_raw_log(self, raw_body=None):
+        """Compatibility entry point for benchmark execution code."""
+        return self.finalize_benchmark_raw_log(raw_body)
 
     def benchmark_3v(self, duration_sec=30, instance_id=None):
         phase = BreakinPhase(
@@ -236,8 +256,39 @@ class BreakinController:
             self._execute_brush_peak_approach(phase, resume_elapsed)
         else:
             self._execute_standard_phase(phase, resume_elapsed)
-        self.serial.set_pwm(0)
-        time.sleep(0.2)
+
+        # The measurement interval has ended here. Freeze the Raw Log BEFORE
+        # any STOP/finalization work. Data arriving after this boundary is
+        # deliberately discarded and must not contaminate the measurement.
+        self._freeze_measurement_raw_log()
+        self._measurement_boundary_reached = True
+
+        # Finalization is deliberately outside the measurement boundary.
+        # A serial/STOP lag must not turn an already completed measurement
+        # into an ERROR.
+        try:
+            self.serial.set_pwm(0)
+            time.sleep(0.2)
+        except Exception as exc:
+            print("SERIAL FINALIZE WARNING:", exc)
+
+    def _freeze_measurement_raw_log(self):
+        """Freeze only the Raw Log collected inside the measurement window."""
+        freeze = getattr(self.serial, "freeze_raw_log", None)
+        if callable(freeze):
+            raw_body = freeze()
+        else:
+            raw_body = getattr(self.serial, "raw_log", "") or ""
+            reset = getattr(self.serial, "reset_raw_log", None)
+            if callable(reset):
+                reset()
+        if raw_body:
+            self._measurement_raw_log_parts.append(raw_body)
+
+    @property
+    def measurement_raw_log(self):
+        """Raw Log containing only completed measurement-phase captures."""
+        return "".join(self._measurement_raw_log_parts)
 
     def _effective_elapsed(self):
         return self.phase_elapsed_before_pause + self.phase_elapsed_sec()
@@ -382,8 +433,13 @@ class BreakinController:
     def stop(self):
         self.running = False
         self.paused = False
-        if hasattr(self.serial, "stop_breakin"): self.serial.stop_breakin()
-        self.serial.set_pwm(0)
+        try:
+            if hasattr(self.serial, "stop_breakin"):
+                self.serial.stop_breakin()
+            else:
+                self.serial.set_pwm(0)
+        except Exception as exc:
+            print("SERIAL STOP WARNING:", exc)
 
     def emergency_stop(self):
         self.running = False

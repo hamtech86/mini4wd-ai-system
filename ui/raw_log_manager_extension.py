@@ -8,6 +8,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QPlainTextEdit,
     QMessageBox,
     QPushButton,
     QTableWidget,
@@ -17,6 +18,7 @@ from PyQt5.QtWidgets import (
 )
 
 from raw_log_library import RawLogLibrary
+from raw_log_library.github_export import GitHubRawLogExporter, GitHubRegistrationError
 
 
 class RawLogManagerExtension:
@@ -33,9 +35,9 @@ class RawLogManagerExtension:
         layout = QVBoxLayout(self.page)
         layout.addWidget(QLabel("Raw Logs linked to the selected Motor Instance"))
 
-        self.table = QTableWidget(0, 6)
+        self.table = QTableWidget(0, 7)
         self.table.setHorizontalHeaderLabels([
-            "log_id", "Session", "Acquired", "Firmware", "Condition", "Notes"
+            "log_id", "Session", "Acquired", "Firmware", "Condition", "Notes", "GitHub"
         ])
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -49,6 +51,9 @@ class RawLogManagerExtension:
         actions = QHBoxLayout()
         self.save_button = QPushButton("Save Metadata")
         self.save_button.clicked.connect(self._save_metadata)
+        self.github_button = QPushButton("GitHubへ登録")
+        self.github_button.clicked.connect(self._register_github)
+        actions.addWidget(self.github_button)
         self.raw_button = QPushButton("View Raw Body")
         self.raw_button.clicked.connect(self._view_raw_body)
         actions.addWidget(self.save_button)
@@ -83,6 +88,7 @@ class RawLogManagerExtension:
                 record.firmware_version or "",
                 record.measurement_condition or "",
                 record.notes or "",
+                self.library.get_github_status(record.log_id).get("status", "UNREGISTERED"),
             ]
             for col, value in enumerate(values):
                 self.table.setItem(row, col, QTableWidgetItem(str(value)))
@@ -106,6 +112,54 @@ class RawLogManagerExtension:
         except Exception as exc:
             QMessageBox.critical(self.manager, "Raw Log", str(exc))
 
+    def _register_github(self):
+        if not self.selected_log_id:
+            QMessageBox.information(self.manager, "GitHub", "Raw Logを選択してください。")
+            return
+        try:
+            record, _, _ = self.library.get(self.selected_log_id)
+            status = self.library.get_github_status(self.selected_log_id)
+            if status.get("status") == "REGISTERED":
+                QMessageBox.information(
+                    self.manager, "GitHub",
+                    f"{self.selected_log_id} は既に登録済みです.\n"
+                    f"{status.get('repository', '')}\n{status.get('raw_path', '')}"
+                )
+                return
+            metadata = [
+                f"log_id: {record.log_id}",
+                f"Instance ID: {record.device_instance_id or ''}",
+                f"Session ID: {record.measurement_session_id or ''}",
+                f"Date/Time: {record.acquired_at or ''}",
+                f"Firmware: {record.firmware_version or ''}",
+                f"Condition: {record.measurement_condition or ''}",
+                f"Notes: {record.notes or ''}",
+                "Raw Body: Local保存内容をそのまま登録",
+            ]
+            answer = QMessageBox.question(
+                self.manager,
+                "GitHubへ登録 — 確認",
+                "以下のRaw LogをGitHubへ登録しますか？\n\n" + "\n".join(metadata),
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if answer != QMessageBox.Yes:
+                return
+            result = GitHubRawLogExporter(self.library).register(self.selected_log_id)
+            self.refresh()
+            QMessageBox.information(
+                self.manager, "GitHub",
+                f"登録しました。\n\nRepository: {result['repository']}\n"
+                f"Raw: {result['raw_path']}\nMetadata: {result['metadata_path']}\n"
+                f"Commit: {result.get('commit', '')}"
+            )
+        except GitHubRegistrationError as exc:
+            self.refresh()
+            QMessageBox.critical(self.manager, "GitHub登録失敗", str(exc))
+        except Exception as exc:
+            self.refresh()
+            QMessageBox.critical(self.manager, "GitHub登録失敗", str(exc))
+
     def _view_raw_body(self):
         if not self.selected_log_id:
             QMessageBox.information(self.manager, "Raw Log", "Raw Logを選択してください。")
@@ -118,16 +172,12 @@ class RawLogManagerExtension:
 
         dialog = QDialog(self.manager)
         dialog.setWindowTitle(f"Raw Body — {self.selected_log_id}")
-        dialog.resize(900, 600)
+        dialog.resize(1000, 700)
         layout = QVBoxLayout(dialog)
-        text = QLineEdit()
-        text.setReadOnly(True)
-        text.setText("Raw body is immutable. Use the library for full raw content.")
-        layout.addWidget(text)
-        body_view = QTableWidget(1, 1)
-        body_view.setHorizontalHeaderLabels(["Raw Body (read-only)"])
-        body_view.setItem(0, 0, QTableWidgetItem(body))
-        body_view.setEditTriggers(QTableWidget.NoEditTriggers)
+        body_view = QPlainTextEdit()
+        body_view.setReadOnly(True)
+        body_view.setLineWrapMode(QPlainTextEdit.NoWrap)
+        body_view.setPlainText(body)
         layout.addWidget(body_view, 1)
         dialog.show()
         self._raw_dialog = dialog
