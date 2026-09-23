@@ -157,7 +157,7 @@ def run_benchmark(self, benchmark_type=STANDARD_3V30S, instance_id=None, purpose
             raise RuntimeError(self.abort_reason or "Benchmark stopped")
 
         if benchmark_type == STANDARD_3V30S:
-            self._finish_benchmark([prepare_phase, baseline])
+            self.finish_benchmark([prepare_phase, baseline])
             return self.measurements
 
         plus = max(0, min(255, int(round(self.benchmark_baseline_pwm * 1.05))))
@@ -200,7 +200,7 @@ def run_benchmark(self, benchmark_type=STANDARD_3V30S, instance_id=None, purpose
         if not _timed_voltage(self, return_phase_2, 10.0):
             raise RuntimeError(self.abort_reason or "Benchmark stopped")
 
-        self._finish_benchmark([
+        self.finish_benchmark([
             prepare_phase, baseline, plus_phase, return_phase_1,
             minus_phase, return_phase_2
         ])
