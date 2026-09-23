@@ -108,7 +108,7 @@ class MotorManagerUI(QWidget):
         self.status_box=QComboBox(); form.addRow("Status",self.status_box)
         d.addWidget(form_box)
 
-        d.addWidget(QLabel("History — only user-registered Raw Logs are marked as History"))
+        d.addWidget(QLabel("RawLog / History — all Instance-linked Raw Logs are shown; History is user-registered"))
         self.history_table=QTableWidget(0,9)
         self.history_table.setHorizontalHeaderLabels(
             ["Session","Date","Type","Note","RawLog","History","GitHub","Integrity","Result"]
@@ -208,7 +208,9 @@ class MotorManagerUI(QWidget):
         if item:self.load_instance_into_form(item.data(Qt.UserRole) or item.text()); self.show_instance_detail(item.data(Qt.UserRole) or item.text())
 
     def open_current_detail(self):
-        if self.current_instance_id:self.show_instance_detail(self.current_instance_id)
+        instance_id = self.current_instance_id or self._selected_table_id()
+        if instance_id is not None:
+            self.show_instance_detail(instance_id)
 
     def load_instance_into_form(self,instance_id):
         data=self.instance_repo.get_by_id(instance_id)
@@ -258,34 +260,52 @@ class MotorManagerUI(QWidget):
         self.current_instance_id=str(instance_id)
         self.detail_title.setText(f"Instance {instance_id} — {data.get('nickname') or data.get('serial_number') or ''} — {self.visibility.get(instance_id)}")
         self.load_instance_into_form(instance_id)
+
+        # RawLog is the authoritative local measurement record. Do not require
+        # a matching DB Measurement Session just to make an existing RawLog
+        # visible. A DB session, when present, is attached as context.
         sessions=self.instance_repo.get_sessions(instance_id)
+        session_by_id={str(s.get("session_id")):s for s in sessions if s.get("session_id") is not None}
+
         self.history_table.setRowCount(0)
-        for session in sessions:
-            sid=str(session.get("session_id"))
-            logs=[x for x in self.raw_library.list_by_session(sid) if x.device_type.upper()=="MOTOR"]
-            for log in logs:
-                if str(log.device_instance_id)!=str(instance_id): continue
-                # History contains only Raw Logs explicitly registered for History.
-                if log.history_registered == "1":
-                    self._add_history_row(session,log)
+        logs=[x for x in self.raw_library.list_logs("MOTOR")
+              if str(x.device_instance_id)==str(instance_id)]
+
+        for log in logs:
+            session=session_by_id.get(str(log.measurement_session_id))
+            self._add_history_row(session,log)
+
         self.history_table.resizeColumnsToContents()
 
     def _add_history_row(self,session,log):
         r=self.history_table.rowCount(); self.history_table.insertRow(r)
-        sid=str(session.get("session_id"))
+
+        sid=str(session.get("session_id")) if session else str(log.measurement_session_id or "—")
         note=log.notes if log else "—"
         logid=log.log_id if log else "—"
         history="REGISTERED" if log and log.history_registered == "1" else "—"
         github=self.raw_library.get_github_status(log.log_id).get("status","UNREGISTERED") if log else "—"
+
+        if session:
+            date=session.get("end_datetime") or session.get("start_datetime") or session.get("created_at") or ""
+            device_type=session.get("device_type") or ""
+            result=session.get("result") or ""
+        else:
+            date=log.acquired_at or ""
+            device_type=log.device_type or ""
+            result=""
+
         integrity=self._integrity(session,log) if log else "NO RAW LOG"
-        vals=[sid,session.get("end_datetime") or session.get("start_datetime") or session.get("created_at") or "",
-              session.get("device_type") or "",note,logid,history,github,integrity,session.get("result") or ""]
+        vals=[sid,date,device_type,note,logid,history,github,integrity,result]
+
         for c,v in enumerate(vals):
             item=QTableWidgetItem(str(v))
             if log and c==4:item.setData(Qt.UserRole,log.log_id)
             self.history_table.setItem(r,c,item)
 
     def _integrity(self,session,log):
+        if session is None:
+            return "NO SESSION"
         if str(session.get("instance_id")) != str(log.device_instance_id):
             return "Relationship Error"
         return "OK"
