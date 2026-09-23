@@ -80,18 +80,13 @@ class MainWindow(BaseMainWindow):
         """Open the Motor Instance Manager with the Local Raw Log manager attached."""
         try:
             from motor_system.python.ui.motor_manager_ui import MotorManagerUI
-            from ui.raw_log_manager_extension import install_raw_log_manager_extension
 
             instance_id = self.instance.currentData() if hasattr(self, "instance") else None
             self.manager_window = MotorManagerUI()
-            extension = install_raw_log_manager_extension(self.manager_window)
 
             if instance_id is not None:
                 self.manager_window.load_instance_into_form(instance_id)
                 self.manager_window.show_instance_detail(instance_id)
-                extension.refresh()
-                if hasattr(self.manager_window, "tabs"):
-                    self.manager_window.tabs.setCurrentWidget(extension.page)
 
             self.manager_window.setAttribute(Qt.WA_DeleteOnClose, True)
             self.manager_window.destroyed.connect(self.load_instances)
