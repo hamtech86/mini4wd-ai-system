@@ -232,12 +232,7 @@ def _finish_benchmark(self, phases):
 def _finalize_benchmark_raw_log(self, raw_body=None):
     finalize = getattr(self, "finalize_benchmark_raw_log", None)
     if callable(finalize):
-        try:
-            finalize(raw_body)
-        except Exception:
-            # Persistence failure must not change the completed measurement
-            # into a benchmark control failure.
-            pass
+        finalize(raw_body)
 
 
 def install_benchmark_support():
