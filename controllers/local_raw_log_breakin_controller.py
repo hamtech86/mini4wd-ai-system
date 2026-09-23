@@ -21,20 +21,38 @@ class LocalRawLogBreakinController(BreakinController):
         self.raw_log_library = raw_log_library or RawLogLibrary()
         self.last_raw_log_id = None
         self.last_raw_log_path = None
+        self._registered_raw_log_ids = []
 
     def start(self, recipe, instance_id=None, resume=False):
         if hasattr(self.serial, "reset_raw_log"):
             self.serial.reset_raw_log()
+        self._measurement_raw_log_parts = []
+        self._registered_raw_log_ids = []
+        self.last_raw_log_id = None
+        self.last_raw_log_path = None
         try:
             result = super().start(recipe, instance_id=instance_id, resume=resume)
         except Exception:
+            # A measurement that reached its end boundary must remain
+            # recoverable even if a later finalization step fails.
             self._register_raw_log()
             raise
         self._register_raw_log()
         return result
 
-    def _register_raw_log(self):
-        raw_body = getattr(self, "measurement_raw_log", "") or getattr(self.serial, "raw_log", "") or ""
+    def _freeze_measurement_raw_log(self):
+        """Freeze the phase log and persist it before STOP/finalization."""
+        before = len(self._measurement_raw_log_parts)
+        super()._freeze_measurement_raw_log()
+        if len(self._measurement_raw_log_parts) <= before:
+            return
+        raw_body = self._measurement_raw_log_parts[-1]
+        self._register_raw_log(raw_body)
+
+
+    def _register_raw_log(self, raw_body=None):
+        if raw_body is None:
+            raw_body = getattr(self, "measurement_raw_log", "") or getattr(self.serial, "raw_log", "") or ""
         if not raw_body:
             return None
 
@@ -61,4 +79,5 @@ class LocalRawLogBreakinController(BreakinController):
         path = self.raw_log_library.register(record, raw_body)
         self.last_raw_log_id = record.log_id
         self.last_raw_log_path = path
+        self._registered_raw_log_ids.append(record.log_id)
         return record
