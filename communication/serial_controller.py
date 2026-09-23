@@ -47,6 +47,12 @@ class SerialController:
         """Start a new raw-log capture for the next measurement."""
         self.raw_log_collector.reset()
 
+    def freeze_raw_log(self):
+        """Return the current measurement capture and discard the live buffer."""
+        snapshot = self.raw_log_collector.snapshot()
+        self.raw_log_collector.reset()
+        return snapshot
+
     def connect(self):
         if serial is None:
             return False
