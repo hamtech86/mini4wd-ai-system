@@ -52,7 +52,11 @@ class LocalRawLogBreakinController(BreakinController):
         benchmark so STOP/finalization errors cannot create duplicate logs.
         """
         if raw_body is None:
-            raw_body = getattr(self, "measurement_raw_log", "") or ""
+            raw_body = (
+                getattr(self, "measurement_raw_log", "")
+                or getattr(self.serial, "raw_log", "")
+                or ""
+            )
         if not raw_body:
             return None
         if self.last_raw_log_id:
