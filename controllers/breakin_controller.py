@@ -206,6 +206,14 @@ class BreakinController:
         finally:
             self.phase_started_at = None
 
+    def finalize_benchmark_raw_log(self, raw_body=None):
+        """Finalize a benchmark Raw Log when supported by a persistence adapter."""
+        return None
+
+    def _finalize_benchmark_raw_log(self, raw_body=None):
+        """Compatibility entry point for benchmark execution code."""
+        return self.finalize_benchmark_raw_log(raw_body)
+
     def benchmark_3v(self, duration_sec=30, instance_id=None):
         phase = BreakinPhase(
             name="BENCHMARK_3V_TEST", duration_sec=float(duration_sec), pwm=80,
