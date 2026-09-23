@@ -44,6 +44,15 @@ class LocalRawLogBreakinController(BreakinController):
         """Freeze the phase log only; persistence is finalized once per benchmark."""
         super()._freeze_measurement_raw_log()
 
+    def finish_benchmark(self, phases=None):
+        """Public completion compatibility entry point.
+        
+        Keep this entry point on the concrete controller so completion callers
+        do not depend on benchmark monkey-patching/import order.
+        """
+        from .motor_benchmark import _finish_benchmark
+        return _finish_benchmark(self, list(phases or []))
+
     def finalize_benchmark_raw_log(self, raw_body=None):
         """Persist the completed benchmark Raw Log.
 
