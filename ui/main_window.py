@@ -361,6 +361,17 @@ class MainWindow(QMainWindow):
     def complete(self, data, benchmark):
         self.timer.stop()
         self.refresh_runtime()
+        # The worker can finish between 100 ms UI refresh ticks. In that
+        # case the last live frame may still show 0.1 s remaining even though
+        # the benchmark has already crossed its exact end boundary. Once the
+        # controller reports completion, the result view must represent the
+        # completed boundary, not the previous refresh frame.
+        phase = getattr(self.breakin_controller, "current_phase", None)
+        if phase is not None:
+            duration = float(getattr(phase, "duration_sec", 0) or 0)
+            if duration > 0:
+                self.progress["ELAPSED"].setText(f"{duration:.1f} s")
+                self.progress["REMAIN"].setText("0.0 s")
         self.run_state.setText("COMPLETE")
         self.last_result_data = data
         self.last_result_benchmark = benchmark
