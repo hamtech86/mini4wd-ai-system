@@ -33,9 +33,6 @@ class LocalRawLogBreakinController(BreakinController):
         try:
             result = super().start(recipe, instance_id=instance_id, resume=resume)
         except Exception:
-            # A measurement that reached its end boundary must remain
-            # recoverable even if a later finalization step fails.
-            self.finalize_benchmark_raw_log()
             raise
         self.finalize_benchmark_raw_log()
         return result
