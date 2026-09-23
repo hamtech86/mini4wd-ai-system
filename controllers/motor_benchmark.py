@@ -94,6 +94,20 @@ def _begin(self, benchmark_type, instance_id=None, purpose="MEASUREMENT"):
     self.benchmark_purpose = purpose
     self.benchmark_baseline_pwm = None
     self.session = None
+
+    # Reset Local Raw Log adapter state for every benchmark run. The
+    # controller instance is reused by the UI, so a previous successful
+    # benchmark must never cause the next run to resolve the previous log.
+    if hasattr(self, "last_raw_log_id"):
+        self.last_raw_log_id = None
+    if hasattr(self, "last_raw_log_path"):
+        self.last_raw_log_path = None
+    if hasattr(self, "_registered_raw_log_ids"):
+        self._registered_raw_log_ids = []
+    if hasattr(self, "_measurement_raw_log_parts"):
+        self._measurement_raw_log_parts = []
+    if hasattr(self, "_measurement_boundary_reached"):
+        self._measurement_boundary_reached = False
     if self.session_manager:
         try:
             self.session = self.session_manager.start("BREAKIN", instance_id=self.active_instance_id)
