@@ -57,6 +57,7 @@ class BreakinController:
         # active. Each phase is frozen at its exact end boundary; anything
         # received during STOP/finalization is intentionally discarded.
         self._measurement_raw_log_parts = []
+        self._measurement_boundary_reached = False
 
     # ------------------------- checkpoint / resume -------------------------
     def _save_checkpoint(self):
@@ -155,6 +156,8 @@ class BreakinController:
         self.last_brush_peak_current = 0.0
         self.brush_peak_target_current = 0.0
         self.brush_peak_reached = False
+        self._measurement_raw_log_parts = []
+        self._measurement_boundary_reached = False
 
         checkpoint = self.resume_checkpoint() if resume else None
         if checkpoint:
@@ -250,9 +253,16 @@ class BreakinController:
         # any STOP/finalization work. Data arriving after this boundary is
         # deliberately discarded and must not contaminate the measurement.
         self._freeze_measurement_raw_log()
+        self._measurement_boundary_reached = True
 
-        self.serial.set_pwm(0)
-        time.sleep(0.2)
+        # Finalization is deliberately outside the measurement boundary.
+        # A serial/STOP lag must not turn an already completed measurement
+        # into an ERROR.
+        try:
+            self.serial.set_pwm(0)
+            time.sleep(0.2)
+        except Exception as exc:
+            print("SERIAL FINALIZE WARNING:", exc)
 
     def _freeze_measurement_raw_log(self):
         """Freeze only the Raw Log collected inside the measurement window."""
@@ -415,8 +425,13 @@ class BreakinController:
     def stop(self):
         self.running = False
         self.paused = False
-        if hasattr(self.serial, "stop_breakin"): self.serial.stop_breakin()
-        self.serial.set_pwm(0)
+        try:
+            if hasattr(self.serial, "stop_breakin"):
+                self.serial.stop_breakin()
+            else:
+                self.serial.set_pwm(0)
+        except Exception as exc:
+            print("SERIAL STOP WARNING:", exc)
 
     def emergency_stop(self):
         self.running = False
