@@ -84,10 +84,17 @@ class LocalRawLogBreakinController(BreakinController):
         # identifiers may arrive as integers, but the Local Raw Log Library
         # uses these values as filesystem path components, so normalize the
         # identifier type at the persistence boundary.
-        instance_id = (
-            None if self.active_instance_id is None else str(self.active_instance_id)
-        )
-        session_id = None if session_id is None else str(session_id)
+        def normalize_id(value, field_name):
+            if value is None or isinstance(value, str):
+                return value
+            if type(value) is int:
+                return str(value)
+            raise TypeError(
+                f"{field_name} must be str, int, or None; got {type(value).__name__}"
+            )
+
+        instance_id = normalize_id(self.active_instance_id, "instance_id")
+        session_id = normalize_id(session_id, "measurement_session_id")
 
         record = RawLog(
             device_type="MOTOR",
