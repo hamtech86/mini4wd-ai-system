@@ -236,11 +236,31 @@ def _finish_benchmark(self, phases):
     self.running = False
     phase_names = ",".join(phase.name for phase in phases)
     if self.session is not None:
-        self.session.notes += f"; baseline_pwm={self.benchmark_baseline_pwm}; phases={phase_names}"
-        self.session.finish()
+        try:
+            self.session.notes += f"; baseline_pwm={self.benchmark_baseline_pwm}; phases={phase_names}"
+            self.session.finish()
+        except Exception as exc:
+            raise RuntimeError(
+                f"Benchmark completion failed at session.finish: "
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
+
     if self.measurement_manager is not None:
-        self.measurement_manager.logger.stop()
-    self._finalize_benchmark_raw_log()
+        try:
+            self.measurement_manager.logger.stop()
+        except Exception as exc:
+            raise RuntimeError(
+                f"Benchmark completion failed at logger.stop: "
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
+
+    try:
+        self._finalize_benchmark_raw_log()
+    except Exception as exc:
+        raise RuntimeError(
+            f"Benchmark completion failed at raw_log.finalize: "
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
 
 
 def _finalize_benchmark_raw_log(self, raw_body=None):
