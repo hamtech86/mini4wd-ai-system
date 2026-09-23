@@ -209,6 +209,11 @@ def run_benchmark(self, benchmark_type=STANDARD_3V30S, instance_id=None, purpose
         raise
 
 def _finish_benchmark(self, phases):
+    # Freeze exactly at the benchmark boundary. Serial data arriving after
+    # this point (including STOP/finalization lag) is not part of the log.
+    freeze = getattr(self, "_freeze_measurement_raw_log", None)
+    if callable(freeze):
+        freeze()
     if hasattr(self.serial, "stop_breakin"):
         self.serial.stop_breakin()
     else:
@@ -224,11 +229,14 @@ def _finish_benchmark(self, phases):
     self._finalize_benchmark_raw_log()
 
 
-def _finalize_benchmark_raw_log(self):
-    if hasattr(self, "_register_raw_log"):
+def _finalize_benchmark_raw_log(self, raw_body=None):
+    finalize = getattr(self, "finalize_benchmark_raw_log", None)
+    if callable(finalize):
         try:
-            self._register_raw_log()
+            finalize(raw_body)
         except Exception:
+            # Persistence failure must not change the completed measurement
+            # into a benchmark control failure.
             pass
 
 
