@@ -246,6 +246,8 @@ def install_benchmark_support():
         return run_benchmark(self, benchmark_type, instance_id=instance_id)
     BreakinController.benchmark_3v = benchmark_3v
     BreakinController.run_benchmark = run_benchmark
+    BreakinController._finish_benchmark = _finish_benchmark
+    BreakinController._finalize_benchmark_raw_log = _finalize_benchmark_raw_log
 
 
 install_benchmark_support()
