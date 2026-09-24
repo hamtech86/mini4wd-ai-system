@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 
 from controllers.local_raw_log_breakin_controller import LocalRawLogBreakinController
+from controllers.motor_benchmark import _begin
 from raw_log_library import RawLogLibrary
 
 
@@ -105,3 +106,29 @@ def test_finalize_benchmark_raw_log_is_idempotent(tmp_path):
     assert first.log_id == second.log_id == "MOTOR-000001"
     assert len(library.registered) == 1
     assert library.read_raw("MOTOR-000001") == "PREP\nMEASURE\n"
+
+
+def test_consecutive_benchmarks_reset_raw_log_persistence_state(tmp_path):
+    serial = FakeSerial()
+    library = FakeLibrary(tmp_path)
+    controller = LocalRawLogBreakinController(
+        serial_controller=serial,
+        raw_log_library=library,
+    )
+
+    controller._measurement_raw_log_parts = ["STALE\n"]
+    controller._registered_raw_log_ids = ["MOTOR-000099"]
+    controller.last_raw_log_id = "MOTOR-000099"
+    controller.last_raw_log_path = "stale/path"
+
+    _begin(controller, "STANDARD_3V30S", instance_id="INSTANCE-004")
+    first = controller.finalize_benchmark_raw_log()
+
+    _begin(controller, "FULL_PACKAGE", instance_id="INSTANCE-004")
+    second = controller.finalize_benchmark_raw_log()
+
+    assert first.log_id == "MOTOR-000001"
+    assert second.log_id == "MOTOR-000002"
+    assert len(library.registered) == 2
+    assert controller._measurement_raw_log_parts == []
+    assert controller._registered_raw_log_ids == ["MOTOR-000002"]
