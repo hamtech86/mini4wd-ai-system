@@ -77,6 +77,18 @@ def _timed_pwm(self, phase, duration):
     return self.running
 
 def _begin(self, benchmark_type, instance_id=None, purpose="MEASUREMENT"):
+    # A benchmark can be executed repeatedly on the same controller instance.
+    # Reset Local Raw Log persistence state at the benchmark boundary so the
+    # previous benchmark's log cannot suppress registration of this benchmark.
+    if hasattr(self, "_measurement_raw_log_parts"):
+        self._measurement_raw_log_parts = []
+    if hasattr(self, "_registered_raw_log_ids"):
+        self._registered_raw_log_ids = []
+    if hasattr(self, "last_raw_log_id"):
+        self.last_raw_log_id = None
+    if hasattr(self, "last_raw_log_path"):
+        self.last_raw_log_path = None
+
     if hasattr(self.serial, "reset_raw_log"):
         self.serial.reset_raw_log()
     self.active_instance_id = instance_id if instance_id is not None else self.selected_instance_id
