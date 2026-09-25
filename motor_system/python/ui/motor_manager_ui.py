@@ -315,7 +315,7 @@ class MotorManagerUI(QWidget):
     def _selected_log(self):
         rows=self.history_table.selectionModel().selectedRows()
         if not rows:return None
-        row=rows[0].row(); item=self.history_table.item(row,4)
+        row=rows[0].row(); item=self.history_table.item(row,5)
         if not item or item.text()=="—":return None
         return item.data(Qt.UserRole) or item.text()
 
