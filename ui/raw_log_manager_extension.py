@@ -37,9 +37,9 @@ class RawLogManagerExtension:
         layout = QVBoxLayout(self.page)
         layout.addWidget(QLabel("Raw Logs linked to the selected Motor Instance"))
 
-        self.table = QTableWidget(0, 7)
+        self.table = QTableWidget(0, 8)
         self.table.setHorizontalHeaderLabels([
-            "log_id", "Session", "Acquired", "Firmware", "Condition", "Notes", "GitHub"
+            "log_id", "Session", "Acquired", "Firmware", "Benchmark Type", "Condition", "Notes", "GitHub"
         ])
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -88,6 +88,7 @@ class RawLogManagerExtension:
                 record.measurement_session_id or "",
                 record.acquired_at or "",
                 record.firmware_version or "",
+                record.measurement_condition or "",
                 record.measurement_condition or "",
                 record.notes or "",
                 self.library.get_github_status(record.log_id).get("status", "UNREGISTERED"),
