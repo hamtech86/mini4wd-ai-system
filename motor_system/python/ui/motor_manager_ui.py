@@ -110,9 +110,9 @@ class MotorManagerUI(QWidget):
         d.addWidget(form_box)
 
         d.addWidget(QLabel("RawLog / History — all Instance-linked Raw Logs are shown; History is user-registered"))
-        self.history_table=QTableWidget(0,9)
+        self.history_table=QTableWidget(0,10)
         self.history_table.setHorizontalHeaderLabels(
-            ["Session","Date","Type","Note","RawLog","History","GitHub","Integrity","Result"]
+            ["Session","Date","Type","Benchmark Type","Note","RawLog","History","GitHub","Integrity","Result"]
         )
         self.history_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.history_table.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -297,11 +297,12 @@ class MotorManagerUI(QWidget):
             result=""
 
         integrity=self._integrity(session,log) if log else "NO RAW LOG"
-        vals=[sid,date,device_type,note,logid,history,github,integrity,result]
+        benchmark_type=log.measurement_condition if log else ""
+        vals=[sid,date,device_type,benchmark_type,note,logid,history,github,integrity,result]
 
         for c,v in enumerate(vals):
             item=QTableWidgetItem(str(v))
-            if log and c==4:item.setData(Qt.UserRole,log.log_id)
+            if log and c==5:item.setData(Qt.UserRole,log.log_id)
             self.history_table.setItem(r,c,item)
 
     def _integrity(self,session,log):
