@@ -27,6 +27,7 @@ from database.repository.motor_repository import MotorRepository
 from raw_log_library import RawLogLibrary
 from raw_log_library.github_export import GitHubRawLogExporter, GitHubRegistrationError
 from ui.instance_visibility import InstanceVisibilityStore
+from ui.raw_log_database_manager import RawLogDatabaseManager
 
 
 class MotorManagerUI(QWidget):
@@ -57,6 +58,9 @@ class MotorManagerUI(QWidget):
         header.addWidget(title); header.addStretch()
         refresh = QPushButton("Refresh"); refresh.clicked.connect(self.refresh_all)
         header.addWidget(refresh)
+        rawlog_manager = QPushButton("RawLog Database")
+        rawlog_manager.clicked.connect(self.open_rawlog_database_manager)
+        header.addWidget(rawlog_manager)
         root.addLayout(header)
 
         filters = QGroupBox("Instance Search / Filter")
@@ -199,6 +203,10 @@ class MotorManagerUI(QWidget):
     def sort_instances(self,column):
         self.sort_ascending = self.sort_column != column or not self.sort_ascending
         self.sort_column=column; self.load_instances()
+
+    def open_rawlog_database_manager(self):
+        dialog = RawLogDatabaseManager(self)
+        dialog.exec_()
 
     def refresh_all(self):
         self.load_models(); self.load_statuses(); self.load_instances()
