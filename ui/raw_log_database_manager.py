@@ -215,7 +215,7 @@ class RawLogDatabaseManager(QDialog):
                     record.log_id,
                     iid,
                     record.measurement_condition or "",
-                    record.measurement_condition or "",
+                    "—",
                     record.notes or "",
                     github,
                     visibility,
