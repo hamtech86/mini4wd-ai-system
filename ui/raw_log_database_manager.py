@@ -14,14 +14,16 @@ from PyQt5.QtWidgets import (
 from raw_log_library import RawLogLibrary
 from raw_log_library.github_export import GitHubRawLogExporter, GitHubRegistrationError
 from ui.instance_visibility import InstanceVisibilityStore
+from database.manager.database_manager import DatabaseManager
+from database.repository.motor_instance_repository import MotorInstanceRepository
 
 
 class RawLogDatabaseManager(QDialog):
     """Manage all Local RawLogs; never edits raw body/log_id/session_id."""
 
     HEADERS = [
-        "Session", "Acquired", "Type", "RawLog", "Instance", "Benchmark Type",
-        "Condition", "Note", "GitHub", "RawLogVisible", "Instance Visibility", "Integrity",
+        "RawLog", "STD or FULL", "Date", "Instance ID", "Motor Type",
+        "Nickname", "Note", "GitHub", "RawLogVisible", "Session",
     ]
 
     def __init__(self, parent=None):
@@ -29,6 +31,9 @@ class RawLogDatabaseManager(QDialog):
         root = Path(__file__).resolve().parents[1]
         self.library = RawLogLibrary(root / "data" / "raw_logs")
         self.visibility = InstanceVisibilityStore(root / "data" / "instance_manager")
+        self.db = DatabaseManager(str(root / "database" / "mini4wd.db"))
+        self.db.connect()
+        self.instance_repo = MotorInstanceRepository(self.db)
         self.records = []
         self.setWindowTitle("RawLog Database Manager")
         self.resize(1650, 850)
@@ -80,7 +85,7 @@ class RawLogDatabaseManager(QDialog):
     def _selected_log_id(self):
         rows = self.table.selectionModel().selectedRows()
         if not rows: return None
-        item = self.table.item(rows[0].row(), 3)
+        item = self.table.item(rows[0].row(), 0)
         return item.data(Qt.UserRole) if item else None
 
     def _record_integrity(self, record):
@@ -131,17 +136,21 @@ class RawLogDatabaseManager(QDialog):
                 github = self.library.get_github_status(record.log_id).get("status", "UNREGISTERED")
                 iid = record.device_instance_id or ""
                 instvis = self.visibility.get(iid) if iid else "—"
-                values = [record.measurement_session_id or "", record.acquired_at or "", record.device_type or "",
-                          record.log_id, iid, record.measurement_condition or "", "—", record.notes or "", github,
-                          "", instvis, self._record_integrity(record)]
+                instance_data = self.instance_repo.get_by_id(iid) if iid else {}
+                motor_type = instance_data.get("motor_name") or instance_data.get("model_code") or instance_data.get("motor_model_id") or record.device_model or record.device_type or ""
+                nickname = instance_data.get("nickname") or ""
+                condition = str(record.measurement_condition or "").upper()
+                benchmark = "FULL" if "FULL" in condition else ("STD" if condition else "—")
+                values = [record.log_id, benchmark, record.acquired_at or "", iid, motor_type, nickname,
+                          record.notes or "", github, "", record.measurement_session_id or ""]
                 for col, value in enumerate(values):
-                    item = QTableWidgetItem(str(value));
-                    if col == 3: item.setData(Qt.UserRole, record.log_id)
+                    item = QTableWidgetItem(str(value))
+                    if col == 0: item.setData(Qt.UserRole, record.log_id)
                     self.table.setItem(row, col, item)
                 box = QCheckBox(); box.setChecked(record.history_registered == "1")
                 box.setToolTip("RawLogVisible: ON=Instance Manager下段に表示 / OFF=非表示")
                 box.stateChanged.connect(lambda state, lid=record.log_id: self.set_rawlog_visible(lid, state == Qt.Checked))
-                self.table.setCellWidget(row, 9, box)
+                self.table.setCellWidget(row, 8, box)
             self.table.resizeColumnsToContents()
         finally: self.table.setSortingEnabled(True)
 
@@ -203,6 +212,10 @@ class RawLogDatabaseManager(QDialog):
             QMessageBox.information(self, "GitHub", f"登録完了\n{result.get('repository', '')}\n{result.get('raw_path', '')}")
         except GitHubRegistrationError as exc: self.refresh(); QMessageBox.critical(self, "GitHub登録失敗", str(exc))
         except Exception as exc: self.refresh(); QMessageBox.critical(self, "GitHub登録失敗", str(exc))
+
+    def closeEvent(self, event):
+        try: self.db.close()
+        finally: event.accept()
 
     def view_raw_body(self):
         record = self._selected_record()
