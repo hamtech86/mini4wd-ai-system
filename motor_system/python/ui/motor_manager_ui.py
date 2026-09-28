@@ -124,8 +124,6 @@ class MotorManagerUI(QWidget):
 
         actions=QHBoxLayout()
         for text,slot in [
-            ("Register History",self.register_history),
-            ("Remove from History",self.remove_history),
             ("Edit Note",self.edit_note),
             ("GitHub Register",self.register_github),
             ("Relink RawLog",self.relink_raw_log),
