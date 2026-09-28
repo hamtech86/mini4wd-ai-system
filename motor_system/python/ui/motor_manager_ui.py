@@ -113,10 +113,10 @@ class MotorManagerUI(QWidget):
         form.setColumnStretch(1,1); form.setColumnStretch(3,1)
         d.addWidget(form_box)
 
-        d.addWidget(QLabel("RawLog / History — all Instance-linked Raw Logs are shown; History is user-registered"))
+        d.addWidget(QLabel("RawLog — RawLogVisible=ON のRawLogを表示"))
         self.history_table=QTableWidget(0,10)
         self.history_table.setHorizontalHeaderLabels(
-            ["Session","Date","Type","Benchmark Type","Note","RawLog","History","GitHub","Integrity","Result"]
+            ["RawLog","STD or FULL","Date","Instance ID","Motor Type","Nickname","Note","GitHub","RawLogVisible","Session"]
         )
         self.history_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.history_table.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -270,79 +270,37 @@ class MotorManagerUI(QWidget):
         self.detail_title.setText(f"Instance {instance_id} — {data.get('nickname') or data.get('serial_number') or ''} — {self.visibility.get(instance_id)}")
         self.load_instance_into_form(instance_id)
 
-        # RawLog is the authoritative local measurement record. Do not require
-        # a matching DB Measurement Session just to make an existing RawLog
-        # visible. A DB session, when present, is attached as context.
         sessions=self.instance_repo.get_sessions(instance_id)
-        session_by_id={str(s.get("session_id")):s for s in sessions if s.get("session_id") is not None}
-
+        session_by_id={str(x.get("session_id")):x for x in sessions if x.get("session_id") is not None}
         self.history_table.setRowCount(0)
         logs=[x for x in self.raw_library.list_logs("MOTOR")
-              if str(x.device_instance_id)==str(instance_id)]
-
+              if str(x.device_instance_id)==str(instance_id) and x.history_registered=="1"]
         for log in logs:
-            session=session_by_id.get(str(log.measurement_session_id))
-            self._add_history_row(session,log)
-
+            self._add_history_row(session_by_id.get(str(log.measurement_session_id)),log,data)
         self.history_table.resizeColumnsToContents()
 
-    def _add_history_row(self,session,log):
+    def _benchmark_label(self,value):
+        text=str(value or "").upper()
+        return "FULL" if "FULL" in text else ("STD" if text else "—")
+
+    def _add_history_row(self,session,log,instance_data):
         r=self.history_table.rowCount(); self.history_table.insertRow(r)
-
-        sid=str(session.get("session_id")) if session else str(log.measurement_session_id or "—")
-        note=log.notes if log else "—"
-        logid=log.log_id if log else "—"
-        history="REGISTERED" if log and log.history_registered == "1" else "—"
-        github=self.raw_library.get_github_status(log.log_id).get("status","UNREGISTERED") if log else "—"
-
-        if session:
-            date=session.get("end_datetime") or session.get("start_datetime") or session.get("created_at") or ""
-            device_type=session.get("device_type") or ""
-            result=session.get("result") or ""
-        else:
-            date=log.acquired_at or ""
-            device_type=log.device_type or ""
-            result=""
-
-        integrity=self._integrity(session,log) if log else "NO RAW LOG"
-        benchmark_type=log.measurement_condition if log else ""
-        vals=[sid,date,device_type,benchmark_type,note,logid,history,github,integrity,result]
-
-        for c,v in enumerate(vals):
+        model=instance_data.get("motor_name") or instance_data.get("model_code") or instance_data.get("motor_model_id") or log.device_model or ""
+        nickname=instance_data.get("nickname") or ""
+        date=log.acquired_at or (session.get("end_datetime") or session.get("start_datetime") or session.get("created_at") or "" if session else "")
+        github=self.raw_library.get_github_status(log.log_id).get("status","UNREGISTERED")
+        values=[log.log_id,self._benchmark_label(log.measurement_condition),date,str(log.device_instance_id or "—"),
+                model,nickname,log.notes or "",github,"VISIBLE",str(log.measurement_session_id or (session.get("session_id") if session else "") or "—")]
+        for c,v in enumerate(values):
             item=QTableWidgetItem(str(v))
-            if log and c==5:item.setData(Qt.UserRole,log.log_id)
+            if c==0:item.setData(Qt.UserRole,log.log_id)
             self.history_table.setItem(r,c,item)
-
-    def _integrity(self,session,log):
-        if session is None:
-            return "NO SESSION"
-        if str(session.get("instance_id")) != str(log.device_instance_id):
-            return "Relationship Error"
-        return "OK"
 
     def _selected_log(self):
         rows=self.history_table.selectionModel().selectedRows()
         if not rows:return None
-        row=rows[0].row(); item=self.history_table.item(row,5)
-        if not item or item.text()=="—":return None
-        return item.data(Qt.UserRole) or item.text()
-
-    def register_history(self):
-        logid=self._selected_log()
-        if not logid:
-            QMessageBox.information(self,"History","History登録するRawLog行を選択してください。"); return
-        try:
-            self.raw_library.set_history_registered(logid,True)
-            self.show_instance_detail(self.current_instance_id)
-        except Exception as exc:QMessageBox.critical(self,"History",str(exc))
-
-    def remove_history(self):
-        logid=self._selected_log()
-        if not logid:return
-        if QMessageBox.question(self,"History","History表示対象から外しますか？\nRawLog / Session / Instance / 測定データは削除されません。",
-                                QMessageBox.Yes|QMessageBox.No,QMessageBox.No)!=QMessageBox.Yes:return
-        try:self.raw_library.set_history_registered(logid,False); self.show_instance_detail(self.current_instance_id)
-        except Exception as exc:QMessageBox.critical(self,"History",str(exc))
+        item=self.history_table.item(rows[0].row(),0)
+        return (item.data(Qt.UserRole) or item.text()) if item else None
 
     def edit_note(self):
         logid=self._selected_log()
