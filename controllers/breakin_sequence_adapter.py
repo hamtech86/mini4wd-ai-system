@@ -11,8 +11,9 @@ from .recipe import BreakinPhase
 class BreakinSequenceAdapter:
     """Translate SequenceDefinition rows into safe motor-control operations."""
 
-    def __init__(self, controller):
+    def __init__(self, controller, control_only=False):
         self.controller = controller
+        self.control_only = bool(control_only)
         self._active = None
         self._last_measurement = None
 
@@ -38,7 +39,10 @@ class BreakinSequenceAdapter:
     def tick(self, sequence):
         self._active = sequence
         phase = self.to_phase(sequence)
-        measurement = self.controller._collect_measurement(phase)
+        if self.control_only and self.controller.measurement_manager is not None:
+            measurement = self.controller.measurement_manager.collect_control()
+        else:
+            measurement = self.controller._collect_measurement(phase)
         self._last_measurement = measurement
         if measurement is None:
             return
@@ -58,7 +62,8 @@ class BreakinSequenceAdapter:
                 self.controller._voltage_control(phase, measurement)
 
     def stop_sequence(self, sequence):
-        self.controller.serial.set_pwm(0)
+        self.controller.serial.stop_breakin()
+        self.controller.current_pwm = 0
         self._active = None
 
     def read_metric(self, metric):
