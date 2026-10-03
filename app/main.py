@@ -174,7 +174,7 @@ class MainWindow(BaseMainWindow):
             logger.exception("Failed to calculate estimated performance")
 
     def _build_recipe_sequence_panel(self):
-        self.recipe_engine=RecipeEngine();self.sequence_adapter=BreakinSequenceAdapter(self.breakin_controller);self.sequence_executor=SequenceExecutor(adapter=self.sequence_adapter);self.sequence_timer=QTimer(self);self.sequence_timer.setInterval(100);self.sequence_timer.timeout.connect(self._sequence_tick);self.sequence_selected_total=0
+        self.recipe_engine=RecipeEngine();self.sequence_adapter=BreakinSequenceAdapter(self.breakin_controller, control_only=False);self.sequence_executor=SequenceExecutor(adapter=self.sequence_adapter);self.sequence_timer=QTimer(self);self.sequence_timer.setInterval(100);self.sequence_timer.timeout.connect(self._sequence_tick);self.sequence_selected_total=0
         box=QGroupBox("SEQUENCE");root=QVBoxLayout(box);actions=QHBoxLayout();self.sequence_all=QPushButton("全選択");self.sequence_none=QPushButton("全解除");self.sequence_all.clicked.connect(lambda:self._set_sequence_checks(True));self.sequence_none.clicked.connect(lambda:self._set_sequence_checks(False));self.sequence_execute=QPushButton("選択Sequenceを実行");self.sequence_stop=QPushButton("Sequence停止");self.sequence_stop.setEnabled(False);self.sequence_execute.clicked.connect(self._execute_selected_sequences);self.sequence_stop.clicked.connect(self._stop_sequences)
         actions.addWidget(self.sequence_all);actions.addWidget(self.sequence_none);actions.addStretch();actions.addWidget(self.sequence_execute);actions.addWidget(self.sequence_stop);root.addLayout(actions)
         self.sequence_progress=QProgressBar();self.sequence_progress.setRange(0,100);self.sequence_progress.setValue(0);self.sequence_progress.setFormat("Sequence Progress: %p%")
@@ -269,7 +269,7 @@ class MainWindow(BaseMainWindow):
         if not enabled_ids:self.sequence_status.setText("実施するSequenceが選択されていません");return
         controller=self._motor_controller()
         if controller is None or not getattr(controller,"connected",False):QMessageBox.warning(self,"Sequence","先にMOTOR CONNECTを実行してください。");return
-        self.sequence_selected_ids=enabled_ids;self.sequence_selected_total=len(enabled_ids);self.sequence_progress.setValue(0);self.sequence_progress.setFormat(f"Sequence Progress: 0/{self.sequence_selected_total}  %p%")
+        self.sequence_selected_ids=enabled_ids;self.sequence_selected_total=len(enabled_ids);self.sequence_adapter.control_only=(str(name).upper()=="TUNE_BASIC");self.sequence_progress.setValue(0);self.sequence_progress.setFormat(f"Sequence Progress: 0/{self.sequence_selected_total}  %p%")
         self.sequence_executor.load_recipe(recipe,enabled_ids=enabled_ids);self.sequence_executor.start();self.sequence_timer.start();self.timer.start();self.sequence_execute.setEnabled(False);self.sequence_stop.setEnabled(True);self.start.setEnabled(False);self.stop.setEnabled(True);self.manager.setEnabled(False);self.instance.setEnabled(False);self.recipe.setEnabled(False);self.update_db.setEnabled(False);self.copy.setEnabled(False);self.result["STATUS"].setText("RUNNING");self.run_state.setText("STARTING...");current=self.sequence_executor.current();self._update_sequence_highlight(current.sequence_id if current else None);self._update_sequence_main_ui(current)
 
     def _start_benchmark(self, benchmark_type=STANDARD_3V30S):

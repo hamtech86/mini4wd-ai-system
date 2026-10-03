@@ -34,6 +34,16 @@ class MeasurementManager:
         self.filters = FilterGroup()
         self.last_measurement: Optional[Measurement] = None
 
+    def collect_control(self):
+        """Acquire one control measurement without Session/Logger/RawLog persistence."""
+        raw = None
+        if self.serial_controller:
+            raw = self.serial_controller.read_measurement(capture_raw=False)
+        data = self._parse_frame(raw)
+        measurement = Measurement(**data)
+        self.last_measurement = measurement
+        return measurement
+
     def collect(self):
         """
         BreakinController interface.
