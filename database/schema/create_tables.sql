@@ -31,8 +31,19 @@ CREATE TABLE IF NOT EXISTS measurement_session (
 
     schema_version TEXT,
 
-    firmware_version TEXT
+    firmware_version TEXT,
+
+    -- Canonical benchmark identification. NULL is allowed for historical
+    -- sessions that have not been explicitly classified under the new scheme.
+    benchmark_type_code TEXT,
+    voltage_control_mode TEXT
 );
+
+CREATE INDEX IF NOT EXISTS idx_measurement_session_benchmark_type_code
+    ON measurement_session(benchmark_type_code);
+
+CREATE INDEX IF NOT EXISTS idx_measurement_session_voltage_control_mode
+    ON measurement_session(voltage_control_mode);
 
 -- =====================================================
 -- Measurement
