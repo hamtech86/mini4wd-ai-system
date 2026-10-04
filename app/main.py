@@ -7,7 +7,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtWidgets import QApplication, QMessageBox, QGroupBox, QGridLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget, QTabWidget, QHBoxLayout, QCheckBox, QProgressBar
+from PyQt5.QtWidgets import QApplication, QMessageBox, QGroupBox, QGridLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget, QTabWidget, QHBoxLayout, QCheckBox, QProgressBar, QComboBox
 from loguru import logger
 from ui.main_window import MainWindow as BaseMainWindow
 from communication.serial_controller import SerialController
@@ -22,7 +22,7 @@ from controllers.breakin_sequence_adapter import BreakinSequenceAdapter
 from workers.breakin_worker import BreakinWorker
 from analysis.analysis_engine import AnalysisEngine
 from controllers.session_controller import SessionController
-from controllers.motor_benchmark import STANDARD_3V30S, FULL_PACKAGE
+from controllers.motor_benchmark import STANDARD_3V30S, FULL_PACKAGE, TERMINAL, INPUT
 
 class MainWindow(BaseMainWindow):
     def __init__(self, context=None):
@@ -53,7 +53,15 @@ class MainWindow(BaseMainWindow):
         self.battery_serial_status=QLabel("BATTERY: DISCONNECTED  /dev/ttyUSB0"); self.battery_connect=QPushButton("BATTERY CONNECT"); self.battery_disconnect=QPushButton("BATTERY DISCONNECT"); self.battery_disconnect.setEnabled(False)
         self.battery_connect.clicked.connect(self.connect_battery_serial); self.battery_disconnect.clicked.connect(self.disconnect_battery_serial)
         row.addWidget(self.motor_serial_status,0,0); row.addWidget(self.motor_connect,0,1); row.addWidget(self.motor_disconnect,0,2); row.addWidget(self.battery_serial_status,1,0); row.addWidget(self.battery_connect,1,1); row.addWidget(self.battery_disconnect,1,2)
-        root_layout.addWidget(device_box); tabs=QTabWidget(); tabs.addTab(old_central,"MOTOR BREAK-IN"); self.battery_tab=BatteryTab(self.db_path,transport=self.battery_serial_controller,parent=self); tabs.addTab(self.battery_tab,"BATTERY"); root_layout.addWidget(tabs,1); self.setCentralWidget(root)
+        root_layout.addWidget(device_box)
+        benchmark_box=QGroupBox("BENCHMARK VOLTAGE CONTROL"); benchmark_row=QHBoxLayout(benchmark_box)
+        benchmark_row.addWidget(QLabel("3.00V control mode:"))
+        self.benchmark_voltage_mode=QComboBox()
+        self.benchmark_voltage_mode.addItem("TERMINAL — V4−V5 / V5−V4", TERMINAL)
+        self.benchmark_voltage_mode.addItem("INPUT — FWD V4 / REV V5", INPUT)
+        self.benchmark_voltage_mode.setCurrentIndex(0)
+        benchmark_row.addWidget(self.benchmark_voltage_mode); benchmark_row.addStretch()
+        root_layout.addWidget(benchmark_box); tabs=QTabWidget(); tabs.addTab(old_central,"MOTOR BREAK-IN"); self.battery_tab=BatteryTab(self.db_path,transport=self.battery_serial_controller,parent=self); tabs.addTab(self.battery_tab,"BATTERY"); root_layout.addWidget(tabs,1); self.setCentralWidget(root)
 
     def load_recipes(self):
         self.recipe.clear()
@@ -278,6 +286,7 @@ class MainWindow(BaseMainWindow):
         controller=self._motor_controller()
         if controller is None or not getattr(controller,"connected",False):QMessageBox.warning(self,"Benchmark","先にMOTOR CONNECTを実行してください。");return
         self.breakin_controller.selected_benchmark_type=benchmark_type
+        self.breakin_controller.selected_benchmark_voltage_control_mode=self.benchmark_voltage_mode.currentData() if hasattr(self,"benchmark_voltage_mode") else TERMINAL
         self.database_updated=False;self.last_result_data=None;self.last_result_benchmark=True;self.database_status.setText("DATABASE: NOT UPDATED");self.update_db.setEnabled(False);self.copy.setEnabled(False);self.start.setEnabled(False);self.manager.setEnabled(False);self.instance.setEnabled(False);self.recipe.setEnabled(False);self.stop.setEnabled(True);self.result["STATUS"].setText("RUNNING");self.run_state.setText("STARTING...")
         self.breakin_worker=BreakinWorker(self.breakin_controller,None,True)
         self.breakin_worker.completed.connect(lambda data:self.complete(data,True));self.breakin_worker.failed.connect(self.failed);self.breakin_worker.finished.connect(self.finished);self.timer.start();self.breakin_worker.start()
