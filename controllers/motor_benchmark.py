@@ -85,7 +85,7 @@ def _timed_voltage(self, phase, duration):
         measurement = _collect(self, phase)
         if _safety(self, measurement):
             return False
-        self._voltage_control(phase, measurement)
+        _benchmark_voltage_control(self, phase, measurement)
         time.sleep(self.CONTROL_INTERVAL_SEC)
     return self.running
 
