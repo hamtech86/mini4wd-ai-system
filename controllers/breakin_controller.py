@@ -312,6 +312,13 @@ class BreakinController:
             time.sleep(self.CONTROL_INTERVAL_SEC)
 
     def _execute_brush_peak_approach(self, phase, resume_elapsed=0.0):
+        # Do not interpret an absent/INVALID sample as zero current. Wait for
+        # the next VALID sample before establishing the brush-peak reference.
+        measurement = None
+        while self.running and measurement is None:
+            measurement = self._collect_measurement(phase)
+            if measurement is None:
+                time.sleep(self.CONTROL_INTERVAL_SEC)
         peak = self._estimate_brush_peak_current()
         if peak < phase.peak_min_current:
             self.abort_reason = f"BRUSH PEAK APPROACH requires benchmark peak >= {phase.peak_min_current:.3f} A; measured {peak:.3f} A"
