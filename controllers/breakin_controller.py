@@ -394,12 +394,34 @@ class BreakinController:
     def _value(measurement, name, default=0.0):
         return BreakinController._measurement_value(measurement, name, default)
 
+    def _control_voltage(self, phase, measurement):
+        """Return the voltage used by this phase's control mode.
+
+        TERMINAL (default) keeps the existing motor terminal definition:
+        motor_voltage = voltage1 - voltage2.
+
+        INPUT is direction-aware and controls the physical motor input side:
+        FWD -> V4 (voltage1), REV -> V5 (voltage2).
+        """
+        mode = str((getattr(phase, "metadata", {}) or {}).get(
+            "voltage_control_mode", "TERMINAL"
+        )).upper()
+        if mode == "INPUT":
+            field = "voltage2" if str(phase.direction).upper() == "REV" else "voltage1"
+            return float(self._value(measurement, field, 0.0) or 0.0)
+        return float(self._value(measurement, "motor_voltage", 0.0) or 0.0)
+
     def _voltage_control(self, phase, measurement):
-        voltage = float(self._value(measurement, "motor_voltage", 0.0) or 0.0)
-        if voltage <= 0: return
+        voltage = self._control_voltage(phase, measurement)
+        if voltage <= 0:
+            return
         error = float(phase.target_voltage) - voltage
-        if abs(error) <= 0.02: return
-        new_pwm = max(phase.pwm_min, min(phase.pwm_max, self.current_pwm + int(round(self.VOLTAGE_KP * error))))
+        if abs(error) <= 0.02:
+            return
+        new_pwm = max(
+            phase.pwm_min,
+            min(phase.pwm_max, self.current_pwm + int(round(self.VOLTAGE_KP * error))),
+        )
         if new_pwm != self.current_pwm:
             self.current_pwm = new_pwm
             self.serial.set_pwm(new_pwm)
