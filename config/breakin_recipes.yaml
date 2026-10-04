@@ -35,17 +35,17 @@ recipes:
       rpm: 23000
       torque_priority: 0.70
     stages:
-      - {name: FWD_3V_START, control: VOLTAGE, target_voltage: 3.00, pwm: 80, pwm_min: 35, pwm_max: 120, duration_sec: 30, direction: FWD}
+      - {name: FWD_3V_START, control: VOLTAGE, target_voltage: 3.00, pwm: 80, pwm_min: 35, pwm_max: 120, duration_sec: 30, direction: FWD, voltage_control_mode: INPUT}
       - {name: FWD_RAMP_3_TO_9V, control: VOLTAGE_RAMP, start_voltage: 3.00, end_voltage: 9.00, pwm: 80, pwm_min: 35, pwm_max: 245, duration_sec: 60, direction: FWD}
       - {name: FWD_9V_HOLD, control: VOLTAGE, target_voltage: 9.00, pwm: 180, pwm_min: 35, pwm_max: 245, duration_sec: 60, direction: FWD}
       - {name: FWD_FADEOUT, control: VOLTAGE_RAMP, start_voltage: 9.00, end_voltage: 0.00, pwm: 180, pwm_min: 0, pwm_max: 245, duration_sec: 30, direction: FWD}
       - {name: REST_FWD, control: PWM, pwm: 0, duration_sec: 60, direction: FWD}
-      - {name: REV_3V_START, control: VOLTAGE, target_voltage: 3.00, pwm: 80, pwm_min: 35, pwm_max: 120, duration_sec: 30, direction: REV}
+      - {name: REV_3V_START, control: VOLTAGE, target_voltage: 3.00, pwm: 80, pwm_min: 35, pwm_max: 120, duration_sec: 30, direction: REV, voltage_control_mode: INPUT}
       - {name: REV_RAMP_3_TO_9V, control: VOLTAGE_RAMP, start_voltage: 3.00, end_voltage: 9.00, pwm: 80, pwm_min: 35, pwm_max: 245, duration_sec: 60, direction: REV}
       - {name: REV_9V_HOLD, control: VOLTAGE, target_voltage: 9.00, pwm: 180, pwm_min: 35, pwm_max: 245, duration_sec: 60, direction: REV}
       - {name: REV_FADEOUT, control: VOLTAGE_RAMP, start_voltage: 9.00, end_voltage: 0.00, pwm: 180, pwm_min: 0, pwm_max: 245, duration_sec: 30, direction: REV}
       - {name: REST_REV, control: PWM, pwm: 0, duration_sec: 60, direction: REV}
-      - {name: BENCHMARK_3V, control: VOLTAGE, target_voltage: 3.00, pwm: 80, pwm_min: 35, pwm_max: 120, duration_sec: 30, direction: FWD}
+      - {name: BENCHMARK_3V, control: VOLTAGE, target_voltage: 3.00, pwm: 80, pwm_min: 35, pwm_max: 120, duration_sec: 30, direction: FWD, voltage_control_mode: INPUT}
 
   FINISH_BRUSH_PEAK_2V:
     description: "Finish recipe: hold approximately 2 V and continue until the measured brush current approaches the benchmark brush-peak level without crossing it."
