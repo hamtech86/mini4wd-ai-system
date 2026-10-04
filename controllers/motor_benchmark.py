@@ -10,10 +10,38 @@ from .breakin_controller import BreakinController
 
 STANDARD_3V30S = "STANDARD_3V30S"
 FULL_PACKAGE = "FULL_PACKAGE"
+TERMINAL = "TERMINAL"
+INPUT = "INPUT"
+
+BENCHMARK_VOLTAGE_CONTROL_MODES = (TERMINAL, INPUT)
 
 
 def _collect(self, phase):
     return self._collect_measurement(phase)
+
+def _benchmark_voltage_control(self, phase, measurement):
+    """Control selected benchmark voltage definition without changing RawLog."""
+    voltage_mode = getattr(self, "benchmark_voltage_control_mode", TERMINAL)
+    if voltage_mode not in BENCHMARK_VOLTAGE_CONTROL_MODES:
+        raise ValueError(f"Unsupported benchmark voltage control mode: {voltage_mode}")
+    direction = str(getattr(phase, "direction", "FWD")).upper()
+    v4 = float(self._value(measurement, "voltage1", 0.0) or 0.0)
+    v5 = float(self._value(measurement, "voltage2", 0.0) or 0.0)
+    if voltage_mode == INPUT:
+        controlled_voltage = v4 if direction == "FWD" else v5
+    else:
+        motor_voltage = float(self._value(measurement, "motor_voltage", 0.0) or 0.0)
+        controlled_voltage = motor_voltage if direction == "FWD" else -motor_voltage
+    if controlled_voltage <= 0:
+        return
+    error = float(phase.target_voltage) - controlled_voltage
+    if abs(error) <= 0.02:
+        return
+    new_pwm = max(phase.pwm_min, min(phase.pwm_max, self.current_pwm + int(round(self.VOLTAGE_KP * error))))
+    if new_pwm != self.current_pwm:
+        self.current_pwm = new_pwm
+        self.serial.set_pwm(new_pwm)
+
 
 
 def _safety(self, measurement):
@@ -41,7 +69,7 @@ def _prepare_3v(self, phase, duration=2.0):
         measurement = _collect(self, phase)
         if _safety(self, measurement):
             return False
-        self._voltage_control(phase, measurement)
+        _benchmark_voltage_control(self, phase, measurement)
         time.sleep(self.CONTROL_INTERVAL_SEC)
     return self.running
 
@@ -104,6 +132,9 @@ def _begin(self, benchmark_type, instance_id=None, purpose="MEASUREMENT"):
     self.current_pwm = 0
     self.benchmark_type = benchmark_type
     self.benchmark_purpose = purpose
+    self.benchmark_voltage_control_mode = getattr(self, "selected_benchmark_voltage_control_mode", TERMINAL)
+    if self.benchmark_voltage_control_mode not in BENCHMARK_VOLTAGE_CONTROL_MODES:
+        raise ValueError(f"Unsupported benchmark voltage control mode: {self.benchmark_voltage_control_mode}")
     self.benchmark_baseline_pwm = None
     self.session = None
     if self.session_manager:
