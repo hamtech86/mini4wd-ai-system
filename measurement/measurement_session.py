@@ -23,6 +23,16 @@ class MeasurementType(Enum):
     MANUAL = "MANUAL"
 
 
+class BenchmarkType(Enum):
+    STANDARD = "STANDARD"
+    FULL_PACKAGE = "FULL_PACKAGE"
+
+
+class VoltageControlMode(Enum):
+    TERMINAL = "TERMINAL"
+    INPUT = "INPUT"
+
+
 class SessionStatus(Enum):
     READY = "READY"
     RUNNING = "RUNNING"
@@ -43,7 +53,12 @@ class MeasurementSession:
     notes: str = ""
     schema_version: str = "1.0"
     firmware_version: str = "MOTOR_BREAKIN_V3"
+    # Legacy/display benchmark label retained for compatibility.
     benchmark_type: str | None = None
+    # Canonical DB classification introduced by migration 003.
+    # Historical sessions intentionally remain None until explicitly classified.
+    benchmark_type_code: str | None = None
+    voltage_control_mode: str | None = None
     purpose: str = "MEASUREMENT"
 
     def start(self):
