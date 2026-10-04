@@ -46,6 +46,8 @@ class MeasurementManager:
             raw = self.serial_controller.read_measurement()
 
         data = self._parse_frame(raw)
+        if data is None:
+            return None
         return self.create_measurement(data)
 
     @staticmethod
