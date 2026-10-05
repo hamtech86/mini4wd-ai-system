@@ -238,17 +238,29 @@ class MotorManagerUI(QWidget):
         self.detail_title.setText("New Motor Instance")
 
     def save_instance(self):
-        if self.current_instance_id is None:
-            QMessageBox.information(self,"Instance","新規Instance登録は既存UIの仕様を使用してください。今回の再設計では既存登録ロジックを変更しません。")
-            return
         data={"motor_model_id":self.model_box.currentData(),"serial_number":self.serial_edit.text().strip(),
               "nickname":self.nickname_edit.text().strip(),"status":self.status_box.currentText()}
         cols={r[1] for r in self.db.execute("PRAGMA table_info(motor_instance)").fetchall()}
         data={k:v for k,v in data.items() if k in cols}
+
+        if data.get("motor_model_id") is None:
+            QMessageBox.warning(self,"Instance","Motor Modelを選択してください。")
+            return
+
         try:
-            self.instance_repo.update_instance(self.current_instance_id,data)
-            self.load_instances(); self.show_instance_detail(self.current_instance_id)
-        except Exception as exc: QMessageBox.critical(self,"Save Error",str(exc))
+            if self.current_instance_id is None:
+                # Repository owns the existing DB/ID allocation mechanism. The
+                # returned row id becomes the current instance so a repeated
+                # Save updates the same row instead of creating a duplicate.
+                new_instance_id = self.instance_repo.create(data)
+                self.current_instance_id = str(new_instance_id)
+            else:
+                self.instance_repo.update_instance(self.current_instance_id,data)
+
+            self.load_instances()
+            self.show_instance_detail(self.current_instance_id)
+        except Exception as exc:
+            QMessageBox.critical(self,"Save Error",str(exc))
 
     def set_visibility(self,value):
         iid=self.current_instance_id or self._selected_table_id()
