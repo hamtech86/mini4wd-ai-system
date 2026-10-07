@@ -145,7 +145,11 @@ def _begin(
     if hasattr(self.serial, "reset_raw_log"):
         self.serial.reset_raw_log()
     self.active_instance_id = instance_id if instance_id is not None else self.selected_instance_id
-    if recipe_name is None:
+    legacy_recipe = _LEGACY_RECIPE_ALIASES.get(str(benchmark_type).strip())
+    if legacy_recipe:
+        recipe_name, benchmark_type, legacy_mode = benchmark_recipe_spec(legacy_recipe)
+        voltage_control_mode = legacy_mode
+    elif recipe_name is None:
         recipe_name = _canonical_recipe_for(benchmark_type, voltage_control_mode)
     self.active_recipe_name = recipe_name
     self.running = True
