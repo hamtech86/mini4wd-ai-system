@@ -112,6 +112,15 @@ class Measurement:
     # -------------------------------------------------
 
     @property
+    def input_voltage(self) -> float:
+        """Physical driver-side/input-side voltage for the active direction.
+
+        This is a derived view of existing RawLog fields and does not add or
+        alter any RawLog column.
+        """
+        return self.voltage1 if str(self.direction).upper() == "FWD" else self.voltage2
+
+    @property
     def electrical_power(self) -> float:
         """
         電圧×電流から求めた瞬時電力
