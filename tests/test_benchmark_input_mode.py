@@ -12,6 +12,7 @@ from controllers.motor_benchmark import (
     TERMINAL,
     build_benchmark_recipe,
     benchmark_recipe_spec,
+    benchmark_phase_count,
     run_benchmark,
 )
 from controllers.recipe_engine import RecipeEngine
@@ -47,6 +48,17 @@ def make_measurement(direction="FWD", voltage1=3.0, voltage2=0.8, motor_voltage=
         magnetic_level=0.0,
         motor_temperature=25.0,
     )
+
+
+def test_benchmark_phase_counts_cover_all_modes_and_legacy_aliases():
+    assert benchmark_phase_count(STANDARD) == 2
+    assert benchmark_phase_count("FULL_PACKAGE") == 6
+    assert benchmark_phase_count(STD_T) == 2
+    assert benchmark_phase_count(FULL_T) == 6
+    assert benchmark_phase_count(STD_I) == 2
+    assert benchmark_phase_count(FULL_I) == 6
+    assert benchmark_phase_count("STANDARD_3V30S") == 2
+    assert benchmark_phase_count("FULL_PACKAGE") == 6
 
 
 def test_four_benchmark_recipe_axes_are_explicit():
@@ -126,6 +138,20 @@ def test_sequence_adapter_preserves_input_mode():
     adapter.start_sequence(sequence)
     assert controller.voltage_control_mode == INPUT
     assert controller.benchmark_type == STANDARD
+
+
+def test_remaining_time_uses_sequence_executor_authoritative_value():
+    serial = SimpleNamespace(set_pwm=lambda pwm: None)
+    controller = BreakinController(serial)
+    adapter = BreakinSequenceAdapter(controller)
+    from controllers.sequence_executor import SequenceExecutor
+    executor = SequenceExecutor(adapter=adapter)
+    executor.sequences = [SimpleNamespace(sequence_id="01", enabled=True, duration_sec=30)]
+    executor.results = [SimpleNamespace(status="RUNNING", remaining_sec=17.5, sequence_id="01")]
+    executor.state = SimpleNamespace(sequence_index=0)
+    controller.current_phase = SimpleNamespace(direction="FWD", duration_sec=30)
+    snapshot = controller.execution_snapshot()
+    assert snapshot["remaining_time"] == 17.5
 
 
 def test_recipe_engine_resolves_four_benchmark_recipes():
