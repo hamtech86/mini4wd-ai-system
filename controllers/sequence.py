@@ -44,8 +44,8 @@ class SequenceDefinition:
                 "max_duration_sec": phase.max_duration_sec,
                 "peak_margin_ratio": phase.peak_margin_ratio,
                 "peak_min_current": phase.peak_min_current,
-                "benchmark_type": getattr(recipe, "benchmark_type", None),
-                "voltage_control_mode": getattr(recipe, "voltage_control_mode", None),
+                "benchmark_type": phase.metadata.get("benchmark_type"),
+                "voltage_control_mode": phase.metadata.get("voltage_control_mode"),
             }, metadata=dict(phase.metadata),
         )
 
