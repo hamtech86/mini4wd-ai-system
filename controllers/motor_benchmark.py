@@ -158,7 +158,7 @@ def _begin(
     self.abort_reason = None
     self.current_phase = None
     self.current_phase_index = 0
-    self.total_phases = 2 if benchmark_type == STANDARD_3V30S else 6
+    self.total_phases = 2 if str(benchmark_type).upper() == STANDARD else 6
     self.phase_started_at = None
     self.current_pwm = 0
     self.benchmark_type = str(benchmark_type).upper()
