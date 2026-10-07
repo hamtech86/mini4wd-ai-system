@@ -312,11 +312,17 @@ class MainWindow(QMainWindow):
         phase = getattr(c, "current_phase", None)
         if phase is None:
             return
-        elapsed = float(c.phase_elapsed_sec()) if hasattr(c, "phase_elapsed_sec") else 0.0
-        duration = float(getattr(phase, "duration_sec", 0))
+        if hasattr(c, "effective_elapsed_sec") and hasattr(c, "remaining_sec"):
+            elapsed = float(c.effective_elapsed_sec())
+            remaining = float(c.remaining_sec())
+        else:
+            # Compatibility fallback for older controllers only.
+            elapsed = float(c.phase_elapsed_sec()) if hasattr(c, "phase_elapsed_sec") else 0.0
+            duration = float(getattr(phase, "duration_sec", 0))
+            remaining = max(0.0, duration - elapsed)
         index = int(getattr(c, "current_phase_index", 0))
         total = int(getattr(c, "total_phases", 0))
-        values = {"STEP": f"{index + 1} / {total}", "PHASE": getattr(phase, "name", "--"), "DIR": getattr(phase, "direction", "FWD"), "PWM": getattr(c, "current_pwm", 0), "VOLT": self.live["V"].text(), "CURRENT": self.live["A"].text(), "ELAPSED": f"{elapsed:.1f} s", "REMAIN": f"{max(0, duration - elapsed):.1f} s"}
+        values = {"STEP": f"{index + 1} / {total}", "PHASE": getattr(phase, "name", "--"), "DIR": getattr(phase, "direction", "FWD"), "PWM": getattr(c, "current_pwm", 0), "VOLT": self.live["V"].text(), "CURRENT": self.live["A"].text(), "ELAPSED": f"{elapsed:.1f} s", "REMAIN": f"{remaining:.1f} s"}
         for key, value in values.items():
             self.progress[key].setText(str(value))
         self.run_state.setText("RUNNING")
