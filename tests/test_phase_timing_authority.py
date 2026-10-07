@@ -23,7 +23,7 @@ class PhaseTimingAuthorityTests(unittest.TestCase):
             self.assertEqual(self.controller.remaining_sec(), 0.0)
 
     def test_pause_resume_preserves_effective_elapsed(self):
-        with patch("controllers.breakin_controller.time.time", side_effect=[104.0, 104.0, 108.0, 111.0]):
+        with patch("controllers.breakin_controller.time.time", side_effect=[104.0, 104.0, 108.0, 111.0, 111.0]):
             self.controller.phase_started_at = 100.0
             self.controller.phase_elapsed_before_pause = 0.0
             self.assertAlmostEqual(self.controller.effective_elapsed_sec(), 4.0)
