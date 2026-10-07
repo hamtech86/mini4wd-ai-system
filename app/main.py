@@ -65,7 +65,7 @@ class MainWindow(BaseMainWindow):
 
     def recipe_changed(self, index):
         name = self.recipe.itemData(index) if hasattr(self, "recipe") else None
-        if name in (STANDARD_3V30S, FULL_PACKAGE):
+        if name in benchmark_recipe_names() or name in (STANDARD_3V30S, FULL_PACKAGE):
             self._load_benchmark_sequence(name)
             return
         super().recipe_changed(index)
@@ -189,7 +189,7 @@ class MainWindow(BaseMainWindow):
 
     def _recipe_selection_changed(self,index):
         name=self.recipe.itemData(index) if hasattr(self,"recipe") else None
-        if name in (STANDARD_3V30S, FULL_PACKAGE):
+        if name in benchmark_recipe_names() or name in (STANDARD_3V30S, FULL_PACKAGE):
             self._load_benchmark_sequence(name)
             return
         self._load_recipe_sequence(name)
