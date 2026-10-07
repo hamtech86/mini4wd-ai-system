@@ -462,7 +462,12 @@ class BreakinController:
         motor_voltage = None
         pwm = self.current_pwm
         elapsed = self.phase_elapsed_sec() if self.current_phase is not None else 0.0
-        remaining = None
+        sequence_executor = getattr(self, "sequence_executor", None)
+        remaining = (
+            sequence_executor.remaining_sec()
+            if sequence_executor is not None and sequence_executor.state is not None
+            else None
+        )
         if measurement is not None:
             input_voltage = (
                 self._measurement_value(measurement, "voltage1", 0.0)
@@ -471,8 +476,8 @@ class BreakinController:
             )
             motor_voltage = self._measurement_value(measurement, "motor_voltage", 0.0)
             pwm = self._measurement_value(measurement, "pwm", pwm)
-        if self.current_phase is not None and self.current_phase.duration_sec is not None:
-            remaining = max(0.0, float(self.current_phase.duration_sec) - elapsed)
+        # Remaining Time is authoritative in SequenceExecutor when a sequence
+        # execution is active. Do not create a second time model here.
         return {
             "benchmark_type": getattr(self, "benchmark_type", None),
             "voltage_control_mode": getattr(self, "voltage_control_mode", "TERMINAL"),
