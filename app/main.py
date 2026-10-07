@@ -59,8 +59,9 @@ class MainWindow(BaseMainWindow):
         self.recipe.clear()
         for name in self.recipe_engine.names():
             self.recipe.addItem(name, name)
-        self.recipe.addItem(STANDARD_3V30S, STANDARD_3V30S)
-        self.recipe.addItem(FULL_PACKAGE, FULL_PACKAGE)
+        for name in self.recipe_engine.benchmark_names():
+            self.recipe.addItem(name, name)
+        self.recipe.addItem("MOTOR BENCHMARK TEST (3V / 30s)", self.BENCHMARK_KEY)
 
     def recipe_changed(self, index):
         name = self.recipe.itemData(index) if hasattr(self, "recipe") else None
