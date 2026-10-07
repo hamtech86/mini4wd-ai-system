@@ -69,7 +69,7 @@ class BreakinController:
             "instance_id": self.active_instance_id,
             "phase_index": self.current_phase_index,
             "phase_name": self.current_phase.name,
-            "phase_elapsed_sec": self.phase_elapsed_sec(),
+            "phase_elapsed_sec": self.effective_elapsed_sec(),
             "current_pwm": self.current_pwm,
             "direction": self.current_phase.direction,
             "paused": self.paused,
@@ -97,7 +97,7 @@ class BreakinController:
         """Pause safely while preserving the current phase position."""
         if not self.running or self.paused:
             return False
-        self.phase_elapsed_before_pause = self.phase_elapsed_sec()
+        self.phase_elapsed_before_pause = self.effective_elapsed_sec()
         self.paused = True
         self.pause_started_at = time.time()
         self.serial.set_pwm(0)
@@ -292,6 +292,17 @@ class BreakinController:
 
     def _effective_elapsed(self):
         return self.phase_elapsed_before_pause + self.phase_elapsed_sec()
+
+    def effective_elapsed_sec(self):
+        """Authoritative elapsed time used by the phase completion logic."""
+        return max(0.0, self._effective_elapsed())
+
+    def remaining_sec(self):
+        """Authoritative remaining time for the current phase."""
+        phase = self.current_phase
+        if phase is None:
+            return 0.0
+        return max(0.0, float(phase.duration_sec) - self.effective_elapsed_sec())
 
     def _execute_standard_phase(self, phase, resume_elapsed=0.0):
         while self.running and self._effective_elapsed() < phase.duration_sec:
