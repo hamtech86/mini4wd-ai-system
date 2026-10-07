@@ -53,6 +53,10 @@ def benchmark_phase_count(benchmark_type):
         return 2
     if normalized == FULL_PACKAGE_TYPE:
         return 6
+    for recipe_name in benchmark_recipe_names():
+        if recipe_name.upper() == normalized:
+            _, normalized_type, _ = benchmark_recipe_spec(recipe_name)
+            return 2 if normalized_type == STANDARD else 6
     legacy = _LEGACY_RECIPE_ALIASES.get(str(benchmark_type).strip())
     if legacy:
         _, normalized_type, _ = benchmark_recipe_spec(legacy)
