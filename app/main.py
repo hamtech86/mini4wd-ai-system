@@ -22,7 +22,7 @@ from controllers.breakin_sequence_adapter import BreakinSequenceAdapter
 from workers.breakin_worker import BreakinWorker
 from analysis.analysis_engine import AnalysisEngine
 from controllers.session_controller import SessionController
-from controllers.motor_benchmark import STANDARD_3V30S, FULL_PACKAGE
+from controllers.motor_benchmark import STANDARD_3V30S, FULL_PACKAGE, benchmark_recipe_names
 
 class MainWindow(BaseMainWindow):
     def __init__(self, context=None):
@@ -258,7 +258,7 @@ class MainWindow(BaseMainWindow):
 
     def _execute_selected_sequences(self):
         name=self._current_recipe_name()
-        if name in (STANDARD_3V30S, FULL_PACKAGE):
+        if name in benchmark_recipe_names() or name in (STANDARD_3V30S, FULL_PACKAGE):
             selected=[check for sid,check in self.sequence_checks if sid==name and check.isChecked()]
             if len(selected)!=1:
                 self.sequence_status.setText(f"{name} が選択されていません");return
@@ -278,7 +278,8 @@ class MainWindow(BaseMainWindow):
             QMessageBox.warning(self,"Controller","BreakinController is not available.");return
         controller=self._motor_controller()
         if controller is None or not getattr(controller,"connected",False):QMessageBox.warning(self,"Benchmark","先にMOTOR CONNECTを実行してください。");return
-        self.breakin_controller.selected_benchmark_type=benchmark_type
+        self.breakin_controller.selected_benchmark_recipe = benchmark_type
+        self.breakin_controller.selected_benchmark_type = benchmark_type
         self.database_updated=False;self.last_result_data=None;self.last_result_benchmark=True;self.database_status.setText("DATABASE: NOT UPDATED");self.update_db.setEnabled(False);self.copy.setEnabled(False);self.start.setEnabled(False);self.manager.setEnabled(False);self.instance.setEnabled(False);self.recipe.setEnabled(False);self.stop.setEnabled(True);self.result["STATUS"].setText("RUNNING");self.run_state.setText("STARTING...")
         self.breakin_worker=BreakinWorker(self.breakin_controller,None,True)
         self.breakin_worker.completed.connect(lambda data:self.complete(data,True));self.breakin_worker.failed.connect(self.failed);self.breakin_worker.finished.connect(self.finished);self.timer.start();self.breakin_worker.start()
