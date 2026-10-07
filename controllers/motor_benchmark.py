@@ -225,6 +225,11 @@ def run_benchmark(
     prepare_phase = BreakinPhase(
         "PREPARE_2S", 2, 0, "FWD", "VOLTAGE", 3.00, pwm_min=35, pwm_max=120
     )
+    prepare_phase.metadata.update({
+        "benchmark_type": self.benchmark_type,
+        "voltage_control_mode": self.voltage_control_mode,
+        "recipe": self.active_recipe_name,
+    })
     self.current_phase = prepare_phase
     self.current_phase_index = 0
     self.current_pwm = self._initial_pwm_for_voltage(3.00, prepare_phase)
