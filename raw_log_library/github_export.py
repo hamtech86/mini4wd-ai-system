@@ -46,14 +46,27 @@ class GitHubRawLogExporter:
         self.library.set_github_status(log_id,**result)
         return result
 
+    def _individual_storage_id(self, record):
+        kind = record.device_type.lower()
+        if kind == "motor":
+            # Instance linkage is the authoritative physical-motor identity.
+            # motor_id is retained as legacy metadata and must not determine storage
+            # after a RawLog has been relinked to another Instance.
+            individual_id = record.device_instance_id or record.motor_id
+        else:
+            individual_id = record.battery_id
+        if not individual_id:
+            raise GitHubRegistrationError(f"{record.log_id}: individual ID is missing.")
+        return individual_id
+
     def _raw_path(self,record):
-        kind=record.device_type.lower(); individual_id=record.motor_id if kind=="motor" else record.battery_id
-        if not individual_id: raise GitHubRegistrationError(f"{record.log_id}: individual ID is missing.")
+        kind=record.device_type.lower()
+        individual_id=self._individual_storage_id(record)
         return f"{kind}/{individual_id}/{record.log_id}/raw.log"
 
     def _metadata_path(self,record):
-        kind=record.device_type.lower(); individual_id=record.motor_id if kind=="motor" else record.battery_id
-        if not individual_id: raise GitHubRegistrationError(f"{record.log_id}: individual ID is missing.")
+        kind=record.device_type.lower()
+        individual_id=self._individual_storage_id(record)
         return f"{kind}/{individual_id}/{record.log_id}/metadata.json"
 
     def _put_file(self,path,content,message,*,allow_update):
