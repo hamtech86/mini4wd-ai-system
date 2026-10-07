@@ -48,5 +48,24 @@ class RawLogGitHubTests(unittest.TestCase):
             )
 
 
+    def test_github_paths_follow_relinked_motor_instance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            library = RawLogLibrary(tmp)
+            record = RawLog(
+                device_type="MOTOR",
+                motor_id="14",
+                device_instance_id="7",
+            )
+            library.register(record, "RAW\n")
+            exporter = GitHubRawLogExporter(library, token="dummy")
+            self.assertEqual(
+                exporter._raw_path(record),
+                f"motor/7/{record.log_id}/raw.log",
+            )
+            self.assertEqual(
+                exporter._metadata_path(record),
+                f"motor/7/{record.log_id}/metadata.json",
+            )
+
 if __name__ == "__main__":
     unittest.main()
