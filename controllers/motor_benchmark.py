@@ -46,6 +46,20 @@ def benchmark_recipe_spec(recipe_name):
             return name, spec[0], spec[1]
     raise ValueError(f"Unsupported benchmark recipe: {recipe_name}")
 
+def benchmark_phase_count(benchmark_type):
+    """Return the canonical phase count after benchmark-type normalization."""
+    normalized = str(benchmark_type).upper()
+    if normalized == STANDARD:
+        return 2
+    if normalized == FULL_PACKAGE_TYPE:
+        return 6
+    legacy = _LEGACY_RECIPE_ALIASES.get(str(benchmark_type).strip())
+    if legacy:
+        _, normalized_type, _ = benchmark_recipe_spec(legacy)
+        return 2 if normalized_type == STANDARD else 6
+    raise ValueError(f"Unsupported benchmark type: {benchmark_type}")
+
+
 def _canonical_recipe_for(benchmark_type, voltage_control_mode):
     benchmark_type = str(benchmark_type).upper()
     voltage_control_mode = str(voltage_control_mode).upper()
@@ -158,7 +172,7 @@ def _begin(
     self.abort_reason = None
     self.current_phase = None
     self.current_phase_index = 0
-    self.total_phases = 2 if str(benchmark_type).upper() == STANDARD else 6
+    self.total_phases = benchmark_phase_count(benchmark_type)
     self.phase_started_at = None
     self.current_pwm = 0
     self.benchmark_type = str(benchmark_type).upper()
@@ -258,7 +272,7 @@ def run_benchmark(
         if not _timed_voltage(self, baseline, 30.0):
             raise RuntimeError(self.abort_reason or "Benchmark stopped")
 
-        if benchmark_type == STANDARD_3V30S:
+        if self.benchmark_type == STANDARD:
             self._finish_benchmark([prepare_phase, baseline])
             return self.measurements
 
