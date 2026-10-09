@@ -22,7 +22,7 @@ jobs:
           python -m pytest -q \
             tests/test_breakin_controller.py \
             tests/test_anomaly_skip.py \
-            tests/test_recipe_engine.py \\
+            tests/test_recipe_engine.py \
             tests/test_serial_controller_feedback_path.py
 
   test-battery:
