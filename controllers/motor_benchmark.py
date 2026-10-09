@@ -77,7 +77,29 @@ def _canonical_recipe_for(benchmark_type, voltage_control_mode):
 
 
 def _collect(self, phase):
-    return self._collect_measurement(phase)
+    """Collect one benchmark sample and stop on a sustained loss of valid feedback.
+
+    A single invalid sample is skipped. Three consecutive invalid samples
+    (300 ms at the 100 ms benchmark cadence) are treated as loss of control
+    feedback: continuing with the last PWM would leave the motor open-loop.
+    """
+    measurement = self._collect_measurement(phase)
+    if measurement is None:
+        self._consecutive_invalid_measurements = (
+            getattr(self, "_consecutive_invalid_measurements", 0) + 1
+        )
+        if (
+            self._consecutive_invalid_measurements >= 3
+            and getattr(self, "running", False)
+        ):
+            self.abort_reason = (
+                "SAFETY: 3 consecutive invalid measurements; "
+                "stopping benchmark due to loss of voltage feedback"
+            )
+            self.emergency_stop()
+    else:
+        self._consecutive_invalid_measurements = 0
+    return measurement
 
 
 def _safety(self, measurement):
@@ -172,6 +194,7 @@ def _begin(
     self.active_recipe_name = recipe_name
     self.running = True
     self.paused = False
+    self._consecutive_invalid_measurements = 0
     self.measurements = []
     self.abort_reason = None
     self.current_phase = None
