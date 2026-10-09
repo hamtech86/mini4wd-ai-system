@@ -76,6 +76,23 @@ Firmware defines the sensor-side meanings used by the current device:
 
 For INPUT mode, the relevant input-side voltage is direction-dependent: forward uses V4 / voltage1, reverse uses V5 / voltage2. This does not change the meaning of terminal motor voltage.
 
+
+## 5.1 A4/A5 values: emitted RawLog fields versus ADC raw counts
+
+**Verified against `firmware/motor/MotoreRev.ino` on 2026-10-09:**
+
+- The firmware reads A4 into `sensor.rawVM1` and converts it to `sensor.voltage1`.
+- The firmware reads A5 into `sensor.rawVM2` and converts it to `sensor.voltage2`.
+- The CSV `sendLog()` output emits `voltage1`, `voltage2`, and `motorVoltage`.
+- The CSV output does **not** emit `rawVM1` or `rawVM2` ADC counts.
+
+Therefore, the statement “A4 is missing from RawLog” needs a precise distinction:
+- If “A4 value” means the **converted A4 voltage**, it is emitted as `voltage1` in the current firmware's DATA CSV.
+- If it means the **A4 ADC raw count**, it is currently not included in the firmware's DATA CSV.
+- For the A5 side, the same distinction applies: converted `voltage2` is emitted, while `rawVM2` is not.
+
+This is a firmware output-schema fact, not proof that every historical stored RawLog contains the expected `voltage1` column. The Python serial parser, header/column mapping, and actual historical RawLog bodies still need to be checked separately. Do not add or rename RawLog fields until the command center approves a schema change; the current project policy is to keep the RawLog format unchanged.
+
 ## 6. Rules for future entries
 
 For every newly verified RawLog mapping, add a row to Section 2 with:
