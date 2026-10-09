@@ -1020,13 +1020,6 @@ void processCommand(const char *cmd)
 
     
 
-    if (strncmp(cmd, "TARGET=", 7) == 0)
-    {
-        sendOK();
-
-        return;
-    }
-    
     if(strncmp(cmd,"TARGET=",7)==0)
     {
         voltageControl.targetVoltage =
