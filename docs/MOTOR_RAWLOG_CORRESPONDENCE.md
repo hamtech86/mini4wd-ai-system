@@ -77,6 +77,26 @@ Firmware defines the sensor-side meanings used by the current device:
 For INPUT mode, the relevant input-side voltage is direction-dependent: forward uses V4 / voltage1, reverse uses V5 / voltage2. This does not change the meaning of terminal motor voltage.
 
 
+## 5.2 Voltage-control diagnosis: INPUT mode target selection
+
+**Code-level finding recorded on 2026-10-09; physical cause still requires a controlled test.**
+
+The approved control contract is direction-aware:
+- INPUT + FWD: regulate `voltage1` (A4 / V4) to 3.00 V.
+- INPUT + REV: regulate `voltage2` (A5 / V5) to 3.00 V.
+- TERMINAL + FWD: regulate `voltage1 - voltage2` to 3.00 V.
+- TERMINAL + REV: regulate `voltage2 - voltage1` to 3.00 V.
+
+However, the inspected legacy control paths do not implement that mode-dependent target selection:
+- Python `BreakinController._voltage_control()` reads `motor_voltage` and compares it with `phase.target_voltage`.
+- Firmware `voltageControlUpdate()` reads `sensor.motorVoltage` and compares it with `voltageControl.targetVoltage`.
+
+Since firmware defines `motorVoltage = voltage1 - voltage2`, these paths regulate terminal differential voltage, not direction-specific input-side voltage. If the INPUT recipe is routed through the Python controller path, this is a direct code-level mismatch with the approved INPUT contract and a strong candidate cause of the reported incorrect voltage control.
+
+Do not treat this alone as a complete hardware root-cause confirmation. Before patching, verify which control loop is active during the failing STD-I run (Python PWM loop, firmware VCTRL, or both), confirm the measurement dictionary's field names and direction values, and capture synchronized V4/V5, motorVoltage, direction, PWM, target, and control mode. Do not change RawLog schema as part of this investigation.
+
+**Secondary firmware issue to verify:** `processCommand()` contains two consecutive `TARGET=` checks; the first acknowledges and returns, which appears to make the later target assignment unreachable. This matters if firmware VCTRL is active and receives TARGET commands, but is separate from the mode-dependent target-selection mismatch.
+ 
 ## 5.1 A4/A5 values: emitted RawLog fields versus ADC raw counts
 
 **Verified against `firmware/motor/MotoreRev.ino` on 2026-10-09:**
