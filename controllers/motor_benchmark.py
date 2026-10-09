@@ -96,6 +96,7 @@ def _collect(self, phase):
                 "SAFETY: 3 consecutive invalid measurements; "
                 "stopping benchmark due to loss of voltage feedback"
             )
+            self.current_pwm = 0
             self.emergency_stop()
     else:
         self._consecutive_invalid_measurements = 0
