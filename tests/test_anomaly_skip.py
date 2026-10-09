@@ -120,3 +120,52 @@ def test_benchmark_common_collection_path_skips_invalid_data():
 
     assert benchmark_collect(controller, phase) is None
     assert benchmark_collect(controller, phase) is not None
+
+
+
+def test_benchmark_stops_after_three_consecutive_invalid_samples():
+    serial = FakeSerial([
+        frame(voltage1=14.0, motor_voltage=13.5),
+        frame(voltage1=14.1, motor_voltage=13.6),
+        frame(voltage1=14.0, motor_voltage=13.5),
+        frame(),
+    ])
+    manager = MeasurementManager(serial_controller=serial)
+    controller = BreakinController(serial_controller=serial, measurement_manager=manager)
+    controller.running = True
+    controller.current_pwm = 60
+    phase = type("Phase", (), {"target_voltage": 3.0, "pwm_min": 35, "pwm_max": 120})()
+
+    assert benchmark_collect(controller, phase) is None
+    assert controller.running is True
+    assert benchmark_collect(controller, phase) is None
+    assert controller.running is True
+    assert benchmark_collect(controller, phase) is None
+
+    assert controller.running is False
+    assert controller.current_pwm == 0
+    assert "3 consecutive invalid measurements" in controller.abort_reason
+    assert serial.commands[-1] == 0
+    # A fourth queued sample must not be needed to trigger the stop.
+    assert len(serial.frames) == 1
+
+
+def test_valid_sample_resets_consecutive_invalid_count():
+    serial = FakeSerial([
+        frame(voltage1=14.0, motor_voltage=13.5),
+        frame(voltage1=14.0, motor_voltage=13.5),
+        frame(motor_voltage=2.95),
+        frame(voltage1=14.0, motor_voltage=13.5),
+    ])
+    manager = MeasurementManager(serial_controller=serial)
+    controller = BreakinController(serial_controller=serial, measurement_manager=manager)
+    controller.running = True
+    phase = type("Phase", (), {"target_voltage": 3.0, "pwm_min": 35, "pwm_max": 120})()
+
+    assert benchmark_collect(controller, phase) is None
+    assert benchmark_collect(controller, phase) is None
+    assert benchmark_collect(controller, phase) is not None
+    assert controller._consecutive_invalid_measurements == 0
+    assert benchmark_collect(controller, phase) is None
+    assert controller.running is True
+    assert controller._consecutive_invalid_measurements == 1
