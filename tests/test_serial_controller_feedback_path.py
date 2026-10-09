@@ -8,6 +8,11 @@ from controllers.recipe import BreakinPhase
 class FakePort:
     def __init__(self, lines):
         self.lines = [line.encode("utf-8") for line in lines]
+        self.writes = []
+
+    def write(self, data):
+        self.writes.append(data)
+        return len(data)
 
     @property
     def in_waiting(self):
