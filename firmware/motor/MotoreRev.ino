@@ -86,6 +86,10 @@ bool rippleFilled = false;
 constexpr uint16_t SENSOR_INTERVAL_MS = 20;
 constexpr uint16_t LOG_INTERVAL_MS    = 100;
 
+// KY-024 diagnostic capture: 128 raw A2 samples, captured at analogRead speed.
+// Samples are dumped only after the motor is stopped to avoid blocking control.
+constexpr uint16_t MAG_CAPTURE_SAMPLES = 128;
+
 //Reserved
 //STATUS command only
 constexpr uint16_t STATUS_INTERVAL_MS = 500;
@@ -334,6 +338,12 @@ RuntimeData runtime;
 
 SensorData sensor;
 
+// Short waveform buffer for KY-024 diagnostic sampling (UNO SRAM: 256 bytes).
+uint16_t magneticCaptureBuffer[MAG_CAPTURE_SAMPLES];
+uint16_t magneticCaptureCount = 0;
+uint32_t magneticCaptureDurationUs = 0;
+bool magneticCaptureReady = false;
+
 float peakPower = 0.0;
 unsigned long peakTime = 0;
 
@@ -389,6 +399,8 @@ void sendError(const char *message);
 
 // FUNC-300
 void updateSensors();
+void captureMagneticWaveform();
+void dumpMagneticWaveform();
 
 // FUNC-301
 uint16_t readACS1();
@@ -915,6 +927,40 @@ void processCommand(const char *cmd)
         return;
     }
 
+    // Capture a short A2 waveform while the motor is running.
+    // The capture itself is bounded; serial output is deferred until stopped.
+    if (strcmp(cmd, "MAGCAP") == 0)
+    {
+        if (!runtime.running)
+        {
+            sendError("MAGCAP_REQUIRES_RUNNING_MOTOR");
+            return;
+        }
+
+        captureMagneticWaveform();
+        sendOK();
+        return;
+    }
+
+    // Dump captured data only after motor stop to avoid delaying voltage control.
+    if (strcmp(cmd, "MAGDUMP") == 0)
+    {
+        if (runtime.running)
+        {
+            sendError("MAGDUMP_REQUIRES_MOTOR_STOPPED");
+            return;
+        }
+        if (!magneticCaptureReady)
+        {
+            sendError("NO_MAGNETIC_CAPTURE");
+            return;
+        }
+
+        dumpMagneticWaveform();
+        sendOK();
+        return;
+    }
+
     if (strcmp(cmd, "START") == 0)
     {
         runtime.paused = false;
@@ -1275,6 +1321,48 @@ float readMotorVoltage()
     return sensor.motorVoltage;
    
 
+}
+
+/********************************************************************
+ * KY-024 Diagnostic Capture
+ *
+ * MAGCAP  : Capture 128 consecutive A2 ADC samples while the motor runs.
+ * MAGDUMP : Output the captured samples after the motor has stopped.
+ *
+ * Do not calculate RPM here. Events-per-revolution remains unverified.
+ ********************************************************************/
+
+void captureMagneticWaveform()
+{
+    magneticCaptureReady = false;
+    magneticCaptureCount = 0;
+
+    const uint32_t started = micros();
+    for (uint16_t i = 0; i < MAG_CAPTURE_SAMPLES; ++i)
+    {
+        magneticCaptureBuffer[i] = (uint16_t)analogRead(A2);
+    }
+    magneticCaptureDurationUs = micros() - started;
+
+    magneticCaptureCount = MAG_CAPTURE_SAMPLES;
+    magneticCaptureReady = true;
+}
+
+void dumpMagneticWaveform()
+{
+    // One tagged line keeps the sample sequence together for copying/analysis.
+    // Format: MAGDATA,<count>,<total_capture_us>,<raw0>,<raw1>,...
+    Serial.print(F("MAGDATA,"));
+    Serial.print(magneticCaptureCount);
+    Serial.print(',');
+    Serial.print(magneticCaptureDurationUs);
+
+    for (uint16_t i = 0; i < magneticCaptureCount; ++i)
+    {
+        Serial.print(',');
+        Serial.print(magneticCaptureBuffer[i]);
+    }
+    Serial.println();
 }
 
 /********************************************************************
