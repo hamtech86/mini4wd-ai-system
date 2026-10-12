@@ -144,8 +144,8 @@ def test_rawlog_metadata_uses_model_and_firmware_from_info_header(tmp_path):
     controller.active_instance_id = "INSTANCE-005"
     controller.active_recipe_name = "STANDARD_3V30S"
     raw_body = (
-        "INFO,TYPE=MOTOR,MODEL=MOTOR_BREAKIN_V3,FW=3.00,ID=000001\\n"
-        "DATA,MOTOR_BREAKIN_V3,000001,0\\n"
+        "INFO,TYPE=MOTOR,MODEL=MOTOR_BREAKIN_V3,FW=3.00,ID=000001\n"
+        "DATA,MOTOR_BREAKIN_V3,000001,0\n"
     )
 
     record = controller._register_raw_log(raw_body)
