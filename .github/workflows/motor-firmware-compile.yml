@@ -1,0 +1,26 @@
+name: Motor Firmware Compile
+
+on:
+  pull_request:
+    paths:
+      - "firmware/motor/MotoreRev.ino"
+      - ".github/workflows/motor-firmware-compile.yml"
+  workflow_dispatch:
+
+jobs:
+  compile-arduino-uno:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Arduino CLI
+        uses: arduino/setup-arduino-cli@v2
+      - name: Install Arduino AVR core
+        run: |
+          arduino-cli core update-index
+          arduino-cli core install arduino:avr
+      - name: Prepare sketch directory
+        run: |
+          mkdir -p /tmp/MotoreRev
+          cp firmware/motor/MotoreRev.ino /tmp/MotoreRev/MotoreRev.ino
+      - name: Compile for Arduino Uno
+        run: arduino-cli compile --fqbn arduino:avr:uno /tmp/MotoreRev
