@@ -132,3 +132,28 @@ def test_consecutive_benchmarks_reset_raw_log_persistence_state(tmp_path):
     assert len(library.registered) == 2
     assert controller._measurement_raw_log_parts == []
     assert controller._registered_raw_log_ids == ["MOTOR-000002"]
+
+def test_rawlog_metadata_uses_model_and_firmware_from_info_header(tmp_path):
+    serial = FakeSerial()
+    library = FakeLibrary(tmp_path)
+    controller = LocalRawLogBreakinController(
+        serial_controller=serial,
+        raw_log_library=library,
+    )
+    controller.session = FakeSession()
+    controller.active_instance_id = "INSTANCE-005"
+    controller.active_recipe_name = "STANDARD_3V30S"
+    raw_body = (
+        "INFO,TYPE=MOTOR,MODEL=MOTOR_BREAKIN_V3,FW=3.00,ID=000001\\n"
+        "DATA,MOTOR_BREAKIN_V3,000001,0\\n"
+    )
+
+    record = controller._register_raw_log(raw_body)
+
+    assert record.device_model == "MOTOR_BREAKIN_V3"
+    assert record.firmware_version == "3.00"
+    stored, _, _ = library.get(record.log_id)
+    assert stored.device_model == "MOTOR_BREAKIN_V3"
+    assert stored.firmware_version == "3.00"
+    assert library.read_raw(record.log_id) == raw_body
+
