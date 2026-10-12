@@ -760,28 +760,6 @@ void initializeVariables()
             "000001",
             INSTANCE_ID_SIZE - 1);
 
-            /* ---------- ACS712 Auto Zero ---------- */
-
-    delay(300);
-
-        long sum1 = 0;
-        long sum2 = 0;
-
-        for (int i = 0; i < 200; i++)
-        {
-            sum1 += analogRead(PIN_ACS1);
-            sum2 += analogRead(PIN_ACS2);
-            delay(2);
-        }
-
-        ACS1_ZERO = (float)sum1 / 200.0f;
-        ACS2_ZERO = (float)sum2 / 200.0f;
-
-        Serial.print(F("ACS1_ZERO="));
-        Serial.println(ACS1_ZERO);
-
-        Serial.print(F("ACS2_ZERO="));
-        Serial.println(ACS2_ZERO);
 
    
 }
@@ -1020,13 +998,6 @@ void processCommand(const char *cmd)
 
     
 
-    if (strncmp(cmd, "TARGET=", 7) == 0)
-    {
-        sendOK();
-
-        return;
-    }
-    
     if(strncmp(cmd,"TARGET=",7)==0)
     {
         voltageControl.targetVoltage =

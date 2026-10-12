@@ -19,6 +19,7 @@ except ImportError:
 import time
 
 from communication.raw_log_collector import RawLogCollector
+from communication.csv_parser import CSVParser
 
 
 class SerialController:
@@ -33,6 +34,7 @@ class SerialController:
         self.command_log = []
         self.last_raw_data = None
         self.raw_log_collector = RawLogCollector()
+        self.csv_parser = CSVParser()
 
     @property
     def raw_log(self):
@@ -134,7 +136,14 @@ class SerialController:
             if line.startswith("DATA,"):
                 latest_data = line
 
-        if latest_data is not None:
-            self.last_raw_data = latest_data
+        if latest_data is None:
+            return None
 
-        return latest_data
+        # Preserve the exact CSV line in RawLog, but pass a parsed DATA
+        # dictionary to MeasurementManager. It rejects non-dict input, so
+        # returning the raw string here silently disabled all feedback control.
+        self.last_raw_data = latest_data
+        try:
+            return self.csv_parser.parse(latest_data)
+        except (ValueError, TypeError):
+            return None
