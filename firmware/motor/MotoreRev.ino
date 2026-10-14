@@ -1065,6 +1065,9 @@ void sendInfo()
     Serial.print(F(",FW="));
     Serial.print(FW_VERSION);
 
+    Serial.print(F(",BUILD="));
+    Serial.print(FW_BUILD_ID);
+
     Serial.print(F(",ID="));
     Serial.println(comm.instanceID);
 }
