@@ -115,8 +115,8 @@ class SerialController:
 
         return command
 
-    def read_measurement(self):
-        """Read the newest DATA frame and retain the exact raw CSV string."""
+    def read_measurement(self, capture_raw=True):
+        """Read the newest DATA frame; optionally capture serial text for RawLog."""
         if not (self.connected and self.serial):
             return None
 
@@ -126,7 +126,8 @@ class SerialController:
             decoded = raw.decode("utf-8", errors="replace")
             if not decoded:
                 continue
-            self.raw_log_collector.append(decoded)
+            if capture_raw:
+                self.raw_log_collector.append(decoded)
             line = decoded.strip()
             if not line:
                 continue

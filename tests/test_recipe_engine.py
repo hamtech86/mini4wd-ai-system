@@ -63,3 +63,16 @@ def test_recipe_targets_and_brushes():
     assert dash.brush == "CARBON"
     assert atomic.phases[-1].control == "VOLTAGE"
     assert atomic.phases[-1].target_voltage == 3.0
+
+
+def test_tune_basic_uses_runtime_sequence_without_benchmark_stage():
+    engine = RecipeEngine()
+    recipe = engine.get("TUNE_BASIC")
+    assert recipe is not None
+    assert [phase.name for phase in recipe.phases] == [
+        "FWD_3V_START", "FWD_RAMP_3_TO_9V", "FWD_9V_HOLD", "INTERVAL",
+        "REV_3V_START", "REV_RAMP_3_TO_9V", "REV_9V_HOLD",
+    ]
+    assert all("BENCHMARK" not in phase.name.upper() for phase in recipe.phases)
+    assert all("FADEOUT" not in phase.name.upper() for phase in recipe.phases)
+    assert all("REST" not in phase.name.upper() for phase in recipe.phases)
