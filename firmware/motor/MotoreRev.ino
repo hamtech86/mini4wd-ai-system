@@ -52,6 +52,8 @@
  ********************************************************************/
 
 constexpr char FW_VERSION[]   = "3.00";
+// Unique identifier for the firmware build used in hardware verification logs.
+constexpr char FW_BUILD_ID[]  = "ACS-CAL-LOG-20261013-01";
 constexpr char DEVICE_TYPE[]  = "MOTOR";
 constexpr char DEVICE_MODEL[] = "MOTOR_BREAKIN_V3";
 
@@ -438,6 +440,8 @@ void setup()
     Serial.println(F(" MOTOR_BREAKIN_V3"));
     Serial.print(F(" Firmware : "));
     Serial.println(FW_VERSION);
+    Serial.print(F(" Build    : "));
+    Serial.println(FW_BUILD_ID);
     Serial.println(F("========================================"));
 
     sendInfo();
@@ -760,28 +764,6 @@ void initializeVariables()
             "000001",
             INSTANCE_ID_SIZE - 1);
 
-            /* ---------- ACS712 Auto Zero ---------- */
-
-    delay(300);
-
-        long sum1 = 0;
-        long sum2 = 0;
-
-        for (int i = 0; i < 200; i++)
-        {
-            sum1 += analogRead(PIN_ACS1);
-            sum2 += analogRead(PIN_ACS2);
-            delay(2);
-        }
-
-        ACS1_ZERO = (float)sum1 / 200.0f;
-        ACS2_ZERO = (float)sum2 / 200.0f;
-
-        Serial.print(F("ACS1_ZERO="));
-        Serial.println(ACS1_ZERO);
-
-        Serial.print(F("ACS2_ZERO="));
-        Serial.println(ACS2_ZERO);
 
    
 }
@@ -806,6 +788,12 @@ void calibrateACS712()
 
     ACS1_ZERO = (float)sum1 / 200.0f;
     ACS2_ZERO = (float)sum2 / 200.0f;
+
+    // Report the final zero offsets actually used for current conversion.
+    Serial.print(F("CAL,ACS1_ZERO="));
+    Serial.print(ACS1_ZERO, 2);
+    Serial.print(F(",ACS2_ZERO="));
+    Serial.println(ACS2_ZERO, 2);
 }
 
 
@@ -1020,13 +1008,6 @@ void processCommand(const char *cmd)
 
     
 
-    if (strncmp(cmd, "TARGET=", 7) == 0)
-    {
-        sendOK();
-
-        return;
-    }
-    
     if(strncmp(cmd,"TARGET=",7)==0)
     {
         voltageControl.targetVoltage =
@@ -1083,6 +1064,9 @@ void sendInfo()
 
     Serial.print(F(",FW="));
     Serial.print(FW_VERSION);
+
+    Serial.print(F(",BUILD="));
+    Serial.print(FW_BUILD_ID);
 
     Serial.print(F(",ID="));
     Serial.println(comm.instanceID);
