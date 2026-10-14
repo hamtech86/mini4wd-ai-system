@@ -206,6 +206,8 @@ class MainWindow(QMainWindow):
         self.recipe.clear()
         for name in self.recipe_engine.names():
             self.recipe.addItem(name, name)
+        for name in self.recipe_engine.benchmark_names():
+            self.recipe.addItem(name, name)
         self.recipe.addItem("MOTOR BENCHMARK TEST (3V / 30s)", self.BENCHMARK_KEY)
 
     def load_instances(self):

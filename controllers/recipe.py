@@ -65,6 +65,8 @@ class BreakinRecipe:
     target_rpm: Optional[float] = None
     torque_priority: float = 0.5
     benchmark: Optional[str] = None
+    benchmark_type: Optional[str] = None
+    voltage_control_mode: Optional[str] = None
     version: str = "2.0"
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -97,9 +99,12 @@ class BreakinRecipe:
             target_rpm=(None if target.get("rpm") is None else float(target["rpm"])),
             torque_priority=float(target.get("torque_priority", 0.5)),
             benchmark=data.get("benchmark"),
+            benchmark_type=(None if data.get("benchmark_type") is None else str(data["benchmark_type"]).upper()),
+            voltage_control_mode=(None if data.get("voltage_control_mode") is None else str(data["voltage_control_mode"]).upper()),
             version=version,
             metadata={k: v for k, v in data.items() if k not in {
-                "description", "brush", "family", "objective", "benchmark", "target", "stages"
+                "description", "brush", "family", "objective", "benchmark",
+                "benchmark_type", "voltage_control_mode", "target", "stages"
             }},
         )
 

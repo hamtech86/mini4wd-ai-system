@@ -48,13 +48,28 @@ class RecipeEngine:
                     if phase.pwm_min > phase.pwm_max:
                         raise ValueError(f"{name}/{phase.name}: invalid PWM limits")
 
+    def benchmark_names(self):
+        from .motor_benchmark import benchmark_recipe_names
+        return list(benchmark_recipe_names())
+
     def names(self):
         return list(self.recipes.keys())
 
     def get(self, name):
         key = str(name).upper()
         key = self.aliases.get(key, key)
-        return self.recipes.get(key)
+        recipe = self.recipes.get(key)
+        if recipe is not None:
+            return recipe
+        from .motor_benchmark import benchmark_recipe_names, build_benchmark_recipe
+        for benchmark_name in benchmark_recipe_names():
+            if benchmark_name.upper() == key:
+                return build_benchmark_recipe(benchmark_name)
+        return None
+
+    def get_benchmark(self, name):
+        from .motor_benchmark import build_benchmark_recipe
+        return build_benchmark_recipe(name)
 
     def benchmark(self):
         return dict(self.common.get("benchmark", {}) or {})

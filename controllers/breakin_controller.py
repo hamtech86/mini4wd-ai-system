@@ -50,6 +50,8 @@ class BreakinController:
         self.selected_instance_id = None
         self.active_instance_id = None
         self.active_recipe_name = None
+        self.benchmark_type = None
+        self.voltage_control_mode = "TERMINAL"
         self.last_brush_peak_current = 0.0
         self.brush_peak_target_current = 0.0
         self.brush_peak_reached = False
@@ -173,10 +175,14 @@ class BreakinController:
             except TypeError:
                 self.session = self.session_manager.start("BREAKIN")
         if self.session is not None:
-            benchmark_type = getattr(self, "selected_benchmark_type", None)
+            benchmark_type = getattr(self, "benchmark_type", None)
             if benchmark_type:
                 self.session.benchmark_type = str(benchmark_type)
                 self.session.purpose = "MOTOR_BENCHMARK"
+                self.session.notes = (
+                    f"benchmark_type={benchmark_type}; "
+                    f"voltage_control_mode={self.voltage_control_mode}"
+                )
         try:
             while self.running and self.phase_manager.has_next():
                 self.execute_phase(
@@ -401,8 +407,20 @@ class BreakinController:
     def _value(measurement, name, default=0.0):
         return BreakinController._measurement_value(measurement, name, default)
 
+    def _controlled_voltage(self, phase, measurement):
+        """Return the voltage used by the active voltage-control mode."""
+        mode = str(getattr(self, "voltage_control_mode", "TERMINAL")).upper()
+        if mode == "INPUT":
+            direction = str(
+                getattr(phase, "direction", None)
+                or self._value(measurement, "direction", "FWD")
+            ).upper()
+            field = "voltage1" if direction == "FWD" else "voltage2"
+            return float(self._value(measurement, field, 0.0) or 0.0)
+        return float(self._value(measurement, "motor_voltage", 0.0) or 0.0)
+
     def _voltage_control(self, phase, measurement):
-        voltage = float(self._value(measurement, "motor_voltage", 0.0) or 0.0)
+        voltage = self._controlled_voltage(phase, measurement)
         if voltage <= 0: return
         error = float(phase.target_voltage) - voltage
         if abs(error) <= 0.02: return
@@ -428,6 +446,49 @@ class BreakinController:
         if max_current > 0 and current >= max_current: return f"SAFETY: current {current:.2f}A >= {max_current:.2f}A"
         if self.current_pwm > max_pwm: return f"SAFETY: PWM {self.current_pwm} > {max_pwm}"
         return None
+
+    def execution_snapshot(self):
+        """Backend execution state for Main/UI consumers.
+
+        Values are derived from existing Measurement and phase state.
+        No RawLog or database schema is changed.
+        """
+        measurement = getattr(self.measurement_manager, "last_measurement", None)
+        direction = str(
+            getattr(self.current_phase, "direction", None)
+            or self._measurement_value(measurement, "direction", "FWD")
+        ).upper()
+        input_voltage = None
+        motor_voltage = None
+        pwm = self.current_pwm
+        elapsed = self.phase_elapsed_sec() if self.current_phase is not None else 0.0
+        sequence_executor = getattr(self, "sequence_executor", None)
+        remaining = (
+            sequence_executor.remaining_sec()
+            if sequence_executor is not None and sequence_executor.state is not None
+            else None
+        )
+        if measurement is not None:
+            input_voltage = (
+                self._measurement_value(measurement, "voltage1", 0.0)
+                if direction == "FWD"
+                else self._measurement_value(measurement, "voltage2", 0.0)
+            )
+            motor_voltage = self._measurement_value(measurement, "motor_voltage", 0.0)
+            pwm = self._measurement_value(measurement, "pwm", pwm)
+        # Remaining Time is authoritative in SequenceExecutor when a sequence
+        # execution is active. Do not create a second time model here.
+        return {
+            "benchmark_type": getattr(self, "benchmark_type", None),
+            "voltage_control_mode": getattr(self, "voltage_control_mode", "TERMINAL"),
+            "recipe": getattr(self, "active_recipe_name", None),
+            "input_voltage": None if input_voltage is None else float(input_voltage),
+            "motor_voltage": None if motor_voltage is None else float(motor_voltage),
+            "direction": direction,
+            "pwm": int(pwm or 0),
+            "elapsed_time": float(elapsed),
+            "remaining_time": None if remaining is None else float(remaining),
+        }
 
     def _collect_measurement(self, phase):
         if not self.measurement_manager: return None

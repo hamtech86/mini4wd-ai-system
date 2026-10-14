@@ -27,6 +27,15 @@ def test_aliases_and_benchmark():
     assert engine.benchmark()["duration_sec"] == 30
 
 
+def test_benchmark_recipe_names_and_resolution():
+    engine = RecipeEngine()
+    assert engine.benchmark_names() == ["STD-T", "Full-T", "STD-I", "Full-I"]
+    for name in engine.benchmark_names():
+        recipe = engine.get(name)
+        assert recipe is not None
+        assert recipe.name == name
+
+
 def test_tune_basic_shape():
     engine = RecipeEngine()
     recipe = engine.get("TUNE_BASIC")

@@ -18,6 +18,8 @@ class SequenceExecutor:
     """Execute a declarative recipe one sequence at a time."""
     def __init__(self, adapter=None, checkpoint_store=None):
         self.adapter=adapter; self.checkpoint_store=checkpoint_store; self.sequences=[]; self.results=[]; self.state=None
+        if adapter is not None and hasattr(adapter, "controller"):
+            adapter.controller.sequence_executor = self
         self.running=False; self.paused=False; self.transition_pause_until=None; self.direction_change_pause_sec=DEFAULT_DIRECTION_CHANGE_PAUSE_SEC
 
     def load_recipe(self, recipe, enabled_ids: Optional[Iterable[str]]=None):

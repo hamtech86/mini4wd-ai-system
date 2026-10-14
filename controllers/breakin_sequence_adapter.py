@@ -18,6 +18,14 @@ class BreakinSequenceAdapter:
 
     def start_sequence(self, sequence):
         self._active = sequence
+        params = sequence.parameters or {}
+        mode = str(params.get("voltage_control_mode") or "TERMINAL").upper()
+        if mode not in {"TERMINAL", "INPUT"}:
+            raise ValueError(f"Unsupported voltage control mode: {mode}")
+        self.controller.voltage_control_mode = mode
+        benchmark_type = params.get("benchmark_type")
+        if benchmark_type:
+            self.controller.benchmark_type = str(benchmark_type).upper()
         if sequence.direction == "REV":
             self.controller.serial.reverse()
         else:
