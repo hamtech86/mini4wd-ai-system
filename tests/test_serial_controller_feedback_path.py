@@ -91,3 +91,24 @@ def test_invalid_csv_does_not_become_a_control_measurement():
     manager = MeasurementManager(serial_controller=serial)
 
     assert manager.collect() is None
+
+
+def test_input_control_uses_a5_voltage_for_reverse_and_terminal_keeps_motor_voltage():
+    serial = SerialController()
+    controller = BreakinController(serial, measurement_manager=None)
+    measurement = {
+        "direction": "REV",
+        "voltage1": 3.1,
+        "voltage2": 2.8,
+        "motor_voltage": 2.2,
+    }
+    reverse_phase = BreakinPhase(
+        "INPUT_REV", 1, 60, "REV", "VOLTAGE", 3.0,
+        pwm_min=35, pwm_max=120,
+    )
+
+    controller.voltage_control_mode = "INPUT"
+    assert controller._controlled_voltage(reverse_phase, measurement) == 2.8
+
+    controller.voltage_control_mode = "TERMINAL"
+    assert controller._controlled_voltage(reverse_phase, measurement) == 2.2
