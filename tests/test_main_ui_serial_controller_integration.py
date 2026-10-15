@@ -111,3 +111,26 @@ def test_real_serial_controller_info_timeout_updates_main_ui(monkeypatch):
     assert controller.identified is False
     assert "IDENTITY UNCONFIRMED" in window.motor_serial_status.text
     assert "info_timeout" in window.motor_serial_status.text
+
+
+
+def test_real_serial_controller_disconnect_clears_identity_and_ui(monkeypatch):
+    info = "INFO,TYPE=MOTOR,MODEL=MOTOR_BREAKIN_V3,FW=3.00,BUILD=TEST,ID=000001\n"
+    port = InfoPort(info)
+    monkeypatch.setattr(serial_module, "serial", SimpleNamespace(Serial=lambda *a, **k: port))
+    monkeypatch.setattr(serial_module.time, "sleep", lambda _seconds: None)
+    controller = SerialController()
+    window = make_window(controller)
+
+    main_module.MainWindow.connect_motor_serial(window)
+    assert controller.identified is True
+
+    main_module.MainWindow.disconnect_motor_serial(window)
+
+    assert controller.connected is False
+    assert controller.identified is False
+    assert controller.device_info is None
+    assert "DISCONNECTED" in window.motor_serial_status.text
+    assert window.motor_connect.enabled is True
+    assert window.motor_disconnect.enabled is False
+    assert port.closed is True
