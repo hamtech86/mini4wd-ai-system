@@ -28,7 +28,6 @@ jobs:
             tests/test_firmware_contract.py \
             tests/test_main_ui_identity.py \
             tests/test_main_ui_serial_controller_integration.py
-            tests/test_main_ui_serial_controller_integration.py
 
   test-battery:
     runs-on: ubuntu-latest
