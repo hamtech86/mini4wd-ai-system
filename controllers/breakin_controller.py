@@ -43,6 +43,7 @@ class BreakinController:
         self.current_phase = None
         self.current_pwm = 0
         self.abort_reason = None
+        self.stop_confirmation_state = "NOT_REQUESTED"
         self.phase_started_at = None
         self.phase_elapsed_before_pause = 0.0
         self.pause_started_at = None
@@ -546,6 +547,8 @@ class BreakinController:
             "pwm": int(pwm or 0),
             "elapsed_time": float(elapsed),
             "remaining_time": None if remaining is None else float(remaining),
+            "stop_reason": self.abort_reason,
+            "stop_confirmation_state": self.stop_confirmation_state,
         }
 
     def _collect_measurement(self, phase):
@@ -613,17 +616,38 @@ class BreakinController:
     def stop(self):
         self.running = False
         self.paused = False
+        executor = getattr(self, "sequence_executor", None)
+        if executor is not None:
+            executor.running = False
+            executor.paused = False
         try:
             if hasattr(self.serial, "stop_breakin"):
                 self.serial.stop_breakin()
             else:
                 self.serial.set_pwm(0)
+            # Current transport records successful writes, not a device-side
+            # acknowledgement. Never label this as physically confirmed.
+            self.stop_confirmation_state = "REQUEST_SENT_UNCONFIRMED"
         except Exception as exc:
+            self.stop_confirmation_state = "SEND_FAILED"
             print("SERIAL STOP WARNING:", exc)
 
     def emergency_stop(self):
         self.running = False
         self.paused = False
+        executor = getattr(self, "sequence_executor", None)
+        if executor is not None:
+            executor.running = False
+            executor.paused = False
         self._save_checkpoint()
-        if hasattr(self.serial, "emergency_stop"): self.serial.emergency_stop()
-        else: self.stop()
+        try:
+            if hasattr(self.serial, "emergency_stop"):
+                self.serial.emergency_stop()
+            elif hasattr(self.serial, "stop_breakin"):
+                self.serial.stop_breakin()
+            else:
+                self.serial.set_pwm(0)
+            self.stop_confirmation_state = "REQUEST_SENT_UNCONFIRMED"
+        except Exception as exc:
+            self.stop_confirmation_state = "SEND_FAILED"
+            print("SERIAL EMERGENCY STOP WARNING:", exc)
