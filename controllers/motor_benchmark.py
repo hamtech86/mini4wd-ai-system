@@ -183,6 +183,7 @@ def _begin(
     self.active_recipe_name = recipe_name
     self.running = True
     self.paused = False
+    self.stop_confirmation_state = "NOT_REQUESTED"
     self._consecutive_invalid_measurements = 0
     self.measurements = []
     self.abort_reason = None
@@ -386,10 +387,16 @@ def _finish_benchmark(self, phases):
     freeze = getattr(self, "_freeze_measurement_raw_log", None)
     if callable(freeze):
         freeze()
-    if hasattr(self.serial, "stop_breakin"):
-        self.serial.stop_breakin()
-    else:
-        self.serial.set_pwm(0)
+    try:
+        if hasattr(self.serial, "stop_breakin"):
+            self.serial.stop_breakin()
+        else:
+            self.serial.set_pwm(0)
+        # The transport currently confirms writes only, not device-side stop.
+        self.stop_confirmation_state = "REQUEST_SENT_UNCONFIRMED"
+    except Exception:
+        self.stop_confirmation_state = "SEND_FAILED"
+        raise
     self.current_pwm = 0
     self.running = False
     phase_names = ",".join(phase.name for phase in phases)
