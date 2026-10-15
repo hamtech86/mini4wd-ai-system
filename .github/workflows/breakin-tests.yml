@@ -28,7 +28,6 @@ jobs:
             tests/test_firmware_contract.py \
             tests/test_benchmark_recipe_integration.py \
             tests/test_benchmark_rawlog_persistence.py
-            tests/test_benchmark_rawlog_persistence.py
 
   test-battery:
     runs-on: ubuntu-latest
