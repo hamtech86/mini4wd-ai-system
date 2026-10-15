@@ -429,3 +429,17 @@ def test_identified_direct_commands_preserve_supported_behavior():
     ]
     assert controller.direction == "REV"
     assert controller.last_pwm == 80
+
+
+def test_info_parser_rejects_duplicate_key_even_when_values_match():
+    line = "INFO,TYPE=MOTOR,MODEL=MOTOR_BREAKIN_V3,FW=3.00,BUILD=TEST,ID=000001,ID=000001"
+    with pytest.raises(ValueError, match="Duplicate INFO key"):
+        SerialController._parse_info_line(line)
+
+
+def test_host_rejects_legacy_firmware_voltage_loop_activation():
+    controller = identified_controller(FakePort())
+    for command in ("VCTRL=ON", "TARGET=3.0"):
+        with pytest.raises(ValueError, match="owned by Python/UI"):
+            controller.send_command(command)
+    assert controller.serial.writes == []
