@@ -96,7 +96,7 @@ def test_drive_capable_commands_are_blocked_when_identity_is_unconfirmed(command
     controller.connected = True
     controller.serial = port
 
-    with pytest.raises(RuntimeError, match="not identified"):
+    with pytest.raises(RuntimeError, match="identity is unconfirmed")
         controller.send_command(command)
 
     assert port.writes == []
@@ -217,14 +217,14 @@ def test_breakin_start_and_direct_phase_reject_before_state_changes():
     serial.serial = port
     controller = BreakinController(serial)
 
-    with pytest.raises(RuntimeError, match="identity is unconfirmed"):
+    with pytest.raises(RuntimeError, match="not identified"):
         controller.start(SimpleNamespace(name="TEST", phases=[]))
 
     assert controller.running is False
     assert controller.active_recipe_name is None
     assert port.writes == []
 
-    with pytest.raises(RuntimeError, match="identity is unconfirmed"):
+    with pytest.raises(RuntimeError, match="not identified"):
         controller.execute_phase(BreakinPhase("PHASE", 1, 80, "FWD"))
 
     assert controller.current_phase is None
@@ -244,7 +244,7 @@ def test_benchmark_and_sequence_entry_points_reject_unidentified_device():
     serial.serial = port
     controller = BreakinController(serial)
 
-    with pytest.raises(RuntimeError, match="identity is unconfirmed"):
+    with pytest.raises(RuntimeError, match="not identified"):
         run_benchmark(controller)
     assert controller.running is False
     assert controller.session is None
@@ -254,13 +254,13 @@ def test_benchmark_and_sequence_entry_points_reject_unidentified_device():
         parameters={}, direction="FWD", pwm=80, sequence_id="SEQ-1",
         duration_sec=1, metadata={},
     )
-    with pytest.raises(RuntimeError, match="identity is unconfirmed"):
+    with pytest.raises(RuntimeError, match="not identified"):
         adapter.start_sequence(sequence)
     assert adapter._active is None
     assert port.writes == []
 
     executor = SequenceExecutor(adapter=adapter)
-    with pytest.raises(RuntimeError, match="identity is unconfirmed"):
+    with pytest.raises(RuntimeError, match="not identified"):
         executor.start()
     assert executor.running is False
     assert port.writes == []
