@@ -96,7 +96,7 @@ def test_drive_capable_commands_are_blocked_when_identity_is_unconfirmed(command
     controller.connected = True
     controller.serial = port
 
-    with pytest.raises(RuntimeError, match="identity is unconfirmed"):
+    with pytest.raises(RuntimeError, match="not identified"):
         controller.send_command(command)
 
     assert port.writes == []
@@ -163,7 +163,7 @@ def test_info_handshake_preserves_data_and_excludes_info_from_rawlog():
     measurement = controller.read_measurement()
 
     assert measurement is not None
-    assert len(controller.last_raw_data.split(",")) == len(CSV_FIELDS) == 27
+    assert len(controller.last_raw_data.split(",")) == len(CSV_FIELDS) == 26
     assert controller.raw_log == data
     assert "INFO," not in controller.raw_log
 
