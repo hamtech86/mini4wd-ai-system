@@ -172,8 +172,11 @@ def _begin(
     purpose="MEASUREMENT",
 ):
     guard = getattr(self, "_require_identified_device", None)
-    if callable(guard):
-        guard()
+    if not callable(guard):
+        raise RuntimeError(
+            "Motor device identity cannot be verified: identification guard unavailable"
+        )
+    guard()
     # A benchmark can be executed repeatedly on the same controller instance.
     # Reset Local Raw Log persistence state at the benchmark boundary so the
     # previous benchmark's log cannot suppress registration of this benchmark.
@@ -242,8 +245,11 @@ def run_benchmark(
     recipe_name=None,
 ):
     guard = getattr(self, "_require_identified_device", None)
-    if callable(guard):
-        guard()
+    if not callable(guard):
+        raise RuntimeError(
+            "Motor device identity cannot be verified: identification guard unavailable"
+        )
+    guard()
     # Accept either the two-axis representation or one of the four canonical
     # recipe identifiers. Legacy STANDARD_3V30S/FULL_PACKAGE remain terminal.
     if recipe_name is not None:
