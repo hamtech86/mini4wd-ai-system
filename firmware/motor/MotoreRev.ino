@@ -1009,11 +1009,17 @@ void processCommand(const char *cmd)
 
     
 
-    // Legacy voltage-loop commands are deliberately rejected. They must
-    // never enable a second controller that competes with Python/UI PWM.
-    if (strncmp(cmd, "TARGET=", 7) == 0 ||
-        strcmp(cmd, "VCTRL=ON") == 0 ||
-        strcmp(cmd, "VCTRL=OFF") == 0)
+    // OFF is an idempotent safe compatibility command. It cannot change PWM.
+    if (strcmp(cmd, "VCTRL=OFF") == 0)
+    {
+        voltageControl.enabled = false;
+        sendOK();
+        return;
+    }
+
+    // Legacy voltage-loop activation/target commands are unsupported. They
+    // must never enable a second controller that competes with Python/UI PWM.
+    if (strncmp(cmd, "TARGET=", 7) == 0 || strcmp(cmd, "VCTRL=ON") == 0)
     {
         voltageControl.enabled = false;
         sendError("VOLTAGE_CONTROL_OWNED_BY_HOST");
