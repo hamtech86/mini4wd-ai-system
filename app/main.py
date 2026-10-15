@@ -246,11 +246,11 @@ class MainWindow(BaseMainWindow):
         remaining=self.sequence_executor.remaining_sec()
         elapsed=result.elapsed_sec if result is not None else 0.0
         if hasattr(self,"progress"):
-            values={"STEP":f"{min(completed+1,total)} / {total}","PHASE":getattr(current,"sequence_id","--"),"DIR":getattr(current,"direction","FWD"),"PWM":getattr(current,"pwm",0),"VOLT":f"{float(getattr(m,'motor_voltage',0)):.2f} V" if m else "--","CURRENT":f"{float(getattr(m,'current_avg',0)):.3f} A" if m else "--","ELAPSED":f"{elapsed:.1f} s","REMAIN":f"{remaining:.1f} s" if remaining is not None else "条件待ち"}
+            values={"STEP":f"{min(completed+1,total)} / {total}","PHASE":getattr(current,"sequence_id","--"),"DIR":getattr(current,"direction","FWD"),"PWM":getattr(current,"pwm",0),"VOLT":f"{float(getattr(m,'motor_voltage',0)):.2f} V" if m else "--","CURRENT":f"{float(getattr(m,'current1',0)):.3f} A" if m else "--","ELAPSED":f"{elapsed:.1f} s","REMAIN":f"{remaining:.1f} s" if remaining is not None else "条件待ち"}
             for key,value in values.items():
                 if key in self.progress:self.progress[key].setText(str(value))
         if hasattr(self,"live"):
-            values={"DIR":getattr(current,"direction","FWD"),"PWM":getattr(current,"pwm",0),"RPM":self._latest_rpm() if hasattr(self,"_latest_rpm") else "--","V":f"{float(getattr(m,'motor_voltage',0)):.2f} V" if m else "--","A":f"{float(getattr(m,'current_avg',0)):.3f} A" if m else "--","STATE":"RUNNING","TEMP":f"{float(getattr(m,'motor_temperature',0)):.1f} C" if m else "--","Arduino":"CONNECTED"}
+            values={"DIR":getattr(current,"direction","FWD"),"PWM":getattr(current,"pwm",0),"RPM":self._latest_rpm() if hasattr(self,"_latest_rpm") else "--","V":f"{float(getattr(m,'motor_voltage',0)):.2f} V" if m else "--","A":f"{float(getattr(m,'current1',0)):.3f} A" if m else "--","STATE":"RUNNING","TEMP":f"{float(getattr(m,'motor_temperature',0)):.1f} C" if m else "--","Arduino":"CONNECTED"}
             for key,value in values.items():
                 if key in self.live:self.live[key].setText(str(value))
         self.sequence_status.setText(f"実行中: {current.sequence_id}  {progress}%  残り {remaining:.1f}s" if remaining is not None else f"実行中: {current.sequence_id}  {progress}%  条件待ち")
