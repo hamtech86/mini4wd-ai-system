@@ -106,7 +106,7 @@ def test_input_control_uses_a5_voltage_for_reverse_and_terminal_keeps_motor_volt
         "direction": "REV",
         "voltage1": 3.1,
         "voltage2": 2.8,
-        "motor_voltage": 2.2,
+        "motor_voltage": -2.2,
     }
     reverse_phase = BreakinPhase(
         "INPUT_REV", 1, 60, "REV", "VOLTAGE", 3.0,
