@@ -92,10 +92,17 @@ def test_emergency_stop():
     assert "EMERGENCY_STOP" in serial.commands
 
 
-def test_main_high_side_current_display_uses_current1():
-    """Keep Main's two current displays tied to ACS712 #1, not the aggregate."""
+def test_main_high_side_current_displays_use_current1():
+    """All Main UI live/result current displays use ACS712 #1, not the aggregate."""
     from pathlib import Path
 
-    source = (Path(__file__).resolve().parents[1] / "app" / "main.py").read_text()
-    assert source.count("getattr(m,'current1',0)") == 2
-    assert "getattr(m,'current_avg',0)" not in source
+    root = Path(__file__).resolve().parents[1]
+    app_source = (root / "app" / "main.py").read_text()
+    legacy_ui_source = (root / "ui" / "main_window.py").read_text()
+
+    assert app_source.count("getattr(m,'current1',0)") == 2
+    assert "getattr(m,'current_avg',0)" not in app_source
+    assert 'getattr(m, \'current1\', 0)' in legacy_ui_source
+    assert 'getattr(measurement, \'current1\', 0)' in legacy_ui_source
+    assert "getattr(m, 'current_avg', 0)" not in legacy_ui_source
+    assert "getattr(measurement, 'current_avg', 0)" not in legacy_ui_source
