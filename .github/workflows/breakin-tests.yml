@@ -25,7 +25,7 @@ jobs:
             tests/test_recipe_engine.py \
             tests/test_serial_controller_feedback_path.py \
             tests/test_serial_identity_guard.py \
-            tests/test_firmware_contract.py \\
+            tests/test_firmware_contract.py \
             tests/test_main_ui_identity.py
 
   test-battery:
