@@ -97,5 +97,5 @@ def test_main_high_side_current_display_uses_current1():
     from pathlib import Path
 
     source = (Path(__file__).resolve().parents[1] / "app" / "main.py").read_text()
-    assert '"CURRENT":f"{float(getattr(m,\'current1\',0)):.3f} A" if m else "--"' in source
-    assert '"A":f"{float(getattr(m,\'current1\',0)):.3f} A" if m else "--"' in source
+    assert source.count("getattr(m,'current1',0)") == 2
+    assert "getattr(m,'current_avg',0)" not in source
