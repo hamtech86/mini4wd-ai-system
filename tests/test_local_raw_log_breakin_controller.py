@@ -10,6 +10,12 @@ class FakeSerial:
     def __init__(self):
         self.raw_log = "STALE\n"
         self.reset_count = 0
+        self.commands = []
+        self.identity_checks = 0
+
+    def require_identified_device(self):
+        self.identity_checks += 1
+        return None
 
     @property
     def has_raw_log(self):
@@ -159,3 +165,122 @@ def test_rawlog_metadata_uses_model_and_firmware_from_info_header(tmp_path):
     assert stored.firmware_version == "3.00"
     assert library.read_raw(record.log_id) == raw_body
 
+
+
+
+def test_start_rejects_when_identity_guard_is_missing_without_side_effects(tmp_path, monkeypatch):
+    serial = FakeSerial()
+    del serial.require_identified_device
+    library = FakeLibrary(tmp_path)
+    controller = LocalRawLogBreakinController(serial_controller=serial, raw_log_library=library)
+    controller.session = FakeSession()
+    controller.active_instance_id = "INSTANCE-NO-GUARD"
+    controller.active_recipe_name = "KEEP-RECIPE"
+    controller.running = False
+    controller.paused = True
+    controller._measurement_raw_log_parts = ["KEEP-RAW\n"]
+    controller._registered_raw_log_ids = ["MOTOR-000099"]
+    controller.last_raw_log_id = "MOTOR-000099"
+    controller.last_raw_log_path = "keep/path"
+    before = {
+        "raw_log": serial.raw_log,
+        "reset_count": serial.reset_count,
+        "commands": list(serial.commands),
+        "session": controller.session,
+        "session_id": controller.session.session_id,
+        "instance_id": controller.active_instance_id,
+        "recipe": controller.active_recipe_name,
+        "running": controller.running,
+        "paused": controller.paused,
+        "parts": list(controller._measurement_raw_log_parts),
+        "registered_ids": list(controller._registered_raw_log_ids),
+        "last_id": controller.last_raw_log_id,
+        "last_path": controller.last_raw_log_path,
+    }
+
+    monkeypatch.setattr(
+        controller.__class__.__bases__[0],
+        "start",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("parent start must not run")),
+    )
+
+    import pytest
+    with pytest.raises(RuntimeError, match="identity guard unavailable"):
+        controller.start(SimpleNamespace(name="SHOULD-NOT-START"), instance_id="INSTANCE-NO-GUARD")
+
+    assert serial.raw_log == before["raw_log"]
+    assert serial.reset_count == before["reset_count"] == 0
+    assert serial.commands == before["commands"] == []
+    assert controller.session is before["session"]
+    assert controller.session.session_id == before["session_id"]
+    assert controller.active_instance_id == before["instance_id"]
+    assert controller.active_recipe_name == before["recipe"]
+    assert controller.running == before["running"]
+    assert controller.paused == before["paused"]
+    assert controller._measurement_raw_log_parts == before["parts"]
+    assert controller._registered_raw_log_ids == before["registered_ids"]
+    assert controller.last_raw_log_id == before["last_id"]
+    assert controller.last_raw_log_path == before["last_path"]
+    assert library.registered == []
+
+
+def test_start_rejects_when_identity_check_raises_without_side_effects(tmp_path, monkeypatch):
+    import pytest
+
+    serial = FakeSerial()
+    def fail_identity_check():
+        serial.identity_checks += 1
+        raise RuntimeError("identity handshake failed")
+    serial.require_identified_device = fail_identity_check
+
+    library = FakeLibrary(tmp_path)
+    controller = LocalRawLogBreakinController(serial_controller=serial, raw_log_library=library)
+    controller.session = FakeSession()
+    controller.active_instance_id = "INSTANCE-IDENTITY-ERROR"
+    controller.active_recipe_name = "KEEP-RECIPE"
+    controller.running = False
+    controller.paused = True
+    controller._measurement_raw_log_parts = ["KEEP-RAW\n"]
+    controller._registered_raw_log_ids = ["MOTOR-000098"]
+    controller.last_raw_log_id = "MOTOR-000098"
+    controller.last_raw_log_path = "keep/error-path"
+    before = {
+        "raw_log": serial.raw_log,
+        "reset_count": serial.reset_count,
+        "commands": list(serial.commands),
+        "session": controller.session,
+        "session_id": controller.session.session_id,
+        "instance_id": controller.active_instance_id,
+        "recipe": controller.active_recipe_name,
+        "running": controller.running,
+        "paused": controller.paused,
+        "parts": list(controller._measurement_raw_log_parts),
+        "registered_ids": list(controller._registered_raw_log_ids),
+        "last_id": controller.last_raw_log_id,
+        "last_path": controller.last_raw_log_path,
+    }
+
+    monkeypatch.setattr(
+        controller.__class__.__bases__[0],
+        "start",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("parent start must not run")),
+    )
+
+    with pytest.raises(RuntimeError, match="identity handshake failed"):
+        controller.start(SimpleNamespace(name="SHOULD-NOT-START"), instance_id="INSTANCE-IDENTITY-ERROR")
+
+    assert serial.identity_checks == 1
+    assert serial.raw_log == before["raw_log"]
+    assert serial.reset_count == before["reset_count"] == 0
+    assert serial.commands == before["commands"] == []
+    assert controller.session is before["session"]
+    assert controller.session.session_id == before["session_id"]
+    assert controller.active_instance_id == before["instance_id"]
+    assert controller.active_recipe_name == before["recipe"]
+    assert controller.running == before["running"]
+    assert controller.paused == before["paused"]
+    assert controller._measurement_raw_log_parts == before["parts"]
+    assert controller._registered_raw_log_ids == before["registered_ids"]
+    assert controller.last_raw_log_id == before["last_id"]
+    assert controller.last_raw_log_path == before["last_path"]
+    assert library.registered == []
