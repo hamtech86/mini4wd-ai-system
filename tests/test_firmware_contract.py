@@ -37,3 +37,24 @@ def test_calibration_snapshot_is_emitted_before_drive_direction_starts():
     assert fwd.index("sendCalibration();") < fwd.index("startForward();")
     assert rev.index("sendCalibration();") < rev.index("startReverse();")
 
+
+
+def test_calibration_is_a_raw_auxiliary_line_not_a_data_column():
+    serial_source = (ROOT / "communication" / "serial_controller.py").read_text(encoding="utf-8")
+    collector_source = (ROOT / "communication" / "raw_log_collector.py").read_text(encoding="utf-8")
+    assert 'if line.startswith("INFO,")' in serial_source
+    assert "self.raw_log_collector.append(decoded)" in serial_source
+    assert "self._lines.append(raw_line)" in collector_source
+    # CAL is not filtered out; the exact received line is retained alongside
+    # DATA lines, while the protocol schema remains exactly 26 DATA fields.
+    assert "CAL," not in serial_source.split('if line.startswith("INFO,")', 1)[1].split("self.raw_log_collector.append(decoded)", 1)[0]
+
+
+def test_measurement_and_feedback_validation_are_separate_layers():
+    manager_source = (ROOT / "measurement" / "measurement_manager.py").read_text(encoding="utf-8")
+    controller_source = (ROOT / "controllers" / "breakin_controller.py").read_text(encoding="utf-8")
+    assert "math.isfinite(numeric[name])" in manager_source
+    assert "def _measurement_is_valid_for_phase" in controller_source
+    assert "self._measurement_is_valid_for_phase(phase, measurement)" in controller_source
+    assert "self._consecutive_invalid_measurements += 1" in controller_source
+    assert "self._consecutive_invalid_measurements = 0" in controller_source
