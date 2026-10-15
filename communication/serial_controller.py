@@ -213,10 +213,6 @@ class SerialController:
             raise ValueError("Invalid motor command")
         if "\n" in command or "\r" in command:
             raise ValueError("Motor command must be a single line")
-        if command == "VCTRL=ON" or command.startswith("TARGET="):
-            raise ValueError(
-                "Voltage feedback is owned by Python/UI; legacy VCTRL/TARGET commands are unsupported"
-            )
         if command in self.SIMPLE_COMMANDS:
             return command
         pwm_match = re.fullmatch(r"PWM=(0|[1-9][0-9]{0,2})", command)
@@ -302,6 +298,10 @@ class SerialController:
         if not self.identified and not allowed_unidentified:
             raise RuntimeError(
                 f"Motor command rejected while device identity is unconfirmed: {command}"
+            )
+        if command == "VCTRL=ON" or command.startswith("TARGET="):
+            raise ValueError(
+                "Voltage feedback is owned by Python/UI; legacy VCTRL/TARGET commands are unsupported"
             )
 
         self.command_log.append(command)
