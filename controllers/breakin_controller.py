@@ -157,6 +157,10 @@ class BreakinController:
 
     def start(self, recipe, instance_id=None, resume=False):
         self._require_identified_device()
+        declared_mode = getattr(recipe, "voltage_control_mode", None)
+        self.voltage_control_mode = str(declared_mode or "TERMINAL").upper()
+        if self.voltage_control_mode not in {"TERMINAL", "INPUT"}:
+            raise ValueError(f"Unsupported recipe voltage control mode: {self.voltage_control_mode}")
         instance_id = instance_id if instance_id is not None else self.selected_instance_id
         self.active_instance_id = instance_id
         self.active_recipe_name = str(recipe.name).upper()
