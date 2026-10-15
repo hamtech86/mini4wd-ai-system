@@ -216,3 +216,36 @@ def test_zero_voltage_is_invalid_feedback_during_driven_voltage_phase():
     )()
 
     assert controller._collect_measurement(phase) is None
+
+
+def test_sequence_adapter_uses_shared_three_invalid_measurement_stop():
+    from types import SimpleNamespace
+    from controllers.breakin_sequence_adapter import BreakinSequenceAdapter
+    from controllers.sequence_executor import SequenceExecutor
+
+    serial = FakeSerial([frame(current_avg=None)] * 3)
+    serial.require_identified_device = lambda: None
+    serial.forward = lambda: serial.commands.append("FWD")
+    serial.reverse = lambda: serial.commands.append("REV")
+    controller = BreakinController(serial, measurement_manager=MeasurementManager(serial_controller=serial))
+    adapter = BreakinSequenceAdapter(controller)
+    executor = SequenceExecutor(adapter=adapter)
+    sequence = SimpleNamespace(
+        sequence_id="INPUT-FWD", direction="FWD", pwm=60, duration_sec=1,
+        metadata={}, parameters={
+            "control": "VOLTAGE", "target_voltage": 3.0,
+            "pwm_min": 35, "pwm_max": 120,
+            "voltage_control_mode": "INPUT",
+        },
+    )
+
+    adapter.start_sequence(sequence)
+    adapter.tick(sequence)
+    adapter.tick(sequence)
+    adapter.tick(sequence)
+
+    assert controller.running is False
+    assert executor.running is False
+    assert controller.current_pwm == 0
+    assert "3 consecutive invalid measurements" in controller.abort_reason
+    assert 0 in serial.commands
