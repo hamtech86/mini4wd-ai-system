@@ -89,6 +89,17 @@ class BreakinRecipe:
         phases = [BreakinPhase.from_dict(p) for p in data.get("stages", [])]
         if not phases:
             raise ValueError(f"Recipe '{name}' has no stages")
+        recipe_voltage_mode = data.get("voltage_control_mode")
+        if recipe_voltage_mode is not None:
+            recipe_voltage_mode = str(recipe_voltage_mode).upper()
+            if recipe_voltage_mode not in {"TERMINAL", "INPUT"}:
+                raise ValueError(
+                    f"Recipe '{name}' has unsupported voltage_control_mode: {recipe_voltage_mode}"
+                )
+            # Carry recipe-level control semantics into SequenceDefinition
+            # without duplicating or changing DATA/RawLog fields.
+            for phase in phases:
+                phase.metadata.setdefault("voltage_control_mode", recipe_voltage_mode)
         return cls(
             name=name,
             phases=phases,
