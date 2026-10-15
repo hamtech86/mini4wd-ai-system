@@ -13,6 +13,10 @@ class MockSerialController:
     def __init__(self):
         self.commands = []
 
+    def require_identified_device(self):
+        # This mock represents a connection whose identity has been validated.
+        return None
+
     def forward(self):
         self.commands.append("FORWARD")
 
