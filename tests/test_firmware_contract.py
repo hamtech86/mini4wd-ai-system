@@ -58,3 +58,19 @@ def test_measurement_and_feedback_validation_are_separate_layers():
     assert "self._measurement_is_valid_for_phase(phase, measurement)" in controller_source
     assert "self._consecutive_invalid_measurements += 1" in controller_source
     assert "self._consecutive_invalid_measurements = 0" in controller_source
+
+
+
+def test_raw_capture_is_reset_before_start_can_emit_calibration():
+    adapter_source = (
+        ROOT / "controllers" / "local_raw_log_breakin_controller.py"
+    ).read_text(encoding="utf-8")
+    start_body = adapter_source.split("    def start(self, recipe", 1)[1].split(
+        "    def _freeze_measurement_raw_log", 1
+    )[0]
+    assert start_body.index("self.serial.reset_raw_log()") < start_body.index(
+        "super().start(recipe"
+    )
+    # The parent start executes phases, whose FWD/REV commands trigger CAL.
+    # Firmware contract tests above assert CAL precedes startForward/startReverse.
+    assert "super().start(recipe, instance_id=instance_id, resume=resume)" in start_body
