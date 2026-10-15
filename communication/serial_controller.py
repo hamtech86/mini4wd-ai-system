@@ -213,7 +213,7 @@ class SerialController:
             raise ValueError("Invalid motor command")
         if "\n" in command or "\r" in command:
             raise ValueError("Motor command must be a single line")
-        if command in {"VCTRL=ON", "VCTRL=OFF"} or command.startswith("TARGET="):
+        if command == "VCTRL=ON" or command.startswith("TARGET="):
             raise ValueError(
                 "Voltage feedback is owned by Python/UI; legacy VCTRL/TARGET commands are unsupported"
             )
