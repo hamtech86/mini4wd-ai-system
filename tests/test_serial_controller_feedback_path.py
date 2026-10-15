@@ -146,3 +146,32 @@ def test_signed_negative_motor_voltage_is_accepted_by_measurement_parser():
 
     assert measurement is not None
     assert measurement.motor_voltage == -2.3
+
+
+
+def test_raw_log_collector_preserves_cal_and_data_but_excludes_info_at_runtime():
+    info = "INFO,TYPE=MOTOR,MODEL=MOTOR_BREAKIN_V3,FW=3.00,BUILD=TEST,ID=000001\n"
+    cal = "CAL,ACS1_ZERO=512.25,ACS2_ZERO=511.75\r\n"
+    data = data_line()
+    serial = SerialController()
+    serial.connected = True
+    serial.serial = FakePort([info, cal, data])
+    serial.device_info = {
+        "TYPE": "MOTOR", "MODEL": "MOTOR_BREAKIN_V3", "FW": "3.00",
+        "BUILD": "TEST", "ID": "000001",
+    }
+    serial._identity_confirmed = True
+    serial.identity_error = None
+    manager = MeasurementManager(serial_controller=serial)
+
+    measurement = manager.collect()
+
+    assert measurement is not None
+    assert len(data.rstrip("\n").split(",")) == 26
+    assert len(CSV_FIELDS) == 26
+    assert serial.raw_log == cal + data
+    assert "INFO," not in serial.raw_log
+    assert serial.raw_log.startswith("CAL,")
+    assert "DATA," in serial.raw_log
+    # CRLF in the CAL auxiliary line is retained exactly, not normalized.
+    assert "\r\n" in serial.raw_log
