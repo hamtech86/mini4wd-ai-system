@@ -98,8 +98,11 @@ class BreakinController:
     def _require_identified_device(self):
         """Use the shared serial identity gate when backed by SerialController."""
         guard = getattr(self.serial, "require_identified_device", None)
-        if callable(guard):
-            guard()
+        if not callable(guard):
+            raise RuntimeError(
+                "Motor device identity cannot be verified: identification guard unavailable"
+            )
+        guard()
 
     def pause(self):
         """Pause safely while preserving the current phase position."""
