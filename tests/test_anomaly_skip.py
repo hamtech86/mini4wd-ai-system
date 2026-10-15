@@ -168,3 +168,51 @@ def test_valid_sample_resets_consecutive_invalid_count():
     assert benchmark_collect(controller, phase) is None
     assert controller.running is True
     assert controller._consecutive_invalid_measurements == 1
+
+
+def test_missing_or_nonfinite_current_avg_is_invalid_not_zero():
+    for invalid in (None, "", "NaN", float("inf")):
+        manager = MeasurementManager(
+            serial_controller=FakeSerial([frame(current_avg=invalid)])
+        )
+        assert manager.collect() is None
+
+
+def test_normal_breakin_stops_after_three_consecutive_invalid_samples():
+    serial = FakeSerial([frame(current_avg=None)] * 3 + [frame()])
+    manager = MeasurementManager(serial_controller=serial)
+    controller = BreakinController(serial, measurement_manager=manager)
+    controller.running = True
+    controller.current_pwm = 60
+    phase = type(
+        "Phase",
+        (),
+        {"target_voltage": 3.0, "pwm_min": 35, "pwm_max": 120,
+         "direction": "FWD", "control": "VOLTAGE", "start_voltage": None},
+    )()
+
+    assert controller._collect_measurement(phase) is None
+    assert controller.running is True
+    assert controller._collect_measurement(phase) is None
+    assert controller.running is True
+    assert controller._collect_measurement(phase) is None
+
+    assert controller.running is False
+    assert controller.current_pwm == 0
+    assert "3 consecutive invalid measurements" in controller.abort_reason
+    assert 0 in serial.commands
+
+
+def test_zero_voltage_is_invalid_feedback_during_driven_voltage_phase():
+    serial = FakeSerial([frame(voltage1=0.0, motor_voltage=0.0)])
+    manager = MeasurementManager(serial_controller=serial)
+    controller = BreakinController(serial, measurement_manager=manager)
+    controller.current_pwm = 60
+    phase = type(
+        "Phase",
+        (),
+        {"target_voltage": 3.0, "pwm_min": 35, "pwm_max": 120,
+         "direction": "FWD", "control": "VOLTAGE", "start_voltage": None},
+    )()
+
+    assert controller._collect_measurement(phase) is None
