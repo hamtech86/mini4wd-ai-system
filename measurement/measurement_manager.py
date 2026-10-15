@@ -107,38 +107,45 @@ class MeasurementManager:
             return None
 
         # A missing field is INVALID, never an implicit 0 V / 0 A value.
-        required = (
-            "elapsed_time", "current1", "current2",
-            "voltage1", "voltage2", "motor_voltage",
-            "pwm", "direction", "state",
+        numeric_fields = (
+            "elapsed_time", "raw_acs1", "raw_acs2", "current1", "current2",
+            "voltage1", "voltage2", "motor_voltage", "pwm", "current_avg",
+            "power", "current_ripple", "voltage_ripple", "peak_power",
+            "peak_current", "peak_voltage", "peak_pwm", "brush_peak_current",
+            "raw_magnetic", "magnetic_level", "motor_temperature",
         )
+        required = numeric_fields + ("direction", "state")
         if any(raw.get(name) is None for name in required):
             return None
-
-        for name in ("elapsed_time", "current1", "current2",
-                     "voltage1", "voltage2", "motor_voltage", "pwm"):
+        numeric = {}
+        for name in numeric_fields:
             try:
-                if not math.isfinite(float(raw.get(name))):
-                    return None
+                numeric[name] = float(raw[name])
             except (TypeError, ValueError):
                 return None
+            if not math.isfinite(numeric[name]):
+                return None
 
-        # Plausibility rejection is intentionally above the configured
-        # 5 A safety limit so an actual over-current remains VALID and reaches
-        # the safety mechanism instead of being hidden as an anomaly.
-        if float(raw["elapsed_time"]) < 0:
+        # Preserve actual over-current as a valid measurement so the safety
+        # threshold sees it; reject only physically implausible telemetry.
+        if numeric["elapsed_time"] < 0:
             return None
-        if not (0.0 <= float(raw["voltage1"]) <= 12.0 and
-                0.0 <= float(raw["voltage2"]) <= 12.0 and
-                0.0 <= float(raw["motor_voltage"]) <= 12.0):
+        if not (0.0 <= numeric["voltage1"] <= 12.0 and
+                0.0 <= numeric["voltage2"] <= 12.0 and
+                -12.0 <= numeric["motor_voltage"] <= 12.0):
             return None
-        if abs(float(raw["current1"])) > 100.0 or abs(float(raw["current2"])) > 100.0:
+        if any(abs(numeric[name]) > 100.0 for name in
+               ("current1", "current2", "current_avg", "brush_peak_current")):
             return None
-        try:
-            pwm = int(float(raw["pwm"]))
-        except (TypeError, ValueError):
+        if not (0 <= numeric["raw_acs1"] <= 1023 and
+                0 <= numeric["raw_acs2"] <= 1023 and
+                0 <= numeric["raw_magnetic"] <= 1023):
             return None
-        if not 0 <= pwm <= 255:
+        if not (0 <= numeric["pwm"] <= 255 and 0 <= numeric["peak_pwm"] <= 255):
+            return None
+        if str(raw.get("direction")).upper() not in {"FWD", "REV"}:
+            return None
+        if not str(raw.get("state")).strip():
             return None
 
         fields = raw
