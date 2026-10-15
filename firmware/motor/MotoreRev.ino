@@ -496,15 +496,9 @@ void loop()
     {
         runtime.elapsedTime = now - runtime.startTime;
     }
-    if(
-    (now - voltageControl.controlTimer)
-    >= VOLTAGE_CONTROL_INTERVAL_MS
-    )
-    {
-        voltageControl.controlTimer = now;
-            
-        voltageControlUpdate();
-    }
+    // Voltage feedback is owned by Python/UI. Firmware never runs a
+    // competing closed-loop controller; it only executes explicit PWM.
+
 
 }
 
@@ -805,6 +799,8 @@ void calibrateACS712()
 
 void stopMotor()
 {
+    voltageControl.enabled = false;
+    runtime.pwm = 0;
     analogWrite(PIN_PWM, 0);
 
     digitalWrite(PIN_IN3, LOW);
@@ -905,6 +901,7 @@ void processCommand(const char *cmd)
 
     if (strcmp(cmd, "START") == 0)
     {
+        sendCalibration();
         runtime.paused = false;
 
        if (runtime.direction == DIR_FORWARD)
@@ -940,6 +937,7 @@ void processCommand(const char *cmd)
 
     if (strcmp(cmd, "PAUSE") == 0)
     {
+     voltageControl.enabled = false;
      runtime.paused = true;
 
      analogWrite(PIN_PWM, 0);
@@ -956,6 +954,7 @@ void processCommand(const char *cmd)
 
     if (strcmp(cmd, "RESUME") == 0)
     {
+        sendCalibration();
         runtime.paused = false;
 
         setState(STATE_RUN);
@@ -967,6 +966,7 @@ void processCommand(const char *cmd)
 
     if (strcmp(cmd, "FWD") == 0)
     {
+        sendCalibration();
         startForward();
 
         sendOK();
@@ -976,6 +976,7 @@ void processCommand(const char *cmd)
 
     if (strcmp(cmd, "REV") == 0)
     {
+        sendCalibration();
         startReverse();
 
         sendOK();
@@ -1008,31 +1009,14 @@ void processCommand(const char *cmd)
 
     
 
-    if(strncmp(cmd,"TARGET=",7)==0)
-    {
-        voltageControl.targetVoltage =
-            atof(cmd + 7);
-
-        sendOK();
-
-        return;
-    }
-
-    if(strcmp(cmd,"VCTRL=ON")==0)
-    {
-        voltageControl.enabled = true;
-
-        sendOK();
-
-        return;
-    }
-
-    if(strcmp(cmd,"VCTRL=OFF")==0)
+    // Legacy voltage-loop commands are deliberately rejected. They must
+    // never enable a second controller that competes with Python/UI PWM.
+    if (strncmp(cmd, "TARGET=", 7) == 0 ||
+        strcmp(cmd, "VCTRL=ON") == 0 ||
+        strcmp(cmd, "VCTRL=OFF") == 0)
     {
         voltageControl.enabled = false;
-
-        sendOK();
-
+        sendError("VOLTAGE_CONTROL_OWNED_BY_HOST");
         return;
     }
 
@@ -1053,6 +1037,16 @@ void processCommand(const char *cmd)
 /********************************************************************
  * FUNC-203 : sendInfo()
  ********************************************************************/
+
+void sendCalibration()
+{
+    // Snapshot the offsets actually used by current conversion immediately
+    // before motor drive. DATA remains the same 26-field contract.
+    Serial.print(F("CAL,ACS1_ZERO="));
+    Serial.print(ACS1_ZERO, 2);
+    Serial.print(F(",ACS2_ZERO="));
+    Serial.println(ACS2_ZERO, 2);
+}
 
 void sendInfo()
 {
