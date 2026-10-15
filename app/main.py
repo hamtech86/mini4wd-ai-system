@@ -123,8 +123,18 @@ class MainWindow(BaseMainWindow):
         controller=self._motor_controller()
         if controller is None: QMessageBox.warning(self,"Motor Connection","Motor serial controller is not available."); return
         if controller.connected:return
-        if controller.connect(): self.motor_serial_status.setText("MOTOR: CONNECTED  /dev/ttyACM0 @ 57600"); self.motor_connect.setEnabled(False); self.motor_disconnect.setEnabled(True)
-        else:self.motor_serial_status.setText("MOTOR: CONNECTION FAILED  /dev/ttyACM0")
+        if controller.connect():
+            self.motor_connect.setEnabled(False)
+            self.motor_disconnect.setEnabled(True)
+            if getattr(controller, "identified", False):
+                self.motor_serial_status.setText("MOTOR: CONNECTED / IDENTIFIED  /dev/ttyACM0 @ 57600")
+            else:
+                reason = getattr(controller, "identity_error", None) or "identity_unconfirmed"
+                self.motor_serial_status.setText(
+                    f"MOTOR: CONNECTED / IDENTITY UNCONFIRMED ({reason})  /dev/ttyACM0"
+                )
+        else:
+            self.motor_serial_status.setText("MOTOR: CONNECTION FAILED  /dev/ttyACM0")
 
     def disconnect_motor_serial(self):
         controller=self._motor_controller()
