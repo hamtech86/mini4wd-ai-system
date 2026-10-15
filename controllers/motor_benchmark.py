@@ -77,30 +77,12 @@ def _canonical_recipe_for(benchmark_type, voltage_control_mode):
 
 
 def _collect(self, phase):
-    """Collect one benchmark sample and stop on sustained loss of valid feedback.
+    """Use the shared controller-level invalid-feedback safety policy.
 
-    A single invalid sample is skipped. Three consecutive invalid samples
-    (300 ms at the 100 ms benchmark cadence) indicate loss of control
-    feedback; continuing with the last PWM would leave the motor open-loop.
+    Benchmark, TuneBasic, normal break-in and sequence execution all use the
+    same three-consecutive-invalid-sample rule in BreakinController.
     """
-    measurement = self._collect_measurement(phase)
-    if measurement is None:
-        self._consecutive_invalid_measurements = (
-            getattr(self, "_consecutive_invalid_measurements", 0) + 1
-        )
-        if (
-            self._consecutive_invalid_measurements >= 3
-            and getattr(self, "running", False)
-        ):
-            self.abort_reason = (
-                "SAFETY: 3 consecutive invalid measurements; "
-                "stopping benchmark due to loss of voltage feedback"
-            )
-            self.current_pwm = 0
-            self.emergency_stop()
-    else:
-        self._consecutive_invalid_measurements = 0
-    return measurement
+    return self._collect_measurement(phase)
 
 
 def _safety(self, measurement):
