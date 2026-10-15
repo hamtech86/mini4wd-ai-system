@@ -62,5 +62,12 @@ def test_all_recipes_persist_exact_raw_body_and_recipe_metadata(tmp_path):
         assert f"recipe={recipe_name}" in persisted["notes"]
         assert f"voltage_control_mode={control_mode}" in persisted["notes"]
 
+        import csv
+        with library.index_path.open("r", encoding="utf-8", newline="") as index_file:
+            indexed = {row["log_id"]: row for row in csv.DictReader(index_file)}[record.log_id]
+        assert indexed["measurement_condition"] == benchmark_type
+        assert f"recipe={recipe_name}" in indexed["notes"]
+        assert f"voltage_control_mode={control_mode}" in indexed["notes"]
+
     assert len(set(registered_ids)) == 4
     assert len(library.list_logs(device_type="MOTOR")) == 4
