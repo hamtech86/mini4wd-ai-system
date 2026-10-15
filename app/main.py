@@ -77,6 +77,23 @@ class MainWindow(BaseMainWindow):
         if controller is not None:return controller
         return getattr(getattr(self,"breakin_controller",None),"serial_controller",None)
 
+    def _require_motor_identity(self, operation):
+        controller = self._motor_controller()
+        guard = getattr(controller, "require_identified_device", None)
+        if not callable(guard):
+            message = "MOTOR識別状態を確認できないため、開始を拒否しました。"
+            self.sequence_status.setText(f"開始拒否: {message}")
+            QMessageBox.warning(self, operation, message)
+            return False
+        try:
+            guard()
+        except Exception as exc:
+            message = str(exc)
+            self.sequence_status.setText(f"開始拒否: {message}")
+            QMessageBox.warning(self, operation, message)
+            return False
+        return True
+
     def open_manager(self):
         """Open the Motor Instance Manager with the Local Raw Log manager attached."""
         try:
@@ -270,6 +287,8 @@ class MainWindow(BaseMainWindow):
         if not enabled_ids:self.sequence_status.setText("実施するSequenceが選択されていません");return
         controller=self._motor_controller()
         if controller is None or not getattr(controller,"connected",False):QMessageBox.warning(self,"Sequence","先にMOTOR CONNECTを実行してください。");return
+        if not self._require_motor_identity("Sequence"):
+            return
         self.sequence_selected_ids=enabled_ids;self.sequence_selected_total=len(enabled_ids);self.sequence_progress.setValue(0);self.sequence_progress.setFormat(f"Sequence Progress: 0/{self.sequence_selected_total}  %p%")
         self.sequence_executor.load_recipe(recipe,enabled_ids=enabled_ids);self.sequence_executor.start();self.sequence_timer.start();self.timer.start();self.sequence_execute.setEnabled(False);self.sequence_stop.setEnabled(True);self.start.setEnabled(False);self.stop.setEnabled(True);self.manager.setEnabled(False);self.instance.setEnabled(False);self.recipe.setEnabled(False);self.update_db.setEnabled(False);self.copy.setEnabled(False);self.result["STATUS"].setText("RUNNING");self.run_state.setText("STARTING...");current=self.sequence_executor.current();self._update_sequence_highlight(current.sequence_id if current else None);self._update_sequence_main_ui(current)
 
@@ -278,6 +297,8 @@ class MainWindow(BaseMainWindow):
             QMessageBox.warning(self,"Controller","BreakinController is not available.");return
         controller=self._motor_controller()
         if controller is None or not getattr(controller,"connected",False):QMessageBox.warning(self,"Benchmark","先にMOTOR CONNECTを実行してください。");return
+        if not self._require_motor_identity("Benchmark"):
+            return
         self.breakin_controller.selected_benchmark_recipe = benchmark_type
         self.breakin_controller.selected_benchmark_type = benchmark_type
         self.database_updated=False;self.last_result_data=None;self.last_result_benchmark=True;self.database_status.setText("DATABASE: NOT UPDATED");self.update_db.setEnabled(False);self.copy.setEnabled(False);self.start.setEnabled(False);self.manager.setEnabled(False);self.instance.setEnabled(False);self.recipe.setEnabled(False);self.stop.setEnabled(True);self.result["STATUS"].setText("RUNNING");self.run_state.setText("STARTING...")

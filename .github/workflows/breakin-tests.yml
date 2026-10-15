@@ -23,7 +23,8 @@ jobs:
             tests/test_breakin_controller.py \
             tests/test_anomaly_skip.py \
             tests/test_recipe_engine.py \
-            tests/test_serial_controller_feedback_path.py
+            tests/test_serial_controller_feedback_path.py \
+            tests/test_serial_identity_guard.py
 
   test-battery:
     runs-on: ubuntu-latest

@@ -59,6 +59,12 @@ def test_serial_controller_parses_data_for_measurement_manager_and_control():
     serial = SerialController()
     serial.connected = True
     serial.serial = FakePort([data_line()])
+    serial.device_info = {
+        "TYPE": "MOTOR", "MODEL": "MOTOR_BREAKIN_V3", "FW": "3.00",
+        "BUILD": "TEST", "ID": "000001",
+    }
+    serial._identity_confirmed = True
+    serial.identity_error = None
     manager = MeasurementManager(serial_controller=serial)
 
     measurement = manager.collect()

@@ -33,7 +33,18 @@ class SequenceExecutor:
         for item,result in zip(self.sequences,self.results):
             if not item.enabled and result.status=="PENDING":result.status="SKIPPED";result.reason="disabled"
 
+    def _require_identified_device(self):
+        controller = getattr(self.adapter, "controller", None)
+        serial = getattr(controller, "serial", None)
+        guard = getattr(serial, "require_identified_device", None)
+        if not callable(guard):
+            raise RuntimeError(
+                "Motor device identity cannot be verified: identification guard unavailable"
+            )
+        guard()
+
     def start(self, instance_id=None, resume_index=0):
+        self._require_identified_device()
         if not self.sequences or self.state is None:raise RuntimeError("No recipe loaded")
         if resume_index<0 or resume_index>=len(self.sequences):raise ValueError("Invalid sequence index")
         self.state.instance_id=instance_id;self.state.sequence_index=resume_index;self.state.paused=False;self.running=True;self.paused=False;self.transition_pause_until=None;self.skip_disabled();return self.current()
@@ -58,6 +69,7 @@ class SequenceExecutor:
 
     def resume(self):
         if not self.running or not self.paused:return False
+        self._require_identified_device()
         self.paused=False
         if self.state:self.state.paused=False;self._save_checkpoint()
         return True

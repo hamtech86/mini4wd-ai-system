@@ -331,6 +331,16 @@ class MainWindow(QMainWindow):
         recipe = None if benchmark else self.recipe_engine.get(self.recipe.currentData())
         if not benchmark and recipe is None:
             return
+        serial_controller = getattr(self.breakin_controller, "serial", None)
+        identity_guard = getattr(serial_controller, "require_identified_device", None)
+        if not callable(identity_guard):
+            QMessageBox.warning(self, "Motor Identity", "MOTOR識別状態を確認できないため、開始を拒否しました。")
+            return
+        try:
+            identity_guard()
+        except Exception as exc:
+            QMessageBox.warning(self, "Motor Identity", str(exc))
+            return
         self.database_updated = False
         self.last_result_data = None
         self.last_result_benchmark = benchmark

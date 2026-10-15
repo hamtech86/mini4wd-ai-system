@@ -24,6 +24,14 @@ class LocalRawLogBreakinController(BreakinController):
         self._registered_raw_log_ids = []
 
     def start(self, recipe, instance_id=None, resume=False):
+        # Fail closed before touching RawLog or controller/session state. The
+        # parent class also guards start, but that is too late for this adapter.
+        guard = getattr(self.serial, "require_identified_device", None)
+        if not callable(guard):
+            raise RuntimeError(
+                "Motor device identity cannot be verified: identification guard unavailable"
+            )
+        guard()
         if hasattr(self.serial, "reset_raw_log"):
             self.serial.reset_raw_log()
         self._measurement_raw_log_parts = []
@@ -82,17 +90,29 @@ class LocalRawLogBreakinController(BreakinController):
         if not raw_body:
             return None
 
+        # New registrations use connection-time DeviceInfo. Parsing an INFO
+        # header remains a compatibility fallback for historical RawLogs only.
         header_model, header_firmware_version = self._parse_raw_header_metadata(raw_body)
+        device_info = getattr(self.serial, "device_info", None) or {}
+        device_type = device_info.get("TYPE") or "MOTOR"
+        device_model = device_info.get("MODEL") or header_model
         session_id = getattr(self.session, "session_id", None)
-        firmware = header_firmware_version or getattr(self.session, "firmware_version", "") or ""
+        firmware = device_info.get("FW") or header_firmware_version or getattr(self.session, "firmware_version", "") or ""
         benchmark_type = getattr(self, "selected_benchmark_type", None) or getattr(self, "benchmark_type", None) or self.active_recipe_name or ""
         baseline_pwm = getattr(self, "benchmark_baseline_pwm", None)
         purpose = getattr(self, "benchmark_purpose", None)
-        notes = ""
+        note_parts = []
         if baseline_pwm is not None:
-            notes = f"baseline_pwm={baseline_pwm}"
+            note_parts.append(f"baseline_pwm={baseline_pwm}")
         if purpose:
-            notes = f"{notes}; purpose={purpose}" if notes else f"purpose={purpose}"
+            note_parts.append(f"purpose={purpose}")
+        if device_info.get("BUILD"):
+            note_parts.append(f"device_build={device_info['BUILD']}")
+        if device_info.get("ID"):
+            # Firmware ID is recorded only as reported metadata; it is not a
+            # unique hardware identity and never replaces Motor Instance ID.
+            note_parts.append(f"firmware_device_id={device_info['ID']}")
+        notes = "; ".join(note_parts)
 
         # RawLog IDs are string fields. Database-backed instance/session
         # identifiers may arrive as integers, but the Local Raw Log Library
@@ -111,8 +131,8 @@ class LocalRawLogBreakinController(BreakinController):
         session_id = normalize_id(session_id, "measurement_session_id")
 
         record = RawLog(
-            device_type="MOTOR",
-            device_model=header_model,
+            device_type=device_type,
+            device_model=device_model,
             firmware_version=firmware,
             device_instance_id=instance_id,
             motor_id=instance_id,
