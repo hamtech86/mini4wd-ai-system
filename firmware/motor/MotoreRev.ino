@@ -938,6 +938,7 @@ void processCommand(const char *cmd)
     if (strcmp(cmd, "PAUSE") == 0)
     {
      voltageControl.enabled = false;
+     runtime.pwm = 0;
      runtime.paused = true;
 
      analogWrite(PIN_PWM, 0);
