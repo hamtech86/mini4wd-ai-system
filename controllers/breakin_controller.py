@@ -7,6 +7,7 @@ recipe can resume from the interrupted phase instead of restarting at phase 1.
 """
 
 import json
+import math
 import time
 from pathlib import Path
 
@@ -42,6 +43,7 @@ class BreakinController:
         self.current_phase = None
         self.current_pwm = 0
         self.abort_reason = None
+        self.stop_confirmation_state = "NOT_REQUESTED"
         self.phase_started_at = None
         self.phase_elapsed_before_pause = 0.0
         self.pause_started_at = None
@@ -60,6 +62,8 @@ class BreakinController:
         # received during STOP/finalization is intentionally discarded.
         self._measurement_raw_log_parts = []
         self._measurement_boundary_reached = False
+        self._consecutive_invalid_measurements = 0
+        self.invalid_feedback_limit = 3
 
     # ------------------------- checkpoint / resume -------------------------
     def _save_checkpoint(self):
@@ -154,12 +158,17 @@ class BreakinController:
 
     def start(self, recipe, instance_id=None, resume=False):
         self._require_identified_device()
+        declared_mode = getattr(recipe, "voltage_control_mode", None)
+        self.voltage_control_mode = str(declared_mode or "TERMINAL").upper()
+        if self.voltage_control_mode not in {"TERMINAL", "INPUT"}:
+            raise ValueError(f"Unsupported recipe voltage control mode: {self.voltage_control_mode}")
         instance_id = instance_id if instance_id is not None else self.selected_instance_id
         self.active_instance_id = instance_id
         self.active_recipe_name = str(recipe.name).upper()
         self.phase_manager = PhaseManager(recipe)
         self.running = True
         self.paused = False
+        self.stop_confirmation_state = "NOT_REQUESTED"
         self.measurements = []
         self.abort_reason = None
         self.current_phase = None
@@ -172,6 +181,7 @@ class BreakinController:
         self.brush_peak_reached = False
         self._measurement_raw_log_parts = []
         self._measurement_boundary_reached = False
+        self._consecutive_invalid_measurements = 0
 
         checkpoint = self.resume_checkpoint() if resume else None
         if checkpoint:
@@ -337,7 +347,11 @@ class BreakinController:
         while self.running and measurement is None:
             measurement = self._collect_measurement(phase)
             if measurement is None:
+                if not self.running:
+                    return
                 time.sleep(self.CONTROL_INTERVAL_SEC)
+        if not self.running or measurement is None:
+            return
         peak = self._estimate_brush_peak_current()
         if peak < phase.peak_min_current:
             self.abort_reason = f"BRUSH PEAK APPROACH requires benchmark peak >= {phase.peak_min_current:.3f} A; measured {peak:.3f} A"
@@ -411,10 +425,24 @@ class BreakinController:
     def _current_from_measurement(cls, measurement):
         current = cls._measurement_value(measurement, "current_avg", None)
         if current is not None:
-            try: return abs(float(current))
-            except (TypeError, ValueError): pass
-        return max(abs(float(cls._measurement_value(measurement, "current1", 0.0) or 0.0)),
-                   abs(float(cls._measurement_value(measurement, "current2", 0.0) or 0.0)))
+            try:
+                value = float(current)
+                return abs(value) if math.isfinite(value) else float("inf")
+            except (TypeError, ValueError):
+                return float("inf")
+        currents = [
+            cls._measurement_value(measurement, "current1", None),
+            cls._measurement_value(measurement, "current2", None),
+        ]
+        if any(value is None for value in currents):
+            return float("inf")
+        try:
+            values = [float(value) for value in currents]
+        except (TypeError, ValueError):
+            return float("inf")
+        if not all(math.isfinite(value) for value in values):
+            return float("inf")
+        return max(abs(values[0]), abs(values[1]))
 
     @staticmethod
     def _value(measurement, name, default=0.0):
@@ -430,7 +458,14 @@ class BreakinController:
             ).upper()
             field = "voltage1" if direction == "FWD" else "voltage2"
             return float(self._value(measurement, field, 0.0) or 0.0)
-        return float(self._value(measurement, "motor_voltage", 0.0) or 0.0)
+        raw_motor_voltage = float(self._value(measurement, "motor_voltage", 0.0) or 0.0)
+        direction = str(
+            getattr(phase, "direction", None)
+            or self._value(measurement, "direction", "FWD")
+        ).upper()
+        # RawLog remains signed V4 - V5. Convert only for control:
+        # FWD = V4 - V5; REV = V5 - V4.
+        return raw_motor_voltage if direction == "FWD" else -raw_motor_voltage
 
     def _voltage_control(self, phase, measurement):
         voltage = self._controlled_voltage(phase, measurement)
@@ -443,6 +478,18 @@ class BreakinController:
             self.serial.set_pwm(new_pwm)
 
     def _safety_violation(self, measurement):
+        if measurement is None:
+            # The shared consecutive-invalid counter owns transient loss of
+            # feedback; do not convert one skipped sample into an immediate
+            # safety trip here.
+            return None
+        for field in ("current1", "current2", "current_avg", "motor_temperature"):
+            value = self._measurement_value(measurement, field, None)
+            try:
+                if value is None or not math.isfinite(float(value)):
+                    return f"SAFETY: invalid measurement field {field}"
+            except (TypeError, ValueError):
+                return f"SAFETY: invalid measurement field {field}"
         max_temp = float(self.safety_config.get("max_motor_temperature", 0) or 0)
         max_current = float(self.safety_config.get("max_current", 0) or 0)
         max_pwm = int(self.safety_config.get("max_pwm", 255) or 255)
@@ -501,18 +548,67 @@ class BreakinController:
             "pwm": int(pwm or 0),
             "elapsed_time": float(elapsed),
             "remaining_time": None if remaining is None else float(remaining),
+            "stop_reason": self.abort_reason,
+            "stop_confirmation_state": self.stop_confirmation_state,
         }
 
     def _collect_measurement(self, phase):
-        if not self.measurement_manager: return None
-        measurement = self.measurement_manager.collect()
-        if measurement is not None:
-            if isinstance(measurement, dict):
-                measurement["phase"] = phase
-                measurement["phase_pwm"] = self.current_pwm
-                measurement["phase_direction"] = phase.direction
-            self.measurements.append(measurement)
+        measurement = (
+            self.measurement_manager.collect()
+            if self.measurement_manager else None
+        )
+        if measurement is not None and not self._measurement_is_valid_for_phase(phase, measurement):
+            measurement = None
+
+        drive_active = bool(self.running or self.current_pwm > 0)
+        if measurement is None:
+            if drive_active:
+                self._consecutive_invalid_measurements += 1
+                if self._consecutive_invalid_measurements >= self.invalid_feedback_limit:
+                    self.abort_reason = (
+                        f"SAFETY: {self.invalid_feedback_limit} consecutive invalid measurements; "
+                        "stopping due to loss of valid feedback"
+                    )
+                    self.current_pwm = 0
+                    self.emergency_stop()
+            return None
+
+        self._consecutive_invalid_measurements = 0
+        if isinstance(measurement, dict):
+            measurement["phase"] = phase
+            measurement["phase_pwm"] = self.current_pwm
+            measurement["phase_direction"] = phase.direction
+        self.measurements.append(measurement)
         return measurement
+
+    def _measurement_is_valid_for_phase(self, phase, measurement):
+        """Reject invalid telemetry and missing driven-voltage feedback.
+
+        RawLog collection is independent and preserves the original serial line.
+        """
+        for field in ("current1", "current2", "current_avg"):
+            value = self._measurement_value(measurement, field, None)
+            try:
+                if value is None or not math.isfinite(float(value)):
+                    return False
+            except (TypeError, ValueError):
+                return False
+        control = str(getattr(phase, "control", "PWM")).upper()
+        target = getattr(phase, "target_voltage", None)
+        if control in {"VOLTAGE", "VOLTAGE_RAMP", "BRUSH_PEAK_APPROACH"}:
+            if control == "VOLTAGE_RAMP":
+                target = getattr(phase, "start_voltage", None)
+            try:
+                target = float(target or 0.0)
+            except (TypeError, ValueError):
+                return False
+            # Fade-out phases intentionally target 0 V; they still require
+            # valid current telemetry but do not use voltage as a gate.
+            if target > 0:
+                voltage = self._controlled_voltage(phase, measurement)
+                if not math.isfinite(voltage) or voltage <= 0:
+                    return False
+        return True
 
     def analyze(self, measurements):
         if self.analysis_engine is None: return measurements
@@ -521,17 +617,38 @@ class BreakinController:
     def stop(self):
         self.running = False
         self.paused = False
+        executor = getattr(self, "sequence_executor", None)
+        if executor is not None:
+            executor.running = False
+            executor.paused = False
         try:
             if hasattr(self.serial, "stop_breakin"):
                 self.serial.stop_breakin()
             else:
                 self.serial.set_pwm(0)
+            # Current transport records successful writes, not a device-side
+            # acknowledgement. Never label this as physically confirmed.
+            self.stop_confirmation_state = "REQUEST_SENT_UNCONFIRMED"
         except Exception as exc:
+            self.stop_confirmation_state = "SEND_FAILED"
             print("SERIAL STOP WARNING:", exc)
 
     def emergency_stop(self):
         self.running = False
         self.paused = False
+        executor = getattr(self, "sequence_executor", None)
+        if executor is not None:
+            executor.running = False
+            executor.paused = False
         self._save_checkpoint()
-        if hasattr(self.serial, "emergency_stop"): self.serial.emergency_stop()
-        else: self.stop()
+        try:
+            if hasattr(self.serial, "emergency_stop"):
+                self.serial.emergency_stop()
+            elif hasattr(self.serial, "stop_breakin"):
+                self.serial.stop_breakin()
+            else:
+                self.serial.set_pwm(0)
+            self.stop_confirmation_state = "REQUEST_SENT_UNCONFIRMED"
+        except Exception as exc:
+            self.stop_confirmation_state = "SEND_FAILED"
+            print("SERIAL EMERGENCY STOP WARNING:", exc)

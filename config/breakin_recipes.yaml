@@ -31,6 +31,7 @@ recipes:
     family: TUNE
     objective: BALANCE
     benchmark: BENCHMARK_3V
+    voltage_control_mode: INPUT
     target:
       rpm: 23000
       torque_priority: 0.70

@@ -104,8 +104,9 @@ class SerialController:
             value = value.strip()
             if not key or not value:
                 raise ValueError("Empty INFO key/value")
-            if key in fields and fields[key] != value:
-                raise ValueError(f"Conflicting duplicate INFO key: {key}")
+            if key in fields:
+                # Duplicate keys are ambiguous even when values happen to match.
+                raise ValueError(f"Duplicate INFO key: {key}")
             fields[key] = value
         missing = [key for key in cls.REQUIRED_INFO_FIELDS if not fields.get(key)]
         if missing:
@@ -297,6 +298,10 @@ class SerialController:
         if not self.identified and not allowed_unidentified:
             raise RuntimeError(
                 f"Motor command rejected while device identity is unconfirmed: {command}"
+            )
+        if command == "VCTRL=ON" or command.startswith("TARGET="):
+            raise ValueError(
+                "Voltage feedback is owned by Python/UI; legacy VCTRL/TARGET commands are unsupported"
             )
 
         self.command_log.append(command)

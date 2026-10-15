@@ -39,7 +39,13 @@ class MockMeasurementManager:
 
     def collect(self):
         self.count += 1
-        return {"measurement": "dummy", "sample": self.count}
+        return {
+            "measurement": "dummy", "sample": self.count,
+            "current1": 0.1, "current2": 0.1, "current_avg": 0.1,
+            "motor_temperature": 25.0, "motor_voltage": 2.0,
+            "voltage1": 2.5, "voltage2": 0.5,
+            "direction": "FWD", "state": "RUN", "pwm": 100,
+        }
 
 
 class MockAnalysisEngine:
@@ -124,7 +130,7 @@ def test_input_voltage_direction_and_motor_voltage_are_distinct():
             record_type="DATA", device_model="MOTOR_BREAKIN_V3", instance_id="1",
             elapsed_time=1000, raw_acs1=0, raw_acs2=0,
             current1=0.1, current2=0.1, voltage1=v1, voltage2=v2,
-            motor_voltage=2.2, pwm=80, direction=direction, state="RUNNING",
+            motor_voltage=(2.2 if direction == "FWD" else -2.2), pwm=80, direction=direction, state="RUNNING",
             current_avg=0.1, power=0.22, current_ripple=0.01,
             voltage_ripple=0.01, peak_power=0.3, peak_current=0.2,
             peak_voltage=2.3, peak_pwm=80, brush_peak_current=0.2,
@@ -136,7 +142,7 @@ def test_input_voltage_direction_and_motor_voltage_are_distinct():
     assert fwd.input_voltage == 3.1
     assert rev.input_voltage == 3.1
     assert fwd.motor_voltage == 2.2
-    assert rev.motor_voltage == 2.2
+    assert rev.motor_voltage == -2.2
 
     serial = MockSerialController()
     controller = BreakinController(serial)
@@ -163,3 +169,16 @@ def test_remaining_time_uses_sequence_executor_authoritative_value():
     executor.state = SimpleNamespace(sequence_index=0)
     controller.current_phase = BreakinPhase("01", 30, 0, "FWD")
     assert controller.execution_snapshot()["remaining_time"] == 17.5
+
+
+def test_execution_snapshot_distinguishes_stop_reason_from_confirmation():
+    controller = BreakinController(MockSerialController())
+    controller.abort_reason = "SAFETY: invalid feedback"
+    controller.current_pwm = 0
+
+    controller.emergency_stop()
+    snapshot = controller.execution_snapshot()
+
+    assert snapshot["stop_reason"] == "SAFETY: invalid feedback"
+    assert snapshot["stop_confirmation_state"] == "REQUEST_SENT_UNCONFIRMED"
+    assert snapshot["stop_confirmation_state"] != "CONFIRMED"

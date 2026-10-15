@@ -421,11 +421,28 @@ def test_identified_direct_commands_preserve_supported_behavior():
     assert controller.forward() == "FWD"
     assert controller.reverse() == "REV"
     assert controller.set_pwm(80) == "PWM=80"
-    assert controller.send_command("TARGET=3.0") == "TARGET=3.0"
-    assert controller.send_command("VCTRL=ON") == "VCTRL=ON"
+    assert controller.send_command("VCTRL=OFF") == "VCTRL=OFF"
+    with pytest.raises(ValueError, match="owned by Python/UI"):
+        controller.send_command("TARGET=3.0")
+    with pytest.raises(ValueError, match="owned by Python/UI"):
+        controller.send_command("VCTRL=ON")
 
     assert [item.decode("utf-8").strip() for item in port.writes] == [
-        "START", "RESUME", "FWD", "REV", "PWM=80", "TARGET=3.0", "VCTRL=ON"
+        "START", "RESUME", "FWD", "REV", "PWM=80", "VCTRL=OFF"
     ]
     assert controller.direction == "REV"
     assert controller.last_pwm == 80
+
+
+def test_info_parser_rejects_duplicate_key_even_when_values_match():
+    line = "INFO,TYPE=MOTOR,MODEL=MOTOR_BREAKIN_V3,FW=3.00,BUILD=TEST,ID=000001,ID=000001"
+    with pytest.raises(ValueError, match="Duplicate INFO key"):
+        SerialController._parse_info_line(line)
+
+
+def test_host_rejects_legacy_firmware_voltage_loop_activation():
+    controller = identified_controller(FakePort())
+    for command in ("VCTRL=ON", "TARGET=3.0"):
+        with pytest.raises(ValueError, match="owned by Python/UI"):
+            controller.send_command(command)
+    assert controller.serial.writes == []

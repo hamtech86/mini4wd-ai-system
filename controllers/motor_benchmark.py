@@ -77,30 +77,12 @@ def _canonical_recipe_for(benchmark_type, voltage_control_mode):
 
 
 def _collect(self, phase):
-    """Collect one benchmark sample and stop on sustained loss of valid feedback.
+    """Use the shared controller-level invalid-feedback safety policy.
 
-    A single invalid sample is skipped. Three consecutive invalid samples
-    (300 ms at the 100 ms benchmark cadence) indicate loss of control
-    feedback; continuing with the last PWM would leave the motor open-loop.
+    Benchmark, TuneBasic, normal break-in and sequence execution all use the
+    same three-consecutive-invalid-sample rule in BreakinController.
     """
-    measurement = self._collect_measurement(phase)
-    if measurement is None:
-        self._consecutive_invalid_measurements = (
-            getattr(self, "_consecutive_invalid_measurements", 0) + 1
-        )
-        if (
-            self._consecutive_invalid_measurements >= 3
-            and getattr(self, "running", False)
-        ):
-            self.abort_reason = (
-                "SAFETY: 3 consecutive invalid measurements; "
-                "stopping benchmark due to loss of voltage feedback"
-            )
-            self.current_pwm = 0
-            self.emergency_stop()
-    else:
-        self._consecutive_invalid_measurements = 0
-    return measurement
+    return self._collect_measurement(phase)
 
 
 def _safety(self, measurement):
@@ -201,6 +183,7 @@ def _begin(
     self.active_recipe_name = recipe_name
     self.running = True
     self.paused = False
+    self.stop_confirmation_state = "NOT_REQUESTED"
     self._consecutive_invalid_measurements = 0
     self.measurements = []
     self.abort_reason = None
@@ -404,10 +387,16 @@ def _finish_benchmark(self, phases):
     freeze = getattr(self, "_freeze_measurement_raw_log", None)
     if callable(freeze):
         freeze()
-    if hasattr(self.serial, "stop_breakin"):
-        self.serial.stop_breakin()
-    else:
-        self.serial.set_pwm(0)
+    try:
+        if hasattr(self.serial, "stop_breakin"):
+            self.serial.stop_breakin()
+        else:
+            self.serial.set_pwm(0)
+        # The transport currently confirms writes only, not device-side stop.
+        self.stop_confirmation_state = "REQUEST_SENT_UNCONFIRMED"
+    except Exception:
+        self.stop_confirmation_state = "SEND_FAILED"
+        raise
     self.current_pwm = 0
     self.running = False
     phase_names = ",".join(phase.name for phase in phases)

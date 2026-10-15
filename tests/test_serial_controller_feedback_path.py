@@ -106,7 +106,7 @@ def test_input_control_uses_a5_voltage_for_reverse_and_terminal_keeps_motor_volt
         "direction": "REV",
         "voltage1": 3.1,
         "voltage2": 2.8,
-        "motor_voltage": 2.2,
+        "motor_voltage": -2.2,
     }
     reverse_phase = BreakinPhase(
         "INPUT_REV", 1, 60, "REV", "VOLTAGE", 3.0,
@@ -118,3 +118,60 @@ def test_input_control_uses_a5_voltage_for_reverse_and_terminal_keeps_motor_volt
 
     controller.voltage_control_mode = "TERMINAL"
     assert controller._controlled_voltage(reverse_phase, measurement) == 2.2
+
+
+def test_terminal_voltage_control_converts_signed_motor_voltage_by_direction():
+    controller = BreakinController(SerialController(), measurement_manager=None)
+    phase_fwd = BreakinPhase("TERM_FWD", 1, 60, "FWD", "VOLTAGE", 3.0, pwm_min=35, pwm_max=120)
+    phase_rev = BreakinPhase("TERM_REV", 1, 60, "REV", "VOLTAGE", 3.0, pwm_min=35, pwm_max=120)
+
+    controller.voltage_control_mode = "TERMINAL"
+    assert controller._controlled_voltage(phase_fwd, {
+        "direction": "FWD", "motor_voltage": 2.4,
+    }) == 2.4
+    assert controller._controlled_voltage(phase_rev, {
+        "direction": "REV", "motor_voltage": -2.4,
+    }) == 2.4
+
+
+def test_signed_negative_motor_voltage_is_accepted_by_measurement_parser():
+    serial = SerialController()
+    serial.connected = True
+    serial.serial = FakePort([data_line(
+        voltage1=0.2, voltage2=2.5, motor_voltage=-2.3, direction="REV",
+    )])
+    manager = MeasurementManager(serial_controller=serial)
+
+    measurement = manager.collect()
+
+    assert measurement is not None
+    assert measurement.motor_voltage == -2.3
+
+
+
+def test_raw_log_collector_preserves_cal_and_data_but_excludes_info_at_runtime():
+    info = "INFO,TYPE=MOTOR,MODEL=MOTOR_BREAKIN_V3,FW=3.00,BUILD=TEST,ID=000001\n"
+    cal = "CAL,ACS1_ZERO=512.25,ACS2_ZERO=511.75\r\n"
+    data = data_line()
+    serial = SerialController()
+    serial.connected = True
+    serial.serial = FakePort([info, cal, data])
+    serial.device_info = {
+        "TYPE": "MOTOR", "MODEL": "MOTOR_BREAKIN_V3", "FW": "3.00",
+        "BUILD": "TEST", "ID": "000001",
+    }
+    serial._identity_confirmed = True
+    serial.identity_error = None
+    manager = MeasurementManager(serial_controller=serial)
+
+    measurement = manager.collect()
+
+    assert measurement is not None
+    assert len(data.rstrip("\n").split(",")) == 26
+    assert len(CSV_FIELDS) == 26
+    assert serial.raw_log == cal + data
+    assert "INFO," not in serial.raw_log
+    assert serial.raw_log.startswith("CAL,")
+    assert "DATA," in serial.raw_log
+    # CRLF in the CAL auxiliary line is retained exactly, not normalized.
+    assert "\r\n" in serial.raw_log
