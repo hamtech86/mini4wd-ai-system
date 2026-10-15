@@ -473,7 +473,10 @@ class BreakinController:
 
     def _safety_violation(self, measurement):
         if measurement is None:
-            return "SAFETY: invalid measurement; required telemetry unavailable"
+            # The shared consecutive-invalid counter owns transient loss of
+            # feedback; do not convert one skipped sample into an immediate
+            # safety trip here.
+            return None
         for field in ("current1", "current2", "current_avg", "motor_temperature"):
             value = self._measurement_value(measurement, field, None)
             try:
