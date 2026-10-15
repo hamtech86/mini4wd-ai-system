@@ -169,3 +169,16 @@ def test_remaining_time_uses_sequence_executor_authoritative_value():
     executor.state = SimpleNamespace(sequence_index=0)
     controller.current_phase = BreakinPhase("01", 30, 0, "FWD")
     assert controller.execution_snapshot()["remaining_time"] == 17.5
+
+
+def test_execution_snapshot_distinguishes_stop_reason_from_confirmation():
+    controller = BreakinController(MockSerialController())
+    controller.abort_reason = "SAFETY: invalid feedback"
+    controller.current_pwm = 0
+
+    controller.emergency_stop()
+    snapshot = controller.execution_snapshot()
+
+    assert snapshot["stop_reason"] == "SAFETY: invalid feedback"
+    assert snapshot["stop_confirmation_state"] == "REQUEST_SENT_UNCONFIRMED"
+    assert snapshot["stop_confirmation_state"] != "CONFIRMED"
