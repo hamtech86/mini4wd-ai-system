@@ -170,7 +170,7 @@ def test_rawlog_metadata_uses_model_and_firmware_from_info_header(tmp_path):
 
 def test_start_rejects_when_identity_guard_is_missing_without_side_effects(tmp_path, monkeypatch):
     serial = FakeSerial()
-    del serial.require_identified_device
+    serial.require_identified_device = None
     library = FakeLibrary(tmp_path)
     controller = LocalRawLogBreakinController(serial_controller=serial, raw_log_library=library)
     controller.session = FakeSession()
