@@ -336,3 +336,96 @@ def test_registration_uses_connection_device_info_without_inserting_info_into_ra
     assert "firmware_device_id=000001" in record.notes
     assert record.device_instance_id == "INSTANCE-004"
     assert library.read_raw(record.log_id) == raw_body
+
+
+
+def test_upper_level_guards_fail_closed_when_identity_api_is_missing(monkeypatch):
+    from types import SimpleNamespace
+    from controllers.breakin_controller import BreakinController
+    from controllers.breakin_sequence_adapter import BreakinSequenceAdapter
+    from controllers.sequence_executor import SequenceExecutor
+    from controllers.motor_benchmark import run_benchmark
+
+    class LegacySerial:
+        def __init__(self):
+            self.commands = []
+
+        def forward(self):
+            self.commands.append("FWD")
+
+        def reverse(self):
+            self.commands.append("REV")
+
+        def set_pwm(self, value):
+            self.commands.append(f"PWM={value}")
+
+        def stop_breakin(self):
+            self.commands.append("STOP")
+
+    legacy_serial = LegacySerial()
+    controller = BreakinController(legacy_serial)
+
+    with pytest.raises(RuntimeError, match="identity cannot be verified"):
+        controller.start(SimpleNamespace(name="TEST", phases=[]))
+    assert controller.running is False
+    assert controller.active_recipe_name is None
+    assert legacy_serial.commands == []
+
+    controller.running = True
+    controller.paused = True
+    with pytest.raises(RuntimeError, match="identity cannot be verified"):
+        controller.resume()
+    assert controller.running is True
+    assert controller.paused is True
+    assert legacy_serial.commands == []
+
+    with pytest.raises(RuntimeError, match="identity cannot be verified"):
+        controller.resume_from_checkpoint(SimpleNamespace(name="TEST"))
+    assert legacy_serial.commands == []
+
+    adapter = BreakinSequenceAdapter(controller)
+    sequence = SimpleNamespace(
+        parameters={}, direction="FWD", pwm=80, sequence_id="SEQ-1",
+        duration_sec=1, metadata={},
+    )
+    with pytest.raises(RuntimeError, match="identity cannot be verified"):
+        adapter.start_sequence(sequence)
+    assert adapter._active is None
+    assert legacy_serial.commands == []
+
+    executor = SequenceExecutor(adapter=adapter)
+    executor.running = True
+    executor.paused = True
+    executor.state = SimpleNamespace(paused=True)
+    with pytest.raises(RuntimeError, match="identity cannot be verified"):
+        executor.resume()
+    assert executor.running is True
+    assert executor.paused is True
+    assert executor.state.paused is True
+    assert legacy_serial.commands == []
+
+    # The standalone benchmark function must also fail closed when called on
+    # an object that does not expose the shared identity guard.
+    legacy_controller = SimpleNamespace(serial=legacy_serial)
+    with pytest.raises(RuntimeError, match="identity cannot be verified"):
+        run_benchmark(legacy_controller)
+    assert legacy_serial.commands == []
+
+
+def test_identified_direct_commands_preserve_supported_behavior():
+    port = FakePort()
+    controller = identified_controller(port)
+
+    assert controller.send_command("START") == "START"
+    assert controller.send_command("RESUME") == "RESUME"
+    assert controller.forward() == "FWD"
+    assert controller.reverse() == "REV"
+    assert controller.set_pwm(80) == "PWM=80"
+    assert controller.send_command("TARGET=3.0") == "TARGET=3.0"
+    assert controller.send_command("VCTRL=ON") == "VCTRL=ON"
+
+    assert [item.decode("utf-8").strip() for item in port.writes] == [
+        "START", "RESUME", "FWD", "REV", "PWM=80", "TARGET=3.0", "VCTRL=ON"
+    ]
+    assert controller.direction == "REV"
+    assert controller.last_pwm == 80
