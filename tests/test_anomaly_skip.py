@@ -346,6 +346,6 @@ def test_serial_receive_timeout_none_three_times_triggers_shared_safety_stop():
     assert controller.running is False
     assert controller.current_pwm == 0
     assert "3 consecutive invalid measurements" in controller.abort_reason
-    assert "PWM=0" in port.writes
-    assert "STOP" in port.writes
+    assert "PWM=0\n" in port.writes
+    assert "STOP\n" in port.writes
     assert port.closed is True
