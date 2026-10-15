@@ -36,3 +36,4 @@ def test_calibration_snapshot_is_emitted_before_drive_direction_starts():
     rev = FIRMWARE.split('if (strcmp(cmd, "REV") == 0)', 1)[1].split("return;", 1)[0]
     assert fwd.index("sendCalibration();") < fwd.index("startForward();")
     assert rev.index("sendCalibration();") < rev.index("startReverse();")
+
