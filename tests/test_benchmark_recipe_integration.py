@@ -134,3 +134,21 @@ def test_each_recipe_mode_drives_expected_feedback_and_pwm_decision(recipe_name,
     assert controller.voltage_control_mode == expected_mode
     assert controller.current_pwm == 70
     assert controller.serial.commands[-1] == "PWM=70"
+
+
+
+def test_explicit_full_i_recipe_is_not_overwritten_by_legacy_full_package_alias():
+    controller = BreakinController(FakeSerial())
+    controller._require_identified_device = lambda: None
+
+    controller._begin(
+        "FULL_PACKAGE",
+        voltage_control_mode="INPUT",
+        recipe_name="Full-I",
+        instance_id=11,
+    )
+
+    assert controller.active_recipe_name == "Full-I"
+    assert controller.benchmark_type == "FULL_PACKAGE"
+    assert controller.voltage_control_mode == "INPUT"
+    assert controller.total_phases == 6
