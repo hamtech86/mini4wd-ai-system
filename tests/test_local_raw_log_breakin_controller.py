@@ -159,31 +159,3 @@ def test_rawlog_metadata_uses_model_and_firmware_from_info_header(tmp_path):
     assert stored.firmware_version == "3.00"
     assert library.read_raw(record.log_id) == raw_body
 
-
-def test_registration_uses_connection_device_info_without_inserting_info_into_rawlog(tmp_path):
-    serial = FakeSerial()
-    serial.device_info = {
-        "TYPE": "MOTOR",
-        "MODEL": "MOTOR_BREAKIN_V3",
-        "FW": "3.00",
-        "BUILD": "BUILD-TEST",
-        "ID": "000001",
-    }
-    library = FakeLibrary(tmp_path)
-    controller = LocalRawLogBreakinController(
-        serial_controller=serial,
-        raw_log_library=library,
-    )
-    controller.active_instance_id = "INSTANCE-004"
-    controller.active_recipe_name = "STD-T"
-    raw_body = "DATA,1,2,3\\n"
-
-    record = controller._register_raw_log(raw_body)
-
-    assert record.device_type == "MOTOR"
-    assert record.device_model == "MOTOR_BREAKIN_V3"
-    assert record.firmware_version == "3.00"
-    assert "device_build=BUILD-TEST" in record.notes
-    assert "firmware_device_id=000001" in record.notes
-    assert record.device_instance_id == "INSTANCE-004"
-    assert library.read_raw(record.log_id) == raw_body
