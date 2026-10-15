@@ -1,3 +1,6 @@
+import csv
+import json
+
 from controllers.local_raw_log_breakin_controller import LocalRawLogBreakinController
 import controllers.motor_benchmark as motor_benchmark
 from raw_log_library import RawLogLibrary
@@ -73,14 +76,11 @@ def test_all_recipes_persist_exact_raw_body_and_recipe_metadata(tmp_path):
         assert f"recipe={recipe_name}" in stored.notes
         assert f"voltage_control_mode={control_mode}" in stored.notes
 
-        # Read the metadata file independently of the in-memory RawLog object.
-        import json
         persisted = json.loads(metadata_path.read_text(encoding="utf-8"))[record.log_id]
         assert persisted["measurement_condition"] == benchmark_type
         assert f"recipe={recipe_name}" in persisted["notes"]
         assert f"voltage_control_mode={control_mode}" in persisted["notes"]
 
-        import csv
         with library.index_path.open("r", encoding="utf-8", newline="") as index_file:
             indexed = {row["log_id"]: row for row in csv.DictReader(index_file)}[record.log_id]
         assert indexed["measurement_condition"] == benchmark_type
@@ -89,7 +89,6 @@ def test_all_recipes_persist_exact_raw_body_and_recipe_metadata(tmp_path):
 
     assert len(set(registered_ids)) == 4
     assert len(library.list_logs(device_type="MOTOR")) == 4
-
 
 
 def test_benchmark_completion_finalizes_persisted_rawlog_for_all_recipes(tmp_path, monkeypatch):
@@ -114,9 +113,27 @@ def test_benchmark_completion_finalizes_persisted_rawlog_for_all_recipes(tmp_pat
         log_id = controller.last_raw_log_id
         assert log_id
         assert library.read_raw(log_id) == raw_body
-        stored = library.get(log_id)[0]
+
+        stored, raw_path, metadata_path = library.get(log_id)
+        assert raw_path.is_file()
+        assert metadata_path.is_file()
+        assert stored.device_instance_id == f"INSTANCE-{index:03d}"
         assert stored.measurement_condition == benchmark_type
         assert f"recipe={recipe_name}" in stored.notes
         assert f"voltage_control_mode={control_mode}" in stored.notes
+
+        # Verify finalization persisted the same metadata, not just the in-memory record.
+        persisted = json.loads(metadata_path.read_text(encoding="utf-8"))[log_id]
+        assert persisted["device_instance_id"] == f"INSTANCE-{index:03d}"
+        assert persisted["measurement_condition"] == benchmark_type
+        assert f"recipe={recipe_name}" in persisted["notes"]
+        assert f"voltage_control_mode={control_mode}" in persisted["notes"]
+
+        with library.index_path.open("r", encoding="utf-8", newline="") as index_file:
+            indexed = {row["log_id"]: row for row in csv.DictReader(index_file)}[log_id]
+        assert indexed["device_instance_id"] == f"INSTANCE-{index:03d}"
+        assert indexed["measurement_condition"] == benchmark_type
+        assert f"recipe={recipe_name}" in indexed["notes"]
+        assert f"voltage_control_mode={control_mode}" in indexed["notes"]
 
     assert len(library.list_logs(device_type="MOTOR")) == 4
