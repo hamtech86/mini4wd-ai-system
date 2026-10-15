@@ -297,7 +297,7 @@ def test_connect_explicitly_requests_and_validates_info(monkeypatch):
     class InfoRespondingPort(FakePort):
         def write(self, data):
             result = super().write(data)
-            if data == b"INFO\\n":
+            if data == b"INFO\n":
                 self.lines.append(INFO.encode("utf-8"))
             return result
 
@@ -311,3 +311,28 @@ def test_connect_explicitly_requests_and_validates_info(monkeypatch):
     assert controller.identified is True
     assert controller.device_info["BUILD"] == "TEST-BUILD"
     assert [item.decode("utf-8").strip() for item in port.writes] == ["INFO"]
+
+
+def test_registration_uses_connection_device_info_without_inserting_info_into_rawlog(tmp_path):
+    from controllers.local_raw_log_breakin_controller import LocalRawLogBreakinController
+    from raw_log_library import RawLogLibrary
+
+    serial = identified_controller(FakePort())
+    library = RawLogLibrary(tmp_path)
+    controller = LocalRawLogBreakinController(
+        serial_controller=serial,
+        raw_log_library=library,
+    )
+    controller.active_instance_id = "INSTANCE-004"
+    controller.active_recipe_name = "STD-T"
+    raw_body = "DATA,1,2,3\\n"
+
+    record = controller._register_raw_log(raw_body)
+
+    assert record.device_type == "MOTOR"
+    assert record.device_model == "MOTOR_BREAKIN_V3"
+    assert record.firmware_version == "3.00"
+    assert "device_build=TEST-BUILD" in record.notes
+    assert "firmware_device_id=000001" in record.notes
+    assert record.device_instance_id == "INSTANCE-004"
+    assert library.read_raw(record.log_id) == raw_body
