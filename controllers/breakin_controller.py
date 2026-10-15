@@ -95,6 +95,12 @@ class BreakinController:
         except OSError:
             pass
 
+    def _require_identified_device(self):
+        """Use the shared serial identity gate when backed by SerialController."""
+        guard = getattr(self.serial, "require_identified_device", None)
+        if callable(guard):
+            guard()
+
     def pause(self):
         """Pause safely while preserving the current phase position."""
         if not self.running or self.paused:
@@ -110,6 +116,7 @@ class BreakinController:
         """Resume the currently active phase from its saved elapsed position."""
         if not self.running or not self.paused:
             return False
+        self._require_identified_device()
         self.paused = False
         self.phase_started_at = time.time()
         self.pause_started_at = None
@@ -128,6 +135,7 @@ class BreakinController:
         mismatched instance/recipe deliberately starts nowhere rather than
         risking application of a stale motor-control state.
         """
+        self._require_identified_device()
         checkpoint = self.resume_checkpoint()
         if not checkpoint:
             raise RuntimeError("No resumable break-in checkpoint")
@@ -142,6 +150,7 @@ class BreakinController:
         return self.start(recipe, instance_id=actual_instance, resume=True)
 
     def start(self, recipe, instance_id=None, resume=False):
+        self._require_identified_device()
         instance_id = instance_id if instance_id is not None else self.selected_instance_id
         self.active_instance_id = instance_id
         self.active_recipe_name = str(recipe.name).upper()
@@ -234,6 +243,7 @@ class BreakinController:
         return self.start(recipe, instance_id=instance_id)
 
     def execute_phase(self, phase, resume_elapsed=0.0):
+        self._require_identified_device()
         self.current_phase = phase
         self.current_phase_index = self.phase_manager.current_index()
         self.abort_reason = None
