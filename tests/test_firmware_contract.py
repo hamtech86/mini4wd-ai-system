@@ -23,7 +23,7 @@ def test_firmware_does_not_run_independent_voltage_feedback_loop():
 
 
 def test_stop_and_pause_disable_hidden_voltage_control_and_zero_pwm():
-    stop = FIRMWARE.split("void stopMotor()", 1)[1].split("}", 1)[0]
+    stop = FIRMWARE.rsplit("void stopMotor()", 1)[1].split("}", 1)[0]
     assert "voltageControl.enabled = false;" in stop
     assert "runtime.pwm = 0;" in stop
     pause = FIRMWARE.split('if (strcmp(cmd, "PAUSE") == 0)', 1)[1].split("return;", 1)[0]
