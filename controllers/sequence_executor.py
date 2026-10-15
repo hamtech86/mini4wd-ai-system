@@ -37,8 +37,11 @@ class SequenceExecutor:
         controller = getattr(self.adapter, "controller", None)
         serial = getattr(controller, "serial", None)
         guard = getattr(serial, "require_identified_device", None)
-        if callable(guard):
-            guard()
+        if not callable(guard):
+            raise RuntimeError(
+                "Motor device identity cannot be verified: identification guard unavailable"
+            )
+        guard()
 
     def start(self, instance_id=None, resume_index=0):
         self._require_identified_device()
