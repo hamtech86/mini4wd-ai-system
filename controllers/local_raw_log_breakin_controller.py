@@ -106,6 +106,13 @@ class LocalRawLogBreakinController(BreakinController):
             note_parts.append(f"baseline_pwm={baseline_pwm}")
         if purpose:
             note_parts.append(f"purpose={purpose}")
+        # Preserve the canonical recipe and control mode in persisted metadata;
+        # measurement_condition continues to hold the benchmark type.
+        if self.active_recipe_name:
+            note_parts.append(f"recipe={self.active_recipe_name}")
+        control_mode = getattr(self, "voltage_control_mode", None)
+        if control_mode:
+            note_parts.append(f"voltage_control_mode={control_mode}")
         if device_info.get("BUILD"):
             note_parts.append(f"device_build={device_info['BUILD']}")
         if device_info.get("ID"):
