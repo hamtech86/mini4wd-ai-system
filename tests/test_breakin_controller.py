@@ -92,17 +92,28 @@ def test_emergency_stop():
     assert "EMERGENCY_STOP" in serial.commands
 
 
-def test_main_high_side_current_displays_use_current1():
-    """All Main UI live/result current displays use ACS712 #1, not the aggregate."""
+def test_main_high_side_current_formatter_and_all_display_paths():
+    """Exercise the value formatter and guard all Main display call sites."""
     from pathlib import Path
+    from types import SimpleNamespace
+
+    from controllers.current_display import format_high_side_current
+
+    measurement = SimpleNamespace(current1=0.123, current_avg=0.456)
+    assert format_high_side_current(measurement) == "0.123 A"
+    assert format_high_side_current(None) == "--"
 
     root = Path(__file__).resolve().parents[1]
     app_source = (root / "app" / "main.py").read_text()
-    legacy_ui_source = (root / "ui" / "main_window.py").read_text()
+    ui_source = (root / "ui" / "main_window.py").read_text()
 
-    assert app_source.count("getattr(m,'current1',0)") == 2
-    assert "getattr(m,'current_avg',0)" not in app_source
-    assert 'getattr(m, \'current1\', 0)' in legacy_ui_source
-    assert 'getattr(measurement, \'current1\', 0)' in legacy_ui_source
-    assert "getattr(m, 'current_avg', 0)" not in legacy_ui_source
-    assert "getattr(measurement, 'current_avg', 0)" not in legacy_ui_source
+    # EXECUTION CURRENT + LIVE DATA A, and legacy UI LIVE DATA A + Result CURRENT.
+    assert app_source.count("format_high_side_current(m)") == 2
+    assert ui_source.count("format_high_side_current(m)") == 1
+    assert ui_source.count("format_high_side_current(measurement)") == 1
+
+    # current_avg remains available as a data field, but is not used as a display source.
+    for source in (app_source, ui_source):
+        assert "getattr(m,'current_avg',0)" not in source
+        assert "getattr(m, 'current_avg', 0)" not in source
+        assert "getattr(measurement, 'current_avg', 0)" not in source
