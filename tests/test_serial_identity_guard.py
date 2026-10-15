@@ -204,3 +204,74 @@ def test_emergency_stop_attempts_stop_and_disconnect_after_pwm_write_failure():
     assert port.closed is True
     assert controller.connected is False
     assert controller.identified is False
+
+
+def test_breakin_start_and_direct_phase_reject_before_state_changes():
+    from types import SimpleNamespace
+    from controllers.breakin_controller import BreakinController
+    from controllers.recipe import BreakinPhase
+
+    port = FakePort()
+    serial = SerialController()
+    serial.connected = True
+    serial.serial = port
+    controller = BreakinController(serial)
+
+    with pytest.raises(RuntimeError, match="identity is unconfirmed"):
+        controller.start(SimpleNamespace(name="TEST", phases=[]))
+
+    assert controller.running is False
+    assert controller.active_recipe_name is None
+    assert port.writes == []
+
+    with pytest.raises(RuntimeError, match="identity is unconfirmed"):
+        controller.execute_phase(BreakinPhase("PHASE", 1, 80, "FWD"))
+
+    assert controller.current_phase is None
+    assert port.writes == []
+
+
+def test_benchmark_and_sequence_entry_points_reject_unidentified_device():
+    from types import SimpleNamespace
+    from controllers.breakin_controller import BreakinController
+    from controllers.breakin_sequence_adapter import BreakinSequenceAdapter
+    from controllers.sequence_executor import SequenceExecutor
+    from controllers.motor_benchmark import run_benchmark
+
+    port = FakePort()
+    serial = SerialController()
+    serial.connected = True
+    serial.serial = port
+    controller = BreakinController(serial)
+
+    with pytest.raises(RuntimeError, match="identity is unconfirmed"):
+        run_benchmark(controller)
+    assert controller.running is False
+    assert controller.session is None
+
+    adapter = BreakinSequenceAdapter(controller)
+    sequence = SimpleNamespace(
+        parameters={}, direction="FWD", pwm=80, sequence_id="SEQ-1",
+        duration_sec=1, metadata={},
+    )
+    with pytest.raises(RuntimeError, match="identity is unconfirmed"):
+        adapter.start_sequence(sequence)
+    assert adapter._active is None
+    assert port.writes == []
+
+    executor = SequenceExecutor(adapter=adapter)
+    with pytest.raises(RuntimeError, match="identity is unconfirmed"):
+        executor.start()
+    assert executor.running is False
+    assert port.writes == []
+
+
+def test_disconnect_clears_previously_validated_device_info():
+    controller = identified_controller(FakePort())
+
+    controller.disconnect()
+
+    assert controller.connected is False
+    assert controller.device_info is None
+    assert controller.identified is False
+    assert controller.identity_error == "disconnected"
