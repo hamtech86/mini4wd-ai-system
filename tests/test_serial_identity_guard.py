@@ -288,3 +288,26 @@ def test_stop_breakin_still_sends_stop_after_pwm_zero_write_failure():
 
     assert [item.decode("utf-8").strip() for item in port.writes] == ["PWM=0", "STOP"]
     assert controller.connected is True
+
+
+def test_connect_explicitly_requests_and_validates_info(monkeypatch):
+    from types import SimpleNamespace
+    import communication.serial_controller as serial_module
+
+    class InfoRespondingPort(FakePort):
+        def write(self, data):
+            result = super().write(data)
+            if data == b"INFO\\n":
+                self.lines.append(INFO.encode("utf-8"))
+            return result
+
+    port = InfoRespondingPort()
+    monkeypatch.setattr(serial_module, "serial", SimpleNamespace(Serial=lambda *args, **kwargs: port))
+    monkeypatch.setattr(serial_module.time, "sleep", lambda _seconds: None)
+
+    controller = SerialController()
+
+    assert controller.connect() is True
+    assert controller.identified is True
+    assert controller.device_info["BUILD"] == "TEST-BUILD"
+    assert [item.decode("utf-8").strip() for item in port.writes] == ["INFO"]
