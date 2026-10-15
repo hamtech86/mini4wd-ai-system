@@ -72,3 +72,12 @@ def test_recipe_targets_and_brushes():
     assert dash.brush == "CARBON"
     assert atomic.phases[-1].control == "VOLTAGE"
     assert atomic.phases[-1].target_voltage == 3.0
+
+
+def test_tune_basic_declares_input_mode_for_all_voltage_control_phases():
+    engine = RecipeEngine()
+    recipe = engine.get("TUNE_BASIC")
+    assert recipe.voltage_control_mode == "INPUT"
+    for phase in recipe.phases:
+        if phase.control in {"VOLTAGE", "VOLTAGE_RAMP", "BRUSH_PEAK_APPROACH"}:
+            assert phase.metadata["voltage_control_mode"] == "INPUT"
