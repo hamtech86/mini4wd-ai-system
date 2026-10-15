@@ -137,6 +137,11 @@ class MeasurementManager:
         if any(abs(numeric[name]) > 100.0 for name in
                ("current1", "current2", "current_avg", "brush_peak_current")):
             return None
+        integer_fields = (
+            "elapsed_time", "raw_acs1", "raw_acs2", "pwm", "peak_pwm", "raw_magnetic",
+        )
+        if any(not numeric[name].is_integer() for name in integer_fields):
+            return None
         if not (0 <= numeric["raw_acs1"] <= 1023 and
                 0 <= numeric["raw_acs2"] <= 1023 and
                 0 <= numeric["raw_magnetic"] <= 1023):
