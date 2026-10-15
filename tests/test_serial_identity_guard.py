@@ -96,7 +96,7 @@ def test_drive_capable_commands_are_blocked_when_identity_is_unconfirmed(command
     controller.connected = True
     controller.serial = port
 
-    with pytest.raises(RuntimeError, match="identity is unconfirmed")
+    with pytest.raises(RuntimeError, match="identity is unconfirmed"):
         controller.send_command(command)
 
     assert port.writes == []
