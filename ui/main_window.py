@@ -301,7 +301,7 @@ class MainWindow(QMainWindow):
             "PWM": getattr(m, "pwm", getattr(serial, "last_pwm", 0)) if m else getattr(serial, "last_pwm", 0),
             "RPM": f"{rpm:.0f}" if rpm is not None else "--",
             "V": f"{float(getattr(m, 'motor_voltage', 0)):.2f} V" if m else "--",
-            "A": f"{float(getattr(m, 'current_avg', 0)):.3f} A" if m else "--",
+            "A": f"{float(getattr(m, 'current1', 0)):.3f} A" if m else "--",
             "STATE": getattr(m, "state", "NO DATA") if m else "NO DATA",
             "TEMP": f"{float(getattr(m, 'motor_temperature', 0)):.1f} C" if m else "--",
         }
@@ -382,7 +382,7 @@ class MainWindow(QMainWindow):
         self.result["BRUSH PEAK"].setText(f"{peak:.3f} A" if peak is not None else "NOT RECORDED")
         measurement = getattr(getattr(self.breakin_controller, "measurement_manager", None), "last_measurement", None)
         self.result["VOLTAGE"].setText(f"{float(getattr(measurement, 'motor_voltage', 0)):.2f} V" if measurement else "--")
-        self.result["CURRENT"].setText(f"{float(getattr(measurement, 'current_avg', 0)):.3f} A" if measurement else "--")
+        self.result["CURRENT"].setText(f"{float(getattr(measurement, 'current1', 0)):.3f} A" if measurement else "--")
         self.result["PWM"].setText(str(getattr(measurement, "pwm", getattr(self.breakin_controller, "current_pwm", "--"))) if measurement else "--")
         self.result["DIRECTION"].setText(str(getattr(measurement, "direction", getattr(self.breakin_controller, "serial", None).direction if getattr(self.breakin_controller, "serial", None) else "--")))
         self.result["BENCHMARK"].setText("3.00 V / 30 s" if benchmark else "--")
