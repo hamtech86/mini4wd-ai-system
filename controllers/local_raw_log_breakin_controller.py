@@ -24,9 +24,14 @@ class LocalRawLogBreakinController(BreakinController):
         self._registered_raw_log_ids = []
 
     def start(self, recipe, instance_id=None, resume=False):
+        # Fail closed before touching RawLog or controller/session state. The
+        # parent class also guards start, but that is too late for this adapter.
         guard = getattr(self.serial, "require_identified_device", None)
-        if callable(guard):
-            guard()
+        if not callable(guard):
+            raise RuntimeError(
+                "Motor device identity cannot be verified: identification guard unavailable"
+            )
+        guard()
         if hasattr(self.serial, "reset_raw_log"):
             self.serial.reset_raw_log()
         self._measurement_raw_log_parts = []
