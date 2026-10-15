@@ -152,7 +152,10 @@ class RawLogLibrary:
         raise KeyError(f"unknown log_id: {log_id}")
 
     def read_raw(self, log_id: str) -> str:
-        return self.get(log_id)[1].read_text(encoding="utf-8")
+        # newline="" disables universal-newline conversion so CRLF/LF bytes are
+        # returned exactly as stored in the immutable RawLog body.
+        with self.get(log_id)[1].open("r", encoding="utf-8", newline="") as raw_file:
+            return raw_file.read()
 
     def list_logs(self, device_type: Optional[str] = None) -> List[RawLog]:
         result = []

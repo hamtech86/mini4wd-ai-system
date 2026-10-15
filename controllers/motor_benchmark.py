@@ -175,7 +175,10 @@ def _begin(
         self.serial.reset_raw_log()
     self.active_instance_id = instance_id if instance_id is not None else self.selected_instance_id
     legacy_recipe = _LEGACY_RECIPE_ALIASES.get(str(benchmark_type).strip())
-    if legacy_recipe:
+    # Do not let the shared FULL_PACKAGE type override an explicitly selected
+    # canonical recipe such as Full-I; legacy aliases apply only when the caller
+    # has not already resolved a recipe name.
+    if legacy_recipe and recipe_name is None:
         recipe_name, benchmark_type, legacy_mode = benchmark_recipe_spec(legacy_recipe)
         voltage_control_mode = legacy_mode
     elif recipe_name is None:
