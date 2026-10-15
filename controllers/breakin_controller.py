@@ -168,6 +168,7 @@ class BreakinController:
         self.phase_manager = PhaseManager(recipe)
         self.running = True
         self.paused = False
+        self.stop_confirmation_state = "NOT_REQUESTED"
         self.measurements = []
         self.abort_reason = None
         self.current_phase = None
