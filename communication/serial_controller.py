@@ -321,14 +321,16 @@ class SerialController:
                 if not decoded:
                     continue
                 line = decoded.strip()
-                if not line:
-                    continue
                 # INFO belongs to DeviceInfo registration metadata, not the
                 # immutable measurement body. Legacy INFO headers already
                 # stored in old RawLogs remain readable by the legacy parser.
                 if line.startswith("INFO,"):
                     continue
+                # Retain every non-INFO line byte-for-byte, including blank
+                # lines, before applying parser-oriented filtering.
                 self.raw_log_collector.append(decoded)
+                if not line:
+                    continue
                 print("SERIAL RX:", line)
                 if line.startswith("DATA,"):
                     latest_data = line
