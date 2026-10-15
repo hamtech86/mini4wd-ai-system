@@ -18,8 +18,11 @@ class BreakinSequenceAdapter:
 
     def start_sequence(self, sequence):
         guard = getattr(self.controller.serial, "require_identified_device", None)
-        if callable(guard):
-            guard()
+        if not callable(guard):
+            raise RuntimeError(
+                "Motor device identity cannot be verified: identification guard unavailable"
+            )
+        guard()
         self._active = sequence
         params = sequence.parameters or {}
         mode = str(params.get("voltage_control_mode") or "TERMINAL").upper()
