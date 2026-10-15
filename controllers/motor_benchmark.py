@@ -171,6 +171,9 @@ def _begin(
     instance_id=None,
     purpose="MEASUREMENT",
 ):
+    guard = getattr(self, "_require_identified_device", None)
+    if callable(guard):
+        guard()
     # A benchmark can be executed repeatedly on the same controller instance.
     # Reset Local Raw Log persistence state at the benchmark boundary so the
     # previous benchmark's log cannot suppress registration of this benchmark.
@@ -238,6 +241,9 @@ def run_benchmark(
     voltage_control_mode=TERMINAL,
     recipe_name=None,
 ):
+    guard = getattr(self, "_require_identified_device", None)
+    if callable(guard):
+        guard()
     # Accept either the two-axis representation or one of the four canonical
     # recipe identifiers. Legacy STANDARD_3V30S/FULL_PACKAGE remain terminal.
     if recipe_name is not None:
