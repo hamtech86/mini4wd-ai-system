@@ -126,7 +126,14 @@ INFO,TYPE=MOTOR,MODEL=MOTOR_BREAKIN_V3,FW=3.00,BUILD=ACS-CAL-LOG-20261013-01,ID=
 - VCTRL=ON/TARGET拒否、STOP/PAUSE後に隠れたループがPWMを再設定しないこと
 - RawLog本文不変性とCAL補助行の記録
 
-現段階でCIは未確定。実機確認は未実施。
+ソフトウェアコードHEAD `2fe7723b0c57b6454a0588a637db4e6d35738004` に対するCI:
+- Break-in / contract regression: 62 passed
+- Battery regression: 9 passed
+- Arduino Uno compile: success
+- Python workflow: https://github.com/hamtech86/mini4wd-ai-system/actions/runs/38716760336
+- Firmware compile workflow: https://github.com/hamtech86/mini4wd-ai-system/actions/runs/38716760334
+
+このCIはソフトウェア検証であり、実機確認は未実施。文書更新のみの後続コミットはコード変更を含まない。
 
 ## 9. 未解決・司令塔判断待ち
 
