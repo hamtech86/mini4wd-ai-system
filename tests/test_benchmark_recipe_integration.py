@@ -141,7 +141,8 @@ def test_explicit_full_i_recipe_is_not_overwritten_by_legacy_full_package_alias(
     controller = BreakinController(FakeSerial())
     controller._require_identified_device = lambda: None
 
-    controller._begin(
+    motor_benchmark._begin(
+        controller,
         "FULL_PACKAGE",
         voltage_control_mode="INPUT",
         recipe_name="Full-I",
