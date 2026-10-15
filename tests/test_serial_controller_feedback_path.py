@@ -118,3 +118,31 @@ def test_input_control_uses_a5_voltage_for_reverse_and_terminal_keeps_motor_volt
 
     controller.voltage_control_mode = "TERMINAL"
     assert controller._controlled_voltage(reverse_phase, measurement) == 2.2
+
+
+def test_terminal_voltage_control_converts_signed_motor_voltage_by_direction():
+    controller = BreakinController(SerialController(), measurement_manager=None)
+    phase_fwd = BreakinPhase("TERM_FWD", 1, 60, "FWD", "VOLTAGE", 3.0, pwm_min=35, pwm_max=120)
+    phase_rev = BreakinPhase("TERM_REV", 1, 60, "REV", "VOLTAGE", 3.0, pwm_min=35, pwm_max=120)
+
+    controller.voltage_control_mode = "TERMINAL"
+    assert controller._controlled_voltage(phase_fwd, {
+        "direction": "FWD", "motor_voltage": 2.4,
+    }) == 2.4
+    assert controller._controlled_voltage(phase_rev, {
+        "direction": "REV", "motor_voltage": -2.4,
+    }) == 2.4
+
+
+def test_signed_negative_motor_voltage_is_accepted_by_measurement_parser():
+    serial = SerialController()
+    serial.connected = True
+    serial.serial = FakePort([data_line(
+        voltage1=0.2, voltage2=2.5, motor_voltage=-2.3, direction="REV",
+    )])
+    manager = MeasurementManager(serial_controller=serial)
+
+    measurement = manager.collect()
+
+    assert measurement is not None
+    assert measurement.motor_voltage == -2.3
