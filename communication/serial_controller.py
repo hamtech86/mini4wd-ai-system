@@ -129,13 +129,14 @@ class SerialController:
                         self._clear_identity("info_timeout")
                         return False
 
+                    has_timeout = hasattr(self.serial, "timeout")
                     old_timeout = getattr(self.serial, "timeout", None)
-                    if old_timeout is not None:
-                        self.serial.timeout = min(float(old_timeout), remaining)
+                    if has_timeout:
+                        self.serial.timeout = remaining if old_timeout is None else min(float(old_timeout), remaining)
                     try:
                         raw = self.serial.readline()
                     finally:
-                        if old_timeout is not None:
+                        if has_timeout:
                             self.serial.timeout = old_timeout
 
                     if not raw:
