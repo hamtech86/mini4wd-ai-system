@@ -275,3 +275,16 @@ def test_disconnect_clears_previously_validated_device_info():
     assert controller.device_info is None
     assert controller.identified is False
     assert controller.identity_error == "disconnected"
+
+
+def test_stop_breakin_still_sends_stop_after_pwm_zero_write_failure():
+    port = FakePort(fail_writes={1})
+    controller = SerialController()
+    controller.connected = True
+    controller.serial = port
+
+    with pytest.raises(OSError, match="simulated serial write failure"):
+        controller.stop_breakin()
+
+    assert [item.decode("utf-8").strip() for item in port.writes] == ["PWM=0", "STOP"]
+    assert controller.connected is True
