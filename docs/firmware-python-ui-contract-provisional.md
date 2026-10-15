@@ -129,7 +129,9 @@ INFO,TYPE=MOTOR,MODEL=MOTOR_BREAKIN_V3,FW=3.00,BUILD=ACS-CAL-LOG-20261013-01,ID=
 
 - PR #74候補（Benchmark/ファームウェア統合）: `72f72c76c2eb4431da0fea0a4fd53920e1cd3ec2`。起点 `872ae01545d9a4aff5d076914a68a6793beea653` から17コミット進んだ統合候補。
 - PR #78候補（INFO識別ガード）: `19a9f01637379ae50260d9ca82d813bb7c3d36ea`。PR #74候補を基点に34コミット進んだ候補。
-- PR #79コード検証対象: `2fe7723b0c57b6454a0588a637db4e6d35738004`。このSHAでコードCIを実行。後続 `e351870d58c0212b0367d8517059f724651f1703` は検証結果を文書に記録する変更で、コード変更なし。
+- **コード変更を含むCI検証HEAD**: `2fe7723b0c57b6454a0588a637db4e6d35738004`。このSHAに対するCIは、追加テストを含む後続HEADとは別の検証記録として扱う。
+- **追加テストを含む最新コード検証HEAD**: `fc888ec8fe86f9660cf1deeccfb0558469411535`。無受信タイムアウトが3回続いた場合の停止テスト、実際のRawLog collector経路でINFO/CAL/DATAを検証する実行時テスト、RawLogリセットとCAL出力の順序チェックを含む。
+- 本文書の今回の更新は、上記の検証結果を明確に区別するための文書のみの変更。更新後の文書コミット自体にコード変更は含まれないため、CI件数は直前のコード検証HEAD `fc888ec8...` に対応するものとして記録する。
 
 PR #79はPR #78候補を基点とする追加差分として検証する。各比較は独立したPRの変更数ではなく、指定したbase/head間の累積差分である。PR #74/#78/#79の個別差分を単純加算して変更数やテスト対象とみなさない。
 
@@ -144,14 +146,25 @@ PR #79はPR #78候補を基点とする追加差分として検証する。各�
 - RawLog本文不変性、INFO行の除外、CAL補助行が原文として収集されること（SerialControllerと実際のRawLogCollectorを使った実行時テスト）
 - DATAフレーム不成立と方向別制御フィードバック不成立を区別したテスト、および無受信/不正フレーム/不正フィードバックを同一の連続取得失敗カウンターが数えること
 
-ソフトウェアコードHEAD `2fe7723b0c57b6454a0588a637db4e6d35738004` に対するCI:
+### 8.1 旧コード検証HEAD `2fe7723...` のCI結果
+
 - Break-in / contract regression: 62 passed
 - Battery regression: 9 passed
 - Arduino Uno compile: success
 - Python workflow: https://github.com/hamtech86/mini4wd-ai-system/actions/runs/38716760336
 - Firmware compile workflow: https://github.com/hamtech86/mini4wd-ai-system/actions/runs/38716760334
 
-このCIはソフトウェア検証であり、実機確認は未実施。文書更新のみの後続コミットはコード変更を含まない。
+この結果は当時の記録として保持する。追加テストはこのHEADの検証件数には含まれない。
+
+### 8.2 追加テストを含む最新コード検証HEAD `fc888ec8...` のCI結果
+
+- Break-in / contract regression: 68 passed
+- Battery regression: 9 passed
+- Arduino Uno compile: success
+- Python / Break-in / battery workflow: https://github.com/hamtech86/mini4wd-ai-system/actions/runs/38719800392
+- Arduino Uno compile workflow: https://github.com/hamtech86/mini4wd-ai-system/actions/runs/38719800071
+
+上記は `fc888ec8fe86f9660cf1deeccfb0558469411535` に対応する検証結果である。文書のみの更新後HEADは別コミットとなるが、今回の変更は本書だけであり、アプリ本体・ファームウェア本体・テストコードは変更していない。実機確認は未実施。
 
 ## 9. 未解決・司令塔判断待ち
 
