@@ -124,3 +124,33 @@ def test_drive_commands_fail_closed_without_verified_identity():
     assert b"PWM=120\n" not in fake.writes
     assert controller.set_pwm(0) == "PWM=0"
     assert b"PWM=0\n" in fake.writes
+
+
+def test_serial_connect_times_out_without_info_and_keeps_drive_blocked(monkeypatch):
+    fake = FakeSerial(response=None)
+    monkeypatch.setattr(
+        serial_controller_module,
+        "serial",
+        SimpleNamespace(Serial=lambda *args, **kwargs: fake),
+    )
+    monkeypatch.setattr(serial_controller_module.time, "sleep", lambda _: None)
+    ticks = iter([0.0, 0.5, 1.1])
+    monkeypatch.setattr(serial_controller_module.time, "monotonic", lambda: next(ticks))
+    controller = serial_controller_module.SerialController()
+    assert controller.connect() is True
+    assert controller.identity_verified is False
+    assert "timed out" in controller.identity_error.lower()
+    assert controller.forward() is False
+    assert b"FWD\\n" not in fake.writes
+    controller.disconnect()
+
+
+def test_info_identity_line_is_not_added_to_measurement_raw_log():
+    controller = serial_controller_module.SerialController()
+    fake = FakeSerial()
+    fake.lines.append((VALID_INFO + "\\r\\n").encode())
+    controller.serial = fake
+    controller.connected = True
+    controller.identity_verified = True
+    assert controller.read_measurement() is None
+    assert controller.raw_log == ""
