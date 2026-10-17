@@ -31,6 +31,7 @@ from analysis.analysis_engine import AnalysisEngine
 from controllers.session_controller import SessionController
 from controllers.motor_benchmark import STANDARD_3V30S, FULL_PACKAGE
 from controllers.current_display import format_high_side_current, format_input_voltage
+from controllers.ui_benchmark_presets import BENCHMARK_PRESETS as UI_BENCHMARK_PRESETS
 
 
 class MainWindow(BaseMainWindow):
@@ -64,7 +65,7 @@ class MainWindow(BaseMainWindow):
         row.addWidget(self.motor_serial_status,0,0); row.addWidget(self.motor_connect,0,1); row.addWidget(self.motor_disconnect,0,2); row.addWidget(self.battery_serial_status,1,0); row.addWidget(self.battery_connect,1,1); row.addWidget(self.battery_disconnect,1,2)
         root_layout.addWidget(device_box); tabs=QTabWidget(); tabs.addTab(old_central,"MOTOR BREAK-IN"); self.battery_tab=BatteryTab(self.db_path,transport=self.battery_serial_controller,parent=self); tabs.addTab(self.battery_tab,"BATTERY"); root_layout.addWidget(tabs,1); self._build_ui_log_panel(root_layout); self.setCentralWidget(root)
 
-    BENCHMARK_PRESETS = {"STD-T": (STANDARD_3V30S, "TERMINAL"), "Full-T": (FULL_PACKAGE, "TERMINAL"), "STD-I": (STANDARD_3V30S, "INPUT"), "Full-I": (FULL_PACKAGE, "INPUT")}
+    BENCHMARK_PRESETS = UI_BENCHMARK_PRESETS
 
     def load_recipes(self):
         self.recipe.clear()
