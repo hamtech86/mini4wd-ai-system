@@ -297,6 +297,10 @@ class BreakinController:
             return max(0.0, float(self.phase_elapsed_before_pause or 0.0))
         return max(0.0, float(self.phase_elapsed_before_pause or 0.0) + self.phase_elapsed_sec())
 
+    def elapsed_sec(self):
+        """Return controller-owned elapsed time including prior pause segments."""
+        return self._effective_elapsed()
+
     def remaining_sec(self):
         """Return controller-owned remaining time for the active timed phase.
 
