@@ -33,6 +33,13 @@ class LocalRawLogBreakinController(BreakinController):
         try:
             result = super().start(recipe, instance_id=instance_id, resume=resume)
         except Exception:
+            # A failed break-in still produces useful diagnostic Raw Log data.
+            # Persist the collector snapshot before propagating the original
+            # control error to the caller.
+            try:
+                self.finalize_benchmark_raw_log()
+            except Exception:
+                pass
             raise
         self.finalize_benchmark_raw_log()
         return result
