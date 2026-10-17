@@ -103,7 +103,7 @@ class MainWindow(BaseMainWindow):
         parts=[]
         if self._ui_error_code: parts.append(f"Error Code: {self._ui_error_code}")
         if self._ui_error_message: parts.append(f"Error Message: {self._ui_error_message}")
-        QApplication.clipboard().setText("\\n".join(parts)); self.copy_error_button.setText("COPIED ERROR DETAILS")
+        QApplication.clipboard().setText("\n".join(parts)); self.copy_error_button.setText("COPIED ERROR DETAILS")
 
     def _identity_verified(self, controller=None):
         controller=controller or self._motor_controller()
@@ -259,7 +259,11 @@ class MainWindow(BaseMainWindow):
         check.setChecked(True); check.setProperty("benchmark_type",benchmark_type); check.setProperty("voltage_control_mode",mode); check.setProperty("preset_label",label)
         self.sequence_layout.addWidget(check); self.sequence_checks=[(label,check)]; self.sequence_layout.addStretch()
         status=(f"{label}: BLOCKED — backend INPUT benchmark control is not implemented; no fallback to TERMINAL is allowed." if mode=="INPUT" else f"Motor Benchmark: {label} / {benchmark_type} / TERMINAL")
-        self.sequence_status.setText(status); self._log_event(f"Recipe selected: {label} (Benchmark Type={('STANDARD' if benchmark_type==STANDARD_3V30S else 'FULL_PACKAGE')}, Voltage Control Mode={mode}).")
+        self.sequence_status.setText(status)
+        self.recipe_detail.setText(f"Benchmark Type: {('STANDARD' if benchmark_type==STANDARD_3V30S else 'FULL_PACKAGE')} / Voltage Control Mode: {mode}")
+        self.phase_detail.setText(detail)
+        self.benchmark_detail.setText("3.00 V / 30 s; control mode shown explicitly")
+        self._log_event(f"Recipe selected: {label} (Benchmark Type={('STANDARD' if benchmark_type==STANDARD_3V30S else 'FULL_PACKAGE')}, Voltage Control Mode={mode}).")
 
     def _load_recipe_sequence(self,name):
         recipe=self.recipe_engine.get(name)
