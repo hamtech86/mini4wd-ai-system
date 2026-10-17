@@ -21,6 +21,6 @@ def test_main_window_builds_offscreen_without_hardware_connection(monkeypatch, t
         assert set(BENCHMARK_PRESETS) <= {
             window.recipe.itemText(index) for index in range(window.recipe.count())
         }
-        assert "LOG / ERROR LOG" in [window.findChild(type(window.ui_log.parentWidget()), None).title()] if False else window.ui_log.isReadOnly()
+        assert window.ui_log.isReadOnly()
     finally:
         window.close()
