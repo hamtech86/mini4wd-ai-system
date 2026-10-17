@@ -124,7 +124,7 @@ class MainWindow(QMainWindow):
         self.run_state = QLabel("READY")
         self.run_state.setStyleSheet("font-size:22px;font-weight:bold;")
         rv.addWidget(self.run_state)
-        self.progress = {k: QLabel("--") for k in ("STEP", "PHASE", "DIR", "PWM", "INPUT VOLTAGE", "MOTOR VOLTAGE", "HIGH-SIDE CURRENT", "ELAPSED", "REMAIN")}
+        self.progress = {k: QLabel("--") for k in ("STEP", "PHASE", "DIR", "PWM", "INPUT VOLTAGE", "MOTOR VOLTAGE", "DRIVER INPUT CURRENT", "ELAPSED", "REMAIN")}
         grid = QGridLayout()
         for i, key in enumerate(self.progress):
             box = QGroupBox(key)
@@ -321,7 +321,7 @@ class MainWindow(QMainWindow):
         remaining_provider = getattr(c, "remaining_sec", None)
         remaining_value = remaining_provider() if callable(remaining_provider) else remaining_provider
         remaining_text = f"{float(remaining_value):.1f} s" if remaining_value is not None else "--"
-        values = {"STEP": f"{index + 1} / {total}", "PHASE": getattr(phase, "name", "--"), "DIR": getattr(phase, "direction", "FWD"), "PWM": getattr(c, "current_pwm", 0), "INPUT VOLTAGE": format_input_voltage(m, getattr(phase, "direction", None)), "MOTOR VOLTAGE": self.live["V"].text(), "HIGH-SIDE CURRENT": self.live["A"].text(), "ELAPSED": f"{elapsed:.1f} s", "REMAIN": remaining_text}
+        values = {"STEP": f"{index + 1} / {total}", "PHASE": getattr(phase, "name", "--"), "DIR": getattr(phase, "direction", "FWD"), "PWM": getattr(c, "current_pwm", 0), "INPUT VOLTAGE": format_input_voltage(m, getattr(phase, "direction", None)), "MOTOR VOLTAGE": self.live["V"].text(), "DRIVER INPUT CURRENT": self.live["A"].text(), "ELAPSED": f"{elapsed:.1f} s", "REMAIN": remaining_text}
         for key, value in values.items():
             self.progress[key].setText(str(value))
         self.run_state.setText("RUNNING")
