@@ -6,6 +6,12 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from database.path_resolver import configure_shared_database_path, connect_database
+# Resolve once before UI modules construct their database-backed windows.
+# Explicit MINI4WD_DB_PATH remains authoritative; the default is the main
+# checkout's database/mini4wd.db shared by linked Git worktrees.
+configure_shared_database_path(PROJECT_ROOT)
+
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import QApplication, QMessageBox, QGroupBox, QGridLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget, QTabWidget, QHBoxLayout, QCheckBox, QProgressBar
 from loguru import logger
@@ -23,7 +29,7 @@ from workers.breakin_worker import BreakinWorker
 from analysis.analysis_engine import AnalysisEngine
 from controllers.session_controller import SessionController
 from controllers.motor_benchmark import STANDARD_3V30S, FULL_PACKAGE
-from database.path_resolver import connect_database
+
 
 class MainWindow(BaseMainWindow):
     def __init__(self, context=None):
