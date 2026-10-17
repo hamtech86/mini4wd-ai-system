@@ -84,7 +84,12 @@ class SequenceExecutor:
             result.remaining_sec=None
         if self._conditions_met(sequence):self._complete_current(now,"condition_met")
         elif sequence.duration_sec is not None and result.elapsed_sec>=sequence.duration_sec:self._complete_current(now,"duration_elapsed")
-        self._save_checkpoint();return self.current()
+        self._save_checkpoint()
+        # Same-direction transitions are immediate. Direction changes retain
+        # their configured pause.
+        if result.status=="COMPLETE" and self.running and self.transition_pause_until is None:
+            return self.execute_current(now=now)
+        return self.current()
 
     def stop(self,reason="stopped"):
         sequence=self.current()
