@@ -23,6 +23,7 @@ from workers.breakin_worker import BreakinWorker
 from analysis.analysis_engine import AnalysisEngine
 from controllers.session_controller import SessionController
 from controllers.motor_benchmark import STANDARD_3V30S, FULL_PACKAGE
+from database.path_resolver import connect_database
 
 class MainWindow(BaseMainWindow):
     def __init__(self, context=None):
@@ -139,7 +140,7 @@ class MainWindow(BaseMainWindow):
         instance_id=self.instance.currentData() if hasattr(self,"instance") else None
         if instance_id is None:return {}
         try:
-            conn=sqlite3.connect(f"file:{self.db_path}?mode=ro",uri=True)
+            conn=connect_database(self.db_path, readonly=True)
             row=conn.execute("SELECT mm.nominal_voltage,mm.nominal_rpm,mm.nominal_current_ma,mm.nominal_torque_gcm FROM motor_instance mi JOIN motor_model mm ON mm.motor_model_id=mi.motor_model_id WHERE mi.instance_id=?",(int(instance_id),)).fetchone()
             conn.close()
             if not row:return {}

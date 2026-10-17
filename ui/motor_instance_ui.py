@@ -10,6 +10,7 @@ from PyQt5.QtCore import QTimer
 from PyQt5.QtWidgets import QComboBox,QFormLayout,QGroupBox,QHBoxLayout,QLabel,QPushButton,QDialog,QVBoxLayout,QTableWidget,QTableWidgetItem,QMessageBox
 
 from ui.instance_visibility import InstanceVisibilityStore
+from database.path_resolver import connect_database, resolve_database_path
 
 
 class MotorInstanceUI:
@@ -34,7 +35,7 @@ class MotorInstanceUI:
         self.load_instances()
 
     def _database_path(self):
-        return Path(__file__).resolve().parents[1] / "database" / "mini4wd.db"
+        return resolve_database_path(required_tables=("motor_model", "motor_instance", "measurement_session"))
 
     def load_instances(self):
         self.instance_selector.blockSignals(True); self.instance_selector.clear()
@@ -42,7 +43,7 @@ class MotorInstanceUI:
         if not path.exists():
             self.instance_selector.addItem("NO DATABASE",None); self.instance_selector.blockSignals(False); return
         try:
-            db=sqlite3.connect(f"file:{path}?mode=ro",uri=True)
+            db=connect_database(path, readonly=True)
             rows=db.execute("""SELECT mi.instance_id,mi.motor_model_id,mi.serial_number,mi.nickname,
                                       mm.name,mm.series,mi.status
                                FROM motor_instance mi
@@ -78,7 +79,7 @@ class MotorInstanceUI:
     def open_history(self):
         iid=self.selected_instance_id()
         if iid is None: QMessageBox.information(self.window,"History","Motor Instanceを選択してください。"); return
-        db=sqlite3.connect(f"file:{self._database_path()}?mode=ro",uri=True)
+        db=connect_database(self._database_path(), readonly=True)
         rows=db.execute("""SELECT session_id,device_type,device_model,start_datetime,end_datetime,result
                            FROM measurement_session WHERE instance_id=? ORDER BY session_id DESC""",(iid,)).fetchall()
         db.close()

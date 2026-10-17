@@ -5,10 +5,10 @@ It adds the analysis-critical fields, installs the automatic derivation trigger,
 and backfills existing Benchmark Result rows from their linked Measurement
 session when possible.
 """
+import argparse
 import sqlite3
-from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parents[1] / "mini4wd.db"
+from database.path_resolver import connect_database, resolve_database_path
 
 TRIGGER_SQL = """
 CREATE TRIGGER IF NOT EXISTS trg_battery_benchmark_derive_measurement_fields
@@ -48,8 +48,9 @@ END;
 """
 
 
-def main():
-    with sqlite3.connect(DB_PATH) as db:
+def main(db_path=None):
+    path = resolve_database_path(db_path)
+    with connect_database(path) as db:
         cols = {row[1] for row in db.execute("PRAGMA table_info(battery_benchmark_result)")}
         for name in ("start_voltage", "end_voltage", "voltage_drop"):
             if name not in cols:
@@ -88,4 +89,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Explicitly migrate an existing Mini4WD database.")
+    parser.add_argument("--db", help="Absolute path to an existing database (or set MINI4WD_DB_PATH).")
+    args = parser.parse_args()
+    main(args.db)

@@ -1,13 +1,13 @@
 """Verify Battery Benchmark v2 against raw Measurement data."""
+import argparse
 import sqlite3
-import sys
-from pathlib import Path
 
-DB_PATH = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("database/mini4wd.db")
+from database.path_resolver import connect_database, resolve_database_path
 
 
-def main():
-    with sqlite3.connect(DB_PATH) as db:
+def main(db_path=None):
+    path = resolve_database_path(db_path)
+    with connect_database(path, readonly=True) as db:
         rows = db.execute("SELECT result_id, session_id, start_voltage, end_voltage, voltage_drop FROM battery_benchmark_result ORDER BY result_id DESC").fetchall()
         if not rows:
             print("NO_BENCHMARK_RESULT")
@@ -33,4 +33,7 @@ def main():
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    parser = argparse.ArgumentParser(description="Verify an existing Mini4WD database.")
+    parser.add_argument("--db", help="Absolute path to an existing database (or set MINI4WD_DB_PATH).")
+    args = parser.parse_args()
+    raise SystemExit(main(args.db))

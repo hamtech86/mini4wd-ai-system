@@ -26,6 +26,8 @@ import sqlite3
 from pathlib import Path
 from typing import Iterable, Optional
 
+from database.path_resolver import connect_database, resolve_database_path
+
 
 class DatabaseManager:
     """
@@ -34,10 +36,12 @@ class DatabaseManager:
 
     def __init__(
         self,
-        database_path: str = "database/mini4wd.db",
+        database_path: str | Path | None = None,
+        *,
+        required_tables: Iterable[str] = (),
     ):
 
-        self.database_path = Path(database_path)
+        self.database_path = resolve_database_path(database_path, required_tables=required_tables)
 
         self.connection: Optional[sqlite3.Connection] = None
 
@@ -58,9 +62,7 @@ class DatabaseManager:
 
         if self.connection is None:
 
-            self.connection = sqlite3.connect(
-                self.database_path
-            )
+            self.connection = connect_database(self.database_path)
 
             # Rowを辞書のように扱う
             self.connection.row_factory = sqlite3.Row
