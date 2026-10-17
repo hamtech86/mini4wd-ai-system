@@ -15,7 +15,7 @@ def format_driver_input_current(measurement):
     if measurement is None:
         return "--"
     try:
-        value = getattr(measurement, "high_side_current")
+        value = getattr(measurement, "current1")
         if value is None:
             return "--"
         current = float(value)
