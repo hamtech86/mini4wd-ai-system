@@ -111,7 +111,7 @@ class MainWindow(BaseMainWindow):
 
     def _require_verified_motor(self, operation):
         if self._identity_verified(): return True
-        message=f"{operation} blocked: serial-port connection is not device identification. The current backend does not expose a verified INFO identity; no drive command was issued."
+        message=f"{operation} blocked: serial-port connection is not device identification. No valid INFO identity has been verified; no drive command was issued."
         self._set_ui_error("MOTOR_IDENTITY_UNVERIFIED",message); self.run_state.setText("BLOCKED / INFO NOT VERIFIED")
         if hasattr(self,"result") and "STATUS" in self.result: self.result["STATUS"].setText("BLOCKED / INFO NOT VERIFIED")
         self._log_event(message); return False
