@@ -53,6 +53,7 @@ class BreakinController:
         self.last_brush_peak_current = 0.0
         self.brush_peak_target_current = 0.0
         self.brush_peak_reached = False
+        self.benchmark_voltage_control_mode = "TERMINAL"
         # Raw serial data is collected only while a measurement phase is
         # active. Each phase is frozen at its exact end boundary; anything
         # received during STOP/finalization is intentionally discarded.
@@ -402,7 +403,15 @@ class BreakinController:
         return BreakinController._measurement_value(measurement, name, default)
 
     def _voltage_control(self, phase, measurement):
-        voltage = float(self._value(measurement, "motor_voltage", 0.0) or 0.0)
+        direction = str(getattr(phase, "direction", "FWD") or "FWD").upper()
+        mode = str(getattr(self, "benchmark_voltage_control_mode", "TERMINAL") or "TERMINAL").upper()
+        if mode == "INPUT":
+            field = "voltage1" if direction == "FWD" else "voltage2"
+            voltage = float(self._value(measurement, field, 0.0) or 0.0)
+        else:
+            # motor_voltage is signed V4-V5. Convert to the active drive direction.
+            signed_voltage = float(self._value(measurement, "motor_voltage", 0.0) or 0.0)
+            voltage = signed_voltage if direction == "FWD" else -signed_voltage
         if voltage <= 0: return
         error = float(phase.target_voltage) - voltage
         if abs(error) <= 0.02: return
