@@ -11,12 +11,13 @@ from PyQt5.QtCore import QTimer
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QGroupBox, QLabel, QPushButton, QComboBox, QTabWidget, QMessageBox
 from battery_system.serial import BatterySerial
 from ui.battery_database_ui import BatteryDatabaseDialog
+from database.path_resolver import connect_database, resolve_database_path
 
 
 class BatteryTab(QWidget):
     def __init__(self, db_path, transport=None, parent=None):
         super().__init__(parent)
-        self.db_path = str(db_path)
+        self.db_path = str(resolve_database_path(db_path, required_tables=("battery_model", "battery_instance", "battery_benchmark_result")))
         self.transport = transport or BatterySerial()
         self.samples = {1: [], 2: []}
         self.latest_status = {1: "IDLE", 2: "IDLE"}
@@ -30,7 +31,7 @@ class BatteryTab(QWidget):
         self._set_controls_enabled(False)
 
     def _db(self):
-        return sqlite3.connect(self.db_path)
+        return connect_database(self.db_path)
 
     def _build(self):
         root = QVBoxLayout(self)
