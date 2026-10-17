@@ -73,3 +73,19 @@ def test_benchmark_rejects_unknown_voltage_control_mode_before_driving():
     with pytest.raises(ValueError, match="Unsupported voltage control mode"):
         run_benchmark(controller, STANDARD_3V30S, voltage_control_mode="SILENT_FALLBACK")
     assert serial.commands == []
+
+
+def test_input_mode_does_not_fall_back_to_motor_voltage_when_input_is_missing():
+    controller, serial = make_controller("INPUT")
+    phase = BreakinPhase("test", 1, 80, "FWD", "VOLTAGE", 3.0, pwm_min=0, pwm_max=255)
+    controller._voltage_control(phase, {"motor_voltage": 1.0, "voltage2": 4.0})
+    assert controller.current_pwm == 80
+    assert serial.commands == []
+
+
+def test_non_finite_voltage_sample_does_not_change_pwm():
+    controller, serial = make_controller("INPUT")
+    phase = BreakinPhase("test", 1, 80, "FWD", "VOLTAGE", 3.0, pwm_min=0, pwm_max=255)
+    controller._voltage_control(phase, {"voltage1": float("nan"), "motor_voltage": 1.0})
+    assert controller.current_pwm == 80
+    assert serial.commands == []
