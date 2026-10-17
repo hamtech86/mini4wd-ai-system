@@ -11,6 +11,7 @@ from PyQt5.QtWidgets import (
     QSizePolicy, QVBoxLayout, QWidget
 )
 from controllers.recipe_engine import RecipeEngine
+from database.path_resolver import connect_database, resolve_database_path
 
 
 class BreakinWorker(QThread):
@@ -43,7 +44,7 @@ class MainWindow(QMainWindow):
         self.last_result_benchmark = False
         self.database_updated = False
         root = Path(__file__).resolve().parent.parent
-        self.db_path = root / "database" / "mini4wd.db"
+        self.db_path = resolve_database_path(required_tables=("motor_model", "motor_instance", "measurement", "measurement_session"))
         self.recipe_engine = RecipeEngine(str(root / "config" / "breakin_recipes.yaml"))
         self.breakin_controller = (context.get("breakin_controller")
                                    if isinstance(context, dict)
@@ -212,7 +213,7 @@ class MainWindow(QMainWindow):
         self.instance.blockSignals(True)
         self.instance.clear()
         try:
-            conn = sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True)
+            conn = connect_database(self.db_path, readonly=True)
             rows = conn.execute("SELECT mi.instance_id, mi.motor_model_id, mi.serial_number, mi.nickname, mm.name, mm.series FROM motor_instance mi LEFT JOIN motor_model mm ON mm.motor_model_id=mi.motor_model_id WHERE COALESCE(mi.is_deleted,0)=0 ORDER BY mi.instance_id DESC").fetchall()
             conn.close()
         except Exception:
@@ -454,7 +455,7 @@ class MainWindow(QMainWindow):
         try:
             measurements = list(getattr(self.breakin_controller, "measurements", []) or [])
             now = datetime.now().isoformat(timespec="seconds")
-            conn = sqlite3.connect(self.db_path)
+            conn = connect_database(self.db_path)
             conn.execute("PRAGMA foreign_keys = ON")
             cur = conn.cursor()
 
