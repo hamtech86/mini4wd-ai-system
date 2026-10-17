@@ -6,12 +6,11 @@ import math
 _VALID_DIRECTIONS = {"FWD", "REV"}
 
 
-def format_high_side_current(measurement):
-    """Format current only when the backend explicitly identifies it as high-side.
+def format_driver_input_current(measurement):
+    """Format ACS712 #1/A0 as driver input-path current.
 
-    DATA.current1 maps to ACS712 #1/A0, but the firmware does not establish
-    that this sensor is physically the high-side sensor. Do not infer that
-    wiring role in the UI.
+    The project wiring definition places ACS712 #1 in the power-input path
+    before the L298N. This is driver input current, not motor winding current.
     """
     if measurement is None:
         return "--"
