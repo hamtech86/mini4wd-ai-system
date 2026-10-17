@@ -1,6 +1,7 @@
 import pytest
 
 from controllers.breakin_controller import BreakinController
+from controllers.local_raw_log_breakin_controller import LocalRawLogBreakinController
 from controllers.recipe import BreakinPhase
 import controllers.motor_benchmark as benchmark_module
 from controllers.motor_benchmark import STANDARD_3V30S, _begin, run_benchmark
@@ -127,3 +128,27 @@ def test_benchmark_preparation_abort_requests_stop_and_resets_mode(monkeypatch):
     assert controller.benchmark_voltage_control_mode == "TERMINAL"
     assert "FWD" in serial.commands
     assert "STOP" in serial.commands
+
+
+def test_raw_log_sidecar_records_voltage_mode_without_changing_raw_body():
+    from types import SimpleNamespace
+
+    class FakeRawLogLibrary:
+        def register(self, record, raw_body):
+            self.record = record
+            self.raw_body = raw_body
+            return "/fake/raw-log-path"
+
+    library = FakeRawLogLibrary()
+    controller = LocalRawLogBreakinController(
+        serial_controller=MockSerial(), raw_log_library=library
+    )
+    controller.active_instance_id = 42
+    controller.session = SimpleNamespace(session_id="session-42", firmware_version="3.00")
+    controller.selected_benchmark_type = STANDARD_3V30S
+    controller.benchmark_voltage_control_mode = "INPUT"
+    body = "DATA,raw,body\\r\\nCAL,raw,calibration\\r\\n"
+    controller._register_raw_log(body)
+    assert library.record.measurement_condition == STANDARD_3V30S
+    assert "voltage_control_mode=INPUT" in library.record.notes
+    assert library.raw_body == body
