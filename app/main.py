@@ -154,8 +154,14 @@ class MainWindow(BaseMainWindow):
             message="Motor serial controller is not available."; self._set_ui_error("MOTOR_CONTROLLER_UNAVAILABLE",message); QMessageBox.warning(self,"Motor Connection",message); return
         if controller.connected: self.motor_serial_status.setText("MOTOR: PORT CONNECTED / INFO NOT VERIFIED"); return
         if controller.connect():
-            self.motor_serial_status.setText("MOTOR: PORT CONNECTED / INFO NOT VERIFIED — DRIVE BLOCKED"); self.motor_connect.setEnabled(False); self.motor_disconnect.setEnabled(True); self._log_event("Motor serial port connected; device INFO identity is not verified.")
-            if not self._identity_verified(controller): self._set_ui_error("MOTOR_IDENTITY_UNVERIFIED","Serial connection succeeded, but the backend has no verified INFO identity. Drive remains blocked.")
+            self.motor_connect.setEnabled(False); self.motor_disconnect.setEnabled(True)
+            if self._identity_verified(controller):
+                info = getattr(controller, "device_info", {}) or {}
+                self.motor_serial_status.setText("MOTOR: IDENTITY VERIFIED / " + str(info.get("MODEL")) + " / FW " + str(info.get("FW")) + " / " + str(info.get("ID")))
+                self._log_event("Motor INFO identity verified: " + str(info))
+            else:
+                self.motor_serial_status.setText("MOTOR: PORT CONNECTED / INFO NOT VERIFIED — DRIVE BLOCKED")
+                self._set_ui_error("MOTOR_IDENTITY_UNVERIFIED",getattr(controller,"identity_error","INFO identity was not verified."))
         else:
             self.motor_serial_status.setText("MOTOR: CONNECTION FAILED  /dev/ttyACM0"); self._set_ui_error("MOTOR_SERIAL_CONNECT_FAILED","SerialController.connect() returned failure; device identity was not verified.")
 
