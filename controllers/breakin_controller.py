@@ -71,7 +71,7 @@ class BreakinController:
             "instance_id": self.active_instance_id,
             "phase_index": self.current_phase_index,
             "phase_name": self.current_phase.name,
-            "phase_elapsed_sec": self.phase_elapsed_sec(),
+            "phase_elapsed_sec": (self.phase_elapsed_before_pause if self.paused else self._effective_elapsed()),
             "current_pwm": self.current_pwm,
             "direction": self.current_phase.direction,
             "paused": self.paused,
@@ -99,7 +99,7 @@ class BreakinController:
         """Pause safely while preserving the current phase position."""
         if not self.running or self.paused:
             return False
-        self.phase_elapsed_before_pause = self.phase_elapsed_sec()
+        self.phase_elapsed_before_pause = self._effective_elapsed()
         self.paused = True
         self.pause_started_at = time.time()
         self.serial.set_pwm(0)
@@ -293,7 +293,28 @@ class BreakinController:
         return "".join(self._measurement_raw_log_parts)
 
     def _effective_elapsed(self):
-        return self.phase_elapsed_before_pause + self.phase_elapsed_sec()
+        if self.paused:
+            return max(0.0, float(self.phase_elapsed_before_pause or 0.0))
+        return max(0.0, float(self.phase_elapsed_before_pause or 0.0) + self.phase_elapsed_sec())
+
+    def remaining_sec(self):
+        """Return controller-owned remaining time for the active timed phase.
+
+        None means there is no active phase or the phase has no fixed duration.
+        The UI must not synthesize this value from a separate duration guess.
+        """
+        phase = self.current_phase
+        duration = getattr(phase, "duration_sec", None) if phase is not None else None
+        if duration is None:
+            return None
+        try:
+            duration = float(duration)
+            elapsed = self._effective_elapsed()
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if duration < 0:
+            return None
+        return max(0.0, duration - elapsed)
 
     def _execute_standard_phase(self, phase, resume_elapsed=0.0):
         while self.running and self._effective_elapsed() < phase.duration_sec:
