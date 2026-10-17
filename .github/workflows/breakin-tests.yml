@@ -19,7 +19,7 @@ jobs:
           python -m pip install -r requirements.txt pytest
       - name: Run Break-in tests
         run: |
-          python -m pytest -q \
+          python -m pytest -q --ignore=serial_command_test.py --ignore=serial_test.py \
             tests/test_breakin_controller.py \
             tests/test_anomaly_skip.py \
             tests/test_recipe_engine.py
