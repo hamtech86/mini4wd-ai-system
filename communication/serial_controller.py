@@ -60,6 +60,10 @@ class SerialController:
         return snapshot
 
     def connect(self):
+        # A new connection attempt always invalidates any prior identity.
+        self.identity_verified = False
+        self.device_info = None
+        self.identity_error = "INFO identity has not been verified."
         if serial is None:
             return False
 
@@ -88,6 +92,9 @@ class SerialController:
         except Exception as e:
             print("SERIAL CONNECT ERROR", e)
             self.connected = False
+            self.identity_verified = False
+            self.device_info = None
+            self.identity_error = "Serial connection failed: " + str(e)
             return False
 
     def _verify_info_response(self, timeout=1.0):
