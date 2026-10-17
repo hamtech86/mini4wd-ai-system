@@ -86,7 +86,7 @@ class MainWindow(BaseMainWindow):
         self.error_code_label=QLabel("Error Code: --"); self.error_message_label=QLabel("Error Message: --"); self.error_message_label.setWordWrap(True); layout.addWidget(self.error_code_label); layout.addWidget(self.error_message_label)
         actions=QHBoxLayout(); self.copy_error_button=QPushButton("COPY ERROR DETAILS"); self.copy_error_button.setEnabled(False); self.copy_error_button.clicked.connect(self.copy_error_details); actions.addWidget(self.copy_error_button)
         clear=QPushButton("CLEAR LOG"); clear.clicked.connect(self.ui_log.clear); actions.addWidget(clear); actions.addStretch(); layout.addLayout(actions); parent_layout.addWidget(box)
-        self._ui_error_code=None; self._ui_error_message=None; self._log_event("UI ready; hardware identity has not been verified."); self._log_event("High-side current display remains unavailable: firmware maps current1 to ACS712 #1/A0 but does not establish that sensor physical role as high-side.")
+        self._ui_error_code=None; self._ui_error_message=None; self._log_event("UI ready; hardware identity has not been verified."); self._log_event("Driver input current uses ACS712 #1/A0 current1 from the documented wiring; this is not motor winding current.")
 
     def _log_event(self, message):
         if hasattr(self,"ui_log"):
@@ -298,7 +298,7 @@ class MainWindow(BaseMainWindow):
         remaining=self.sequence_executor.remaining_sec()
         elapsed=result.elapsed_sec if result is not None else 0.0
         if hasattr(self,"progress"):
-            values={"STEP":f"{min(completed+1,total)} / {total}","PHASE":getattr(current,"sequence_id","--"),"DIR":getattr(current,"direction","FWD"),"PWM":getattr(current,"pwm",0),"INPUT VOLTAGE":format_input_voltage(m,getattr(current,"direction",None)),"MOTOR VOLTAGE":f"{float(getattr(m,'motor_voltage',0)):.2f} V" if m else "--","HIGH-SIDE CURRENT":format_driver_input_current(m),"ELAPSED":f"{elapsed:.1f} s","REMAIN":f"{remaining:.1f} s" if remaining is not None else "条件待ち"}
+            values={"STEP":f"{min(completed+1,total)} / {total}","PHASE":getattr(current,"sequence_id","--"),"DIR":getattr(current,"direction","FWD"),"PWM":getattr(current,"pwm",0),"INPUT VOLTAGE":format_input_voltage(m,getattr(current,"direction",None)),"MOTOR VOLTAGE":f"{float(getattr(m,'motor_voltage',0)):.2f} V" if m else "--","DRIVER INPUT CURRENT":format_driver_input_current(m),"ELAPSED":f"{elapsed:.1f} s","REMAIN":f"{remaining:.1f} s" if remaining is not None else "条件待ち"}
             for key,value in values.items():
                 if key in self.progress:self.progress[key].setText(str(value))
         if hasattr(self,"live"):
