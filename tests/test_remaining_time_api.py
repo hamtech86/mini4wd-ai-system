@@ -34,3 +34,15 @@ def test_remaining_time_is_unavailable_without_a_fixed_phase_duration():
     assert controller.remaining_sec() is None
     controller.current_phase = BreakinPhase("condition", duration_sec=0, pwm=80)
     assert controller.remaining_sec() == 0.0
+
+
+def test_elapsed_time_accumulates_across_pause_and_resume():
+    controller = BreakinController(FakeSerial())
+    controller.current_phase = BreakinPhase("timed", duration_sec=10, pwm=80)
+    controller.phase_elapsed_before_pause = 4.0
+    controller.paused = True
+    controller.phase_started_at = time.time() - 9.0
+    assert controller.elapsed_sec() == 4.0
+    controller.paused = False
+    controller.phase_started_at = time.time() - 2.0
+    assert 5.8 <= controller.elapsed_sec() <= 6.0
