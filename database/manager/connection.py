@@ -8,12 +8,14 @@
 import sqlite3
 from pathlib import Path
 
+from database.path_resolver import connect_database, resolve_database_path
+
 
 class DatabaseConnection:
 
     def __init__(self, db_path):
 
-        self.db_path = Path(db_path)
+        self.db_path = resolve_database_path(db_path)
 
         self.connection = None
 
@@ -22,9 +24,7 @@ class DatabaseConnection:
 
         if self.connection is None:
 
-            self.connection = sqlite3.connect(
-                self.db_path
-            )
+            self.connection = connect_database(self.db_path)
 
             self.connection.row_factory = sqlite3.Row
 
