@@ -193,7 +193,7 @@ class SerialController:
         self.command_log.append(command)
         print("SERIAL TX:", command)
         normalized = str(command).strip().upper()
-        drive_command = normalized in ("START", "FWD", "REV") or (
+        drive_command = normalized in ("START", "FWD", "REV", "RESUME") or (
             normalized.startswith("PWM=") and normalized != "PWM=0"
         )
         if drive_command and not self.identity_verified:
