@@ -37,9 +37,11 @@ class DatabaseManager:
     def __init__(
         self,
         database_path: str | Path | None = None,
+        *,
+        required_tables: Iterable[str] = (),
     ):
 
-        self.database_path = resolve_database_path(database_path)
+        self.database_path = resolve_database_path(database_path, required_tables=required_tables)
 
         self.connection: Optional[sqlite3.Connection] = None
 
