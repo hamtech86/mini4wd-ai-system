@@ -17,6 +17,7 @@ except ImportError:
     serial = None
 
 import time
+import re
 
 from communication.raw_log_collector import RawLogCollector
 from communication.csv_parser import CSVParser
@@ -110,16 +111,7 @@ class SerialController:
             if line.startswith("INFO"):
                 try:
                     info = self.parser.parse(line)
-                    if info.get("TYPE") != "MOTOR":
-                        raise ValueError("Unexpected TYPE")
-                    if info.get("MODEL") != "MOTOR_BREAKIN_V3":
-                        raise ValueError("Unexpected MODEL")
-                    for key in ("FW", "BUILD", "ID"):
-                        if not isinstance(info.get(key), str) or not info[key].strip():
-                            raise ValueError("Invalid " + key)
-                    self.device_info = {key: info[key] for key in ("TYPE", "MODEL", "FW", "BUILD", "ID")}
-                    self.identity_verified = True
-                    self.identity_error = ""
+                    self._validate_info_record(info)
                     return True
                 except (ValueError, KeyError) as exc:
                     self.identity_verified = False
@@ -134,6 +126,26 @@ class SerialController:
         self.device_info = None
         self.identity_error = "INFO response timed out."
         return False
+
+    def _validate_info_record(self, info):
+        """Apply semantic identity checks after strict INFO field parsing."""
+        if info.get("TYPE") != "MOTOR":
+            raise ValueError("Unexpected TYPE")
+        if info.get("MODEL") != "MOTOR_BREAKIN_V3":
+            raise ValueError("Unexpected MODEL")
+        for key in ("FW", "BUILD", "ID"):
+            if not isinstance(info.get(key), str) or not info[key].strip():
+                raise ValueError("Invalid " + key)
+        if not re.fullmatch(r"\\d+(?:\\.\\d+)+", info["FW"]):
+            raise ValueError("Invalid FW version")
+        if not re.fullmatch(r"[A-Za-z0-9._-]{1,64}", info["BUILD"]):
+            raise ValueError("Invalid BUILD identifier")
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", info["ID"]):
+            raise ValueError("Invalid device ID")
+        self.device_info = {key: info[key] for key in ("TYPE", "MODEL", "FW", "BUILD", "ID")}
+        self.identity_verified = True
+        self.identity_error = ""
+        return True
 
     def forward(self):
         self.direction = "FWD"
@@ -202,11 +214,7 @@ class SerialController:
                 # INFO is not a DATA/RawLog row; only a valid identity can update state.
                 try:
                     info = self.parser.parse(line)
-                    if info.get("TYPE") != "MOTOR" or info.get("MODEL") != "MOTOR_BREAKIN_V3":
-                        raise ValueError("Unexpected device TYPE/MODEL")
-                    self.device_info = {key: info[key] for key in ("TYPE", "MODEL", "FW", "BUILD", "ID")}
-                    self.identity_verified = all(str(self.device_info.get(key, "")).strip() for key in ("FW", "BUILD", "ID"))
-                    self.identity_error = "" if self.identity_verified else "Invalid INFO identity."
+                    self._validate_info_record(info)
                 except (ValueError, KeyError):
                     self.identity_verified = False
                     self.device_info = None
