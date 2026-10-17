@@ -25,7 +25,7 @@ ANALYSIS_VERSION = "1.0"
 # ディレクトリ
 # =====================================================
 
-ROOT_DIR = Path(__file__).resolve().parent.parent
+ROOT_DIR = Path(__file__).parent
 
 DATA_DIR = ROOT_DIR / "data"
 LOG_DIR = ROOT_DIR / "logs"
