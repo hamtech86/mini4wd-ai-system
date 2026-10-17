@@ -19,6 +19,8 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Set up Arduino CLI
         uses: arduino/setup-arduino-cli@v2
@@ -48,7 +50,8 @@ jobs:
           fi
           cp "$hex_file" "$artifact_dir/MotoreRev.ino.hex"
           {
-            echo "commit_sha=$GITHUB_SHA"
+            echo "github_sha=$GITHUB_SHA"
+            echo "checked_out_sha=$(git rev-parse HEAD)"
             echo "fqbn=arduino:avr:uno"
             echo "arduino_avr_core=1.8.8"
             grep -E 'FW_BUILD_ID|FW_VERSION' firmware/motor/MotoreRev.ino || true
