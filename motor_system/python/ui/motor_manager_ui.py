@@ -35,7 +35,7 @@ class MotorManagerUI(QWidget):
         super().__init__()
         self.setWindowTitle("Motor Instance Manager")
         self.resize(1400, 850)
-        self.db = DatabaseManager(str(ROOT / "database" / "mini4wd.db"))
+        self.db = DatabaseManager()
         self.db.connect()
         self.instance_repo = MotorInstanceRepository(self.db)
         self.motor_repo = MotorRepository(self.db)
