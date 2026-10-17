@@ -1,6 +1,7 @@
 name: Arduino Uno Firmware Compile
 
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - "firmware/motor/**"
