@@ -38,11 +38,21 @@ jobs:
           arduino-cli version
           arduino-cli core list
           arduino-cli compile --export-binaries --fqbn arduino:avr:uno "$sketch_dir"
+          artifact_dir="${RUNNER_TEMP}/firmware-artifact"
+          mkdir -p "$artifact_dir"
+          hex_file="$(find "$sketch_dir" -type f -name '*.hex' -print -quit)"
+          if [[ -z "$hex_file" ]]; then
+            echo "ERROR: Arduino compile succeeded but no HEX file was found under $sketch_dir"
+            find "$sketch_dir" -maxdepth 5 -type f -print
+            exit 1
+          fi
+          cp "$hex_file" "$artifact_dir/MotoreRev.ino.hex"
+          echo "HEX artifact staged at $artifact_dir/MotoreRev.ino.hex"
 
       - name: Upload compiled Uno firmware
         uses: actions/upload-artifact@v4
         with:
           name: motor-arduino-uno-firmware
-          path: ${{ runner.temp }}/MotoreRev/*.hex
+          path: ${{ runner.temp }}/firmware-artifact/MotoreRev.ino.hex
           if-no-files-found: error
           retention-days: 14
