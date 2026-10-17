@@ -123,6 +123,34 @@ def test_motor_and_rawlog_managers_fail_closed_before_db_connection(
 
 
 @pytest.mark.parametrize(
+    "module_name,class_name",
+    [
+        ("motor_system.python.ui.motor_manager_ui", "MotorManagerUI"),
+        ("ui.raw_log_database_manager", "RawLogDatabaseManager"),
+    ],
+)
+def test_motor_and_rawlog_managers_reject_incomplete_existing_schema(
+    qapp, monkeypatch, tmp_path, module_name, class_name
+):
+    import importlib
+
+    path = tmp_path / "incomplete.db"
+    sqlite3.connect(path).close()
+    monkeypatch.setenv(DB_PATH_ENV, str(path))
+    cls = getattr(importlib.import_module(module_name), class_name)
+
+    with pytest.raises(DatabasePathError, match="missing tables"):
+        cls()
+
+    # Validation is read-only: an incomplete existing database is not migrated.
+    with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as db:
+        tables = db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+    assert tables == []
+
+
+@pytest.mark.parametrize(
     "module_name,function_name",
     [
         ("database.tools.migrate_battery_benchmark_v2", "main"),
