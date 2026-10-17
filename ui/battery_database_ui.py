@@ -6,27 +6,21 @@ from PyQt5.QtWidgets import (QComboBox, QDialog, QFormLayout, QGroupBox, QLabel,
     QLineEdit, QMessageBox, QPushButton, QDoubleSpinBox, QSpinBox, QTabWidget,
     QVBoxLayout, QWidget, QListWidget, QHBoxLayout)
 from battery_system.manual_result_registration import validate_manual_registration, ManualRegistrationError
+from database.path_resolver import connect_database, resolve_database_path
 
 
 class BatteryDatabaseDialog(QDialog):
     def __init__(self, db_path: str | Path, parent=None):
         super().__init__(parent)
-        self.db_path = str(db_path)
+        self.db_path = str(resolve_database_path(db_path, required_tables=("battery_model", "battery_instance", "battery_benchmark_result")))
         self.setWindowTitle("BATTERY DATABASE / MODEL / INSTANCE / MANUAL REGISTRATION")
         self.resize(900, 700)
-        self._ensure_schema()
         self._build()
         self.refresh_all()
         self.raise_(); self.activateWindow()
 
     def _db(self):
-        return sqlite3.connect(self.db_path)
-
-    def _ensure_schema(self):
-        schema = Path(__file__).resolve().parent.parent / "database/schema/battery_tables.sql"
-        with self._db() as db:
-            db.executescript(schema.read_text(encoding="utf-8"))
-            db.commit()
+        return connect_database(self.db_path)
 
     def _build(self):
         root = QVBoxLayout(self)
