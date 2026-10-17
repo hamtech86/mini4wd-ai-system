@@ -316,10 +316,12 @@ class MainWindow(QMainWindow):
         if phase is None:
             return
         elapsed = float(c.phase_elapsed_sec()) if hasattr(c, "phase_elapsed_sec") else 0.0
-        duration = float(getattr(phase, "duration_sec", 0))
         index = int(getattr(c, "current_phase_index", 0))
         total = int(getattr(c, "total_phases", 0))
-        values = {"STEP": f"{index + 1} / {total}", "PHASE": getattr(phase, "name", "--"), "DIR": getattr(phase, "direction", "FWD"), "PWM": getattr(c, "current_pwm", 0), "INPUT VOLTAGE": format_input_voltage(m, getattr(phase, "direction", None)), "MOTOR VOLTAGE": self.live["V"].text(), "HIGH-SIDE CURRENT": self.live["A"].text(), "ELAPSED": f"{elapsed:.1f} s", "REMAIN": f"{max(0, duration - elapsed):.1f} s"}
+        remaining_provider = getattr(c, "remaining_sec", None)
+        remaining_value = remaining_provider() if callable(remaining_provider) else remaining_provider
+        remaining_text = f"{float(remaining_value):.1f} s" if remaining_value is not None else "--"
+        values = {"STEP": f"{index + 1} / {total}", "PHASE": getattr(phase, "name", "--"), "DIR": getattr(phase, "direction", "FWD"), "PWM": getattr(c, "current_pwm", 0), "INPUT VOLTAGE": format_input_voltage(m, getattr(phase, "direction", None)), "MOTOR VOLTAGE": self.live["V"].text(), "HIGH-SIDE CURRENT": self.live["A"].text(), "ELAPSED": f"{elapsed:.1f} s", "REMAIN": remaining_text}
         for key, value in values.items():
             self.progress[key].setText(str(value))
         self.run_state.setText("RUNNING")
@@ -365,13 +367,7 @@ class MainWindow(QMainWindow):
     def complete(self, data, benchmark):
         self.timer.stop()
         self.refresh_runtime()
-        # Completion can arrive between the 100 ms UI refresh ticks. Force the result view to the exact benchmark boundary.
-        phase = getattr(self.breakin_controller, "current_phase", None)
-        if phase is not None:
-            duration = float(getattr(phase, "duration_sec", 0) or 0)
-            if duration > 0:
-                self.progress["ELAPSED"].setText(f"{duration:.1f} s")
-                self.progress["REMAIN"].setText("0.0 s")
+        # Keep displayed elapsed/remaining values sourced from controller data; do not synthesize a final duration.
         self.run_state.setText("COMPLETE")
         self.last_result_data = data
         self.last_result_benchmark = benchmark
