@@ -61,13 +61,14 @@ class SerialReader(QThread):
                     self.msleep(5)
                     continue
 
-                # Keep the received serial text before any parsing/stripping.
+                # Keep exact non-INFO serial text before parsing. INFO is an
+                # auxiliary identity response and must not enter measurement RawLog.
                 raw_line = self.serial_port.readline().decode("utf-8", errors="ignore")
-                if self.raw_log_collector is not None:
+                line = raw_line.rstrip("\r\n")
+                if self.raw_log_collector is not None and not line.startswith("INFO"):
                     self.raw_log_collector.append(raw_line)
 
-                # CSVParser keeps its existing line-oriented contract.
-                line = raw_line.rstrip("\r\n")
+                # CSVParser keeps DATA at its fixed 26-field contract.
                 if not line:
                     continue
 
