@@ -78,12 +78,14 @@ class LocalRawLogBreakinController(BreakinController):
         baseline_pwm = getattr(self, "benchmark_baseline_pwm", None)
         purpose = getattr(self, "benchmark_purpose", None)
         notes = ""
-        voltage_control_mode = getattr(self, "benchmark_voltage_control_mode", "TERMINAL") or "TERMINAL"
-        notes = f"voltage_control_mode={voltage_control_mode}"
+        is_benchmark = getattr(self, "active_recipe_name", None) in ("STANDARD_3V30S", "FULL_PACKAGE")
+        if is_benchmark:
+            voltage_control_mode = getattr(self, "benchmark_voltage_control_mode", "TERMINAL") or "TERMINAL"
+            notes = f"voltage_control_mode={voltage_control_mode}"
         if baseline_pwm is not None:
-            notes = f"{notes}; baseline_pwm={baseline_pwm}"
+            notes = f"{notes}; baseline_pwm={baseline_pwm}" if notes else f"baseline_pwm={baseline_pwm}"
         if purpose:
-            notes = f"{notes}; purpose={purpose}"
+            notes = f"{notes}; purpose={purpose}" if notes else f"purpose={purpose}"
 
         # RawLog IDs are string fields. Database-backed instance/session
         # identifiers may arrive as integers, but the Local Raw Log Library
