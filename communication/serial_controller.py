@@ -105,7 +105,12 @@ class SerialController:
                 if not self.serial.in_waiting:
                     time.sleep(0.01)
                     continue
-                decoded = self.serial.readline().decode("utf-8", errors="replace")
+                original_timeout = getattr(self.serial, "timeout", None)
+                try:
+                    self.serial.timeout = max(0.0, deadline - time.monotonic())
+                    decoded = self.serial.readline().decode("utf-8", errors="replace")
+                finally:
+                    self.serial.timeout = original_timeout
             except Exception as exc:
                 self.identity_error = "INFO read failed: " + str(exc)
                 self.identity_verified = False
