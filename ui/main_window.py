@@ -315,7 +315,8 @@ class MainWindow(QMainWindow):
         phase = getattr(c, "current_phase", None)
         if phase is None:
             return
-        elapsed = float(c.phase_elapsed_sec()) if hasattr(c, "phase_elapsed_sec") else 0.0
+        elapsed_provider = getattr(c, "elapsed_sec", None)
+        elapsed = float(elapsed_provider()) if callable(elapsed_provider) else (float(c.phase_elapsed_sec()) if hasattr(c, "phase_elapsed_sec") else 0.0)
         index = int(getattr(c, "current_phase_index", 0))
         total = int(getattr(c, "total_phases", 0))
         remaining_provider = getattr(c, "remaining_sec", None)
