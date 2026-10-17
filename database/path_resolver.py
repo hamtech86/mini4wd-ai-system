@@ -2,6 +2,7 @@
 from __future__ import annotations
 import os
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 from typing import Iterable
 
@@ -27,7 +28,7 @@ def resolve_database_path(db_path: str | os.PathLike[str] | None = None, *, requ
     required = tuple(required_tables)
     if required:
         try:
-            with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=5.0) as conn:
+            with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=5.0)) as conn:
                 tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         except sqlite3.Error as exc:
             raise DatabasePathError(f"Database is not readable: {path}: {exc}") from exc
