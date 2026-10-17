@@ -99,8 +99,17 @@ def test_serial_connect_requests_info_and_verifies_expected_device(monkeypatch):
     assert controller.identity_verified is False
 
 
-def test_serial_connect_rejects_wrong_model_and_blocks_drive(monkeypatch):
-    fake = FakeSerial("INFO,TYPE=MOTOR,MODEL=OTHER,FW=3.00,BUILD=x,ID=y")
+@pytest.mark.parametrize(
+    "response",
+    [
+        "INFO,TYPE=MOTOR,MODEL=OTHER,FW=3.00,BUILD=x,ID=y",
+        "INFO,TYPE=MOTOR,MODEL=MOTOR_BREAKIN_V3,FW=unknown,BUILD=x,ID=y",
+        "INFO,TYPE=MOTOR,MODEL=MOTOR_BREAKIN_V3,FW=3.00,BUILD=bad build,ID=y",
+        "INFO,TYPE=MOTOR,MODEL=MOTOR_BREAKIN_V3,FW=3.00,BUILD=x,ID=bad!",
+    ],
+)
+def test_serial_connect_rejects_invalid_identity_and_blocks_drive(monkeypatch, response):
+    fake = FakeSerial(response)
     monkeypatch.setattr(
         serial_controller_module,
         "serial",
