@@ -122,10 +122,13 @@ def _begin(self, benchmark_type, instance_id=None, purpose="MEASUREMENT"):
             self.measurement_manager.filters.reset()
 
 
-def run_benchmark(self, benchmark_type=STANDARD_3V30S, instance_id=None, purpose="MEASUREMENT"):
+def run_benchmark(self, benchmark_type=STANDARD_3V30S, instance_id=None, purpose="MEASUREMENT", voltage_control_mode="TERMINAL"):
     if benchmark_type not in (STANDARD_3V30S, FULL_PACKAGE):
         raise ValueError(f"Unsupported benchmark type: {benchmark_type}")
+    if voltage_control_mode not in ("TERMINAL", "INPUT"):
+        raise ValueError(f"Unsupported voltage control mode: {voltage_control_mode}")
 
+    self.benchmark_voltage_control_mode = voltage_control_mode
     _begin(self, benchmark_type, instance_id, purpose)
 
     prepare_phase = BreakinPhase(
@@ -219,6 +222,8 @@ def run_benchmark(self, benchmark_type=STANDARD_3V30S, instance_id=None, purpose
             self.measurement_manager.logger.stop()
         self._finalize_benchmark_raw_log()
         raise
+    finally:
+        self.benchmark_voltage_control_mode = "TERMINAL"
 
 def _finish_benchmark(self, phases):
     # Freeze exactly at the benchmark boundary. Serial data arriving after
@@ -255,7 +260,8 @@ def _finalize_benchmark_raw_log(self, raw_body=None):
 def install_benchmark_support():
     def benchmark_3v(self, duration_sec=30, instance_id=None):
         benchmark_type = getattr(self, "selected_benchmark_type", STANDARD_3V30S)
-        return run_benchmark(self, benchmark_type, instance_id=instance_id)
+        voltage_control_mode = getattr(self, "selected_benchmark_voltage_mode", "TERMINAL")
+        return run_benchmark(self, benchmark_type, instance_id=instance_id, voltage_control_mode=voltage_control_mode)
     BreakinController.benchmark_3v = benchmark_3v
     BreakinController.run_benchmark = run_benchmark
     BreakinController._finish_benchmark = _finish_benchmark
