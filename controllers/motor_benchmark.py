@@ -113,8 +113,9 @@ def _begin(self, benchmark_type, instance_id=None, purpose="MEASUREMENT"):
             self.session = self.session_manager.start("BREAKIN")
     if self.session is not None:
         self.session.benchmark_type = benchmark_type
+        self.session.voltage_control_mode = getattr(self, "benchmark_voltage_control_mode", "TERMINAL")
         self.session.purpose = purpose
-        self.session.notes = f"benchmark_type={benchmark_type}; purpose={purpose}"
+        self.session.notes = f"benchmark_type={benchmark_type}; voltage_control_mode={self.session.voltage_control_mode}; purpose={purpose}"
     if self.measurement_manager is not None:
         self.measurement_manager.session = self.session
         if self.session is not None:
