@@ -14,11 +14,11 @@ def test_four_ui_presets_map_to_canonical_benchmark_and_voltage_modes():
     }
 
 
-def test_only_terminal_presets_are_executable_with_current_backend():
+def test_all_four_presets_have_supported_control_modes():
     assert is_benchmark_mode_supported("STD-T")
     assert is_benchmark_mode_supported("Full-T")
-    assert not is_benchmark_mode_supported("STD-I")
-    assert not is_benchmark_mode_supported("Full-I")
+    assert is_benchmark_mode_supported("STD-I")
+    assert is_benchmark_mode_supported("Full-I")
     assert not is_benchmark_mode_supported("UNKNOWN")
 
 
