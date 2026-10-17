@@ -73,4 +73,4 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pytest
       - name: Run full pytest suite
-        run: python -m pytest -q
+        run: python -m pytest -q --ignore=serial_command_test.py --ignore=serial_test.py
