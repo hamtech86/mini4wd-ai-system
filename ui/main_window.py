@@ -297,7 +297,7 @@ class MainWindow(QMainWindow):
         c = self.breakin_controller
         serial = getattr(c, "serial", None) if c else None
         m = getattr(getattr(c, "measurement_manager", None), "last_measurement", None) if c else None
-        self.live["Arduino"].setText("CONNECTED" if getattr(serial, "connected", False) else "DISCONNECTED")
+        self.live["Arduino"].setText("PORT CONNECTED / INFO UNVERIFIED" if getattr(serial, "connected", False) else "DISCONNECTED")
         rpm = self._latest_rpm()
         values = {
             "DIR": getattr(m, "direction", getattr(serial, "direction", "--")) if m else getattr(serial, "direction", "--"),
@@ -357,7 +357,8 @@ class MainWindow(QMainWindow):
         if self.breakin_controller:
             self.breakin_controller.emergency_stop()
         self.timer.stop()
-        self.run_state.setText("EMERGENCY STOP")
+        self.run_state.setText("STOP REQUESTED / PHYSICAL STOP UNCONFIRMED")
+        self.result["STATUS"].setText("STOP REQUESTED / UNCONFIRMED")
         self.stop.setEnabled(False)
         self.update_db.setEnabled(False)
 
