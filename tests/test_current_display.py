@@ -35,12 +35,14 @@ def test_input_voltage_rejects_missing_invalid_or_non_finite_values(value):
     assert format_input_voltage(measurement) == "--"
 
 
-def test_high_side_current_uses_current1_not_average():
-    measurement = SimpleNamespace(current1=0.1234, current_avg=0.4567)
-    assert format_high_side_current(measurement) == "0.123 A"
+def test_high_side_current_requires_explicit_backend_sensor_role():
+    # Firmware identifies ACS712 #1 as A0/current1, but does not establish
+    # that it is the physical high-side sensor. Do not infer the role.
+    assert format_high_side_current(SimpleNamespace(current1=0.1234, current_avg=0.4567)) == "--"
+    assert format_high_side_current(SimpleNamespace(high_side_current=0.1234, current1=0.4567)) == "0.123 A"
 
 
 def test_high_side_current_preserves_real_zero_and_missing_as_placeholder():
-    assert format_high_side_current(SimpleNamespace(current1=0.0)) == "0.000 A"
+    assert format_high_side_current(SimpleNamespace(high_side_current=0.0)) == "0.000 A"
     assert format_high_side_current(None) == "--"
     assert format_high_side_current(SimpleNamespace(current_avg=0.5)) == "--"
