@@ -40,9 +40,13 @@ def test_info_parser_rejects_missing_duplicate_empty_or_unknown_fields(line):
         CSVParser().parse(line)
 
 
-def test_info_record_does_not_weaken_fixed_data_column_contract():
+def test_data_still_requires_and_accepts_exactly_26_fields():
     with pytest.raises(ValueError, match="Invalid CSV length"):
         CSVParser().parse("DATA,too,few,fields")
+    valid_data = ",".join(["DATA"] + ["0"] * 25)
+    parsed = CSVParser().parse(valid_data)
+    assert parsed["record_type"] == "DATA"
+    assert len(parsed) == 26
 
 
 class FakeSerial:
@@ -154,3 +158,15 @@ def test_info_identity_line_is_not_added_to_measurement_raw_log():
     controller.identity_verified = True
     assert controller.read_measurement() is None
     assert controller.raw_log == ""
+
+
+def test_raw_log_keeps_cal_auxiliary_line_but_excludes_info():
+    controller = serial_controller_module.SerialController()
+    fake = FakeSerial()
+    fake.lines.append((VALID_INFO + "\\r\\n").encode())
+    fake.lines.append(b"CAL,1,512,513\\r\\n")
+    controller.serial = fake
+    controller.connected = True
+    controller.identity_verified = True
+    assert controller.read_measurement() is None
+    assert controller.raw_log == "CAL,1,512,513\\r\\n"
