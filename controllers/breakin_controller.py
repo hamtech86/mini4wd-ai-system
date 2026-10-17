@@ -54,6 +54,7 @@ class BreakinController:
         self.brush_peak_target_current = 0.0
         self.brush_peak_reached = False
         self.benchmark_voltage_control_mode = "TERMINAL"
+        self.benchmark_voltage_control_mode = "TERMINAL"
         # Raw serial data is collected only while a measurement phase is
         # active. Each phase is frozen at its exact end boundary; anything
         # received during STOP/finalization is intentionally discarded.
