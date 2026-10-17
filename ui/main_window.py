@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import (
     QSizePolicy, QVBoxLayout, QWidget
 )
 from controllers.recipe_engine import RecipeEngine
-from database.path_resolver import connect_database, resolve_database_path
+from database.path_resolver import connect_database, configure_shared_database_path, resolve_database_path
 
 
 class BreakinWorker(QThread):
@@ -44,6 +44,7 @@ class MainWindow(QMainWindow):
         self.last_result_benchmark = False
         self.database_updated = False
         root = Path(__file__).resolve().parent.parent
+        configure_shared_database_path(root)
         self.db_path = resolve_database_path(required_tables=("motor_model", "motor_instance", "measurement", "measurement_session"))
         self.recipe_engine = RecipeEngine(str(root / "config" / "breakin_recipes.yaml"))
         self.breakin_controller = (context.get("breakin_controller")
