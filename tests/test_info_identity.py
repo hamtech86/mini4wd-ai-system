@@ -5,6 +5,7 @@ import pytest
 
 from communication.csv_parser import CSVParser
 import communication.serial_controller as serial_controller_module
+from communication.serial_manager import SerialReader
 
 
 VALID_INFO = "INFO,TYPE=MOTOR,MODEL=MOTOR_BREAKIN_V3,FW=3.00,BUILD=build-123,ID=MOTOR-000042"
@@ -179,3 +180,37 @@ def test_raw_log_keeps_cal_auxiliary_line_but_excludes_info():
     controller.identity_verified = True
     assert controller.read_measurement() is None
     assert controller.raw_log == "CAL,1,512,513\\r\\n"
+
+
+def test_serial_reader_excludes_info_but_preserves_data_and_cal_raw_lines():
+    class FakeCollector:
+        def __init__(self):
+            self.lines = []
+
+        def append(self, line):
+            self.lines.append(line)
+
+    class FakePort:
+        def __init__(self, lines):
+            self.lines = deque(line.encode() for line in lines)
+            self.is_open = True
+            self.reader = None
+
+        @property
+        def in_waiting(self):
+            return sum(len(line) for line in self.lines)
+
+        def readline(self):
+            line = self.lines.popleft()
+            if not self.lines:
+                self.reader.running = False
+            return line
+
+    data_line = ",".join(["DATA"] + ["0"] * 25) + "\\r\\n"
+    cal_line = "CAL,1,512,513\\r\\n"
+    collector = FakeCollector()
+    port = FakePort([VALID_INFO + "\\r\\n", data_line, cal_line])
+    reader = SerialReader(port, collector)
+    port.reader = reader
+    reader.run()
+    assert collector.lines == [data_line, cal_line]
