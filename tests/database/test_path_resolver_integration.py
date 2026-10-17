@@ -67,12 +67,21 @@ def test_database_manager_and_connection_use_the_explicit_temp_database(tmp_path
     assert path.exists()
 
 
-def test_main_window_fails_closed_before_building_ui_when_path_is_unset(qapp, monkeypatch):
+def test_main_window_uses_shared_checkout_database_when_path_is_unset(qapp, monkeypatch, tmp_path):
     from ui.main_window import MainWindow
 
+    root = Path(__file__).resolve().parents[2]
+    expected = (root / "database" / "mini4wd.db").resolve()
     monkeypatch.delenv(DB_PATH_ENV, raising=False)
-    with pytest.raises(DatabasePathError, match="not configured"):
-        MainWindow(context={})
+    monkeypatch.chdir(tmp_path)
+
+    window = MainWindow(context={})
+    try:
+        assert Path(window.db_path).resolve() == expected
+        assert os.environ[DB_PATH_ENV] == str(root / "database" / "mini4wd.db")
+        assert not (tmp_path / "database" / "mini4wd.db").exists()
+    finally:
+        window.close()
 
 
 @pytest.mark.parametrize(
