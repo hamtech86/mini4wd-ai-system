@@ -133,8 +133,10 @@ def test_drive_commands_fail_closed_without_verified_identity():
     controller.serial = fake
     controller.connected = True
     assert controller.reverse() is False
+    assert controller.send_command("RESUME") is False
     assert controller.set_pwm(120) is False
     assert b"REV\n" not in fake.writes
+    assert b"RESUME\n" not in fake.writes
     assert b"PWM=120\n" not in fake.writes
     assert controller.set_pwm(0) == "PWM=0"
     assert b"PWM=0\n" in fake.writes
