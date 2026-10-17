@@ -7,11 +7,16 @@ _VALID_DIRECTIONS = {"FWD", "REV"}
 
 
 def format_high_side_current(measurement):
-    """Format ACS712 #1 current; missing/invalid values remain visibly unavailable."""
+    """Format current only when the backend explicitly identifies it as high-side.
+
+    DATA.current1 maps to ACS712 #1/A0, but the firmware does not establish
+    that this sensor is physically the high-side sensor. Do not infer that
+    wiring role in the UI.
+    """
     if measurement is None:
         return "--"
     try:
-        value = getattr(measurement, "current1")
+        value = getattr(measurement, "high_side_current")
         if value is None:
             return "--"
         current = float(value)
