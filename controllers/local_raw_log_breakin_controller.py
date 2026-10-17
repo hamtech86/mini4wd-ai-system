@@ -81,11 +81,15 @@ class LocalRawLogBreakinController(BreakinController):
 
         session_id = getattr(self.session, "session_id", None)
         firmware = getattr(self.session, "firmware_version", "") or ""
-        benchmark_type = getattr(self, "selected_benchmark_type", None) or getattr(self, "benchmark_type", None) or self.active_recipe_name or ""
+        active_recipe_name = getattr(self, "active_recipe_name", None)
+        is_benchmark = active_recipe_name in ("STANDARD_3V30S", "FULL_PACKAGE")
+        if is_benchmark:
+            benchmark_type = getattr(self, "selected_benchmark_type", None) or getattr(self, "benchmark_type", None) or active_recipe_name
+        else:
+            benchmark_type = active_recipe_name or ""
         baseline_pwm = getattr(self, "benchmark_baseline_pwm", None)
         purpose = getattr(self, "benchmark_purpose", None)
         notes = ""
-        is_benchmark = getattr(self, "active_recipe_name", None) in ("STANDARD_3V30S", "FULL_PACKAGE")
         if is_benchmark:
             voltage_control_mode = getattr(self, "benchmark_voltage_control_mode", "TERMINAL") or "TERMINAL"
             notes = f"voltage_control_mode={voltage_control_mode}"
