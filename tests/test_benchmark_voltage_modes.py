@@ -2,6 +2,7 @@ import pytest
 
 from controllers.breakin_controller import BreakinController
 from controllers.recipe import BreakinPhase
+import controllers.motor_benchmark as benchmark_module
 from controllers.motor_benchmark import STANDARD_3V30S, _begin, run_benchmark
 
 
@@ -102,3 +103,27 @@ def test_benchmark_voltage_mode_is_recorded_in_session_metadata():
     _begin(controller, STANDARD_3V30S, instance_id=42)
     assert controller.session.voltage_control_mode == 'INPUT'
     assert 'voltage_control_mode=INPUT' in controller.session.notes
+
+
+def test_standard_benchmark_finishes_and_resets_voltage_mode(monkeypatch):
+    controller, serial = make_controller("TERMINAL")
+    monkeypatch.setattr(benchmark_module, "_prepare_3v", lambda *args, **kwargs: True)
+    monkeypatch.setattr(benchmark_module, "_timed_voltage", lambda *args, **kwargs: True)
+    result = run_benchmark(controller, STANDARD_3V30S, voltage_control_mode="INPUT")
+    assert result == []
+    assert controller.running is False
+    assert controller.benchmark_voltage_control_mode == "TERMINAL"
+    assert "FWD" in serial.commands
+    assert "STOP" in serial.commands
+
+
+def test_benchmark_preparation_abort_requests_stop_and_resets_mode(monkeypatch):
+    controller, serial = make_controller("TERMINAL")
+    monkeypatch.setattr(benchmark_module, "_prepare_3v", lambda *args, **kwargs: False)
+    with pytest.raises(RuntimeError, match="stopped during preparation"):
+        run_benchmark(controller, STANDARD_3V30S, voltage_control_mode="INPUT")
+    assert controller.running is False
+    assert controller.current_pwm == 0
+    assert controller.benchmark_voltage_control_mode == "TERMINAL"
+    assert "FWD" in serial.commands
+    assert "STOP" in serial.commands
