@@ -7,6 +7,7 @@
 システム共通設定
 """
 
+import os
 from pathlib import Path
 
 # =====================================================
@@ -24,18 +25,15 @@ ANALYSIS_VERSION = "1.0"
 # ディレクトリ
 # =====================================================
 
-ROOT_DIR = Path(__file__).parent
+ROOT_DIR = Path(__file__).resolve().parent.parent
 
 DATA_DIR = ROOT_DIR / "data"
 LOG_DIR = ROOT_DIR / "logs"
 DB_DIR = ROOT_DIR / "database"
 
-DATABASE_FILE = DB_DIR / "mini4wd.db"
-
-# 必要なディレクトリを生成
-DATA_DIR.mkdir(exist_ok=True)
-LOG_DIR.mkdir(exist_ok=True)
-DB_DIR.mkdir(exist_ok=True)
+# Never create directories or guess a database target during import.
+_configured_db = os.environ.get("MINI4WD_DB_PATH")
+DATABASE_FILE = Path(_configured_db).expanduser() if _configured_db else None
 
 # =====================================================
 # シリアル通信
