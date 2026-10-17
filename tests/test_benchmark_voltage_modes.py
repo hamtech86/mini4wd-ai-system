@@ -146,6 +146,8 @@ def test_raw_log_sidecar_records_voltage_mode_without_changing_raw_body():
     controller.active_instance_id = 42
     controller.session = SimpleNamespace(session_id="session-42", firmware_version="3.00")
     controller.selected_benchmark_type = STANDARD_3V30S
+    controller.active_recipe_name = STANDARD_3V30S
+    controller.benchmark_type = STANDARD_3V30S
     controller.benchmark_voltage_control_mode = "INPUT"
     body = "DATA,raw,body\\r\\nCAL,raw,calibration\\r\\n"
     controller._register_raw_log(body)
