@@ -47,12 +47,20 @@ jobs:
             exit 1
           fi
           cp "$hex_file" "$artifact_dir/MotoreRev.ino.hex"
+          {
+            echo "commit_sha=$GITHUB_SHA"
+            echo "fqbn=arduino:avr:uno"
+            echo "arduino_avr_core=1.8.8"
+            grep -E 'FW_BUILD_ID|FW_VERSION' firmware/motor/MotoreRev.ino || true
+            sha256sum "$artifact_dir/MotoreRev.ino.hex"
+          } > "$artifact_dir/build-manifest.txt"
           echo "HEX artifact staged at $artifact_dir/MotoreRev.ino.hex"
+          cat "$artifact_dir/build-manifest.txt"
 
       - name: Upload compiled Uno firmware
         uses: actions/upload-artifact@v4
         with:
           name: motor-arduino-uno-firmware
-          path: ${{ runner.temp }}/firmware-artifact/MotoreRev.ino.hex
+          path: ${{ runner.temp }}/firmware-artifact/*
           if-no-files-found: error
           retention-days: 14
