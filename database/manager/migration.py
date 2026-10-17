@@ -7,8 +7,7 @@
 
 Database Migration
 
-初回起動時にSQLite Databaseと
-テーブルを生成する。
+明示的な管理操作からのみ呼び出す。通常起動時には実行しない。
 """
 
 from __future__ import annotations
@@ -39,6 +38,8 @@ class Migration:
         if not self.battery_schema_file.exists():
             raise FileNotFoundError(self.battery_schema_file)
 
+        # Explicit management operation against an existing configured database.
+        # DatabaseManager refuses implicit database creation.
         self.database.connect()
 
         with open(self.schema_file, "r", encoding="utf-8") as file:
