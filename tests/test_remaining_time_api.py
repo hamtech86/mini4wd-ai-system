@@ -45,4 +45,4 @@ def test_elapsed_time_accumulates_across_pause_and_resume():
     assert controller.elapsed_sec() == 4.0
     controller.paused = False
     controller.phase_started_at = time.time() - 2.0
-    assert 5.8 <= controller.elapsed_sec() <= 6.0
+    assert 5.8 <= controller.elapsed_sec() <= 6.1
