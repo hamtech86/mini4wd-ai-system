@@ -84,7 +84,13 @@ class SequenceExecutor:
             result.remaining_sec=None
         if self._conditions_met(sequence):self._complete_current(now,"condition_met")
         elif sequence.duration_sec is not None and result.elapsed_sec>=sequence.duration_sec:self._complete_current(now,"duration_elapsed")
-        self._save_checkpoint();return self.current()
+        self._save_checkpoint()
+        # A same-direction phase transition is immediate: use this tick to
+        # start the next enabled sequence. Direction changes retain their
+        # configured pause and are deliberately not advanced through here.
+        if result.status=="COMPLETE" and self.running and self.transition_pause_until is None:
+            return self.execute_current(now=now)
+        return self.current()
 
     def stop(self,reason="stopped"):
         sequence=self.current()
