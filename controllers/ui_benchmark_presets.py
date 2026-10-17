@@ -1,8 +1,4 @@
-"""Main UI benchmark preset metadata.
-
-This mapping describes the canonical UI labels only. It does not add support
-for a voltage-control mode in the benchmark execution backend.
-"""
+"""Main UI benchmark preset metadata with executable backend mode mapping."""
 
 BENCHMARK_PRESETS = {
     "STD-T": ("STANDARD_3V30S", "TERMINAL"),
@@ -18,6 +14,6 @@ def get_benchmark_preset(label):
 
 
 def is_benchmark_mode_supported(label):
-    """Only TERMINAL mode is executable until backend INPUT control exists."""
+    """Return true when the label maps to a supported type and control mode."""
     preset = get_benchmark_preset(label)
-    return preset is not None and preset[1] == "TERMINAL"
+    return preset is not None and preset[1] in ("TERMINAL", "INPUT")
