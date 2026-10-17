@@ -2,30 +2,31 @@ import serial
 import time
 
 
-ser = serial.Serial(
-    "/dev/ttyACM0",
-    57600,
-    timeout=1
-)
-
-time.sleep(2)
-
-
-while True:
-
-    cmd = input("CMD> ")
-
-    ser.write(
-        (cmd + "\n").encode()
+def main():
+    ser = serial.Serial(
+        "/dev/ttyACM0",
+        57600,
+        timeout=1
     )
 
-    time.sleep(0.2)
+    time.sleep(2)
 
-    while ser.in_waiting:
+    while True:
+        cmd = input("CMD> ")
 
-        print(
-            ser.readline()
-            .decode(errors="ignore")
-            .strip()
+        ser.write(
+            (cmd + "\n").encode()
         )
 
+        time.sleep(0.2)
+
+        while ser.in_waiting:
+            print(
+                ser.readline()
+                .decode(errors="ignore")
+                .strip()
+            )
+
+
+if __name__ == "__main__":
+    main()
