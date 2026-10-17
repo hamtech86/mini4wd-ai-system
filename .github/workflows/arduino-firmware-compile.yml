@@ -15,6 +15,8 @@ on:
 jobs:
   compile-arduino-uno:
     runs-on: ubuntu-latest
+    env:
+      SKETCH_DIR: ${{ runner.temp }}/MotoreRev
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -31,9 +33,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sketch_dir="$(mktemp -d)/MotoreRev"
-          mkdir -p "$sketch_dir"
-          cp firmware/motor/MotoreRev.ino "$sketch_dir/MotoreRev.ino"
+          mkdir -p "$SKETCH_DIR"
+          cp firmware/motor/MotoreRev.ino "$SKETCH_DIR/MotoreRev.ino"
           arduino-cli version
           arduino-cli core list
-          arduino-cli compile --fqbn arduino:avr:uno "$sketch_dir"
+          arduino-cli compile --export-binaries --fqbn arduino:avr:uno "$SKETCH_DIR"
+
+      - name: Upload compiled Uno firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: motor-arduino-uno-firmware
+          path: ${{ runner.temp }}/MotoreRev/*.hex
+          if-no-files-found: error
+          retention-days: 14
