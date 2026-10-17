@@ -136,7 +136,7 @@ class SerialController:
         for key in ("FW", "BUILD", "ID"):
             if not isinstance(info.get(key), str) or not info[key].strip():
                 raise ValueError("Invalid " + key)
-        if not re.fullmatch(r"\\d+(?:\\.\\d+)+", info["FW"]):
+        if not re.fullmatch(r"\d+(?:\.\d+)+", info["FW"]):
             raise ValueError("Invalid FW version")
         if not re.fullmatch(r"[A-Za-z0-9._-]{1,64}", info["BUILD"]):
             raise ValueError("Invalid BUILD identifier")
