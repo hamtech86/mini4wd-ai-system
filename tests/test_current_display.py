@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from controllers.current_display import format_high_side_current, format_input_voltage
+from controllers.current_display import format_driver_input_current, format_input_voltage
 
 
 @pytest.mark.parametrize(
@@ -35,14 +35,13 @@ def test_input_voltage_rejects_missing_invalid_or_non_finite_values(value):
     assert format_input_voltage(measurement) == "--"
 
 
-def test_high_side_current_requires_explicit_backend_sensor_role():
-    # Firmware identifies ACS712 #1 as A0/current1, but does not establish
-    # that it is the physical high-side sensor. Do not infer the role.
-    assert format_high_side_current(SimpleNamespace(current1=0.1234, current_avg=0.4567)) == "--"
-    assert format_high_side_current(SimpleNamespace(high_side_current=0.1234, current1=0.4567)) == "0.123 A"
+def test_driver_input_current_uses_current1_from_acs712_one():
+    # Wiring defines ACS712 #1/A0 as driver input-path current.
+    assert format_driver_input_current(SimpleNamespace(current1=0.1234, current_avg=0.4567)) == "0.123 A"
+    assert format_driver_input_current(SimpleNamespace(current1=0.0)) == "0.000 A"
 
 
-def test_high_side_current_preserves_real_zero_and_missing_as_placeholder():
-    assert format_high_side_current(SimpleNamespace(high_side_current=0.0)) == "0.000 A"
-    assert format_high_side_current(None) == "--"
-    assert format_high_side_current(SimpleNamespace(current_avg=0.5)) == "--"
+def test_driver_input_current_preserves_real_zero_and_missing_as_placeholder():
+    assert format_driver_input_current(SimpleNamespace(current1=0.0)) == "0.000 A"
+    assert format_driver_input_current(None) == "--"
+    assert format_driver_input_current(SimpleNamespace(current_avg=0.5)) == "--"
