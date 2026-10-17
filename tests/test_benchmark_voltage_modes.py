@@ -154,3 +154,27 @@ def test_raw_log_sidecar_records_voltage_mode_without_changing_raw_body():
     assert library.record.measurement_condition == STANDARD_3V30S
     assert "voltage_control_mode=INPUT" in library.record.notes
     assert library.raw_body == body
+
+
+def test_regular_recipe_raw_log_does_not_inherit_previous_benchmark_mode():
+    from types import SimpleNamespace
+
+    class FakeRawLogLibrary:
+        def register(self, record, raw_body):
+            self.record = record
+            self.raw_body = raw_body
+            return "/fake/raw-log-path"
+
+    library = FakeRawLogLibrary()
+    controller = LocalRawLogBreakinController(
+        serial_controller=MockSerial(), raw_log_library=library
+    )
+    controller.active_instance_id = 42
+    controller.session = SimpleNamespace(session_id="session-42", firmware_version="3.00")
+    controller.active_recipe_name = "TuneBasic"
+    controller.selected_benchmark_type = STANDARD_3V30S
+    controller.benchmark_type = STANDARD_3V30S
+    controller.benchmark_voltage_control_mode = "INPUT"
+    controller._register_raw_log("DATA,raw,body\\r\\n")
+    assert library.record.measurement_condition == "TuneBasic"
+    assert "voltage_control_mode=" not in library.record.notes
