@@ -24,6 +24,13 @@ class LocalRawLogBreakinController(BreakinController):
         self._registered_raw_log_ids = []
 
     def start(self, recipe, instance_id=None, resume=False):
+        # A regular recipe must not inherit a prior benchmark's metadata.
+        self.selected_benchmark_type = None
+        self.selected_benchmark_voltage_mode = None
+        self.benchmark_voltage_control_mode = "TERMINAL"
+        self.benchmark_type = None
+        self.benchmark_purpose = None
+        self.benchmark_baseline_pwm = None
         if hasattr(self.serial, "reset_raw_log"):
             self.serial.reset_raw_log()
         self._measurement_raw_log_parts = []
