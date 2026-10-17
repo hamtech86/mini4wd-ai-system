@@ -31,7 +31,7 @@ class RawLogDatabaseManager(QDialog):
         root = Path(__file__).resolve().parents[1]
         self.library = RawLogLibrary(root / "data" / "raw_logs")
         self.visibility = InstanceVisibilityStore(root / "data" / "instance_manager")
-        self.db = DatabaseManager()
+        self.db = DatabaseManager(required_tables=("motor_model", "motor_instance", "measurement", "measurement_session"))
         self.db.connect()
         self.instance_repo = MotorInstanceRepository(self.db)
         self.records = []
