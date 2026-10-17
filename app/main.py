@@ -2,6 +2,7 @@
 import sys
 import sqlite3
 from pathlib import Path
+from datetime import datetime
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -13,7 +14,7 @@ from database.path_resolver import configure_shared_database_path, connect_datab
 configure_shared_database_path(PROJECT_ROOT)
 
 from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtWidgets import QApplication, QMessageBox, QGroupBox, QGridLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget, QTabWidget, QHBoxLayout, QCheckBox, QProgressBar
+from PyQt5.QtWidgets import QApplication, QMessageBox, QGroupBox, QGridLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget, QTabWidget, QHBoxLayout, QCheckBox, QProgressBar, QPlainTextEdit
 from loguru import logger
 from ui.main_window import MainWindow as BaseMainWindow
 from communication.serial_controller import SerialController
@@ -61,21 +62,58 @@ class MainWindow(BaseMainWindow):
         self.battery_serial_status=QLabel("BATTERY: DISCONNECTED  /dev/ttyUSB0"); self.battery_connect=QPushButton("BATTERY CONNECT"); self.battery_disconnect=QPushButton("BATTERY DISCONNECT"); self.battery_disconnect.setEnabled(False)
         self.battery_connect.clicked.connect(self.connect_battery_serial); self.battery_disconnect.clicked.connect(self.disconnect_battery_serial)
         row.addWidget(self.motor_serial_status,0,0); row.addWidget(self.motor_connect,0,1); row.addWidget(self.motor_disconnect,0,2); row.addWidget(self.battery_serial_status,1,0); row.addWidget(self.battery_connect,1,1); row.addWidget(self.battery_disconnect,1,2)
-        root_layout.addWidget(device_box); tabs=QTabWidget(); tabs.addTab(old_central,"MOTOR BREAK-IN"); self.battery_tab=BatteryTab(self.db_path,transport=self.battery_serial_controller,parent=self); tabs.addTab(self.battery_tab,"BATTERY"); root_layout.addWidget(tabs,1); self.setCentralWidget(root)
+        root_layout.addWidget(device_box); tabs=QTabWidget(); tabs.addTab(old_central,"MOTOR BREAK-IN"); self.battery_tab=BatteryTab(self.db_path,transport=self.battery_serial_controller,parent=self); tabs.addTab(self.battery_tab,"BATTERY"); root_layout.addWidget(tabs,1); self._build_ui_log_panel(root_layout); self.setCentralWidget(root)
+
+    BENCHMARK_PRESETS = {"STD-T": (STANDARD_3V30S, "TERMINAL"), "Full-T": (FULL_PACKAGE, "TERMINAL"), "STD-I": (STANDARD_3V30S, "INPUT"), "Full-I": (FULL_PACKAGE, "INPUT")}
 
     def load_recipes(self):
         self.recipe.clear()
-        for name in self.recipe_engine.names():
-            self.recipe.addItem(name, name)
-        self.recipe.addItem(STANDARD_3V30S, STANDARD_3V30S)
-        self.recipe.addItem(FULL_PACKAGE, FULL_PACKAGE)
+        for name in self.recipe_engine.names(): self.recipe.addItem(name, name)
+        for label in self.BENCHMARK_PRESETS: self.recipe.addItem(label, label)
 
     def recipe_changed(self, index):
         name = self.recipe.itemData(index) if hasattr(self, "recipe") else None
-        if name in (STANDARD_3V30S, FULL_PACKAGE):
-            self._load_benchmark_sequence(name)
+        if name in self.BENCHMARK_PRESETS:
+            benchmark_type, mode = self.BENCHMARK_PRESETS[name]
+            self._load_benchmark_sequence(benchmark_type, mode, name)
             return
         super().recipe_changed(index)
+
+    def _build_ui_log_panel(self, parent_layout):
+        box=QGroupBox("LOG / ERROR LOG"); layout=QVBoxLayout(box)
+        self.ui_log=QPlainTextEdit(); self.ui_log.setReadOnly(True); self.ui_log.setMaximumBlockCount(500); self.ui_log.setPlaceholderText("Controller / UI / Sequence events will appear here."); layout.addWidget(self.ui_log)
+        self.error_code_label=QLabel("Error Code: --"); self.error_message_label=QLabel("Error Message: --"); self.error_message_label.setWordWrap(True); layout.addWidget(self.error_code_label); layout.addWidget(self.error_message_label)
+        actions=QHBoxLayout(); self.copy_error_button=QPushButton("COPY ERROR DETAILS"); self.copy_error_button.setEnabled(False); self.copy_error_button.clicked.connect(self.copy_error_details); actions.addWidget(self.copy_error_button)
+        clear=QPushButton("CLEAR LOG"); clear.clicked.connect(self.ui_log.clear); actions.addWidget(clear); actions.addStretch(); layout.addLayout(actions); parent_layout.addWidget(box)
+        self._ui_error_code=None; self._ui_error_message=None; self._log_event("UI ready; hardware identity has not been verified.")
+
+    def _log_event(self, message):
+        if hasattr(self,"ui_log"):
+            stamp=datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z"); self.ui_log.appendPlainText(f"[{stamp}] {message}")
+
+    def _set_ui_error(self, code, message):
+        self._ui_error_code=str(code) if code else None; self._ui_error_message=str(message) if message else None
+        self.error_code_label.setText(f"Error Code: {self._ui_error_code or '--'}"); self.error_message_label.setText(f"Error Message: {self._ui_error_message or '--'}")
+        self.copy_error_button.setEnabled(bool(self._ui_error_code or self._ui_error_message))
+        if self._ui_error_message: self._log_event(f"ERROR {self._ui_error_code or '--'}: {self._ui_error_message}")
+
+    def copy_error_details(self):
+        if not (self._ui_error_code or self._ui_error_message): return
+        parts=[]
+        if self._ui_error_code: parts.append(f"Error Code: {self._ui_error_code}")
+        if self._ui_error_message: parts.append(f"Error Message: {self._ui_error_message}")
+        QApplication.clipboard().setText("\\n".join(parts)); self.copy_error_button.setText("COPIED ERROR DETAILS")
+
+    def _identity_verified(self, controller=None):
+        controller=controller or self._motor_controller()
+        return bool(controller is not None and getattr(controller,"identity_verified",False) is True)
+
+    def _require_verified_motor(self, operation):
+        if self._identity_verified(): return True
+        message=f"{operation} blocked: serial-port connection is not device identification. The current backend does not expose a verified INFO identity; no drive command was issued."
+        self._set_ui_error("MOTOR_IDENTITY_UNVERIFIED",message); self.run_state.setText("BLOCKED / INFO NOT VERIFIED")
+        if hasattr(self,"result") and "STATUS" in self.result: self.result["STATUS"].setText("BLOCKED / INFO NOT VERIFIED")
+        self._log_event(message); return False
 
     def _motor_controller(self):
         controller=getattr(self,"serial_controller",None)
@@ -111,10 +149,14 @@ class MainWindow(BaseMainWindow):
 
     def connect_motor_serial(self):
         controller=self._motor_controller()
-        if controller is None: QMessageBox.warning(self,"Motor Connection","Motor serial controller is not available."); return
-        if controller.connected:return
-        if controller.connect(): self.motor_serial_status.setText("MOTOR: CONNECTED  /dev/ttyACM0 @ 57600"); self.motor_connect.setEnabled(False); self.motor_disconnect.setEnabled(True)
-        else:self.motor_serial_status.setText("MOTOR: CONNECTION FAILED  /dev/ttyACM0")
+        if controller is None:
+            message="Motor serial controller is not available."; self._set_ui_error("MOTOR_CONTROLLER_UNAVAILABLE",message); QMessageBox.warning(self,"Motor Connection",message); return
+        if controller.connected: self.motor_serial_status.setText("MOTOR: PORT CONNECTED / INFO NOT VERIFIED"); return
+        if controller.connect():
+            self.motor_serial_status.setText("MOTOR: PORT CONNECTED / INFO NOT VERIFIED — DRIVE BLOCKED"); self.motor_connect.setEnabled(False); self.motor_disconnect.setEnabled(True); self._log_event("Motor serial port connected; device INFO identity is not verified.")
+            if not self._identity_verified(controller): self._set_ui_error("MOTOR_IDENTITY_UNVERIFIED","Serial connection succeeded, but the backend has no verified INFO identity. Drive remains blocked.")
+        else:
+            self.motor_serial_status.setText("MOTOR: CONNECTION FAILED  /dev/ttyACM0"); self._set_ui_error("MOTOR_SERIAL_CONNECT_FAILED","SerialController.connect() returned failure; device identity was not verified.")
 
     def disconnect_motor_serial(self):
         controller=self._motor_controller()
@@ -125,7 +167,7 @@ class MainWindow(BaseMainWindow):
             try:controller.disconnect()
             except Exception:logger.exception("Failed to disconnect motor serial")
         if hasattr(self,"sequence_executor"):self.sequence_executor.stop("motor_disconnected")
-        self.motor_serial_status.setText("MOTOR: DISCONNECTED  /dev/ttyACM0"); self.motor_connect.setEnabled(True); self.motor_disconnect.setEnabled(False)
+        self.motor_serial_status.setText("MOTOR: DISCONNECTED  /dev/ttyACM0"); self.motor_connect.setEnabled(True); self.motor_disconnect.setEnabled(False); self._log_event("Motor serial disconnected. Any STOP command sent before disconnect is not physical-stop confirmation.")
 
     def connect_battery_serial(self):
         controller=self.battery_serial_controller
@@ -207,19 +249,15 @@ class MainWindow(BaseMainWindow):
             if widget is not None:widget.deleteLater()
         self.sequence_checks=[];self.sequence_progress.setValue(0);self.sequence_status.setText(status)
 
-    def _load_benchmark_sequence(self, benchmark_type):
-        self._clear_sequence_panel(f"Motor Benchmark: {benchmark_type}")
-        check=QCheckBox(
-            "01 | STANDARD_3V30S | PREPARE 2 s → 3.00 V target 30 s"
-            if benchmark_type == STANDARD_3V30S
-            else "01 | FULL_PACKAGE | PREPARE 2 s → BASELINE 30 s → +5% 30 s → RETURN 10 s → -5% 30 s → RETURN 10 s"
-        )
-        check.setChecked(True)
-        check.setProperty("benchmark_type", benchmark_type)
-        self.sequence_layout.addWidget(check)
-        self.sequence_checks=[(benchmark_type,check)]
-        self.sequence_layout.addStretch()
-        self.sequence_status.setText(f"Motor Benchmark: {benchmark_type}")
+    def _load_benchmark_sequence(self, benchmark_type, mode="TERMINAL", preset_label=None):
+        label=preset_label or ("STD-T" if benchmark_type==STANDARD_3V30S else "Full-T")
+        self._clear_sequence_panel(f"Motor Benchmark: {label} / {benchmark_type} / {mode}")
+        detail=("01 | STANDARD_3V30S | PREPARE 2 s → 3.00 V target 30 s" if benchmark_type==STANDARD_3V30S else "01 | FULL_PACKAGE | PREPARE 2 s → BASELINE 30 s → +5% 30 s → RETURN 10 s → -5% 30 s → RETURN 10 s")
+        check=QCheckBox(f"{label} | Benchmark Type={('STANDARD' if benchmark_type==STANDARD_3V30S else 'FULL_PACKAGE')} | Voltage Control Mode={mode} | {detail}")
+        check.setChecked(True); check.setProperty("benchmark_type",benchmark_type); check.setProperty("voltage_control_mode",mode); check.setProperty("preset_label",label)
+        self.sequence_layout.addWidget(check); self.sequence_checks=[(label,check)]; self.sequence_layout.addStretch()
+        status=(f"{label}: BLOCKED — backend INPUT benchmark control is not implemented; no fallback to TERMINAL is allowed." if mode=="INPUT" else f"Motor Benchmark: {label} / {benchmark_type} / TERMINAL")
+        self.sequence_status.setText(status); self._log_event(f"Recipe selected: {label} (Benchmark Type={('STANDARD' if benchmark_type==STANDARD_3V30S else 'FULL_PACKAGE')}, Voltage Control Mode={mode}).")
 
     def _load_recipe_sequence(self,name):
         recipe=self.recipe_engine.get(name)
@@ -265,22 +303,28 @@ class MainWindow(BaseMainWindow):
 
     def _execute_selected_sequences(self):
         name=self._current_recipe_name()
-        if name in (STANDARD_3V30S, FULL_PACKAGE):
+        if name in self.BENCHMARK_PRESETS:
+            benchmark_type,mode=self.BENCHMARK_PRESETS[name]
             selected=[check for sid,check in self.sequence_checks if sid==name and check.isChecked()]
-            if len(selected)!=1:
-                self.sequence_status.setText(f"{name} が選択されていません");return
-            self._start_benchmark(name)
-            return
+            if len(selected)!=1: self.sequence_status.setText(f"{name} が選択されていません"); return
+            if mode!="TERMINAL":
+                message=f"{name} cannot run: current benchmark backend does not implement INPUT voltage control. No TERMINAL fallback was used."
+                self.sequence_status.setText(message); self._set_ui_error("BENCHMARK_INPUT_MODE_UNSUPPORTED",message); return
+            if not self._require_verified_motor(name): self.sequence_status.setText(f"{name}: BLOCKED / INFO NOT VERIFIED"); return
+            self._start_benchmark(benchmark_type); return
         recipe=self.recipe_engine.get(name)
         if recipe is None:self.sequence_status.setText("レシピが選択されていません");return
         enabled_ids={sid for sid,check in self.sequence_checks if check.isChecked()}
         if not enabled_ids:self.sequence_status.setText("実施するSequenceが選択されていません");return
         controller=self._motor_controller()
         if controller is None or not getattr(controller,"connected",False):QMessageBox.warning(self,"Sequence","先にMOTOR CONNECTを実行してください。");return
+        if not self._require_verified_motor("Sequence"):
+            self.sequence_status.setText("BLOCKED / INFO NOT VERIFIED"); return
         self.sequence_selected_ids=enabled_ids;self.sequence_selected_total=len(enabled_ids);self.sequence_progress.setValue(0);self.sequence_progress.setFormat(f"Sequence Progress: 0/{self.sequence_selected_total}  %p%")
         self.sequence_executor.load_recipe(recipe,enabled_ids=enabled_ids);self.sequence_executor.start();self.sequence_timer.start();self.timer.start();self.sequence_execute.setEnabled(False);self.sequence_stop.setEnabled(True);self.start.setEnabled(False);self.stop.setEnabled(True);self.manager.setEnabled(False);self.instance.setEnabled(False);self.recipe.setEnabled(False);self.update_db.setEnabled(False);self.copy.setEnabled(False);self.result["STATUS"].setText("RUNNING");self.run_state.setText("STARTING...");current=self.sequence_executor.current();self._update_sequence_highlight(current.sequence_id if current else None);self._update_sequence_main_ui(current)
 
     def _start_benchmark(self, benchmark_type=STANDARD_3V30S):
+        if not self._require_verified_motor("Motor Benchmark"): return
         if not self.breakin_controller:
             QMessageBox.warning(self,"Controller","BreakinController is not available.");return
         controller=self._motor_controller()
@@ -303,7 +347,7 @@ class MainWindow(BaseMainWindow):
         finally:
             self.sequence_timer.stop();self.timer.stop()
             if hasattr(self,"sequence_executor"):self.sequence_executor.stop("emergency_stop")
-            self.sequence_execute.setEnabled(True);self.sequence_stop.setEnabled(False);self.stop.setEnabled(False);self.start.setEnabled(True);self.manager.setEnabled(True);self.instance.setEnabled(True);self.recipe.setEnabled(True);self.run_state.setText("EMERGENCY STOP");self.result["STATUS"].setText("EMERGENCY STOP");self.sequence_status.setText("緊急停止");self._update_sequence_highlight(None)
+            self.sequence_execute.setEnabled(True);self.sequence_stop.setEnabled(False);self.stop.setEnabled(False);self.start.setEnabled(True);self.manager.setEnabled(True);self.instance.setEnabled(True);self.recipe.setEnabled(True);self.run_state.setText("STOP REQUESTED / PHYSICAL STOP UNCONFIRMED");self.result["STATUS"].setText("STOP REQUESTED / UNCONFIRMED");self.sequence_status.setText("停止要求を送信しました。物理停止は未確認です。");self._log_event("Emergency STOP requested; physical motor stop is unconfirmed.");self._update_sequence_highlight(None)
 
     def _sequence_tick(self):
         try:
@@ -315,10 +359,10 @@ class MainWindow(BaseMainWindow):
                 self.start.setEnabled(True);self.manager.setEnabled(True);self.instance.setEnabled(True);self.recipe.setEnabled(True);self.sequence_status.setText("完了: 100%");return
             self._update_sequence_main_ui(current);self._update_sequence_highlight(current.sequence_id if current else None)
         except Exception as exc:
-            self.sequence_timer.stop();self.timer.stop();self.sequence_executor.stop("error");self.sequence_execute.setEnabled(True);self.sequence_stop.setEnabled(False);self.stop.setEnabled(False);self.start.setEnabled(True);self.manager.setEnabled(True);self.instance.setEnabled(True);self.recipe.setEnabled(True);self._update_sequence_highlight(None);self.sequence_status.setText(f"Sequence ERROR: {exc}");self.result["STATUS"].setText("ERROR");logger.exception("Sequence execution failed");QMessageBox.critical(self,"Sequence Error",str(exc))
+            self.sequence_timer.stop();self.timer.stop();self.sequence_executor.stop("error");self.sequence_execute.setEnabled(True);self.sequence_stop.setEnabled(False);self.stop.setEnabled(False);self.start.setEnabled(True);self.manager.setEnabled(True);self.instance.setEnabled(True);self.recipe.setEnabled(True);self._update_sequence_highlight(None);self.sequence_status.setText(f"Sequence ERROR: {exc}");self.result["STATUS"].setText("ERROR");self._set_ui_error(type(exc).__name__,str(exc));logger.exception("Sequence execution failed");QMessageBox.critical(self,"Sequence Error",str(exc))
 
     def _stop_sequences(self):
-        self.sequence_timer.stop();self.timer.stop();self.sequence_executor.stop("operator_stop");self.sequence_execute.setEnabled(True);self.sequence_stop.setEnabled(False);self.stop.setEnabled(False);self.start.setEnabled(True);self.manager.setEnabled(True);self.instance.setEnabled(True);self.recipe.setEnabled(True);self._update_sequence_highlight(None);self.sequence_status.setText("停止");self.run_state.setText("STOPPED")
+        self.sequence_timer.stop();self.timer.stop();self.sequence_executor.stop("operator_stop");self.sequence_execute.setEnabled(True);self.sequence_stop.setEnabled(False);self.stop.setEnabled(False);self.start.setEnabled(True);self.manager.setEnabled(True);self.instance.setEnabled(True);self.recipe.setEnabled(True);self._update_sequence_highlight(None);self.sequence_status.setText("停止要求を送信しました。物理停止は未確認です。");self.run_state.setText("STOP REQUESTED / PHYSICAL STOP UNCONFIRMED");self.result["STATUS"].setText("STOP REQUESTED / UNCONFIRMED");self._log_event("Sequence STOP requested; physical motor stop is unconfirmed.")
 
 def build_context():
     serial_controller=SerialController(serial_port="/dev/ttyACM0",baudrate=57600)
