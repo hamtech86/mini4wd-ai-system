@@ -264,7 +264,7 @@ class MainWindow(BaseMainWindow):
         check=QCheckBox(f"{label} | Benchmark Type={('STANDARD' if benchmark_type==STANDARD_3V30S else 'FULL_PACKAGE')} | Voltage Control Mode={mode} | {detail}")
         check.setChecked(True); check.setProperty("benchmark_type",benchmark_type); check.setProperty("voltage_control_mode",mode); check.setProperty("preset_label",label)
         self.sequence_layout.addWidget(check); self.sequence_checks=[(label,check)]; self.sequence_layout.addStretch()
-        status=(f"{label}: BLOCKED — backend INPUT benchmark control is not implemented; no fallback to TERMINAL is allowed." if mode=="INPUT" else f"Motor Benchmark: {label} / {benchmark_type} / TERMINAL")
+        status=f"Motor Benchmark: {label} / {benchmark_type} / {mode}"
         self.sequence_status.setText(status)
         self.recipe_detail.setText(f"Benchmark Type: {('STANDARD' if benchmark_type==STANDARD_3V30S else 'FULL_PACKAGE')} / Voltage Control Mode: {mode}")
         self.phase_detail.setText(detail)
@@ -319,11 +319,8 @@ class MainWindow(BaseMainWindow):
             benchmark_type,mode=self.BENCHMARK_PRESETS[name]
             selected=[check for sid,check in self.sequence_checks if sid==name and check.isChecked()]
             if len(selected)!=1: self.sequence_status.setText(f"{name} が選択されていません"); return
-            if mode!="TERMINAL":
-                message=f"{name} cannot run: current benchmark backend does not implement INPUT voltage control. No TERMINAL fallback was used."
-                self.sequence_status.setText(message); self._set_ui_error("BENCHMARK_INPUT_MODE_UNSUPPORTED",message); return
             if not self._require_verified_motor(name): self.sequence_status.setText(f"{name}: BLOCKED / INFO NOT VERIFIED"); return
-            self._start_benchmark(benchmark_type); return
+            self._start_benchmark(benchmark_type, mode); return
         recipe=self.recipe_engine.get(name)
         if recipe is None:self.sequence_status.setText("レシピが選択されていません");return
         enabled_ids={sid for sid,check in self.sequence_checks if check.isChecked()}
@@ -335,13 +332,14 @@ class MainWindow(BaseMainWindow):
         self.sequence_selected_ids=enabled_ids;self.sequence_selected_total=len(enabled_ids);self.sequence_progress.setValue(0);self.sequence_progress.setFormat(f"Sequence Progress: 0/{self.sequence_selected_total}  %p%")
         self.sequence_executor.load_recipe(recipe,enabled_ids=enabled_ids);self.sequence_executor.start();self.sequence_timer.start();self.timer.start();self.sequence_execute.setEnabled(False);self.sequence_stop.setEnabled(True);self.start.setEnabled(False);self.stop.setEnabled(True);self.manager.setEnabled(False);self.instance.setEnabled(False);self.recipe.setEnabled(False);self.update_db.setEnabled(False);self.copy.setEnabled(False);self.result["STATUS"].setText("RUNNING");self.run_state.setText("STARTING...");current=self.sequence_executor.current();self._update_sequence_highlight(current.sequence_id if current else None);self._update_sequence_main_ui(current)
 
-    def _start_benchmark(self, benchmark_type=STANDARD_3V30S):
+    def _start_benchmark(self, benchmark_type=STANDARD_3V30S, voltage_control_mode="TERMINAL"):
         if not self._require_verified_motor("Motor Benchmark"): return
         if not self.breakin_controller:
             QMessageBox.warning(self,"Controller","BreakinController is not available.");return
         controller=self._motor_controller()
         if controller is None or not getattr(controller,"connected",False):QMessageBox.warning(self,"Benchmark","先にMOTOR CONNECTを実行してください。");return
         self.breakin_controller.selected_benchmark_type=benchmark_type
+        self.breakin_controller.selected_benchmark_voltage_mode=voltage_control_mode
         self.database_updated=False;self.last_result_data=None;self.last_result_benchmark=True;self.database_status.setText("DATABASE: NOT UPDATED");self.update_db.setEnabled(False);self.copy.setEnabled(False);self.start.setEnabled(False);self.manager.setEnabled(False);self.instance.setEnabled(False);self.recipe.setEnabled(False);self.stop.setEnabled(True);self.result["STATUS"].setText("RUNNING");self.run_state.setText("STARTING...")
         self.breakin_worker=BreakinWorker(self.breakin_controller,None,True)
         self.breakin_worker.completed.connect(lambda data:self.complete(data,True));self.breakin_worker.failed.connect(self.failed);self.breakin_worker.finished.connect(self.finished);self.timer.start();self.breakin_worker.start()
