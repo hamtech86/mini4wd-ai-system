@@ -75,17 +75,17 @@ class RawLogLibrary:
             match = self._ID_PATTERN.fullmatch(str(row.get("log_id") or ""))
             if match and match.group(1) == kind:
                 maximum = max(maximum, int(match.group(2)))
-        for search_root in (self.root / kind.lower(), self.root.parent):
-            if not search_root.exists():
-                continue
+        # Search only this library's storage tree. Searching self.root.parent
+        # mixes unrelated libraries/test fixtures and causes IDs to skip.
+        if self.root.exists():
             try:
-                paths = search_root.rglob(f"{prefix}*")
+                paths = self.root.rglob(f"{prefix}*")
+                for path in paths:
+                    match = self._ID_PATTERN.match(path.stem)
+                    if match and match.group(1) == kind:
+                        maximum = max(maximum, int(match.group(2)))
             except OSError:
-                continue
-            for path in paths:
-                match = self._ID_PATTERN.match(path.stem)
-                if match and match.group(1) == kind:
-                    maximum = max(maximum, int(match.group(2)))
+                pass
         return f"{prefix}{maximum + 1:0{self.ID_WIDTH}d}"
 
     def register(self, record: RawLog, raw_body: str, extension: str = ".log") -> Path:
@@ -114,7 +114,12 @@ class RawLogLibrary:
         self._append_index(self._index_row(record, raw_path))
         return raw_path
 
-    def update_metadata(self, log_id: str, **changes: str) -> RawLog:
+    def update_metadata(self, *args: str, **changes: str) -> RawLog:
+        # Keep log_id positional-only so attempts to mutate it via keyword
+        # reach the immutability check instead of Python's duplicate-arg error.
+        if len(args) != 1:
+            raise TypeError("update_metadata() requires one positional log_id")
+        log_id = args[0]
         if "log_id" in changes:
             raise ValueError("log_id is immutable")
         record, raw_path, metadata_path = self.get(log_id)
@@ -152,7 +157,9 @@ class RawLogLibrary:
         raise KeyError(f"unknown log_id: {log_id}")
 
     def read_raw(self, log_id: str) -> str:
-        return self.get(log_id)[1].read_text(encoding="utf-8")
+        # Preserve CRLF and LF exactly; read_text() translates newlines.
+        with self.get(log_id)[1].open("r", encoding="utf-8", newline="") as fh:
+            return fh.read()
 
     def list_logs(self, device_type: Optional[str] = None) -> List[RawLog]:
         result = []
