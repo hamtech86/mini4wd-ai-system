@@ -238,8 +238,9 @@ class MainWindow(BaseMainWindow):
 
     def _recipe_selection_changed(self,index):
         name=self.recipe.itemData(index) if hasattr(self,"recipe") else None
-        if name in (STANDARD_3V30S, FULL_PACKAGE):
-            self._load_benchmark_sequence(name)
+        if name in self.BENCHMARK_PRESETS:
+            benchmark_type, mode = self.BENCHMARK_PRESETS[name]
+            self._load_benchmark_sequence(benchmark_type, mode, name)
             return
         self._load_recipe_sequence(name)
 
@@ -339,7 +340,13 @@ class MainWindow(BaseMainWindow):
 
     def complete(self,data,benchmark):
         super().complete(data,benchmark)
+        self._log_event("Measurement run completed. This status does not certify physical stop unless separately observed.")
         self._update_estimated_result()
+
+    def failed(self,message):
+        self._set_ui_error(None, message)
+        self._log_event("Worker reported failure; see Error Message for the actual reported text.")
+        super().failed(message)
 
     def stop_run(self):
         try:
