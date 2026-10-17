@@ -302,7 +302,7 @@ class MainWindow(BaseMainWindow):
             for key,value in values.items():
                 if key in self.progress:self.progress[key].setText(str(value))
         if hasattr(self,"live"):
-            values={"DIR":getattr(current,"direction","FWD"),"PWM":getattr(current,"pwm",0),"RPM":self._latest_rpm() if hasattr(self,"_latest_rpm") else "--","V":f"{float(getattr(m,'motor_voltage',0)):.2f} V" if m else "--","A":format_high_side_current(m),"STATE":"RUNNING","TEMP":f"{float(getattr(m,'motor_temperature',0)):.1f} C" if m else "--","Arduino":"CONNECTED"}
+            values={"DIR":getattr(current,"direction","FWD"),"PWM":getattr(current,"pwm",0),"RPM":self._latest_rpm() if hasattr(self,"_latest_rpm") else "--","V":f"{float(getattr(m,'motor_voltage',0)):.2f} V" if m else "--","A":format_high_side_current(m),"STATE":"RUNNING","TEMP":f"{float(getattr(m,'motor_temperature',0)):.1f} C" if m else "--","Arduino":("IDENTITY VERIFIED" if self._identity_verified() else "PORT CONNECTED / INFO UNVERIFIED")}
             for key,value in values.items():
                 if key in self.live:self.live[key].setText(str(value))
         self.sequence_status.setText(f"実行中: {current.sequence_id}  {progress}%  残り {remaining:.1f}s" if remaining is not None else f"実行中: {current.sequence_id}  {progress}%  条件待ち")
