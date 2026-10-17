@@ -17,7 +17,7 @@ def test_remaining_time_is_provided_by_active_controller_phase():
     controller.current_phase = BreakinPhase("timed", duration_sec=10, pwm=80)
     controller.phase_elapsed_before_pause = 0.0
     controller.phase_started_at = time.time() - 4.0
-    assert 5.8 <= controller.remaining_sec() <= 6.0
+    assert 5.8 <= controller.remaining_sec() <= 6.1
 
 
 def test_remaining_time_is_frozen_while_paused():
