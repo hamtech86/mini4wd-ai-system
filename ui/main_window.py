@@ -136,7 +136,7 @@ class MainWindow(QMainWindow):
             grid.addWidget(box, i // 4, i % 4)
         rv.addLayout(grid)
         livegrid = QGridLayout()
-        self.live = {k: QLabel("--") for k in ("Arduino", "DIR", "PWM", "RPM", "V", "A", "STATE", "TEMP")}
+        self.live = {k: QLabel("--") for k in ("Arduino", "RPM", "STATE", "TEMP")}
         for i, (key, widget) in enumerate(self.live.items()):
             livegrid.addWidget(QLabel(key + ":"), (i // 4) * 2, (i % 4) * 2)
             livegrid.addWidget(widget, (i // 4) * 2, (i % 4) * 2 + 1)
