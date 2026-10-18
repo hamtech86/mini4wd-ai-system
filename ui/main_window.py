@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import (
     QSizePolicy, QVBoxLayout, QWidget
 )
 from controllers.recipe_engine import RecipeEngine
-from controllers.current_display import format_driver_input_current, format_input_voltage
+from controllers.current_display import format_driver_input_current, format_input_voltage, format_motor_voltage
 from database.path_resolver import connect_database, configure_shared_database_path, resolve_database_path
 
 
@@ -303,13 +303,16 @@ class MainWindow(QMainWindow):
             "DIR": getattr(m, "direction", getattr(serial, "direction", "--")) if m else getattr(serial, "direction", "--"),
             "PWM": getattr(m, "pwm", getattr(serial, "last_pwm", 0)) if m else getattr(serial, "last_pwm", 0),
             "RPM": f"{rpm:.0f}" if rpm is not None else "--",
-            "V": f"{float(getattr(m, 'motor_voltage', 0)):.2f} V" if m else "--",
+            "V": format_motor_voltage(m),
             "A": format_driver_input_current(m),
             "STATE": getattr(m, "state", "NO DATA") if m else "NO DATA",
             "TEMP": f"{float(getattr(m, 'motor_temperature', 0)):.1f} C" if m else "--",
         }
         for key, value in values.items():
-            self.live[key].setText(str(value))
+            # The canonical execution panel owns DIR/PWM/voltage/current.
+            # The supplemental live panel intentionally omits those duplicates.
+            if key in self.live:
+                self.live[key].setText(str(value))
         if not c or not getattr(c, "running", False):
             return
         phase = getattr(c, "current_phase", None)
