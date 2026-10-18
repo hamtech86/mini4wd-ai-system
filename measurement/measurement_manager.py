@@ -23,6 +23,7 @@ from measurement.measurement_session import (
     MeasurementType,
 )
 from measurement.filters import FilterGroup
+from communication.csv_parser import CSVParser
 
 
 class MeasurementManager:
@@ -44,6 +45,15 @@ class MeasurementManager:
 
         if self.serial_controller:
             raw = self.serial_controller.read_measurement()
+
+        if isinstance(raw, str):
+            # SerialController returns the exact DATA CSV line. Parse it using
+            # the canonical 26-column protocol parser before validation.
+            parser = getattr(self.serial_controller, "parser", None) or CSVParser()
+            try:
+                raw = parser.parse(raw)
+            except (TypeError, ValueError):
+                return None
 
         data = self._parse_frame(raw)
         if data is None:
@@ -128,9 +138,11 @@ class MeasurementManager:
         # the safety mechanism instead of being hidden as an anomaly.
         if float(raw["elapsed_time"]) < 0:
             return None
+        # voltage1/voltage2 are unipolar divider measurements; motor_voltage
+        # is the signed V4-V5 differential and may be negative in REV.
         if not (0.0 <= float(raw["voltage1"]) <= 12.0 and
                 0.0 <= float(raw["voltage2"]) <= 12.0 and
-                0.0 <= float(raw["motor_voltage"]) <= 12.0):
+                -12.0 <= float(raw["motor_voltage"]) <= 12.0):
             return None
         if abs(float(raw["current1"])) > 100.0 or abs(float(raw["current2"])) > 100.0:
             return None
