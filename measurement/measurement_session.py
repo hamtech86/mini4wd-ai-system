@@ -44,6 +44,7 @@ class MeasurementSession:
     schema_version: str = "1.0"
     firmware_version: str = "MOTOR_BREAKIN_V3"
     benchmark_type: str | None = None
+    voltage_control_mode: str = "TERMINAL"
     purpose: str = "MEASUREMENT"
 
     def start(self):
