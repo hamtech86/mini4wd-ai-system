@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from controllers.current_display import format_driver_input_current, format_input_voltage
+from controllers.current_display import format_driver_input_current, format_input_voltage, format_motor_voltage
 
 
 @pytest.mark.parametrize(
@@ -45,3 +45,18 @@ def test_driver_input_current_preserves_real_zero_and_missing_as_placeholder():
     assert format_driver_input_current(SimpleNamespace(current1=0.0)) == "0.000 A"
     assert format_driver_input_current(None) == "--"
     assert format_driver_input_current(SimpleNamespace(current_avg=0.5)) == "--"
+
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [(-3.125, "-3.12 V"), (0.0, "0.00 V"), (3.125, "3.12 V")],
+)
+def test_motor_voltage_preserves_signed_raw_value(value, expected):
+    assert format_motor_voltage(SimpleNamespace(motor_voltage=value)) == expected
+
+
+@pytest.mark.parametrize("value", [None, "bad", float("nan"), float("inf")])
+def test_motor_voltage_shows_placeholder_for_missing_or_invalid_value(value):
+    assert format_motor_voltage(SimpleNamespace(motor_voltage=value)) == "--"
+    assert format_motor_voltage(None) == "--"
