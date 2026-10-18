@@ -302,7 +302,7 @@ class MainWindow(BaseMainWindow):
         self.run_state.setText("RUNNING")
         result=self.sequence_executor.results[self.sequence_executor.state.sequence_index] if self.sequence_executor.state is not None and self.sequence_executor.state.sequence_index<len(self.sequence_executor.results) else None
         remaining=self.sequence_executor.remaining_sec()
-        elapsed=result.elapsed_sec if result is not None else 0.0
+        elapsed=getattr(result,"elapsed_sec",None) if result is not None else None
         if hasattr(self,"progress"):
             values={"STEP":f"{min(completed+1,total)} / {total}","PHASE":getattr(current,"sequence_id","--"),"DIR":getattr(current,"direction","--"),"PWM":getattr(current,"pwm","--"),"INPUT VOLTAGE":format_input_voltage(m,getattr(current,"direction",None)),"MOTOR VOLTAGE":format_motor_voltage(m),"DRIVER INPUT CURRENT":format_driver_input_current(m),"ELAPSED":f"{elapsed:.1f} s" if elapsed is not None else "--","REMAIN":f"{remaining:.1f} s" if remaining is not None else "--"}
             for key,value in values.items():
