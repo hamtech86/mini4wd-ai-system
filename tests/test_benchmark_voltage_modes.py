@@ -3,6 +3,7 @@ import pytest
 from controllers.breakin_controller import BreakinController
 from controllers.local_raw_log_breakin_controller import LocalRawLogBreakinController
 from controllers.recipe import BreakinPhase
+from measurement.measurement_session import MeasurementSession
 import controllers.motor_benchmark as benchmark_module
 from controllers.motor_benchmark import STANDARD_3V30S, _begin, run_benchmark
 
@@ -93,16 +94,17 @@ def test_non_finite_voltage_sample_does_not_change_pwm():
     assert serial.commands == []
 
 
-def test_benchmark_voltage_mode_is_recorded_in_session_metadata():
+def test_benchmark_voltage_mode_is_recorded_in_slotted_session_metadata():
     class SessionManager:
         def start(self, *args, **kwargs):
-            from types import SimpleNamespace
-            return SimpleNamespace(notes='', benchmark_type=None, purpose=None)
+            return MeasurementSession()
 
     controller, _ = make_controller('INPUT')
     controller.session_manager = SessionManager()
     _begin(controller, STANDARD_3V30S, instance_id=42)
+    assert controller.session.benchmark_type == STANDARD_3V30S
     assert controller.session.voltage_control_mode == 'INPUT'
+    assert controller.session.purpose == 'MEASUREMENT'
     assert 'voltage_control_mode=INPUT' in controller.session.notes
 
 
