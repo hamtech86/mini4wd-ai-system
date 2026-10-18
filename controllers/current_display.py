@@ -6,6 +6,22 @@ import math
 _VALID_DIRECTIONS = {"FWD", "REV"}
 
 
+def format_motor_voltage(measurement):
+    """Format the signed V4-V5 motor-terminal voltage without direction correction."""
+    if measurement is None:
+        return "--"
+    try:
+        value = getattr(measurement, "motor_voltage")
+        if value is None:
+            return "--"
+        voltage = float(value)
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        return "--"
+    if not math.isfinite(voltage):
+        return "--"
+    return f"{voltage:.2f} V"
+
+
 def format_driver_input_current(measurement):
     """Format ACS712 #1/A0 as driver input-path current.
 
