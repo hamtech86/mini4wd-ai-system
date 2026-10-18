@@ -30,5 +30,10 @@ def test_main_window_builds_offscreen_without_hardware_connection(monkeypatch, t
             window.recipe.itemText(index) for index in range(window.recipe.count())
         }
         assert window.ui_log.isReadOnly()
+        assert {"DIR", "PWM", "INPUT VOLTAGE", "MOTOR VOLTAGE",
+                "DRIVER INPUT CURRENT", "ELAPSED", "REMAIN"} <= set(window.progress)
+        # Main execution telemetry has one canonical display; the supplemental
+        # live panel must not duplicate DIR/PWM/voltage/current values.
+        assert set(window.live) == {"Arduino", "RPM", "STATE", "TEMP"}
     finally:
         window.close()
