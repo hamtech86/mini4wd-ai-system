@@ -319,13 +319,38 @@ class MainWindow(QMainWindow):
         if phase is None:
             return
         elapsed_provider = getattr(c, "elapsed_sec", None)
-        elapsed = float(elapsed_provider()) if callable(elapsed_provider) else (float(c.phase_elapsed_sec()) if hasattr(c, "phase_elapsed_sec") else 0.0)
+        if callable(elapsed_provider):
+            try:
+                elapsed_value = elapsed_provider()
+            except (TypeError, ValueError, RuntimeError):
+                elapsed_value = None
+        elif hasattr(c, "phase_elapsed_sec"):
+            try:
+                elapsed_value = c.phase_elapsed_sec()
+            except (TypeError, ValueError, RuntimeError):
+                elapsed_value = None
+        else:
+            elapsed_value = None
+        elapsed_text = f"{float(elapsed_value):.1f} s" if elapsed_value is not None else "--"
         index = int(getattr(c, "current_phase_index", 0))
         total = int(getattr(c, "total_phases", 0))
         remaining_provider = getattr(c, "remaining_sec", None)
-        remaining_value = remaining_provider() if callable(remaining_provider) else remaining_provider
-        remaining_text = f"{float(remaining_value):.1f} s" if remaining_value is not None else "--"
-        values = {"STEP": f"{index + 1} / {total}", "PHASE": getattr(phase, "name", "--"), "DIR": getattr(phase, "direction", "FWD"), "PWM": getattr(c, "current_pwm", 0), "INPUT VOLTAGE": format_input_voltage(m, getattr(phase, "direction", None)), "MOTOR VOLTAGE": self.live["V"].text(), "DRIVER INPUT CURRENT": self.live["A"].text(), "ELAPSED": f"{elapsed:.1f} s", "REMAIN": remaining_text}
+        try:
+            remaining_value = remaining_provider() if callable(remaining_provider) else remaining_provider
+            remaining_text = f"{float(remaining_value):.1f} s" if remaining_value is not None else "--"
+        except (TypeError, ValueError, RuntimeError):
+            remaining_text = "--"
+        values = {
+            "STEP": f"{index + 1} / {total}",
+            "PHASE": getattr(phase, "name", "--"),
+            "DIR": getattr(m, "direction", getattr(phase, "direction", "--")) if m else getattr(phase, "direction", "--"),
+            "PWM": getattr(m, "pwm", getattr(c, "current_pwm", "--")) if m else getattr(c, "current_pwm", "--"),
+            "INPUT VOLTAGE": format_input_voltage(m, getattr(m, "direction", getattr(phase, "direction", None)) if m else getattr(phase, "direction", None)),
+            "MOTOR VOLTAGE": format_motor_voltage(m),
+            "DRIVER INPUT CURRENT": format_driver_input_current(m),
+            "ELAPSED": elapsed_text,
+            "REMAIN": remaining_text,
+        }
         for key, value in values.items():
             self.progress[key].setText(str(value))
         self.run_state.setText("RUNNING")
