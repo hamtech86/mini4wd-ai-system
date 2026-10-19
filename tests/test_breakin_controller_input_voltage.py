@@ -1,3 +1,6 @@
+import pytest
+from controllers.breakin_sequence_adapter import BreakinSequenceAdapter
+from controllers.sequence import SequenceDefinition
 from controllers.breakin_controller import BreakinController
 from controllers.recipe import BreakinPhase
 
@@ -70,3 +73,19 @@ def test_terminal_voltage_control_uses_directional_drop_for_reverse():
     instance._voltage_control(phase, {"motor_voltage": -2.0})
     assert instance.current_pwm == 80
     assert serial.pwm_values == [80]
+
+
+def test_sequence_stops_after_one_second_without_valid_measurements():
+    instance, serial = controller()
+    adapter = BreakinSequenceAdapter(instance)
+    sequence = SequenceDefinition(
+        sequence_id="01_FWD_INPUT", order=1, command="FWD", direction="FWD",
+        pwm=60, duration_sec=5,
+        parameters={"control": "VOLTAGE", "target_voltage": 3.0,
+                    "voltage_control_mode": "INPUT", "pwm_min": 35, "pwm_max": 120},
+    )
+    for _ in range(adapter.INVALID_MEASUREMENT_LIMIT - 1):
+        adapter.tick(sequence)
+    with pytest.raises(RuntimeError, match="No valid DATA measurement"):
+        adapter.tick(sequence)
+    assert serial.pwm_values == [0]
