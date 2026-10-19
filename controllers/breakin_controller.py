@@ -374,7 +374,7 @@ class BreakinController:
         target = start + (end - start) * ratio
         error_target = BreakinPhase(name=phase.name, duration_sec=phase.duration_sec,
             pwm=self.current_pwm, direction=phase.direction, control="VOLTAGE",
-            target_voltage=target, pwm_min=phase.pwm_min, pwm_max=phase.pwm_max)
+            target_voltage=target, pwm_min=phase.pwm_min, pwm_max=phase.pwm_max, metadata=dict(phase.metadata))
         measurement = self.measurements[-1] if self.measurements else None
         self._voltage_control(error_target, measurement)
 
@@ -402,7 +402,14 @@ class BreakinController:
         return BreakinController._measurement_value(measurement, name, default)
 
     def _voltage_control(self, phase, measurement):
-        voltage = float(self._value(measurement, "motor_voltage", 0.0) or 0.0)
+        mode = str((getattr(phase, "metadata", {}) or {}).get("voltage_control_mode", "TERMINAL")).upper()
+        if mode == "INPUT":
+            # Input-side target is direction-dependent: V4/voltage1 for FWD,
+            # V5/voltage2 for REV. motor_voltage is signed V4 - V5.
+            sensor = "voltage2" if str(phase.direction).upper() == "REV" else "voltage1"
+            voltage = float(self._value(measurement, sensor, 0.0) or 0.0)
+        else:
+            voltage = float(self._value(measurement, "motor_voltage", 0.0) or 0.0)
         if voltage <= 0: return
         error = float(phase.target_voltage) - voltage
         if abs(error) <= 0.02: return
