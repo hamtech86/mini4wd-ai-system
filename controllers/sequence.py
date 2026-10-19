@@ -44,6 +44,7 @@ class SequenceDefinition:
                 "max_duration_sec": phase.max_duration_sec,
                 "peak_margin_ratio": phase.peak_margin_ratio,
                 "peak_min_current": phase.peak_min_current,
+                "voltage_control_mode": phase.metadata.get("voltage_control_mode", "TERMINAL"),
             }, metadata=dict(phase.metadata),
         )
 
