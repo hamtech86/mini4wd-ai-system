@@ -406,7 +406,7 @@ class BreakinController:
         if mode == "INPUT":
             # Input-side target is direction-dependent: V4/voltage1 for FWD,
             # V5/voltage2 for REV. motor_voltage is signed V4 - V5.
-            sensor = "voltage2" if str(phase.direction).upper() == "REV" else "voltage1"
+            sensor = "voltage2" if str(getattr(phase, "direction", "FWD")).upper() == "REV" else "voltage1"
             voltage = float(self._value(measurement, sensor, 0.0) or 0.0)
         else:
             # motor_voltage remains signed V4 - V5 in telemetry. For terminal-
