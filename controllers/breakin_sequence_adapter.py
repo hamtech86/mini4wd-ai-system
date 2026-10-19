@@ -11,13 +11,17 @@ from .recipe import BreakinPhase
 class BreakinSequenceAdapter:
     """Translate SequenceDefinition rows into safe motor-control operations."""
 
+    INVALID_MEASUREMENT_LIMIT = 10  # 10 ticks at the 100 ms UI cadence ~= 1 s
+
     def __init__(self, controller):
         self.controller = controller
         self._active = None
         self._last_measurement = None
+        self._invalid_measurement_ticks = 0
 
     def start_sequence(self, sequence):
         self._active = sequence
+        self._invalid_measurement_ticks = 0
         if sequence.direction == "REV":
             self.controller.serial.reverse()
         else:
@@ -41,7 +45,12 @@ class BreakinSequenceAdapter:
         measurement = self.controller._collect_measurement(phase)
         self._last_measurement = measurement
         if measurement is None:
+            self._invalid_measurement_ticks += 1
+            if self._invalid_measurement_ticks >= self.INVALID_MEASUREMENT_LIMIT:
+                self.controller.serial.set_pwm(0)
+                raise RuntimeError("No valid DATA measurement for approximately 1 second; sequence stopped")
             return
+        self._invalid_measurement_ticks = 0
 
         control = phase.control
         if control == "VOLTAGE" and phase.target_voltage is not None:
