@@ -13,6 +13,7 @@ def test_recipe_catalog_loads():
         "DASH_OPTIMIZED",
         "TUNE_BASIC",
         "FINISH_BRUSH_PEAK_2V",
+        "INPUT_VOLTAGE_CHECK",
     }
 
 
@@ -74,3 +75,11 @@ def test_tune_basic_uses_directional_input_voltage_targets():
         "REV_9V_HOLD", "REV_FADEOUT", "BENCHMARK_3V",
     ):
         assert phases[name].metadata["voltage_control_mode"] == "INPUT"
+
+
+def test_input_voltage_check_is_limited_to_two_directional_3v_phases():
+    recipe = RecipeEngine().get("INPUT_VOLTAGE_CHECK")
+    assert [phase.direction for phase in recipe.phases] == ["FWD", "REV"]
+    assert [phase.target_voltage for phase in recipe.phases] == [3.0, 3.0]
+    assert [phase.duration_sec for phase in recipe.phases] == [5, 5]
+    assert all(phase.metadata["voltage_control_mode"] == "INPUT" for phase in recipe.phases)
