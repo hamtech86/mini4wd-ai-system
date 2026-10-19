@@ -413,7 +413,7 @@ class BreakinController:
             # voltage regulation, interpret the drop in the commanded direction
             # so the reverse stages can regulate without rewriting the reading.
             signed_voltage = float(self._value(measurement, "motor_voltage", 0.0) or 0.0)
-            voltage = -signed_voltage if str(phase.direction).upper() == "REV" else signed_voltage
+            voltage = -signed_voltage if str(getattr(phase, "direction", "FWD")).upper() == "REV" else signed_voltage
         if voltage <= 0: return
         error = float(phase.target_voltage) - voltage
         if abs(error) <= 0.02: return
