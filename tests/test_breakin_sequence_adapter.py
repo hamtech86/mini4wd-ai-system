@@ -24,3 +24,15 @@ def test_sequence_is_translated_to_breakin_phase():
     assert phase.duration_sec == 60
     assert phase.control == "VOLTAGE"
     assert phase.target_voltage == 4.0
+
+
+def test_voltage_control_mode_is_preserved_through_sequence_adapter():
+    sequence = SequenceDefinition(
+        sequence_id="01_REV_3V", order=1, command="REV", direction="REV",
+        pwm=80, duration_sec=30,
+        parameters={"control": "VOLTAGE", "target_voltage": 3.0,
+                    "voltage_control_mode": "INPUT", "pwm_min": 35, "pwm_max": 120},
+        metadata={"voltage_control_mode": "INPUT"},
+    )
+    phase = BreakinSequenceAdapter.to_phase(sequence)
+    assert phase.metadata["voltage_control_mode"] == "INPUT"
