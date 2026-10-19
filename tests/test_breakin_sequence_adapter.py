@@ -32,7 +32,6 @@ def test_voltage_control_mode_is_preserved_through_sequence_adapter():
         pwm=80, duration_sec=30,
         parameters={"control": "VOLTAGE", "target_voltage": 3.0,
                     "voltage_control_mode": "INPUT", "pwm_min": 35, "pwm_max": 120},
-        metadata={"voltage_control_mode": "INPUT"},
     )
     phase = BreakinSequenceAdapter.to_phase(sequence)
     assert phase.metadata["voltage_control_mode"] == "INPUT"
