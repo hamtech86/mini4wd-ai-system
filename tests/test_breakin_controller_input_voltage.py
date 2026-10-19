@@ -46,18 +46,16 @@ def test_input_voltage_control_uses_v5_for_reverse():
 
 
 def test_voltage_ramp_preserves_input_control_mode():
-    instance, _ = controller()
+    instance, serial = controller()
     phase = BreakinPhase(
         name="REV_RAMP", direction="REV", control="VOLTAGE_RAMP",
         start_voltage=3.0, end_voltage=9.0, duration_sec=60,
         pwm_min=35, pwm_max=120,
         metadata={"voltage_control_mode": "INPUT"},
     )
-    ramp_target = BreakinPhase(
-        name=phase.name, duration_sec=phase.duration_sec,
-        pwm=instance.current_pwm, direction=phase.direction,
-        control="VOLTAGE", target_voltage=3.0,
-        pwm_min=phase.pwm_min, pwm_max=phase.pwm_max,
-        metadata=dict(phase.metadata),
-    )
-    assert ramp_target.metadata["voltage_control_mode"] == "INPUT"
+    instance.measurements.append({
+        "voltage1": 4.0, "voltage2": 2.0, "motor_voltage": -2.0,
+    })
+    instance._voltage_ramp_control(phase)
+    assert instance.current_pwm == 80
+    assert serial.pwm_values == [80]
