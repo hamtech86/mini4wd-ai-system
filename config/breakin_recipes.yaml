@@ -47,6 +47,19 @@ recipes:
       - {name: REST_REV, control: PWM, pwm: 0, duration_sec: 60, direction: REV}
       - {name: BENCHMARK_3V, control: VOLTAGE, voltage_control_mode: INPUT, target_voltage: 3.00, pwm: 80, pwm_min: 35, pwm_max: 120, duration_sec: 30, direction: FWD}
 
+  INPUT_VOLTAGE_CHECK:
+    description: "Limited hardware preflight: direction-specific 3 V input-voltage control only; does not run the full TuneBasic recipe."
+    brush: UNKNOWN
+    family: DIAGNOSTIC
+    objective: MEASUREMENT
+    benchmark: null
+    target:
+      rpm: null
+      torque_priority: 0.50
+    stages:
+      - {name: FWD_INPUT_3V_CHECK, control: VOLTAGE, voltage_control_mode: INPUT, target_voltage: 3.00, pwm: 60, pwm_min: 35, pwm_max: 120, duration_sec: 5, direction: FWD}
+      - {name: REV_INPUT_3V_CHECK, control: VOLTAGE, voltage_control_mode: INPUT, target_voltage: 3.00, pwm: 60, pwm_min: 35, pwm_max: 120, duration_sec: 5, direction: REV}
+
   FINISH_BRUSH_PEAK_2V:
     description: "Finish recipe: hold approximately 2 V and continue until the measured brush current approaches the benchmark brush-peak level without crossing it."
     brush: COPPER
