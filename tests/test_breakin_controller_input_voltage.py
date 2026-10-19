@@ -59,3 +59,14 @@ def test_voltage_ramp_preserves_input_control_mode():
     instance._voltage_ramp_control(phase)
     assert instance.current_pwm == 80
     assert serial.pwm_values == [80]
+
+
+def test_terminal_voltage_control_uses_directional_drop_for_reverse():
+    instance, serial = controller()
+    phase = BreakinPhase(
+        name="REV_TERMINAL", direction="REV", control="VOLTAGE",
+        target_voltage=3.0, pwm_min=35, pwm_max=120,
+    )
+    instance._voltage_control(phase, {"motor_voltage": -2.0})
+    assert instance.current_pwm == 80
+    assert serial.pwm_values == [80]
