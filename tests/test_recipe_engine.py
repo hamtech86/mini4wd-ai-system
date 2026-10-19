@@ -63,3 +63,14 @@ def test_recipe_targets_and_brushes():
     assert dash.brush == "CARBON"
     assert atomic.phases[-1].control == "VOLTAGE"
     assert atomic.phases[-1].target_voltage == 3.0
+
+
+def test_tune_basic_uses_directional_input_voltage_targets():
+    recipe = RecipeEngine().get("TUNE_BASIC")
+    phases = {phase.name: phase for phase in recipe.phases}
+    for name in (
+        "FWD_3V_START", "FWD_RAMP_3_TO_9V", "FWD_9V_HOLD",
+        "FWD_FADEOUT", "REV_3V_START", "REV_RAMP_3_TO_9V",
+        "REV_9V_HOLD", "REV_FADEOUT", "BENCHMARK_3V",
+    ):
+        assert phases[name].metadata["voltage_control_mode"] == "INPUT"
