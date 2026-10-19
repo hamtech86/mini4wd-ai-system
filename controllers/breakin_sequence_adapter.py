@@ -88,5 +88,12 @@ class BreakinSequenceAdapter:
             max_duration_sec=params.get("max_duration_sec"),
             peak_margin_ratio=float(params.get("peak_margin_ratio", 0.10) or 0.10),
             peak_min_current=float(params.get("peak_min_current", 0.0) or 0.0),
-            metadata=dict(sequence.metadata or {}),
+            metadata={
+                **dict(sequence.metadata or {}),
+                "voltage_control_mode": str(
+                    (sequence.metadata or {}).get(
+                        "voltage_control_mode", params.get("voltage_control_mode", "TERMINAL")
+                    )
+                ).upper(),
+            },
         )
