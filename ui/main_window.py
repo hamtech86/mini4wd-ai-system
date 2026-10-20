@@ -135,7 +135,7 @@ class MainWindow(QMainWindow):
             grid.addWidget(box, i // 4, i % 4)
         rv.addLayout(grid)
         livegrid = QGridLayout()
-        self.live = {k: QLabel("--") for k in ("Arduino", "DIR", "PWM", "RPM", "V", "A", "STATE", "TEMP")}
+        self.live = {k: QLabel("--") for k in ("Arduino", "DIR", "PWM", "RPM", "INPUT V", "V4", "V5", "MOTOR V", "A", "STATE", "TEMP")}
         for i, (key, widget) in enumerate(self.live.items()):
             livegrid.addWidget(QLabel(key + ":"), (i // 4) * 2, (i % 4) * 2)
             livegrid.addWidget(widget, (i // 4) * 2, (i % 4) * 2 + 1)
@@ -302,7 +302,10 @@ class MainWindow(QMainWindow):
             "DIR": getattr(m, "direction", getattr(serial, "direction", "--")) if m else getattr(serial, "direction", "--"),
             "PWM": getattr(m, "pwm", getattr(serial, "last_pwm", 0)) if m else getattr(serial, "last_pwm", 0),
             "RPM": f"{rpm:.0f}" if rpm is not None else "--",
-            "V": f"{float(getattr(m, 'motor_voltage', 0)):.2f} V" if m else "--",
+            "INPUT V": f"{float(getattr(m, 'voltage2' if str(getattr(m, 'direction', getattr(serial, 'direction', 'FWD'))).upper() == 'REV' else 'voltage1', 0)):.2f} V" if m else "--",
+            "V4": f"{float(getattr(m, 'voltage1', 0)):.2f} V" if m else "--",
+            "V5": f"{float(getattr(m, 'voltage2', 0)):.2f} V" if m else "--",
+            "MOTOR V": f"{float(getattr(m, 'motor_voltage', 0)):.2f} V" if m else "--",
             "A": f"{float(getattr(m, 'current_avg', 0)):.3f} A" if m else "--",
             "STATE": getattr(m, "state", "NO DATA") if m else "NO DATA",
             "TEMP": f"{float(getattr(m, 'motor_temperature', 0)):.1f} C" if m else "--",
@@ -318,7 +321,7 @@ class MainWindow(QMainWindow):
         duration = float(getattr(phase, "duration_sec", 0))
         index = int(getattr(c, "current_phase_index", 0))
         total = int(getattr(c, "total_phases", 0))
-        values = {"STEP": f"{index + 1} / {total}", "PHASE": getattr(phase, "name", "--"), "DIR": getattr(phase, "direction", "FWD"), "PWM": getattr(c, "current_pwm", 0), "VOLT": self.live["V"].text(), "CURRENT": self.live["A"].text(), "ELAPSED": f"{elapsed:.1f} s", "REMAIN": f"{max(0, duration - elapsed):.1f} s"}
+        values = {"STEP": f"{index + 1} / {total}", "PHASE": getattr(phase, "name", "--"), "DIR": getattr(phase, "direction", "FWD"), "PWM": getattr(c, "current_pwm", 0), "VOLT": self.live["MOTOR V"].text(), "CURRENT": self.live["A"].text(), "ELAPSED": f"{elapsed:.1f} s", "REMAIN": f"{max(0, duration - elapsed):.1f} s"}
         for key, value in values.items():
             self.progress[key].setText(str(value))
         self.run_state.setText("RUNNING")
