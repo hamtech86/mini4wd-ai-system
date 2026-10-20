@@ -402,7 +402,7 @@ class BreakinController:
         return BreakinController._measurement_value(measurement, name, default)
 
     def _voltage_control(self, phase, measurement):
-        mode = str((phase.metadata or {}).get("voltage_control_mode", "TERMINAL")).upper()
+        mode = str((getattr(phase, "metadata", {}) or {}).get("voltage_control_mode", "TERMINAL")).upper()
         if mode == "INPUT":
             # The physical input-side sensor depends on drive direction:
             # forward input is V4/voltage1; reverse input is V5/voltage2.
