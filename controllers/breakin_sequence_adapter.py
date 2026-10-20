@@ -41,7 +41,13 @@ class BreakinSequenceAdapter:
         measurement = self.controller._collect_measurement(phase)
         self._last_measurement = measurement
         if measurement is None:
-            return
+            # Fail closed: without a valid DATA frame the executor must not
+            # keep the previous motor output energized or advance the recipe.
+            try:
+                self.controller.serial.set_pwm(0)
+            finally:
+                self.controller.current_pwm = 0
+            raise RuntimeError("No valid DATA measurement; motor output stopped")
 
         control = phase.control
         if control == "VOLTAGE" and phase.target_voltage is not None:
