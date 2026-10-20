@@ -31,6 +31,9 @@ def test_tune_basic_shape():
     engine = RecipeEngine()
     recipe = engine.get("TUNE_BASIC")
     assert recipe.phases[0].target_voltage == 3.0
+    assert recipe.phases[0].metadata["voltage_control_mode"] == "INPUT"
+    assert recipe.phases[5].metadata["voltage_control_mode"] == "INPUT"
+    assert recipe.phases[-1].metadata["voltage_control_mode"] == "INPUT"
     assert recipe.phases[1].control == "VOLTAGE_RAMP"
     assert recipe.phases[1].start_voltage == 3.0
     assert recipe.phases[1].end_voltage == 9.0
