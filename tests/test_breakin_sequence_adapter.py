@@ -34,3 +34,33 @@ def test_sequence_metadata_preserves_input_voltage_control_mode():
     )
     phase = BreakinSequenceAdapter.to_phase(sequence)
     assert phase.metadata["voltage_control_mode"] == "INPUT"
+
+
+class MissingMeasurementController:
+    def __init__(self):
+        self.serial = self
+        self.current_pwm = 80
+        self.commands = []
+
+    def set_pwm(self, pwm):
+        self.commands.append(pwm)
+
+    def _collect_measurement(self, phase):
+        return None
+
+
+def test_missing_measurement_fails_closed_and_stops_pwm():
+    controller = MissingMeasurementController()
+    adapter = BreakinSequenceAdapter(controller)
+    sequence = SequenceDefinition(
+        sequence_id="01_FWD", order=1, command="FWD", direction="FWD", pwm=80,
+        duration_sec=30, parameters={"control": "VOLTAGE", "target_voltage": 3.0},
+    )
+    try:
+        adapter.tick(sequence)
+    except RuntimeError as exc:
+        assert "No valid DATA" in str(exc)
+    else:
+        raise AssertionError("Missing DATA must abort the active sequence")
+    assert controller.commands == [0]
+    assert controller.current_pwm == 0
