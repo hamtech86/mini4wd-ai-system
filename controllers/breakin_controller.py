@@ -7,6 +7,7 @@ recipe can resume from the interrupted phase instead of restarting at phase 1.
 """
 
 import json
+import math
 import time
 from pathlib import Path
 
@@ -407,7 +408,15 @@ class BreakinController:
             # The physical input-side sensor depends on drive direction:
             # forward input is V4/voltage1; reverse input is V5/voltage2.
             sensor = "voltage2" if str(phase.direction).upper() == "REV" else "voltage1"
-            voltage = float(self._value(measurement, sensor, 0.0) or 0.0)
+            raw_voltage = self._value(measurement, sensor, None)
+            try:
+                voltage = float(raw_voltage)
+            except (TypeError, ValueError):
+                voltage = float("nan")
+            if raw_voltage is None or not math.isfinite(voltage) or not 0.0 <= voltage <= 12.0:
+                self.abort_reason = f"SAFETY: missing or invalid INPUT voltage feedback ({sensor})"
+                self.emergency_stop()
+                return
         else:
             # TERMINAL keeps the signed V4 - V5 definition.
             voltage = float(self._value(measurement, "motor_voltage", 0.0) or 0.0)
