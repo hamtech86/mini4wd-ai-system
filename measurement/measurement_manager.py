@@ -130,7 +130,7 @@ class MeasurementManager:
             return None
         if not (0.0 <= float(raw["voltage1"]) <= 12.0 and
                 0.0 <= float(raw["voltage2"]) <= 12.0 and
-                0.0 <= float(raw["motor_voltage"]) <= 12.0):
+                -12.0 <= float(raw["motor_voltage"]) <= 12.0):
             return None
         if abs(float(raw["current1"])) > 100.0 or abs(float(raw["current2"])) > 100.0:
             return None
