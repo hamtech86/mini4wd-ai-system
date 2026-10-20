@@ -90,3 +90,45 @@ def test_emergency_stop():
 
     assert controller.running is False
     assert "EMERGENCY_STOP" in serial.commands
+
+
+def test_input_voltage_control_uses_v4_forward_and_v5_reverse():
+    serial = MockSerialController()
+    controller = BreakinController(serial_controller=serial)
+    controller.current_pwm = 60
+    forward = BreakinPhase(
+        name="FWD_3V", target_voltage=3.0, direction="FWD",
+        control="VOLTAGE", pwm_min=35, pwm_max=120,
+        metadata={"voltage_control_mode": "INPUT"},
+    )
+    controller._voltage_control(forward, {
+        "voltage1": 2.0, "voltage2": 8.0, "motor_voltage": 2.0,
+    })
+    assert controller.current_pwm == 80
+    assert serial.commands[-1] == "PWM:80"
+
+    controller.current_pwm = 60
+    reverse = BreakinPhase(
+        name="REV_3V", target_voltage=3.0, direction="REV",
+        control="VOLTAGE", pwm_min=35, pwm_max=120,
+        metadata={"voltage_control_mode": "INPUT"},
+    )
+    controller._voltage_control(reverse, {
+        "voltage1": 8.0, "voltage2": 2.0, "motor_voltage": 6.0,
+    })
+    assert controller.current_pwm == 80
+    assert serial.commands[-1] == "PWM:80"
+
+
+def test_terminal_voltage_control_keeps_signed_terminal_contract():
+    serial = MockSerialController()
+    controller = BreakinController(serial_controller=serial)
+    controller.current_pwm = 60
+    phase = BreakinPhase(
+        name="REV_TERMINAL", target_voltage=3.0, direction="REV",
+        control="VOLTAGE", pwm_min=35, pwm_max=120,
+    )
+    controller._voltage_control(phase, {"motor_voltage": -3.0})
+    # Signed terminal voltage is not silently converted to an absolute value.
+    assert controller.current_pwm == 60
+    assert serial.commands == []
