@@ -13,6 +13,7 @@ def test_recipe_catalog_loads():
         "DASH_OPTIMIZED",
         "TUNE_BASIC",
         "FINISH_BRUSH_PEAK_2V",
+        "TUNE_BASIC_INPUT_3V_CHECK",
     }
 
 
@@ -42,6 +43,16 @@ def test_tune_basic_shape():
     assert recipe.phases[5].direction == "REV"
     assert recipe.phases[-1].target_voltage == 3.0
     assert recipe.phases[-1].duration_sec == 30
+
+
+def test_tune_basic_input_hardware_check_recipe_is_limited_to_3v():
+    recipe = RecipeEngine().get("TUNE_BASIC_INPUT_3V_CHECK")
+    assert len(recipe.phases) == 2
+    assert [phase.direction for phase in recipe.phases] == ["FWD", "REV"]
+    assert all(phase.target_voltage == 3.0 for phase in recipe.phases)
+    assert all(phase.metadata["voltage_control_mode"] == "INPUT" for phase in recipe.phases)
+    assert all(phase.duration_sec == 10 for phase in recipe.phases)
+    assert all(phase.pwm_max == 120 for phase in recipe.phases)
 
 
 def test_finish_recipe_shape():
