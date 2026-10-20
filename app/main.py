@@ -257,7 +257,8 @@ class MainWindow(BaseMainWindow):
             for key,value in values.items():
                 if key in self.progress:self.progress[key].setText(str(value))
         if hasattr(self,"live"):
-            values={"DIR":getattr(current,"direction","FWD"),"PWM":getattr(current,"pwm",0),"RPM":self._latest_rpm() if hasattr(self,"_latest_rpm") else "--","V":f"{float(getattr(m,'motor_voltage',0)):.2f} V" if m else "--","A":f"{float(getattr(m,'current_avg',0)):.3f} A" if m else "--","STATE":"RUNNING","TEMP":f"{float(getattr(m,'motor_temperature',0)):.1f} C" if m else "--","Arduino":"CONNECTED"}
+            direction=str(getattr(current,"direction","FWD")).upper()
+            values={"DIR":direction,"PWM":getattr(current,"pwm",0),"RPM":self._latest_rpm() if hasattr(self,"_latest_rpm") else "--","INPUT V":f"{float(getattr(m,'voltage2' if direction == 'REV' else 'voltage1',0)):.2f} V" if m else "--","V4":f"{float(getattr(m,'voltage1',0)):.2f} V" if m else "--","V5":f"{float(getattr(m,'voltage2',0)):.2f} V" if m else "--","MOTOR V":f"{float(getattr(m,'motor_voltage',0)):.2f} V" if m else "--","A":f"{float(getattr(m,'current_avg',0)):.3f} A" if m else "--","STATE":"RUNNING","TEMP":f"{float(getattr(m,'motor_temperature',0)):.1f} C" if m else "--","Arduino":"CONNECTED"}
             for key,value in values.items():
                 if key in self.live:self.live[key].setText(str(value))
         self.sequence_status.setText(f"実行中: {current.sequence_id}  {progress}%  残り {remaining:.1f}s" if remaining is not None else f"実行中: {current.sequence_id}  {progress}%  条件待ち")
