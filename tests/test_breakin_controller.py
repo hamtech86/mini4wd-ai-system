@@ -118,3 +118,24 @@ def test_input_voltage_control_uses_v4_forward_and_v5_reverse():
     })
     assert controller.current_pwm == 80
     assert serial.commands[-1] == "PWM:80"
+
+
+
+def test_input_voltage_control_emergency_stops_on_missing_or_invalid_feedback():
+    for bad_value in (None, "invalid", float("nan"), -0.1, 12.1):
+        serial = MockSerialController()
+        controller = BreakinController(serial_controller=serial)
+        controller.running = True
+        controller.current_pwm = 60
+        phase = BreakinPhase(
+            name="REV_3V", target_voltage=3.0, direction="REV",
+            control="VOLTAGE", pwm_min=35, pwm_max=120,
+            metadata={"voltage_control_mode": "INPUT"},
+        )
+
+        controller._voltage_control(phase, {"voltage2": bad_value})
+
+        assert controller.running is False
+        assert "EMERGENCY_STOP" in serial.commands
+        assert controller.abort_reason is not None
+        assert controller.current_pwm == 60
