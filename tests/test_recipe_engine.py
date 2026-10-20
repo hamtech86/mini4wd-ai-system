@@ -31,14 +31,17 @@ def test_tune_basic_shape():
     engine = RecipeEngine()
     recipe = engine.get("TUNE_BASIC")
     assert recipe.phases[0].target_voltage == 3.0
+    assert recipe.phases[0].metadata["voltage_control_mode"] == "INPUT"
     assert recipe.phases[1].control == "VOLTAGE_RAMP"
     assert recipe.phases[1].start_voltage == 3.0
     assert recipe.phases[1].end_voltage == 9.0
     assert recipe.phases[2].target_voltage == 9.0
     assert recipe.phases[4].pwm == 0
     assert recipe.phases[5].direction == "REV"
+    assert recipe.phases[5].metadata["voltage_control_mode"] == "INPUT"
     assert recipe.phases[-1].target_voltage == 3.0
     assert recipe.phases[-1].duration_sec == 30
+    assert recipe.phases[-1].metadata["voltage_control_mode"] == "INPUT"
 
 
 def test_finish_recipe_shape():
@@ -63,3 +66,24 @@ def test_recipe_targets_and_brushes():
     assert dash.brush == "CARBON"
     assert atomic.phases[-1].control == "VOLTAGE"
     assert atomic.phases[-1].target_voltage == 3.0
+
+
+def test_input_voltage_control_selects_direction_specific_input_and_preserves_terminal():
+    from controllers.breakin_controller import BreakinController
+    from controllers.recipe import BreakinPhase
+
+    engine = RecipeEngine()
+    recipe = engine.get("TUNE_BASIC")
+    controller = BreakinController.__new__(BreakinController)
+    fwd, rev = recipe.phases[0], recipe.phases[5]
+
+    assert controller._control_voltage(
+        fwd, {"voltage1": 3.01, "voltage2": 0.02, "motor_voltage": 2.99}
+    ) == 3.01
+    assert controller._control_voltage(
+        rev, {"voltage1": 0.02, "voltage2": 3.01, "motor_voltage": -2.99}
+    ) == 3.01
+    terminal = BreakinPhase("TERMINAL_TEST", target_voltage=3.0, direction="REV", control="VOLTAGE")
+    assert controller._control_voltage(
+        terminal, {"voltage1": 0.02, "voltage2": 3.01, "motor_voltage": -2.99}
+    ) == -2.99
