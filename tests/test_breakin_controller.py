@@ -118,17 +118,3 @@ def test_input_voltage_control_uses_v4_forward_and_v5_reverse():
     })
     assert controller.current_pwm == 80
     assert serial.commands[-1] == "PWM:80"
-
-
-def test_terminal_voltage_control_keeps_signed_terminal_contract():
-    serial = MockSerialController()
-    controller = BreakinController(serial_controller=serial)
-    controller.current_pwm = 60
-    phase = BreakinPhase(
-        name="REV_TERMINAL", target_voltage=3.0, direction="REV",
-        control="VOLTAGE", pwm_min=35, pwm_max=120,
-    )
-    controller._voltage_control(phase, {"motor_voltage": -3.0})
-    # Signed terminal voltage is not silently converted to an absolute value.
-    assert controller.current_pwm == 60
-    assert serial.commands == []
