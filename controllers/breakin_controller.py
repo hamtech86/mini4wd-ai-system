@@ -402,10 +402,22 @@ class BreakinController:
         return BreakinController._measurement_value(measurement, name, default)
 
     def _voltage_control(self, phase, measurement):
-        voltage = float(self._value(measurement, "motor_voltage", 0.0) or 0.0)
-        if voltage <= 0: return
+        mode = str((phase.metadata or {}).get("voltage_control_mode", "TERMINAL")).upper()
+        if mode == "INPUT":
+            # The physical input-side sensor depends on drive direction:
+            # forward input is V4/voltage1; reverse input is V5/voltage2.
+            sensor = "voltage2" if str(phase.direction).upper() == "REV" else "voltage1"
+            voltage = float(self._value(measurement, sensor, 0.0) or 0.0)
+        else:
+            # TERMINAL keeps the signed V4 - V5 definition.
+            voltage = float(self._value(measurement, "motor_voltage", 0.0) or 0.0)
+            if voltage <= 0:
+                return
+        if phase.target_voltage is None:
+            return
         error = float(phase.target_voltage) - voltage
-        if abs(error) <= 0.02: return
+        if abs(error) <= 0.02:
+            return
         new_pwm = max(phase.pwm_min, min(phase.pwm_max, self.current_pwm + int(round(self.VOLTAGE_KP * error))))
         if new_pwm != self.current_pwm:
             self.current_pwm = new_pwm
