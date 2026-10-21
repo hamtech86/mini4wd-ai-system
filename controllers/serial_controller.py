@@ -137,6 +137,10 @@ class SerialController:
     def send(self, command: str):
         return self.serial.send(command)
 
+    def arm(self):
+        """Explicit non-driving authorization for the next motor run."""
+        return self.serial.arm()
+
     def start_breakin(self):
         return self.serial.start_breakin()
 
