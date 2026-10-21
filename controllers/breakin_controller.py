@@ -404,14 +404,29 @@ class BreakinController:
 
     def _voltage_control(self, phase, measurement):
         direction = str(getattr(phase, "direction", "FWD") or "FWD").upper()
-        mode = str(getattr(self, "benchmark_voltage_control_mode", "TERMINAL") or "TERMINAL").upper()
+        metadata = getattr(phase, "metadata", {}) or {}
+        mode = str(metadata.get(
+            "voltage_control_mode",
+            getattr(self, "benchmark_voltage_control_mode", "TERMINAL"),
+        ) or "TERMINAL").upper()
         if mode == "INPUT":
+            # FWD uses V4/voltage1; REV uses V5/voltage2.
             field = "voltage1" if direction == "FWD" else "voltage2"
-            voltage = float(self._value(measurement, field, 0.0) or 0.0)
+            raw_voltage = self._value(measurement, field, None)
+            try:
+                voltage = float(raw_voltage)
+            except (TypeError, ValueError, OverflowError):
+                voltage = float("nan")
+            if raw_voltage is None or not math.isfinite(voltage) or not 0.0 <= voltage <= 12.0:
+                self.abort_reason = f"SAFETY: missing or invalid INPUT voltage feedback ({field})"
+                self.emergency_stop()
+                return
         else:
-            # motor_voltage is signed V4-V5; normalize to active drive direction.
+            # motor_voltage is signed V4-V5; normalize to the active direction.
             signed_voltage = float(self._value(measurement, "motor_voltage", 0.0) or 0.0)
             voltage = signed_voltage if direction == "FWD" else -signed_voltage
+        if phase.target_voltage is None:
+            return
         target_voltage = float(phase.target_voltage)
         if not math.isfinite(voltage) or not math.isfinite(target_voltage) or voltage <= 0:
             return
