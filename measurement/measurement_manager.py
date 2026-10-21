@@ -120,9 +120,20 @@ class MeasurementManager:
         )
         if any(raw.get(name) is None for name in required):
             return None
-        for name in ("device_model", "instance_id", "direction", "state"):
-            if not isinstance(raw.get(name), str) or not raw[name].strip():
+        if not isinstance(raw.get("device_model"), str) or not raw["device_model"].strip():
+            return None
+        if not isinstance(raw.get("direction"), str) or not raw["direction"].strip():
+            return None
+        if not isinstance(raw.get("state"), str) or not raw["state"].strip():
+            return None
+        # DATA instance_id is an opaque firmware identifier; the CSV parser
+        # may represent all-digit IDs as integers, so do not require a string.
+        instance_id = raw.get("instance_id")
+        if isinstance(instance_id, str):
+            if not instance_id.strip():
                 return None
+        elif not isinstance(instance_id, int) or isinstance(instance_id, bool) or instance_id < 0:
+            return None
         if raw["device_model"] != "MOTOR_BREAKIN_V3":
             return None
         if raw["direction"] not in ("FWD", "REV"):
