@@ -389,3 +389,53 @@ def test_serial_manager_emergency_stop_reports_close_failure():
     assert any("disconnect" in error and "cleanup" in error for error in result["errors"])
     assert manager.serial is None
     assert manager._emergency_stop_latched is True
+
+def test_ui_motor_disconnect_uses_latched_emergency_stop_for_connected_controller():
+    from types import SimpleNamespace
+    from app.main import MainWindow
+
+    events = []
+
+    class FakeController:
+        connected = True
+
+        def stop_breakin(self):
+            events.append("unsafe_plain_stop")
+
+        def disconnect(self):
+            events.append("plain_disconnect")
+
+    class FakeLabel:
+        def __init__(self):
+            self.value = None
+
+        def setText(self, value):
+            self.value = value
+
+    class FakeButton:
+        def __init__(self):
+            self.enabled = None
+
+        def setEnabled(self, enabled):
+            self.enabled = enabled
+
+    controller = FakeController()
+    ui = SimpleNamespace(
+        _motor_controller=lambda: controller,
+        stop_run=lambda: events.append("latched_emergency_stop"),
+        motor_serial_status=FakeLabel(),
+        motor_connect=FakeButton(),
+        motor_disconnect=FakeButton(),
+        _stop_latched=True,
+        _log_event=lambda message: events.append(message),
+    )
+
+    MainWindow.disconnect_motor_serial(ui)
+
+    assert events[0] == "latched_emergency_stop"
+    assert "unsafe_plain_stop" not in events
+    assert "plain_disconnect" not in events
+    assert ui.motor_serial_status.value == "MOTOR: DISCONNECTED  /dev/ttyACM0"
+    assert ui.motor_connect.enabled is False
+    assert ui.motor_disconnect.enabled is False
+
