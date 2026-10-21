@@ -377,6 +377,18 @@ class MainWindow(BaseMainWindow):
     def start_run(self):
         self._execute_selected_sequences()
 
+    def failed(self, message):
+        # Any worker exception is treated as an unsafe termination. Do not
+        # re-enable START merely because the thread returned.
+        self._stop_latched = True
+        try:
+            if self.breakin_controller:
+                self.breakin_controller.emergency_stop()
+        except Exception:
+            logger.exception("Emergency STOP after worker failure failed")
+        super().failed(message)
+        self._set_stop_latched_ui()
+
     def finished(self):
         # The worker's asynchronous finish callback must not clear the
         # emergency-stop latch by re-enabling START after STOP was requested.
@@ -433,7 +445,22 @@ class MainWindow(BaseMainWindow):
                 self.start.setEnabled(True);self.manager.setEnabled(True);self.instance.setEnabled(True);self.recipe.setEnabled(True);self.sequence_status.setText("完了: 100%");return
             self._update_sequence_main_ui(current);self._update_sequence_highlight(current.sequence_id if current else None)
         except Exception as exc:
-            self.sequence_timer.stop();self.timer.stop();self.sequence_executor.stop("error");self.sequence_execute.setEnabled(True);self.sequence_stop.setEnabled(False);self.stop.setEnabled(False);self.start.setEnabled(True);self.manager.setEnabled(True);self.instance.setEnabled(True);self.recipe.setEnabled(True);self._update_sequence_highlight(None);self.sequence_status.setText(f"Sequence ERROR: {exc}");self.result["STATUS"].setText("ERROR");logger.exception("Sequence execution failed");QMessageBox.critical(self,"Sequence Error",str(exc))
+            self._stop_latched = True
+            self.sequence_timer.stop();self.timer.stop()
+            try:
+                self.sequence_executor.stop("error")
+            except Exception:
+                logger.exception("Failed to stop sequence executor after error")
+            try:
+                if self.breakin_controller:
+                    self.breakin_controller.emergency_stop()
+            except Exception:
+                logger.exception("Emergency STOP after sequence error failed")
+            self._update_sequence_highlight(None)
+            self.sequence_status.setText(f"Sequence ERROR / STOP LATCHED: {exc}")
+            self._set_stop_latched_ui()
+            logger.exception("Sequence execution failed; restart remains latched")
+            QMessageBox.critical(self,"Sequence Error",str(exc))
 
     def _stop_sequences(self):
         self.sequence_timer.stop();self.timer.stop();self.sequence_executor.stop("operator_stop");self.sequence_execute.setEnabled(True);self.sequence_stop.setEnabled(False);self.stop.setEnabled(False);self.start.setEnabled(True);self.manager.setEnabled(True);self.instance.setEnabled(True);self.recipe.setEnabled(True);self._update_sequence_highlight(None);self.sequence_status.setText("停止");self.run_state.setText("STOPPED")
