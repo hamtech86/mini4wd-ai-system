@@ -9,7 +9,7 @@ Arduinoとのシリアル通信管理
 Communication層は通信のみを担当する。
 """
 
-from PyQt5.QtCore import QObject, QThread, pyqtSignal
+from PyQt5.QtCore import QObject, QThread, pyqtSignal, Qt
 
 import time
 import threading
@@ -112,7 +112,7 @@ class SerialManager(QObject):
         self._emergency_stop_requested = threading.Event()
         self._active_arm_token = None
         self._identity_verified = False
-        self.received.connect(self._observe_identity)
+        self.received.connect(self._observe_identity, type=Qt.DirectConnection)
 
     @property
     def is_connected(self):
