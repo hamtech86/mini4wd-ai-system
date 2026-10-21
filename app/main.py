@@ -13,7 +13,7 @@ from database.path_resolver import configure_shared_database_path, connect_datab
 # checkout's database/mini4wd.db shared by linked Git worktrees.
 configure_shared_database_path(PROJECT_ROOT)
 
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication, QMessageBox, QGroupBox, QGridLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget, QTabWidget, QHBoxLayout, QCheckBox, QProgressBar, QPlainTextEdit
 from loguru import logger
 from ui.main_window import MainWindow as BaseMainWindow
@@ -23,9 +23,6 @@ from app.application_builder import ApplicationBuilder
 from app.raw_log_paste import install_raw_log_paste_ui
 from ui.resume_controls import install_resume_controls, bind_resume_api
 from ui.battery_tab_ui import BatteryTab
-from controllers.recipe_engine import RecipeEngine
-from controllers.sequence_executor import SequenceExecutor
-from controllers.breakin_sequence_adapter import BreakinSequenceAdapter
 from workers.breakin_worker import BreakinWorker
 from analysis.analysis_engine import AnalysisEngine
 from controllers.session_controller import SessionController
@@ -192,7 +189,6 @@ class MainWindow(BaseMainWindow):
             except Exception:logger.exception("Failed to stop motor before disconnect")
             try:controller.disconnect()
             except Exception:logger.exception("Failed to disconnect motor serial")
-        if hasattr(self,"sequence_executor"):self.sequence_executor.stop("motor_disconnected")
         self.motor_serial_status.setText("MOTOR: DISCONNECTED  /dev/ttyACM0"); self.motor_connect.setEnabled(True); self.motor_disconnect.setEnabled(False); self._log_event("Motor serial disconnected. Any STOP command sent before disconnect is not physical-stop confirmation.")
 
     def connect_battery_serial(self):
@@ -250,7 +246,7 @@ class MainWindow(BaseMainWindow):
             logger.exception("Failed to calculate estimated performance")
 
     def _build_recipe_sequence_panel(self):
-        self.recipe_engine=RecipeEngine();self.sequence_adapter=BreakinSequenceAdapter(self.breakin_controller);self.sequence_executor=SequenceExecutor(adapter=self.sequence_adapter);self.sequence_timer=QTimer(self);self.sequence_timer.setInterval(100);self.sequence_timer.timeout.connect(self._sequence_tick);self.sequence_selected_total=0
+        # Legacy generic sequence execution is intentionally not constructed.
         box=QGroupBox("BENCHMARK PLAN");root=QVBoxLayout(box);self.sequence_all=QPushButton("全選択");self.sequence_none=QPushButton("全解除");self.sequence_execute=QPushButton("選択Sequenceを実行");self.sequence_stop=QPushButton("Sequence停止")
         # Retire generic sequence controls; this panel is display-only.
         for control in (self.sequence_all, self.sequence_none, self.sequence_execute, self.sequence_stop):
@@ -303,33 +299,6 @@ class MainWindow(BaseMainWindow):
 
     def _update_sequence_highlight(self,active_id):
         for sid,check in self.sequence_checks:check.setStyleSheet("QCheckBox { background: palette(highlight); color: palette(highlighted-text); font-weight: bold; padding: 4px; border-radius: 3px; }" if sid==active_id else "QCheckBox { padding: 4px; }")
-
-    def _update_sequence_progress(self):
-        total=self.sequence_selected_total
-        if total<=0:self.sequence_progress.setValue(0);return
-        completed=sum(1 for result in self.sequence_executor.results if result.status=="COMPLETE" and result.sequence_id in self.sequence_selected_ids)
-        value=int(completed*100/total)
-        self.sequence_progress.setValue(min(100,value));self.sequence_progress.setFormat(f"Sequence Progress: {completed}/{total}  %p%")
-
-    def _update_sequence_main_ui(self,current):
-        if current is None:return
-        progress=int(self.sequence_executor.progress());total=max(1,self.sequence_selected_total);completed=sum(1 for result in self.sequence_executor.results if result.status in ("COMPLETE","SKIPPED") and result.sequence_id in self.sequence_selected_ids)
-        c=self.breakin_controller;m=getattr(getattr(c,"measurement_manager",None),"last_measurement",None) if c else None
-        self.run_state.setText("RUNNING")
-        result=self.sequence_executor.results[self.sequence_executor.state.sequence_index] if self.sequence_executor.state is not None and self.sequence_executor.state.sequence_index<len(self.sequence_executor.results) else None
-        remaining=self.sequence_executor.remaining_sec()
-        elapsed=getattr(result,"elapsed_sec",None) if result is not None else None
-        if hasattr(self,"progress"):
-            values={"STEP":f"{min(completed+1,total)} / {total}","PHASE":getattr(current,"sequence_id","--"),"DIR":getattr(current,"direction","--"),"PWM":getattr(current,"pwm","--"),"INPUT VOLTAGE":format_input_voltage(m,getattr(current,"direction",None)),"MOTOR VOLTAGE":format_motor_voltage(m),"DRIVER INPUT CURRENT":format_driver_input_current(m),"ELAPSED":f"{elapsed:.1f} s" if elapsed is not None else "--","REMAIN":f"{remaining:.1f} s" if remaining is not None else "--"}
-            for key,value in values.items():
-                if key in self.progress:self.progress[key].setText(str(value))
-        if hasattr(self,"live"):
-            # Keep supplemental live status, RPM and temperature separate from
-            # the single canonical seven-field execution telemetry display.
-            values={"RPM":self._latest_rpm() if hasattr(self,"_latest_rpm") else "--","STATE":"RUNNING","TEMP":f"{float(getattr(m,'motor_temperature')):.1f} C" if m is not None and getattr(m,"motor_temperature",None) is not None else "--","Arduino":("IDENTITY VERIFIED" if self._identity_verified() else "PORT CONNECTED / INFO UNVERIFIED")}
-            for key,value in values.items():
-                if key in self.live:self.live[key].setText(str(value))
-        self.sequence_status.setText(f"実行中: {current.sequence_id}  {progress}%  残り {remaining:.1f}s" if remaining is not None else f"実行中: {current.sequence_id}  {progress}%  条件待ち")
 
     def _execute_selected_sequences(self):
         # Compatibility slot for START. Generic recipe/sequence execution is retired.
@@ -403,12 +372,6 @@ class MainWindow(BaseMainWindow):
                         stop_errors.append("Serial controller has no supported stop method.")
                 except Exception as fallback_exc:
                     stop_errors.append(f"Direct serial stop: {type(fallback_exc).__name__}: {fallback_exc}")
-        try:
-            if hasattr(self, "sequence_executor"):
-                self.sequence_executor.stop("emergency_stop")
-        except Exception as exc:
-            stop_errors.append(f"Sequence cancellation: {type(exc).__name__}: {exc}")
-        self.sequence_timer.stop()
         self.timer.stop()
         self.sequence_execute.setEnabled(False)
         self.sequence_stop.setEnabled(False)
@@ -440,30 +403,3 @@ class MainWindow(BaseMainWindow):
             self.run_state.setText("STOP REQUESTED / PHYSICAL STOP UNCONFIRMED")
             self.result["STATUS"].setText("STOP REQUESTED / UNCONFIRMED")
 
-    def _sequence_tick(self):
-        try:
-            current=self.sequence_executor.execute_current();self._update_sequence_progress()
-            if self.sequence_executor.is_complete():
-                self.sequence_timer.stop();self.timer.stop();self.sequence_progress.setValue(100);self.sequence_progress.setFormat(f"Sequence Progress: {self.sequence_selected_total}/{self.sequence_selected_total}  100%");self.sequence_execute.setEnabled(True);self.sequence_stop.setEnabled(False);self.stop.setEnabled(False);self._update_sequence_highlight(None)
-                try:self.complete({},False)
-                except Exception:logger.exception("Failed to populate legacy result cards from Sequence result")
-                self.start.setEnabled(True);self.manager.setEnabled(True);self.instance.setEnabled(True);self.recipe.setEnabled(True);self.sequence_status.setText("完了: 100%");return
-            self._update_sequence_main_ui(current);self._update_sequence_highlight(current.sequence_id if current else None)
-        except Exception as exc:
-            self.sequence_timer.stop();self.timer.stop();self.sequence_executor.stop("error");self.sequence_execute.setEnabled(True);self.sequence_stop.setEnabled(False);self.stop.setEnabled(False);self.start.setEnabled(True);self.manager.setEnabled(True);self.instance.setEnabled(True);self.recipe.setEnabled(True);self._update_sequence_highlight(None);self.sequence_status.setText(f"Sequence ERROR: {exc}");self.result["STATUS"].setText("ERROR");self._set_ui_error(type(exc).__name__,str(exc));logger.exception("Sequence execution failed");QMessageBox.critical(self,"Sequence Error",str(exc))
-
-    def _stop_sequences(self):
-        self.sequence_timer.stop();self.timer.stop();self.sequence_executor.stop("operator_stop");self.sequence_execute.setEnabled(True);self.sequence_stop.setEnabled(False);self.stop.setEnabled(False);self.start.setEnabled(True);self.manager.setEnabled(True);self.instance.setEnabled(True);self.recipe.setEnabled(True);self._update_sequence_highlight(None);self.sequence_status.setText("停止要求を送信しました。物理停止は未確認です。");self.run_state.setText("STOP REQUESTED / PHYSICAL STOP UNCONFIRMED");self.result["STATUS"].setText("STOP REQUESTED / UNCONFIRMED");self._log_event("Sequence STOP requested; physical motor stop is unconfirmed.")
-
-def build_context():
-    serial_controller=SerialController(serial_port="/dev/ttyACM0",baudrate=57600)
-    session_controller=SessionController()
-    builder=ApplicationBuilder(serial_controller=serial_controller,session_manager=session_controller)
-    breakin_controller=builder.build_breakin_controller()
-    battery_serial_controller=BatterySerial(port="/dev/ttyUSB0",baudrate=57600)
-    return {"serial_controller":serial_controller,"breakin_controller":breakin_controller,"battery_serial_controller":battery_serial_controller}
-
-def main():
-    app=QApplication(sys.argv);context=build_context();window=MainWindow(context);window.show();return app.exec_()
-
-if __name__=="__main__":sys.exit(main())
