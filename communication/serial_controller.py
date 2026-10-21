@@ -44,6 +44,7 @@ class SerialController:
         # drive commands remain blocked for this controller's lifetime.
         self._command_lock = threading.RLock()
         self._emergency_stop_latched = False
+        self._emergency_stop_requested = threading.Event()
 
     @property
     def raw_log(self):
@@ -69,7 +70,7 @@ class SerialController:
         # A STOP that acquires this lock first permanently blocks this attempt;
         # if connect owns it first, STOP runs only after connect has completed.
         with self._ensure_command_lock():
-            if getattr(self, "_emergency_stop_latched", False):
+            if self._stop_requested():
                 self.identity_error = "Reconnect blocked: emergency STOP latch requires a new application session."
                 return False
             # A new connection attempt always invalidates any prior identity.
@@ -103,6 +104,12 @@ class SerialController:
                 # Keep the port available for safe STOP/PWM=0 commands, while
                 # send_command() blocks drive commands until INFO is verified.
                 self._verify_info_response(timeout=1.0)
+                if self._stop_requested():
+                    self.identity_verified = False
+                    self.device_info = None
+                    self.identity_error = "Connection aborted by emergency STOP request."
+                    self.disconnect()
+                    return False
                 return True
             except Exception as e:
                 print("SERIAL CONNECT ERROR", e)
@@ -209,6 +216,10 @@ class SerialController:
         Results describe command-path attempts, not physical motor state.
         """
         outcome = {"pwm_zero": False, "stop_command": False, "disconnect": False, "errors": []}
+        # Publish the stop request before waiting for any in-flight serial operation.
+        # Commands check this event under the command lock; an already-started
+        # write may finish, but no later drive command may begin after the request.
+        self._ensure_stop_event().set()
         with self._ensure_command_lock():
             self._emergency_stop_latched = True
             try:
@@ -226,6 +237,16 @@ class SerialController:
                 outcome["errors"].append(f"disconnect: {type(exc).__name__}: {exc}")
         self.last_emergency_stop_result = outcome
         return outcome
+
+    def _ensure_stop_event(self):
+        event = getattr(self, "_emergency_stop_requested", None)
+        if event is None:
+            event = threading.Event()
+            self._emergency_stop_requested = event
+        return event
+
+    def _stop_requested(self):
+        return self._ensure_stop_event().is_set() or getattr(self, "_emergency_stop_latched", False)
 
     def _ensure_command_lock(self):
         # __new__ is used by isolated tests; initialize lazily there too.
@@ -256,7 +277,7 @@ class SerialController:
             drive_command = normalized in ("START", "FWD", "REV", "RESUME") or (
                 normalized.startswith("PWM=") and normalized != "PWM=0"
             )
-            if drive_command and getattr(self, "_emergency_stop_latched", False):
+            if drive_command and self._stop_requested():
                 self.identity_error = "Drive command blocked: emergency STOP latch is active; create a new application session."
                 print("SERIAL TX BLOCKED:", command, self.identity_error)
                 return False
