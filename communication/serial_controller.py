@@ -286,6 +286,9 @@ class SerialController:
                 self.identity_error = "ARM was not acknowledged by firmware; drive remains blocked."
                 return False
             self._active_arm_token = token
+            # Measurement capture starts after ARM, immediately before the first
+            # tagged drive command; discard idle DATA collected during handshake.
+            self.raw_log_collector.reset()
             # Only this explicit user/workflow call may clear the host-side STOP latch.
             self._emergency_stop_latched = False
             self._ensure_stop_event().clear()
@@ -325,8 +328,8 @@ class SerialController:
                 except (ValueError, KeyError):
                     self.identity_verified = False
                     self.device_info = None
-            elif line:
-                self.raw_log_collector.append(decoded)
+            # Ignore unrelated telemetry during the ARM handshake; the
+            # measurement RawLog is reset after the exact token acknowledgement.
         return False
 
     def send_command(self, command):
