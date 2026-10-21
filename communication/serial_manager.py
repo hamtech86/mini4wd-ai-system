@@ -108,6 +108,7 @@ class SerialManager(QObject):
         # set for this manager instance; reconnecting cannot re-arm the motor.
         self._command_lock = threading.RLock()
         self._emergency_stop_latched = False
+        self._emergency_stop_requested = threading.Event()
 
     @property
     def is_connected(self):
@@ -132,7 +133,7 @@ class SerialManager(QObject):
 
     def connect(self, port):
         with self._command_lock:
-            if self._emergency_stop_latched:
+            if self._stop_requested():
                 self.error.emit("Reconnect blocked: emergency STOP latch requires a new application session.")
                 return False
             try:
@@ -152,6 +153,8 @@ class SerialManager(QObject):
                 # the connection as ready until the firmware boot window has
                 # completed.
                 time.sleep(self.ARDUINO_BOOT_SETTLE_SEC)
+                if self._stop_requested():
+                    raise RuntimeError("Connection aborted by emergency STOP request.")
                 self.serial.reset_input_buffer()
                 self.serial.reset_output_buffer()
 
@@ -218,6 +221,9 @@ class SerialManager(QObject):
             self.disconnected.emit()
             return True
 
+    def _stop_requested(self):
+        return self._emergency_stop_requested.is_set() or self._emergency_stop_latched
+
     def send(self, command: str) -> bool:
         """Arduinoへコマンド送信, with a fail-closed emergency STOP latch."""
         with self._command_lock:
@@ -225,7 +231,7 @@ class SerialManager(QObject):
             drive_command = normalized in ("START", "FWD", "REV", "RESUME") or (
                 normalized.startswith("PWM=") and normalized != "PWM=0"
             )
-            if drive_command and self._emergency_stop_latched:
+            if drive_command and self._stop_requested():
                 self.error.emit("Drive command blocked: emergency STOP latch is active; new application session required.")
                 logger.warning(f"TX blocked by emergency STOP latch: {command}")
                 return False
@@ -247,6 +253,9 @@ class SerialManager(QObject):
     def emergency_stop(self):
         """Serialize PWM=0 and STOP, then block all later drive commands."""
         outcome = {"pwm_zero": False, "stop_command": False, "disconnect": False, "errors": []}
+        # Signal immediately; do not wait for connect/INFO or an in-flight write
+        # before blocking new drive commands.
+        self._emergency_stop_requested.set()
         with self._command_lock:
             self._emergency_stop_latched = True
             try:
