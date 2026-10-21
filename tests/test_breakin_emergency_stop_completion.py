@@ -70,16 +70,27 @@ def test_emergency_stop_never_returns_a_successfully_completed_recipe(monkeypatc
     monkeypatch.setattr(controller, "_save_checkpoint", lambda: None)
     monkeypatch.setattr(controller, "clear_checkpoint", lambda: None)
 
-    def stop_at_boundary(phase, resume_elapsed=0.0):
-        controller.current_phase = phase
-        if stop_boundary == "during_phase":
+    if stop_boundary == "during_phase":
+        def stop_during_phase(phase, resume_elapsed=0.0):
+            controller.current_phase = phase
             controller.emergency_stop()
-            return
-        # Simulate STOP arriving at the last boundary before execute_phase()
-        # returns to start() and advances/finalizes the recipe.
-        controller.emergency_stop()
+        monkeypatch.setattr(controller, "execute_phase", stop_during_phase)
+    else:
+        # Let the phase return normally, then inject STOP at the exact
+        # transition where start() clears the completed phase checkpoint.
+        # Guard recursion because emergency_stop() also clears its checkpoint.
+        original_clear_checkpoint = controller.clear_checkpoint
+        stop_injected = False
 
-    monkeypatch.setattr(controller, "execute_phase", stop_at_boundary)
+        def clear_checkpoint_with_boundary_stop():
+            nonlocal stop_injected
+            original_clear_checkpoint()
+            if not stop_injected:
+                stop_injected = True
+                controller.emergency_stop()
+
+        monkeypatch.setattr(controller, "clear_checkpoint", clear_checkpoint_with_boundary_stop)
+        monkeypatch.setattr(controller, "execute_phase", lambda phase, resume_elapsed=0.0: None)
 
     with pytest.raises(RuntimeError, match="Emergency STOP interrupted the active recipe; result is incomplete"):
         controller.start(_recipe())
