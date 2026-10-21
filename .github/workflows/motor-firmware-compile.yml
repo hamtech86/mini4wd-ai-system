@@ -3,6 +3,7 @@ name: Motor Firmware Compile
 on:
   push:
     branches:
+      - main
       - fix/firmware-stop-disables-voltage-control-20261021
     paths:
       - "firmware/motor/MotoreRev.ino"
