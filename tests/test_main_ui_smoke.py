@@ -127,7 +127,7 @@ def test_emergency_stop_latches_restart_and_keeps_stop_available(monkeypatch, tm
         fake_controller = FakeStopController()
         window.breakin_controller = fake_controller
         assert window.emergency_stop_fixed.isEnabled()
-        window.stop_run()
+        window.emergency_stop_fixed.click()
         assert fake_controller.calls == 1
         assert window._stop_latched is True
         assert window.emergency_stop_fixed.isEnabled()
