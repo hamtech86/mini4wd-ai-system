@@ -137,6 +137,7 @@ class SerialManager(QObject):
 
     def connect(self, port):
         with self._command_lock:
+            stop_was_already_latched = self._stop_requested()
             try:
                 logger.info(f"Connecting : {port}")
 
@@ -158,6 +159,8 @@ class SerialManager(QObject):
                 time.sleep(self.ARDUINO_BOOT_SETTLE_SEC)
                 self.serial.reset_input_buffer()
                 self.serial.reset_output_buffer()
+                if not stop_was_already_latched and self._stop_requested():
+                    raise RuntimeError("Connection aborted by an emergency STOP racing with connect.")
 
                 self.reader = SerialReader(self.serial, self.raw_log_collector)
                 self.reader.received.connect(self.received)
