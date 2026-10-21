@@ -507,7 +507,8 @@ def test_serial_controller_requires_explicit_arm_and_tags_each_drive_command():
         def write(self, data):
             self.writes.append(data)
             if data.startswith(b"ARM="):
-                self.pending.append(b"OK\n")
+                token = data.decode().strip().split("=", 1)[1]
+                self.pending.append(("ARMED," + token + "\n").encode())
 
     controller = SerialController()
     fake = FakeSerial()
@@ -538,7 +539,8 @@ def test_serial_manager_requires_identity_and_explicit_arm():
         def write(self, data):
             self.writes.append(data)
             if data.startswith(b"ARM="):
-                manager._arm_response_status = True
+                token = data.decode().strip().split("=", 1)[1]
+                manager._arm_response_status = "ARMED," + token
                 manager._arm_response_event.set()
 
     manager = SerialManager()
