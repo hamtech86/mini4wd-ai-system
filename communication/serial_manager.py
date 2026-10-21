@@ -67,7 +67,7 @@ class SerialReader(QThread):
                 line = raw_line.rstrip("\r\n")
 
                 # Command responses are control-plane messages, not measurement RawLog.
-                if line == "OK" or line.startswith("ERROR,"):
+                if line == "OK" or line.startswith("ARMED,") or line.startswith("ERROR,"):
                     self.received.emit({"record_type": "COMMAND_RESPONSE", "value": line})
                     continue
 
@@ -121,6 +121,7 @@ class SerialManager(QObject):
         self.identity_error = "INFO identity has not been verified."
         self._arm_response_event = threading.Event()
         self._arm_response_status = None
+        self._awaiting_arm_response = False
 
     @property
     def is_connected(self):
@@ -255,9 +256,9 @@ class SerialManager(QObject):
         if not isinstance(data, dict):
             return
         if data.get("record_type") == "COMMAND_RESPONSE":
-            value = data.get("value")
-            self._arm_response_status = value == "OK"
-            self._arm_response_event.set()
+            if self._awaiting_arm_response:
+                self._arm_response_status = data.get("value")
+                self._arm_response_event.set()
             return
         if data.get("record_type") != "INFO":
             return
@@ -285,12 +286,16 @@ class SerialManager(QObject):
             token = secrets.token_hex(4).upper()
             self._arm_response_status = None
             self._arm_response_event.clear()
+            self._awaiting_arm_response = True
             if not self.send("ARM=" + token):
+                self._awaiting_arm_response = False
                 self._active_arm_token = None
                 return False
-            if not self._arm_response_event.wait(timeout=1.0) or self._arm_response_status is not True:
+            acknowledged = self._arm_response_event.wait(timeout=1.0)
+            self._awaiting_arm_response = False
+            if not acknowledged or self._arm_response_status != "ARMED," + token:
                 self._active_arm_token = None
-                self.error.emit("ARM was not acknowledged by firmware; drive remains blocked.")
+                self.error.emit("Token-matched ARM acknowledgement was not received; drive remains blocked.")
                 return False
             self._active_arm_token = token
             # Only this explicit operation clears the host STOP latch.
