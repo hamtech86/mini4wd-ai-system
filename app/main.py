@@ -81,7 +81,8 @@ class MainWindow(BaseMainWindow):
                 benchmark_type, mode = preset
                 self._load_benchmark_sequence(benchmark_type, mode, name)
             return
-        self._set_ui_error("UNSUPPORTED_RECIPE", "Only STD-T, Full-T, STD-I, and Full-I are supported.")
+        self.sequence_status.setText("Unsupported recipe: only STD-T, Full-T, STD-I, and Full-I are supported.")
+        self.result["STATUS"].setText("BLOCKED / UNSUPPORTED RECIPE")
 
     def _motor_controller(self):
         controller=getattr(self,"serial_controller",None)
