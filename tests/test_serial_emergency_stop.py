@@ -319,18 +319,18 @@ def test_controller_stop_during_port_open_cannot_be_followed_by_late_reconnect(m
     stop_thread.start()
     assert stop_started.wait(timeout=2)
 
-    # Release the port-open call only after STOP has attempted to begin.
-    # The lifecycle lock must make STOP run after connect cleanup/completion.
+    # Release the port-open call only after STOP has published its request.
+    # Connect must notice the request and close the unverified port without completing.
     release_open.set()
     connect_thread.join(timeout=3)
     stop_thread.join(timeout=3)
 
     assert not connect_thread.is_alive()
     assert not stop_thread.is_alive()
-    assert connect_result["ok"] is True  # Port connectivity is distinct from INFO identity.
-    assert stop_result["result"]["stop_command"] is True  # Safe STOP remains available while identity is unverified.
+    assert connect_result["ok"] is False  # A pending connection is aborted by the STOP request.
+    assert stop_result["result"]["stop_command"] is False  # The aborted, unverified port has already been closed.
     assert opened_handles[0].closed is True
-    assert opened_handles[0].writes == [b"INFO\n", b"PWM=0\n", b"STOP\n"]
+    assert opened_handles[0].writes == [b"INFO\n"]  # No drive command was ever permitted on this unverified connection.
     assert controller._emergency_stop_latched is True
     assert controller.serial is None
     assert controller.connected is False
