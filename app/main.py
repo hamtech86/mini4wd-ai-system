@@ -541,3 +541,11 @@ class MainWindow(BaseMainWindow):
             self.run_state.setText("STOP REQUESTED / PHYSICAL STOP UNCONFIRMED")
             self.result["STATUS"].setText("STOP REQUESTED / UNCONFIRMED")
 
+
+
+if __name__ == "__main__":
+    # Launch this integrated subclass, not ui.main_window.MainWindow.
+    app = QApplication.instance() or QApplication(sys.argv)
+    window = MainWindow()
+    window.show()
+    raise SystemExit(app.exec_())
