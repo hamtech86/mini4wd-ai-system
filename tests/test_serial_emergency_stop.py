@@ -439,3 +439,17 @@ def test_ui_motor_disconnect_uses_latched_emergency_stop_for_connected_controlle
     assert ui.motor_connect.enabled is False
     assert ui.motor_disconnect.enabled is False
 
+def test_legacy_direct_motor_hardware_scripts_fail_closed_without_opening_serial(capsys):
+    import runpy
+    from pathlib import Path
+    import pytest
+
+    repo_root = Path(__file__).resolve().parents[1]
+    for relative_path in ("test_serial_manager.py", "tools/breakin_hardware_test.py"):
+        with pytest.raises(SystemExit) as exc:
+            runpy.run_path(str(repo_root / relative_path), run_name="__main__")
+        assert exc.value.code == 2
+        output = capsys.readouterr().out
+        assert "BLOCKED" in output
+        assert "No serial port was opened and no motor command was sent." in output
+
