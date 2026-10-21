@@ -940,7 +940,8 @@ void processCommand(const char *cmd)
     if (strcmp(cmd, "PAUSE") == 0)
     {
      runtime.paused = true;
-
+     // Issue #35: PAUSE clears the internal PWM command as well as the pin.
+     runtime.pwm = 0;
      analogWrite(PIN_PWM, 0);
 
      setState(STATE_PAUSE);
