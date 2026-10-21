@@ -421,7 +421,6 @@ class BreakinController:
         return getattr(measurement, name, default)
 
     @classmethod
-    @classmethod
     def _current_from_measurement(cls, measurement):
         # Do not let a low firmware average mask a physical sensor spike.
         values = []
