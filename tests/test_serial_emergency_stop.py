@@ -453,3 +453,38 @@ def test_legacy_direct_motor_hardware_scripts_fail_closed_without_opening_serial
         assert "BLOCKED" in output
         assert "No serial port was opened and no motor command was sent." in output
 
+
+
+def test_stop_request_event_is_set_before_lock_wait():
+    import threading
+    import time
+
+    controller = SerialController.__new__(SerialController)
+    controller._command_lock = threading.RLock()
+    controller._emergency_stop_requested = threading.Event()
+    controller._emergency_stop_latched = False
+    controller.command_log = []
+    controller.identity_error = ""
+    controller.connected = False
+    controller.serial = None
+    controller.identity_verified = False
+    controller._command_lock.acquire()
+    done = threading.Event()
+
+    def stop_worker():
+        try:
+            controller.emergency_stop()
+        finally:
+            done.set()
+
+    worker = threading.Thread(target=stop_worker)
+    worker.start()
+    try:
+        deadline = time.monotonic() + 1.0
+        while not controller._emergency_stop_requested.is_set() and time.monotonic() < deadline:
+            time.sleep(0.001)
+        assert controller._emergency_stop_requested.is_set()
+    finally:
+        controller._command_lock.release()
+    worker.join(timeout=2.0)
+    assert done.is_set()
