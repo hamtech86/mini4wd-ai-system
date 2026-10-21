@@ -58,6 +58,11 @@ def test_emergency_stop_latches_ui_and_blocks_all_start_entry_points(stop_latche
     assert not window.recipe.isEnabled()
     assert "RESTART BLOCKED" in window.result["STATUS"].text()
 
+    # Simulate a late QThread.finished callback after STOP.
+    window.finished()
+    assert not window.start.isEnabled()
+    assert not window.sequence_execute.isEnabled()
+
     # Both normal and benchmark entry points must refuse to launch after STOP.
     window._execute_selected_sequences()
     window._start_benchmark()
