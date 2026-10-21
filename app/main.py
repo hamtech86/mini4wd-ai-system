@@ -25,6 +25,7 @@ from ui.battery_tab_ui import BatteryTab
 from workers.breakin_worker import BreakinWorker
 from analysis.analysis_engine import AnalysisEngine
 from controllers.session_controller import SessionController
+from controllers.recipe_engine import RecipeEngine
 from controllers.motor_benchmark import STANDARD_3V30S, FULL_PACKAGE
 from controllers.current_display import format_driver_input_current, format_input_voltage, format_motor_voltage
 from controllers.ui_benchmark_presets import BENCHMARK_PRESETS as UI_BENCHMARK_PRESETS
@@ -35,6 +36,7 @@ class MainWindow(BaseMainWindow):
         super().__init__(context)
         self._stop_latched = False
         self.analysis_engine=AnalysisEngine(str(PROJECT_ROOT / "config"))
+        self.recipe_engine=RecipeEngine(str(PROJECT_ROOT / "config" / "breakin_recipes.yaml"))
         self._extract_motor_page(); self._build_estimated_result_panel()
         install_raw_log_paste_ui(self)
         self.battery_serial_controller = context.get("battery_serial_controller") if context else None
@@ -78,6 +80,7 @@ class MainWindow(BaseMainWindow):
         self.recipe.clear()
         for label in self.BENCHMARK_PRESETS:
             self.recipe.addItem(label, label)
+        self.recipe.addItem("TUNE_BASIC_INPUT_3V_CHECK", "TUNE_BASIC_INPUT_3V_CHECK")
 
     def recipe_changed(self, index):
         # Base MainWindow populates the combo during super().__init__, before
@@ -85,8 +88,13 @@ class MainWindow(BaseMainWindow):
         if not hasattr(self, "sequence_layout"):
             return
         name = self.recipe.itemData(index) if hasattr(self, "recipe") else None
+        if name == "TUNE_BASIC_INPUT_3V_CHECK":
+            self._load_limited_tunebasic_sequence()
+            self.start.setEnabled(True)
+            self.sequence_execute.setEnabled(True)
+            return
         if name not in self.BENCHMARK_PRESETS:
-            self._clear_sequence_panel("Unsupported recipe blocked; select one of STD-T, Full-T, STD-I, Full-I.")
+            self._clear_sequence_panel("Unsupported recipe blocked; select a supported preset.")
             self.start.setEnabled(False)
             self.sequence_execute.setEnabled(False)
             return
@@ -260,11 +268,15 @@ class MainWindow(BaseMainWindow):
     def _current_recipe_name(self):
         return self.recipe.currentData() if hasattr(self,"recipe") else None
 
-    def _recipe_selection_changed(self,index):
-        # Fail closed: legacy YAML recipe execution is retired.
-        name=self.recipe.itemData(index) if hasattr(self,"recipe") else None
+    def _recipe_selection_changed(self, index):
+        name = self.recipe.itemData(index) if hasattr(self, "recipe") else None
+        if name == "TUNE_BASIC_INPUT_3V_CHECK":
+            self._load_limited_tunebasic_sequence()
+            self.sequence_execute.setEnabled(True)
+            self.start.setEnabled(True)
+            return
         if name not in self.BENCHMARK_PRESETS:
-            self._clear_sequence_panel("Unsupported recipe blocked; only four benchmark presets are allowed.")
+            self._clear_sequence_panel("Unsupported recipe blocked; only four Benchmark presets and limited TuneBasic INPUT 3V check are allowed.")
             self.sequence_execute.setEnabled(False)
             self.start.setEnabled(False)
             return
@@ -299,12 +311,36 @@ class MainWindow(BaseMainWindow):
     def _update_sequence_highlight(self,active_id):
         for sid,check in self.sequence_checks:check.setStyleSheet("QCheckBox { background: palette(highlight); color: palette(highlighted-text); font-weight: bold; padding: 4px; border-radius: 3px; }" if sid==active_id else "QCheckBox { padding: 4px; }")
 
+    def _load_limited_tunebasic_sequence(self):
+        self._clear_sequence_panel("TuneBasic INPUT 3V validation (limited)")
+        detail = "FWD 10 s → REV 10 s | target input voltage 3.00 V | PWM 35–120"
+        check = QCheckBox("TUNE_BASIC_INPUT_3V_CHECK | " + detail)
+        check.setChecked(True)
+        check.setProperty("recipe_name", "TUNE_BASIC_INPUT_3V_CHECK")
+        self.sequence_layout.addWidget(check)
+        self.sequence_checks = [("TUNE_BASIC_INPUT_3V_CHECK", check)]
+        self.sequence_layout.addStretch()
+        self.sequence_status.setText("Limited TuneBasic INPUT 3V check; full 9 V recipe remains unavailable.")
+        self.recipe_detail.setText("TuneBasic validation only / INPUT feedback / FWD + REV")
+        self.phase_detail.setText(detail)
+        self.benchmark_detail.setText("10 s per direction; PWM capped at 35–120")
+        self._log_event("Recipe selected: TUNE_BASIC_INPUT_3V_CHECK (INPUT feedback, FWD+REV, limited duration).")
+
     def _execute_selected_sequences(self):
-        # Compatibility slot for START. Generic recipe/sequence execution is retired.
+        if self._stop_latched:
+            self._set_ui_error("STOP_LATCHED", "Restart blocked after an emergency-stop request; physical stop remains unconfirmed.")
+            return
         name = self._current_recipe_name()
+        if name == "TUNE_BASIC_INPUT_3V_CHECK":
+            selected = [check for sid, check in self.sequence_checks if sid == name and check.isChecked()]
+            if len(selected) != 1:
+                self.sequence_status.setText("TUNE_BASIC_INPUT_3V_CHECK is not selected.")
+                return
+            self._start_limited_tunebasic_check()
+            return
         preset = self.BENCHMARK_PRESETS.get(name)
         if preset is None:
-            self._set_ui_error("UNSUPPORTED_RECIPE", "Only STD-T, Full-T, STD-I, and Full-I are allowed.")
+            self._set_ui_error("UNSUPPORTED_RECIPE", "Only four Benchmark presets and the limited TuneBasic INPUT 3V check are allowed.")
             self.sequence_status.setText("BLOCKED / unsupported recipe")
             return
         benchmark_type, mode = preset
@@ -312,6 +348,49 @@ class MainWindow(BaseMainWindow):
             self.sequence_status.setText(f"{name}: BLOCKED / INFO NOT VERIFIED")
             return
         self._start_benchmark(benchmark_type, mode)
+
+    def _start_limited_tunebasic_check(self):
+        if self._stop_latched:
+            self._set_ui_error("STOP_LATCHED", "Restart blocked after emergency STOP.")
+            return
+        if not self._require_verified_motor("TuneBasic INPUT 3V check"):
+            return
+        recipe = self.recipe_engine.get("TUNE_BASIC_INPUT_3V_CHECK")
+        if recipe is None:
+            self._set_ui_error("MISSING_RECIPE", "TUNE_BASIC_INPUT_3V_CHECK recipe is missing.")
+            return
+        controller = self._motor_controller()
+        if controller is None or not getattr(controller, "connected", False):
+            self._set_ui_error("MOTOR_NOT_CONNECTED", "Connect and verify MOTOR_BREAKIN_V3 before starting.")
+            return
+        self.database_updated = False
+        self.last_result_data = None
+        self.last_result_benchmark = False
+        self.database_status.setText("DATABASE: NOT UPDATED")
+        self.update_db.setEnabled(False)
+        self.copy.setEnabled(False)
+        self.start.setEnabled(False)
+        self.manager.setEnabled(False)
+        self.instance.setEnabled(False)
+        self.recipe.setEnabled(False)
+        self.stop.setEnabled(True)
+        self.emergency_stop_fixed.setEnabled(True)
+        self.result["STATUS"].setText("RUNNING / LIMITED INPUT 3V CHECK")
+        self.run_state.setText("STARTING LIMITED INPUT 3V CHECK")
+        self.breakin_worker = BreakinWorker(self.breakin_controller, recipe, False)
+        self.breakin_worker.completed.connect(self._limited_tunebasic_completed)
+        self.breakin_worker.failed.connect(self.failed)
+        self.breakin_worker.finished.connect(self.finished)
+        self.timer.start()
+        self.breakin_worker.start()
+
+    def _limited_tunebasic_completed(self, data):
+        # Preserve the raw measurement log, but do not save this validation
+        # run as a benchmark or update the motor database.
+        self.result["STATUS"].setText("LIMITED INPUT 3V CHECK COMPLETE")
+        self.run_state.setText("LIMITED INPUT 3V CHECK COMPLETE")
+        self.result["SUMMARY"].setText("Review FWD/REV RawLog and sensor feedback before authorizing full TuneBasic.")
+        self._log_event("Limited TuneBasic INPUT 3V check completed; full 9 V recipe remains gated pending review.")
 
     def _start_benchmark(self, benchmark_type=STANDARD_3V30S, voltage_control_mode="TERMINAL"):
         if self._stop_latched:
