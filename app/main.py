@@ -420,6 +420,12 @@ class MainWindow(BaseMainWindow):
             self.resume_button.setEnabled(False)
         self.run_state.setText("STOP LATCHED / RESTART BLOCKED")
         self.result["STATUS"].setText("STOP LATCHED / RESTART BLOCKED")
+        for key in ("INPUT VOLTAGE", "MOTOR VOLTAGE", "DRIVER INPUT CURRENT"):
+            if hasattr(self, "progress") and key in self.progress:
+                self.progress[key].setText("--")
+        for key in ("V", "A"):
+            if hasattr(self, "live") and key in self.live:
+                self.live[key].setText("--")
         self.sequence_status.setText("緊急停止後の再始動はブロックされています。アプリ再起動だけでは実機停止を証明しません。")
 
     def stop_run(self):
