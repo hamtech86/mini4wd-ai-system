@@ -109,3 +109,19 @@ def test_emergency_stop_attempts_serial_even_if_checkpoint_save_fails():
     assert result["checkpoint_saved"] is False
     assert result["serial_stop_attempted"] is True
     assert any("checkpoint unavailable" in error for error in result["errors"])
+
+
+
+def test_emergency_stop_clears_checkpoint_to_prevent_resume(monkeypatch, tmp_path):
+    serial = MockSerialController()
+    controller = BreakinController(serial_controller=serial)
+    checkpoint = tmp_path / "breakin_resume.json"
+    monkeypatch.setattr(BreakinController, "CHECKPOINT_PATH", checkpoint)
+
+    def save_checkpoint():
+        checkpoint.write_text('{"recipe": "TUNE_BASIC"}', encoding="utf-8")
+
+    controller._save_checkpoint = save_checkpoint
+    controller.emergency_stop()
+
+    assert not checkpoint.exists()
