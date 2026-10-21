@@ -1,5 +1,6 @@
 """Regression tests for INPUT versus TERMINAL benchmark feedback."""
 from types import SimpleNamespace
+import pytest
 
 from controllers.breakin_controller import BreakinController
 from controllers.recipe import BreakinPhase
@@ -97,6 +98,9 @@ def test_missing_input_feedback_fails_safe_to_pwm_zero():
     measurement = SimpleNamespace(voltage1=2.5, motor_voltage=-2.5)
 
     controller._voltage_control(phase, measurement)
+    controller._voltage_control(phase, measurement)
+    with pytest.raises(RuntimeError, match="3 consecutive invalid control samples"):
+        controller._voltage_control(phase, measurement)
 
     assert controller.running is False
     assert serial.pwm[-1] == 0
