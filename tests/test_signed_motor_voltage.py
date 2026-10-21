@@ -1,0 +1,78 @@
+"""Regression tests for strict DATA parsing and signed reverse voltage."""
+from measurement.measurement_manager import MeasurementManager
+
+
+def data_frame(motor_voltage):
+    return {
+        "record_type": "DATA", "device_model": "MOTOR_BREAKIN_V3", "instance_id": 42,
+        "elapsed_time": 1000, "raw_acs1": 500, "raw_acs2": 500,
+        "current1": 0.1, "current2": 0.1, "voltage1": 3.0, "voltage2": 0.2,
+        "motor_voltage": motor_voltage, "pwm": 60, "direction": "REV", "state": "RUN",
+        "current_avg": 0.1, "power": 0.3, "current_ripple": 0.01,
+        "voltage_ripple": 0.02, "peak_power": 0.4, "peak_current": 0.2,
+        "peak_voltage": 3.1, "peak_pwm": 60, "brush_peak_current": 0.2,
+        "raw_magnetic": 100, "magnetic_level": 0.1, "motor_temperature": 24.0,
+    }
+
+
+def test_reverse_signed_motor_voltage_is_valid():
+    manager = MeasurementManager()
+    parsed = manager._parse_frame(data_frame(-2.8))
+    assert parsed is not None
+    assert parsed["motor_voltage"] == -2.8
+
+
+def test_out_of_range_signed_motor_voltage_is_rejected():
+    manager = MeasurementManager()
+    assert manager._parse_frame(data_frame(-12.1)) is None
+    assert manager._parse_frame(data_frame(12.1)) is None
+
+
+def test_incomplete_numeric_data_is_rejected():
+    manager = MeasurementManager()
+    frame = data_frame(-2.8)
+    frame.pop("current_avg")
+    assert manager._parse_frame(frame) is None
+
+
+def test_fractional_adc_integer_field_is_rejected():
+    manager = MeasurementManager()
+    frame = data_frame(-2.8)
+    frame["raw_acs1"] = 500.5
+    assert manager._parse_frame(frame) is None
+
+
+def test_numeric_instance_id_is_accepted():
+    manager = MeasurementManager()
+    parsed = manager._parse_frame(data_frame(-2.8))
+    assert parsed is not None
+    assert parsed["instance_id"] == 42
+
+
+def test_serial_csv_line_is_parsed_into_typed_measurement():
+    class SerialLine:
+        def read_measurement(self):
+            return ",".join([
+                "DATA", "MOTOR_BREAKIN_V3", "42", "1000", "500", "500",
+                "0.1", "0.1", "3.0", "0.2", "-2.8", "60", "REV", "RUN",
+                "0.1", "0.3", "0.01", "0.02", "0.4", "0.2", "3.1",
+                "60", "0.2", "100", "0.1", "24.0",
+            ])
+
+    manager = MeasurementManager(serial_controller=SerialLine())
+    measurement = manager.collect()
+    assert measurement is not None
+    assert measurement.motor_voltage == -2.8
+    assert measurement.instance_id == 42
+    assert manager.last_measurement is measurement
+
+
+def test_invalid_frame_clears_last_measurement():
+    class InvalidSerial:
+        def read_measurement(self):
+            return "DATA,broken"
+
+    manager = MeasurementManager(serial_controller=InvalidSerial())
+    manager.last_measurement = object()
+    assert manager.collect() is None
+    assert manager.last_measurement is None
