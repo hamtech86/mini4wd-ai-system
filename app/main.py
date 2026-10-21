@@ -207,7 +207,8 @@ class MainWindow(BaseMainWindow):
         self.motor_serial_status.setText("MOTOR: DISCONNECTED  /dev/ttyACM0")
         self.motor_connect.setEnabled(True)
         self.motor_disconnect.setEnabled(False)
-        self.motor_arm.setEnabled(False)
+        if hasattr(self, "motor_arm"):
+            self.motor_arm.setEnabled(False)
         self._log_event("Motor serial disconnected. Software STOP is not physical-stop confirmation.")
 
     def connect_battery_serial(self):
@@ -502,7 +503,8 @@ class MainWindow(BaseMainWindow):
         self.timer.stop()
         self.motor_connect.setEnabled(True)
         self.motor_disconnect.setEnabled(False)
-        self.motor_arm.setEnabled(False)
+        if hasattr(self, "motor_arm"):
+            self.motor_arm.setEnabled(False)
         self.motor_serial_status.setText("MOTOR: STOP REQUESTED / DISCONNECTED — RECONNECT AND EXPLICIT ARM REQUIRED")
         self.sequence_execute.setEnabled(False)
         self.sequence_stop.setEnabled(False)
