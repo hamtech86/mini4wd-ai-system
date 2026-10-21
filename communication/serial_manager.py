@@ -166,6 +166,16 @@ class SerialManager(QObject):
 
             except Exception as e:
                 logger.exception(e)
+                handle = self.serial
+                try:
+                    if handle is not None and getattr(handle, "is_open", False):
+                        handle.close()
+                except Exception as close_exc:
+                    logger.exception(close_exc)
+                    self.error.emit(f"Connection cleanup failed: {type(close_exc).__name__}: {close_exc}")
+                finally:
+                    self.serial = None
+                    self.reader = None
                 self.error.emit(str(e))
                 return False
 
