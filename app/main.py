@@ -375,13 +375,57 @@ class MainWindow(BaseMainWindow):
 
     def stop_run(self):
         self._stop_latched = True
+        stop_errors = []
+        controller = getattr(self, "breakin_controller", None)
+        if controller is None:
+            controller = self._motor_controller()
         try:
-            if self.breakin_controller:
-                self.breakin_controller.emergency_stop()
-        finally:
-            self.sequence_timer.stop();self.timer.stop()
-            if hasattr(self,"sequence_executor"):self.sequence_executor.stop("emergency_stop")
-            self.sequence_execute.setEnabled(False);self.sequence_stop.setEnabled(False);self.stop.setEnabled(False);self.emergency_stop_fixed.setEnabled(True);self.start.setEnabled(False);self.manager.setEnabled(False);self.instance.setEnabled(False);self.recipe.setEnabled(False);self.run_state.setText("STOP REQUESTED / PHYSICAL STOP UNCONFIRMED");self.result["STATUS"].setText("STOP REQUESTED / UNCONFIRMED");self.sequence_status.setText("停止要求を送信しました。物理停止は未確認です。");self._log_event("Emergency STOP requested; physical stop is unconfirmed; restart latched.");self._update_sequence_highlight(None)
+            if controller is None:
+                stop_errors.append("No motor controller available; serial STOP could not be attempted.")
+            elif hasattr(controller, "emergency_stop"):
+                controller.emergency_stop()
+            elif hasattr(controller, "stop_breakin"):
+                controller.stop_breakin()
+            else:
+                stop_errors.append("Controller has no emergency_stop/stop_breakin method.")
+        except Exception as exc:
+            stop_errors.append(f"Controller stop: {type(exc).__name__}: {exc}")
+            # If the BreakinController path failed before reaching serial,
+            # make an independent best-effort attempt through SerialController.
+            serial_controller = self._motor_controller()
+            if serial_controller is not None and serial_controller is not controller:
+                try:
+                    if hasattr(serial_controller, "emergency_stop"):
+                        serial_controller.emergency_stop()
+                    elif hasattr(serial_controller, "stop_breakin"):
+                        serial_controller.stop_breakin()
+                    else:
+                        stop_errors.append("Serial controller has no supported stop method.")
+                except Exception as fallback_exc:
+                    stop_errors.append(f"Direct serial stop: {type(fallback_exc).__name__}: {fallback_exc}")
+        try:
+            if hasattr(self, "sequence_executor"):
+                self.sequence_executor.stop("emergency_stop")
+        except Exception as exc:
+            stop_errors.append(f"Sequence cancellation: {type(exc).__name__}: {exc}")
+        self.sequence_timer.stop()
+        self.timer.stop()
+        self.sequence_execute.setEnabled(False)
+        self.sequence_stop.setEnabled(False)
+        self.stop.setEnabled(False)
+        self.emergency_stop_fixed.setEnabled(True)
+        self.start.setEnabled(False)
+        self.manager.setEnabled(False)
+        self.instance.setEnabled(False)
+        self.recipe.setEnabled(False)
+        self.run_state.setText("STOP REQUESTED / PHYSICAL STOP UNCONFIRMED")
+        self.result["STATUS"].setText("STOP REQUESTED / UNCONFIRMED")
+        self.sequence_status.setText("停止要求を送信しました。物理停止は未確認です。")
+        details = "; ".join(stop_errors) if stop_errors else "software stop path attempted; physical stop unconfirmed"
+        self._log_event(f"Emergency STOP requested; {details}. Restart remains latched.")
+        if stop_errors:
+            self._set_ui_error("EMERGENCY_STOP_PATH_ERROR", details)
+        self._update_sequence_highlight(None)
 
     def finished(self):
         # Base MainWindow.finished() unconditionally re-enables START. Preserve
