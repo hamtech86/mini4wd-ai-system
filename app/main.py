@@ -340,6 +340,12 @@ class MainWindow(BaseMainWindow):
             return
         self.sequence_selected_ids = enabled_ids
         self.sequence_selected_total = len(enabled_ids)
+        self.database_updated = False
+        self.last_result_data = None
+        self.last_result_benchmark = False
+        self.database_status.setText("DATABASE: NOT UPDATED")
+        self.update_db.setEnabled(False)
+        self.copy.setEnabled(False)
         self.sequence_progress.setValue(0)
         self.sequence_executor.load_recipe(recipe, enabled_ids=enabled_ids)
         self.sequence_executor.start()
