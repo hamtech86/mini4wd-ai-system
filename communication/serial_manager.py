@@ -306,6 +306,8 @@ class SerialManager(QObject):
                 self.error.emit("Token-matched ARM acknowledgement was not received; drive remains blocked.")
                 return False
             self._active_arm_token = token
+            # Exclude idle DATA collected while waiting for ARM acknowledgement.
+            self.raw_log_collector.reset()
             # Only this explicit operation clears the host STOP latch.
             self._emergency_stop_latched = False
             self._emergency_stop_requested.clear()
