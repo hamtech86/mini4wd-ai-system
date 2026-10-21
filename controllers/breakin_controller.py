@@ -437,6 +437,7 @@ class BreakinController:
                 values.append(abs(value))
         return max(values, default=0.0)
 
+    @staticmethod
     def _value(measurement, name, default=0.0):
         return BreakinController._measurement_value(measurement, name, default)
 
