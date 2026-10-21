@@ -144,6 +144,10 @@ class SerialController:
         return self.serial.stop_breakin()
 
     def emergency_stop(self):
+        # The communication layer owns the serialized STOP latch so stale
+        # worker commands cannot re-energize the motor after this request.
+        if hasattr(self.serial, "emergency_stop"):
+            return self.serial.emergency_stop()
         return self.stop_breakin()
 
     def forward(self):

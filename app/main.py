@@ -189,14 +189,23 @@ class MainWindow(BaseMainWindow):
             self.motor_serial_status.setText("MOTOR: CONNECTION FAILED  /dev/ttyACM0"); self._set_ui_error("MOTOR_SERIAL_CONNECT_FAILED","SerialController.connect() returned failure; device identity was not verified.")
 
     def disconnect_motor_serial(self):
-        controller=self._motor_controller()
-        if controller is not None:
+        controller = self._motor_controller()
+        if controller is not None and getattr(controller, "connected", False):
+            # Disconnecting an active motor port is a safety stop, not a plain
+            # close: latch the UI/controller and serialize PWM=0 + STOP before
+            # the transport closes. A plain stop_breakin()+disconnect() could
+            # leave a window for a stale worker command to re-energize PWM.
+            self.stop_run()
+        elif controller is not None:
             try:
-                if controller.connected:controller.stop_breakin()
-            except Exception:logger.exception("Failed to stop motor before disconnect")
-            try:controller.disconnect()
-            except Exception:logger.exception("Failed to disconnect motor serial")
-        self.motor_serial_status.setText("MOTOR: DISCONNECTED  /dev/ttyACM0"); self.motor_connect.setEnabled(True); self.motor_disconnect.setEnabled(False); self._log_event("Motor serial disconnected. Any STOP command sent before disconnect is not physical-stop confirmation.")
+                controller.disconnect()
+            except Exception as exc:
+                logger.exception("Failed to disconnect motor serial")
+                self._set_ui_error("MOTOR_DISCONNECT_FAILED", f"{type(exc).__name__}: {exc}")
+        self.motor_serial_status.setText("MOTOR: DISCONNECTED  /dev/ttyACM0")
+        self.motor_connect.setEnabled(not self._stop_latched)
+        self.motor_disconnect.setEnabled(False)
+        self._log_event("Motor serial disconnected. Software STOP is not physical-stop confirmation.")
 
     def connect_battery_serial(self):
         controller=self.battery_serial_controller

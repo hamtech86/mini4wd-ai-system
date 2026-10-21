@@ -18,6 +18,7 @@ except ImportError:
 
 import time
 import re
+import threading
 
 from communication.raw_log_collector import RawLogCollector
 from communication.csv_parser import CSVParser
@@ -39,6 +40,11 @@ class SerialController:
         self.identity_verified = False
         self.device_info = None
         self.identity_error = "INFO identity has not been verified."
+        # Serialize every serial command with emergency STOP. Once latched,
+        # drive commands remain blocked for this controller's lifetime.
+        self._command_lock = threading.RLock()
+        self._emergency_stop_latched = False
+        self._emergency_stop_requested = threading.Event()
 
     @property
     def raw_log(self):
@@ -60,42 +66,66 @@ class SerialController:
         return snapshot
 
     def connect(self):
-        # A new connection attempt always invalidates any prior identity.
-        self.identity_verified = False
-        self.device_info = None
-        self.identity_error = "INFO identity has not been verified."
-        if serial is None:
-            return False
+        # Serialize the complete connection lifecycle with emergency STOP.
+        # A STOP that acquires this lock first permanently blocks this attempt;
+        # if connect owns it first, STOP runs only after connect has completed.
+        with self._ensure_command_lock():
+            if self._stop_requested():
+                self.identity_error = "Reconnect blocked: emergency STOP latch requires a new application session."
+                return False
+            # A new connection attempt always invalidates any prior identity.
+            self.identity_verified = False
+            self.device_info = None
+            self.identity_error = "INFO identity has not been verified."
+            if serial is None:
+                return False
 
-        try:
-            self.serial = serial.Serial(
-                self.serial_port,
-                self.baudrate,
-                timeout=1
-            )
-            self.serial.reset_input_buffer()
-            self.serial.reset_output_buffer()
-            # Opening an Arduino Uno serial port resets the board. Wait for
-            # firmware startup before reporting the port as ready.
-            time.sleep(2.0)
-            self.serial.reset_input_buffer()
-            self.serial.reset_output_buffer()
-            self.raw_log_collector.reset()
-            self.identity_verified = False
-            self.device_info = None
-            self.identity_error = "INFO response not received."
-            self.connected = True
-            print("SERIAL CONNECTED", self.serial_port, self.baudrate)
-            self.send_command("INFO")
-            self._verify_info_response(timeout=1.0)
-            return True
-        except Exception as e:
-            print("SERIAL CONNECT ERROR", e)
-            self.connected = False
-            self.identity_verified = False
-            self.device_info = None
-            self.identity_error = "Serial connection failed: " + str(e)
-            return False
+            try:
+                self.serial = serial.Serial(
+                    self.serial_port,
+                    self.baudrate,
+                    timeout=1
+                )
+                self.serial.reset_input_buffer()
+                self.serial.reset_output_buffer()
+                # Opening an Arduino Uno serial port resets the board. Wait for
+                # firmware startup before reporting the port as ready.
+                time.sleep(2.0)
+                self.serial.reset_input_buffer()
+                self.serial.reset_output_buffer()
+                self.raw_log_collector.reset()
+                self.identity_verified = False
+                self.device_info = None
+                self.identity_error = "INFO response not received."
+                self.connected = True
+                print("SERIAL CONNECTED", self.serial_port, self.baudrate)
+                self.send_command("INFO")
+                # Port connectivity and device identity are separate states.
+                # Keep the port available for safe STOP/PWM=0 commands, while
+                # send_command() blocks drive commands until INFO is verified.
+                self._verify_info_response(timeout=1.0)
+                if self._stop_requested():
+                    self.identity_verified = False
+                    self.device_info = None
+                    self.identity_error = "Connection aborted by emergency STOP request."
+                    self.disconnect()
+                    return False
+                return True
+            except Exception as e:
+                print("SERIAL CONNECT ERROR", e)
+                handle = self.serial
+                try:
+                    if handle:
+                        handle.close()
+                except Exception as close_exc:
+                    print("SERIAL CONNECT CLEANUP ERROR", close_exc)
+                finally:
+                    self.serial = None
+                    self.connected = False
+                    self.identity_verified = False
+                    self.device_info = None
+                    self.identity_error = "Serial connection failed: " + str(e)
+                return False
 
     def _verify_info_response(self, timeout=1.0):
         """Require an explicit, valid INFO response after opening the port."""
@@ -179,55 +209,86 @@ class SerialController:
         return self.send_command("STOP")
 
     def emergency_stop(self):
-        """Best-effort STOP sequence; one failed step must not skip later steps.
+        """Fail closed against concurrent and subsequent drive commands.
 
-        The return value reports command-path outcomes only. It is not proof
-        that the motor physically stopped.
+        The lock orders in-flight writes before STOP, then the latch blocks any
+        later positive-PWM/direction/restart command from this controller.
+        Results describe command-path attempts, not physical motor state.
         """
         outcome = {"pwm_zero": False, "stop_command": False, "disconnect": False, "errors": []}
-        try:
-            outcome["pwm_zero"] = self.set_pwm(0) is not False
-        except Exception as exc:
-            outcome["errors"].append(f"PWM=0: {type(exc).__name__}: {exc}")
-        try:
-            outcome["stop_command"] = self.send_command("STOP") is not False
-        except Exception as exc:
-            outcome["errors"].append(f"STOP: {type(exc).__name__}: {exc}")
-        try:
-            self.disconnect()
-            outcome["disconnect"] = True
-        except Exception as exc:
-            outcome["errors"].append(f"disconnect: {type(exc).__name__}: {exc}")
+        # Publish the stop request before waiting for any in-flight serial operation.
+        # Commands check this event under the command lock; an already-started
+        # write may finish, but no later drive command may begin after the request.
+        self._ensure_stop_event().set()
+        with self._ensure_command_lock():
+            self._emergency_stop_latched = True
+            try:
+                outcome["pwm_zero"] = self.set_pwm(0) is not False
+            except Exception as exc:
+                outcome["errors"].append(f"PWM=0: {type(exc).__name__}: {exc}")
+            try:
+                outcome["stop_command"] = self.send_command("STOP") is not False
+            except Exception as exc:
+                outcome["errors"].append(f"STOP: {type(exc).__name__}: {exc}")
+            try:
+                self.disconnect()
+                outcome["disconnect"] = True
+            except Exception as exc:
+                outcome["errors"].append(f"disconnect: {type(exc).__name__}: {exc}")
         self.last_emergency_stop_result = outcome
         return outcome
 
+    def _ensure_stop_event(self):
+        event = getattr(self, "_emergency_stop_requested", None)
+        if event is None:
+            event = threading.Event()
+            self._emergency_stop_requested = event
+        return event
+
+    def _stop_requested(self):
+        return self._ensure_stop_event().is_set() or getattr(self, "_emergency_stop_latched", False)
+
+    def _ensure_command_lock(self):
+        # __new__ is used by isolated tests; initialize lazily there too.
+        lock = getattr(self, "_command_lock", None)
+        if lock is None:
+            lock = threading.RLock()
+            self._command_lock = lock
+        return lock
+
     def disconnect(self):
-        handle = self.serial
-        try:
-            if handle:
-                handle.close()
-        finally:
-            self.serial = None
-            self.connected = False
-            self.identity_verified = False
-            self.device_info = None
-            self.identity_error = "Disconnected; identity verification reset."
+        with self._ensure_command_lock():
+            handle = self.serial
+            try:
+                if handle:
+                    handle.close()
+            finally:
+                self.serial = None
+                self.connected = False
+                self.identity_verified = False
+                self.device_info = None
+                self.identity_error = "Disconnected; identity verification reset."
 
     def send_command(self, command):
-        self.command_log.append(command)
-        print("SERIAL TX:", command)
-        normalized = str(command).strip().upper()
-        drive_command = normalized in ("START", "FWD", "REV", "RESUME") or (
-            normalized.startswith("PWM=") and normalized != "PWM=0"
-        )
-        if drive_command and not self.identity_verified:
-            self.identity_error = "Drive command blocked: INFO identity is not verified."
-            print("SERIAL TX BLOCKED:", command, self.identity_error)
+        with self._ensure_command_lock():
+            self.command_log.append(command)
+            print("SERIAL TX:", command)
+            normalized = str(command).strip().upper()
+            drive_command = normalized in ("START", "FWD", "REV", "RESUME") or (
+                normalized.startswith("PWM=") and normalized != "PWM=0"
+            )
+            if drive_command and self._stop_requested():
+                self.identity_error = "Drive command blocked: emergency STOP latch is active; create a new application session."
+                print("SERIAL TX BLOCKED:", command, self.identity_error)
+                return False
+            if drive_command and not self.identity_verified:
+                self.identity_error = "Drive command blocked: INFO identity is not verified."
+                print("SERIAL TX BLOCKED:", command, self.identity_error)
+                return False
+            if self.connected and self.serial:
+                self.serial.write((command + "\n").encode("utf-8"))
+                return command
             return False
-        if self.connected and self.serial:
-            self.serial.write((command + "\n").encode("utf-8"))
-            return command
-        return False
 
     def read_measurement(self):
         """Read the newest DATA frame and retain the exact raw CSV string."""

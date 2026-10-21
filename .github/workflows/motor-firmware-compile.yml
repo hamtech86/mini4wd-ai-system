@@ -1,0 +1,55 @@
+name: Motor Firmware Compile
+
+on:
+  push:
+    branches:
+      - fix/firmware-stop-disables-voltage-control-20261021
+    paths:
+      - "firmware/motor/MotoreRev.ino"
+      - ".github/workflows/motor-firmware-compile.yml"
+  pull_request:
+    paths:
+      - "firmware/motor/MotoreRev.ino"
+      - ".github/workflows/motor-firmware-compile.yml"
+  workflow_dispatch:
+
+jobs:
+  compile-arduino-uno:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Compile the PR head itself, not GitHub's synthetic merge commit.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Set up Arduino CLI
+        uses: arduino/setup-arduino-cli@v2
+      - name: Install Arduino AVR core
+        run: |
+          arduino-cli core update-index
+          arduino-cli core install arduino:avr
+      - name: Prepare sketch directory
+        run: |
+          mkdir -p /tmp/MotoreRev
+          cp firmware/motor/MotoreRev.ino /tmp/MotoreRev/MotoreRev.ino
+      - name: Run native firmware safety regression harness
+        run: |
+          g++ -std=c++11 -Wall -Wextra -I tests/firmware_safety tests/firmware_safety/test_motor_firmware_safety.cpp -o /tmp/motor_firmware_safety_test
+          /tmp/motor_firmware_safety_test
+      - name: Compile for Arduino Uno
+        run: arduino-cli compile --fqbn arduino:avr:uno --output-dir build/uno /tmp/MotoreRev
+      - name: Record HEX SHA-256
+        run: |
+          test -n "$(find build/uno -maxdepth 1 -name '*.hex' -print -quit)"
+          sha256sum build/uno/*.hex | tee build/uno/SHA256SUMS.txt
+          printf 'SOURCE_COMMIT=%s\n' "$(git rev-parse HEAD)" | tee build/uno/BUILD-METADATA.txt
+          printf 'BOARD_FQBN=arduino:avr:uno\n' >> build/uno/BUILD-METADATA.txt
+      - name: Upload HEX and build manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: motor-firmware-uno-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            build/uno/*.hex
+            build/uno/SHA256SUMS.txt
+            build/uno/BUILD-METADATA.txt
+          if-no-files-found: error
+          retention-days: 30

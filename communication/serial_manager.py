@@ -12,6 +12,7 @@ Communication層は通信のみを担当する。
 from PyQt5.QtCore import QObject, QThread, pyqtSignal
 
 import time
+import threading
 import serial
 import serial.tools.list_ports
 
@@ -103,6 +104,11 @@ class SerialManager(QObject):
         self.serial = None
         self.reader = None
         self.raw_log_collector = RawLogCollector()
+        # All writes and emergency STOP are serialized. The latch remains
+        # set for this manager instance; reconnecting cannot re-arm the motor.
+        self._command_lock = threading.RLock()
+        self._emergency_stop_latched = False
+        self._emergency_stop_requested = threading.Event()
 
     @property
     def is_connected(self):
@@ -126,78 +132,148 @@ class SerialManager(QObject):
         return [port.device for port in serial.tools.list_ports.comports()]
 
     def connect(self, port):
-        try:
-            logger.info(f"Connecting : {port}")
+        with self._command_lock:
+            if self._stop_requested():
+                self.error.emit("Reconnect blocked: emergency STOP latch requires a new application session.")
+                return False
+            try:
+                logger.info(f"Connecting : {port}")
 
-            self.serial = serial.Serial(
-                port=port,
-                baudrate=DEFAULT_BAUDRATE,
-                timeout=SERIAL_TIMEOUT,
-            )
+                self.serial = serial.Serial(
+                    port=port,
+                    baudrate=DEFAULT_BAUDRATE,
+                    timeout=SERIAL_TIMEOUT,
+                )
 
-            self.serial.reset_input_buffer()
-            self.serial.reset_output_buffer()
-            self.raw_log_collector.reset()
+                self.serial.reset_input_buffer()
+                self.serial.reset_output_buffer()
+                self.raw_log_collector.reset()
 
-            # Opening a USB serial port resets the Arduino.  Do not expose
-            # the connection as ready until the firmware boot window has
-            # completed; otherwise the first Sequence command can race the
-            # reset and the operator is forced to reconnect manually.
-            time.sleep(self.ARDUINO_BOOT_SETTLE_SEC)
-            self.serial.reset_input_buffer()
-            self.serial.reset_output_buffer()
+                # Opening a USB serial port resets the Arduino. Do not expose
+                # the connection as ready until the firmware boot window has
+                # completed.
+                time.sleep(self.ARDUINO_BOOT_SETTLE_SEC)
+                if self._stop_requested():
+                    raise RuntimeError("Connection aborted by emergency STOP request.")
+                self.serial.reset_input_buffer()
+                self.serial.reset_output_buffer()
 
-            self.reader = SerialReader(self.serial, self.raw_log_collector)
-            self.reader.received.connect(self.received)
-            self.reader.error.connect(self.error)
-            self.reader.start()
+                self.reader = SerialReader(self.serial, self.raw_log_collector)
+                self.reader.received.connect(self.received)
+                self.reader.error.connect(self.error)
+                self.reader.start()
 
-            logger.success("Arduino Connected")
-            self.connected.emit()
-            return True
+                logger.success("Arduino Connected")
+                self.connected.emit()
+                return True
 
-        except Exception as e:
-            logger.exception(e)
-            self.error.emit(str(e))
-            return False
+            except Exception as e:
+                logger.exception(e)
+                handle = self.serial
+                try:
+                    if handle is not None and getattr(handle, "is_open", False):
+                        handle.close()
+                except Exception as close_exc:
+                    logger.exception(close_exc)
+                    self.error.emit(f"Connection cleanup failed: {type(close_exc).__name__}: {close_exc}")
+                finally:
+                    self.serial = None
+                    self.reader = None
+                self.error.emit(str(e))
+                return False
 
     def disconnect(self):
-        try:
+        with self._command_lock:
+            errors = []
             logger.info("Disconnecting...")
 
-            if self.reader is not None:
-                self.reader.stop()
-                self.reader.wait(1000)
+            # Always clear local references/state even if a worker wait or serial
+            # close raises. A failed close is reported; it is not proof the
+            # physical device is disconnected.
+            reader = self.reader
+            handle = self.serial
+            try:
+                if reader is not None:
+                    try:
+                        reader.stop()
+                        reader.wait(1000)
+                    except Exception as exc:
+                        errors.append(f"reader shutdown: {type(exc).__name__}: {exc}")
+            finally:
                 self.reader = None
 
-            if self.serial is not None:
-                if self.serial.is_open:
-                    self.serial.close()
+            try:
+                if handle is not None and getattr(handle, "is_open", False):
+                    handle.close()
+            except Exception as exc:
+                errors.append(f"serial close: {type(exc).__name__}: {exc}")
+            finally:
                 self.serial = None
+
+            if errors:
+                message = "Disconnect cleanup encountered errors: " + "; ".join(errors)
+                logger.error(message)
+                self.error.emit(message)
+                self.disconnected.emit()
+                return False
 
             logger.success("Arduino Disconnected")
             self.disconnected.emit()
-
-        except Exception as e:
-            logger.exception(e)
-            self.error.emit(str(e))
-
-    def send(self, command: str) -> bool:
-        """Arduinoへコマンド送信"""
-        if not self.is_connected:
-            self.error.emit("Serial port is not connected.")
-            return False
-
-        try:
-            message = f"{command}\n"
-            self.serial.write(message.encode("utf-8"))
-            logger.debug(f"TX : {command}")
             return True
 
-        except Exception as e:
-            logger.exception(e)
-            self.error.emit(str(e))
-            return False
+    def _stop_requested(self):
+        return self._emergency_stop_requested.is_set() or self._emergency_stop_latched
+
+    def send(self, command: str) -> bool:
+        """Arduinoへコマンド送信, with a fail-closed emergency STOP latch."""
+        with self._command_lock:
+            normalized = str(command).strip().upper()
+            drive_command = normalized in ("START", "FWD", "REV", "RESUME") or (
+                normalized.startswith("PWM=") and normalized != "PWM=0"
+            )
+            if drive_command and self._stop_requested():
+                self.error.emit("Drive command blocked: emergency STOP latch is active; new application session required.")
+                logger.warning(f"TX blocked by emergency STOP latch: {command}")
+                return False
+            if not self.is_connected:
+                self.error.emit("Serial port is not connected.")
+                return False
+
+            try:
+                message = f"{command}\n"
+                self.serial.write(message.encode("utf-8"))
+                logger.debug(f"TX : {command}")
+                return True
+
+            except Exception as e:
+                logger.exception(e)
+                self.error.emit(str(e))
+                return False
+
+    def emergency_stop(self):
+        """Serialize PWM=0 and STOP, then block all later drive commands."""
+        outcome = {"pwm_zero": False, "stop_command": False, "disconnect": False, "errors": []}
+        # Signal immediately; do not wait for connect/INFO or an in-flight write
+        # before blocking new drive commands.
+        self._emergency_stop_requested.set()
+        with self._command_lock:
+            self._emergency_stop_latched = True
+            try:
+                outcome["pwm_zero"] = self.send(f"{CMD_PWM}0")
+            except Exception as exc:
+                outcome["errors"].append(f"PWM=0: {type(exc).__name__}: {exc}")
+            try:
+                outcome["stop_command"] = self.send(CMD_STOP)
+            except Exception as exc:
+                outcome["errors"].append(f"STOP: {type(exc).__name__}: {exc}")
+            try:
+                outcome["disconnect"] = self.disconnect() is not False
+                if not outcome["disconnect"]:
+                    outcome["errors"].append("disconnect: serial/reader cleanup reported an error")
+            except Exception as exc:
+                outcome["errors"].append(f"disconnect: {type(exc).__name__}: {exc}")
+        self.last_emergency_stop_result = outcome
+        return outcome
 
     def start_breakin(self):
         return self.send(CMD_START)
