@@ -5,6 +5,8 @@ Break-in Controller integration test
 Hardware-independent verification of the complete controller path.
 """
 
+import pytest
+
 from controllers.breakin_controller import BreakinController
 from controllers.recipe import BreakinPhase, BreakinRecipe
 
@@ -125,3 +127,16 @@ def test_emergency_stop_clears_checkpoint_to_prevent_resume(monkeypatch, tmp_pat
     controller.emergency_stop()
 
     assert not checkpoint.exists()
+
+
+
+def test_controller_latch_blocks_direct_restart_after_emergency_stop():
+    controller = BreakinController(serial_controller=MockSerialController())
+    controller.emergency_stop()
+    recipe = BreakinRecipe(
+        name="TEST",
+        phases=[BreakinPhase(name="PHASE1", duration_sec=0, pwm=0, direction="FWD")],
+    )
+
+    with pytest.raises(RuntimeError, match="Emergency STOP latch is active"):
+        controller.start(recipe)
