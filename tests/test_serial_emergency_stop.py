@@ -332,7 +332,7 @@ def test_controller_stop_during_port_open_cannot_be_followed_by_late_reconnect(m
     assert controller.connected is False
 
 
-def test_serial_manager_disconnect_clears_state_and_reports_close_exception(qtbot):
+def test_serial_manager_disconnect_clears_state_and_reports_close_exception():
     from communication.serial_manager import SerialManager
 
     class CloseFailure:
