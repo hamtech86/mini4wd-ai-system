@@ -39,6 +39,9 @@ def _prepare_3v(self, phase, duration=2.0):
             time.sleep(self.CONTROL_INTERVAL_SEC)
             continue
         measurement = _collect(self, phase)
+        if measurement is None:
+            time.sleep(self.CONTROL_INTERVAL_SEC)
+            continue
         if _safety(self, measurement):
             return False
         self._voltage_control(phase, measurement)
@@ -71,6 +74,9 @@ def _timed_pwm(self, phase, duration):
             time.sleep(self.CONTROL_INTERVAL_SEC)
             continue
         measurement = _collect(self, phase)
+        if measurement is None:
+            time.sleep(self.CONTROL_INTERVAL_SEC)
+            continue
         if _safety(self, measurement):
             return False
         time.sleep(self.CONTROL_INTERVAL_SEC)
