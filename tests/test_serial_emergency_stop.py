@@ -327,10 +327,10 @@ def test_controller_stop_during_port_open_cannot_be_followed_by_late_reconnect(m
 
     assert not connect_thread.is_alive()
     assert not stop_thread.is_alive()
-    assert connect_result["ok"] is False  # INFO verification failure must fail closed.
-    assert stop_result["result"]["stop_command"] is False  # Connection was already rejected and closed.
+    assert connect_result["ok"] is True  # Port connectivity is distinct from INFO identity.
+    assert stop_result["result"]["stop_command"] is True  # Safe STOP remains available while identity is unverified.
     assert opened_handles[0].closed is True
-    assert opened_handles[0].writes == [b"INFO\n"]  # No motor command reaches an unidentified device.
+    assert opened_handles[0].writes == [b"INFO\n", b"PWM=0\n", b"STOP\n"]
     assert controller._emergency_stop_latched is True
     assert controller.serial is None
     assert controller.connected is False
