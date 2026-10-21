@@ -146,6 +146,9 @@ def run_benchmark(self, benchmark_type=STANDARD_3V30S, instance_id=None, purpose
     self.current_phase = prepare_phase
     self.current_phase_index = 0
     self.current_pwm = self._initial_pwm_for_voltage(3.00, prepare_phase)
+    arm = getattr(self.serial, "arm", None)
+    if callable(arm) and arm() is False:
+        raise RuntimeError("Benchmark blocked: explicit ARM failed; verify MOTOR_BREAKIN_V3 identity and STOP state.")
     self.serial.forward()
     self.serial.set_pwm(self.current_pwm)
 
