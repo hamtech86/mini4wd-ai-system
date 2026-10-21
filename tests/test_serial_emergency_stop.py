@@ -439,7 +439,7 @@ def test_ui_motor_disconnect_uses_latched_emergency_stop_for_connected_controlle
     assert "unsafe_plain_stop" not in events
     assert "plain_disconnect" not in events
     assert ui.motor_serial_status.value == "MOTOR: DISCONNECTED  /dev/ttyACM0"
-    assert ui.motor_connect.enabled is False
+    assert ui.motor_connect.enabled is True  # explicit reconnect is required before ARM
     assert ui.motor_disconnect.enabled is False
 
 def test_legacy_direct_motor_hardware_scripts_fail_closed_without_opening_serial(capsys):
