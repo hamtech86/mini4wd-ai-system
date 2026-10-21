@@ -226,7 +226,7 @@ def run_benchmark(self, benchmark_type=STANDARD_3V30S, instance_id=None, purpose
         self.current_pwm = 0
         self.running = False
         if self.session is not None:
-            if self.abort_reason:
+            if self.abort_reason or getattr(self, "emergency_stop_latched", False):
                 self.session.error()
             else:
                 self.session.cancel()
@@ -253,6 +253,8 @@ def _finish_benchmark(self, phases):
         self.serial.stop_breakin()
     else:
         self.serial.set_pwm(0)
+    if getattr(self, "emergency_stop_latched", False):
+        raise RuntimeError("Emergency STOP interrupted benchmark; result is incomplete.")
     self.current_pwm = 0
     self.running = False
     phase_names = ",".join(phase.name for phase in phases)
