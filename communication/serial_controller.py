@@ -4,11 +4,12 @@ MOTOR_BREAKIN_V3
 
 Break-in Controller <-> Arduino communication layer.
 
-Arduino firmware MOTOR_BREAKIN_V3.00 protocol:
-  FWD
-  REV
-  PWM=<0..255>
-  STOP
+Arduino firmware MOTOR_BREAKIN_V3 explicit-ARM protocol:
+  ARM=<8-hex-token> -> ARMED,<same-token>
+  FWD@<token>
+  REV@<token>
+  PWM=<0..255>@<token>
+  STOP (revokes token)
 """
 
 try:
@@ -19,6 +20,7 @@ except ImportError:
 import time
 import re
 import threading
+import secrets
 
 from communication.raw_log_collector import RawLogCollector
 from communication.csv_parser import CSVParser
@@ -45,6 +47,8 @@ class SerialController:
         self._command_lock = threading.RLock()
         self._emergency_stop_latched = False
         self._emergency_stop_requested = threading.Event()
+        self._emergency_stop_generation = 0
+        self._active_arm_token = None
 
     @property
     def raw_log(self):
@@ -70,9 +74,7 @@ class SerialController:
         # A STOP that acquires this lock first permanently blocks this attempt;
         # if connect owns it first, STOP runs only after connect has completed.
         with self._ensure_command_lock():
-            if self._stop_requested():
-                self.identity_error = "Reconnect blocked: emergency STOP latch requires a new application session."
-                return False
+            stop_was_already_latched = self._stop_requested()
             # A new connection attempt always invalidates any prior identity.
             self.identity_verified = False
             self.device_info = None
@@ -104,10 +106,10 @@ class SerialController:
                 # Keep the port available for safe STOP/PWM=0 commands, while
                 # send_command() blocks drive commands until INFO is verified.
                 self._verify_info_response(timeout=1.0)
-                if self._stop_requested():
+                if not stop_was_already_latched and self._stop_requested():
                     self.identity_verified = False
                     self.device_info = None
-                    self.identity_error = "Connection aborted by emergency STOP request."
+                    self.identity_error = "Connection aborted by an emergency STOP racing with connect."
                     self.disconnect()
                     return False
                 return True
@@ -219,6 +221,7 @@ class SerialController:
         # Publish the stop request before waiting for any in-flight serial operation.
         # Commands check this event under the command lock; an already-started
         # write may finish, but no later drive command may begin after the request.
+        self._emergency_stop_generation = getattr(self, "_emergency_stop_generation", 0) + 1
         self._ensure_stop_event().set()
         with self._ensure_command_lock():
             self._emergency_stop_latched = True
@@ -267,7 +270,76 @@ class SerialController:
                 self.connected = False
                 self.identity_verified = False
                 self.device_info = None
+                self._active_arm_token = None
                 self.identity_error = "Disconnected; identity verification reset."
+
+    def arm(self):
+        """Explicitly authorize one run with a fresh token; this command never drives."""
+        with self._ensure_command_lock():
+            stop_generation = getattr(self, "_emergency_stop_generation", 0)
+            if not (self.connected and self.serial and self.identity_verified):
+                self.identity_error = "ARM blocked: connected, verified MOTOR_BREAKIN_V3 identity required."
+                return False
+            if getattr(self, "_active_arm_token", None) and not self._stop_requested():
+                return True
+            token = secrets.token_hex(4).upper()
+            result = self.send_command("ARM=" + token)
+            if result is False or not self._wait_for_command_ack(expected='ARMED,' + token, timeout=1.0):
+                self._active_arm_token = None
+                self.identity_error = "ARM was not acknowledged by firmware; drive remains blocked."
+                return False
+            # A STOP request is published before it waits for this lock. If one
+            # arrived during the acknowledgement wait, never erase it here.
+            if getattr(self, "_emergency_stop_generation", 0) != stop_generation:
+                self._active_arm_token = None
+                self.identity_error = "ARM cancelled: emergency STOP arrived during ARM handshake."
+                return False
+            self._active_arm_token = token
+            # Measurement capture starts after ARM, immediately before the first
+            # tagged drive command; discard idle DATA collected during handshake.
+            self.raw_log_collector.reset()
+            # Only this explicit user/workflow call may clear the host-side STOP latch.
+            self._emergency_stop_latched = False
+            self._ensure_stop_event().clear()
+            self.identity_error = ""
+            return True
+
+    def _wait_for_command_ack(self, expected, timeout=1.0):
+        """Wait for this exact ARM token acknowledgement, not a stale generic OK."""
+        deadline = time.monotonic() + max(0.0, float(timeout))
+        while self.connected and self.serial and time.monotonic() < deadline:
+            try:
+                if not self.serial.in_waiting:
+                    time.sleep(0.01)
+                    continue
+                original_timeout = getattr(self.serial, "timeout", None)
+                try:
+                    self.serial.timeout = max(0.0, deadline - time.monotonic())
+                    decoded = self.serial.readline().decode("utf-8", errors="replace")
+                finally:
+                    self.serial.timeout = original_timeout
+            except Exception as exc:
+                self.identity_error = "Command acknowledgement read failed: " + str(exc)
+                return False
+            line = decoded.strip()
+            if line == expected:
+                return True
+            if line.startswith("ERROR,"):
+                self.identity_error = line
+                return False
+            # Generic OK or an acknowledgement for an older token is stale;
+            # it cannot authorize this ARM attempt.
+            if line == "OK" or line.startswith("ARMED,"):
+                continue
+            if line.startswith("INFO"):
+                try:
+                    self._validate_info_record(self.parser.parse(line))
+                except (ValueError, KeyError):
+                    self.identity_verified = False
+                    self.device_info = None
+            # Ignore unrelated telemetry during the ARM handshake; the
+            # measurement RawLog is reset after the exact token acknowledgement.
+        return False
 
     def send_command(self, command):
         with self._ensure_command_lock():
@@ -277,16 +349,22 @@ class SerialController:
             drive_command = normalized in ("START", "FWD", "REV", "RESUME") or (
                 normalized.startswith("PWM=") and normalized != "PWM=0"
             )
-            if drive_command and self._stop_requested():
-                self.identity_error = "Drive command blocked: emergency STOP latch is active; create a new application session."
+            is_arm = normalized.startswith("ARM=")
+            if drive_command and (self._stop_requested() or not getattr(self, '_active_arm_token', None)):
+                self.identity_error = "Drive command blocked: explicit ARM is required after STOP and before each run."
                 print("SERIAL TX BLOCKED:", command, self.identity_error)
                 return False
-            if drive_command and not self.identity_verified:
-                self.identity_error = "Drive command blocked: INFO identity is not verified."
+            if (drive_command or is_arm) and not self.identity_verified:
+                self.identity_error = "Drive/ARM command blocked: INFO identity is not verified."
                 print("SERIAL TX BLOCKED:", command, self.identity_error)
                 return False
             if self.connected and self.serial:
-                self.serial.write((command + "\n").encode("utf-8"))
+                wire_command = str(command)
+                if drive_command:
+                    wire_command = wire_command + "@" + getattr(self, "_active_arm_token")
+                self.serial.write((wire_command + "\n").encode("utf-8"))
+                if normalized == "STOP":
+                    self._active_arm_token = None
                 return command
             return False
 

@@ -58,10 +58,11 @@ class MainWindow(BaseMainWindow):
         old_central=self.takeCentralWidget() or self.motor_page; root=QWidget(); root_layout=QVBoxLayout(root); root_layout.setContentsMargins(5,5,5,5)
         device_box=QGroupBox("DEVICE CONNECTION"); row=QGridLayout(device_box)
         self.motor_serial_status=QLabel("MOTOR: DISCONNECTED  /dev/ttyACM0"); self.motor_connect=QPushButton("MOTOR CONNECT"); self.motor_disconnect=QPushButton("MOTOR DISCONNECT"); self.motor_disconnect.setEnabled(False)
-        self.motor_connect.clicked.connect(self.connect_motor_serial); self.motor_disconnect.clicked.connect(self.disconnect_motor_serial)
+        self.motor_arm=QPushButton("ARM / RE-ARM"); self.motor_arm.setEnabled(False); self.motor_arm.setToolTip("Non-driving authorization; available after STOP when MOTOR_BREAKIN_V3 identity is verified.")
+        self.motor_connect.clicked.connect(self.connect_motor_serial); self.motor_disconnect.clicked.connect(self.disconnect_motor_serial); self.motor_arm.clicked.connect(self.arm_motor)
         self.battery_serial_status=QLabel("BATTERY: DISCONNECTED  /dev/ttyUSB0"); self.battery_connect=QPushButton("BATTERY CONNECT"); self.battery_disconnect=QPushButton("BATTERY DISCONNECT"); self.battery_disconnect.setEnabled(False)
         self.battery_connect.clicked.connect(self.connect_battery_serial); self.battery_disconnect.clicked.connect(self.disconnect_battery_serial)
-        row.addWidget(self.motor_serial_status,0,0); row.addWidget(self.motor_connect,0,1); row.addWidget(self.motor_disconnect,0,2); row.addWidget(self.battery_serial_status,1,0); row.addWidget(self.battery_connect,1,1); row.addWidget(self.battery_disconnect,1,2)
+        row.addWidget(self.motor_serial_status,0,0); row.addWidget(self.motor_connect,0,1); row.addWidget(self.motor_disconnect,0,2); row.addWidget(self.motor_arm,0,3); row.addWidget(self.battery_serial_status,1,0); row.addWidget(self.battery_connect,1,1); row.addWidget(self.battery_disconnect,1,2)
         root_layout.addWidget(device_box)
         # Fixed emergency stop outside the scrollable MOTOR tab.
         self.emergency_stop_fixed = QPushButton("EMERGENCY STOP")
@@ -181,12 +182,32 @@ class MainWindow(BaseMainWindow):
             if self._identity_verified(controller):
                 info = getattr(controller, "device_info", {}) or {}
                 self.motor_serial_status.setText("MOTOR: IDENTITY VERIFIED / " + str(info.get("MODEL")) + " / FW " + str(info.get("FW")) + " / " + str(info.get("ID")))
+                self.motor_arm.setEnabled(bool(self._stop_latched))
                 self._log_event("Motor INFO identity verified: " + str(info))
             else:
                 self.motor_serial_status.setText("MOTOR: PORT CONNECTED / INFO NOT VERIFIED — DRIVE BLOCKED")
                 self._set_ui_error("MOTOR_IDENTITY_UNVERIFIED",getattr(controller,"identity_error","INFO identity was not verified."))
         else:
             self.motor_serial_status.setText("MOTOR: CONNECTION FAILED  /dev/ttyACM0"); self._set_ui_error("MOTOR_SERIAL_CONNECT_FAILED","SerialController.connect() returned failure; device identity was not verified.")
+
+    def arm_motor(self):
+        """Explicit operator action to clear the UI STOP latch after identity verification."""
+        controller = self._motor_controller()
+        if not self._identity_verified(controller):
+            self._set_ui_error("MOTOR_IDENTITY_UNVERIFIED", "ARM blocked: reconnect and verify MOTOR_BREAKIN_V3 INFO first.")
+            return
+        arm = getattr(controller, "arm", None)
+        if not callable(arm) or arm() is not True:
+            self._set_ui_error("MOTOR_ARM_REJECTED", "Firmware did not acknowledge ARM; motor drive remains blocked.")
+            self.motor_arm.setEnabled(True)
+            return
+        self._stop_latched = False
+        if self.breakin_controller is not None and hasattr(self.breakin_controller, "emergency_stop_latched"):
+            self.breakin_controller.emergency_stop_latched = False
+        self.motor_arm.setEnabled(False)
+        self.motor_serial_status.setText("MOTOR: IDENTITY VERIFIED / EXPLICIT ARM ACCEPTED")
+        self._log_event("Explicit ARM accepted by firmware; this is not physical-stop confirmation.")
+        self._recipe_selection_changed(self.recipe.currentIndex())
 
     def disconnect_motor_serial(self):
         controller = self._motor_controller()
@@ -203,8 +224,10 @@ class MainWindow(BaseMainWindow):
                 logger.exception("Failed to disconnect motor serial")
                 self._set_ui_error("MOTOR_DISCONNECT_FAILED", f"{type(exc).__name__}: {exc}")
         self.motor_serial_status.setText("MOTOR: DISCONNECTED  /dev/ttyACM0")
-        self.motor_connect.setEnabled(not self._stop_latched)
+        self.motor_connect.setEnabled(True)
         self.motor_disconnect.setEnabled(False)
+        if hasattr(self, "motor_arm"):
+            self.motor_arm.setEnabled(False)
         self._log_event("Motor serial disconnected. Software STOP is not physical-stop confirmation.")
 
     def connect_battery_serial(self):
@@ -497,6 +520,11 @@ class MainWindow(BaseMainWindow):
                 except Exception as fallback_exc:
                     stop_errors.append(f"Direct serial stop: {type(fallback_exc).__name__}: {fallback_exc}")
         self.timer.stop()
+        self.motor_connect.setEnabled(True)
+        self.motor_disconnect.setEnabled(False)
+        if hasattr(self, "motor_arm"):
+            self.motor_arm.setEnabled(False)
+        self.motor_serial_status.setText("MOTOR: STOP REQUESTED / DISCONNECTED — RECONNECT AND EXPLICIT ARM REQUIRED")
         self.sequence_execute.setEnabled(False)
         self.sequence_stop.setEnabled(False)
         self.stop.setEnabled(False)
