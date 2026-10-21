@@ -921,7 +921,8 @@ void processCommand(const char *cmd)
         for (uint8_t i = 0; i < 8; ++i) activeArmToken[i] = token[i];
         activeArmToken[8] = '\0';
         driveArmed = true;
-        sendOK();
+        Serial.print(F("ARMED,"));
+        Serial.println(activeArmToken);
         return;
     }
 
