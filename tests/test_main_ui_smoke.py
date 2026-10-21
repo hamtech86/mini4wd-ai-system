@@ -34,6 +34,8 @@ def test_main_window_builds_offscreen_without_hardware_connection(monkeypatch, t
         assert not window.sequence_none.isVisible()
         assert not window.sequence_execute.isVisible()
         assert not window.sequence_stop.isVisible()
+        assert not hasattr(window, "sequence_executor")
+        assert not hasattr(window, "sequence_timer")
         assert window.ui_log.isReadOnly()
         assert {"DIR", "PWM", "INPUT VOLTAGE", "MOTOR VOLTAGE",
                 "DRIVER INPUT CURRENT", "ELAPSED", "REMAIN"} <= set(window.progress)
@@ -113,9 +115,20 @@ def test_emergency_stop_latches_restart_and_keeps_stop_available(monkeypatch, tm
     app = QApplication.instance() or QApplication([])
     window = main_app.MainWindow({"breakin_controller": None, "serial_controller": None,
                                   "battery_serial_controller": None})
+    class FakeStopController:
+        def __init__(self):
+            self.calls = 0
+
+        def emergency_stop(self):
+            self.calls += 1
+            return {"stop_command": True}
+
     try:
+        fake_controller = FakeStopController()
+        window.breakin_controller = fake_controller
         assert window.emergency_stop_fixed.isEnabled()
         window.stop_run()
+        assert fake_controller.calls == 1
         assert window._stop_latched is True
         assert window.emergency_stop_fixed.isEnabled()
         assert not window.start.isEnabled()
