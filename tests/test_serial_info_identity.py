@@ -75,3 +75,22 @@ def test_info_allows_unknown_extension_key_without_changing_identity():
     assert controller._verify_info_response(timeout=0.1) is True
     assert controller.identity_verified is True
     assert "EXTRA" not in controller.device_info
+
+
+
+def test_info_rows_are_excluded_from_raw_log_but_cal_and_data_are_kept():
+    controller = SerialController()
+    data_line = "DATA," + ",".join(["0"] * 25)
+    handle = FakeSerial([
+        (VALID_INFO + "\n").encode("utf-8"),
+        b"CAL,ACS1=2.50,ACS2=2.51\n",
+        (data_line + "\n").encode("utf-8"),
+    ])
+    controller.serial = handle
+    controller.connected = True
+
+    assert controller.read_measurement() == data_line
+    raw_log = controller.raw_log
+    assert "INFO," not in raw_log
+    assert "CAL,ACS1=2.50,ACS2=2.51" in raw_log
+    assert data_line in raw_log
