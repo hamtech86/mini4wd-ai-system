@@ -27,8 +27,12 @@ def test_main_window_builds_offscreen_without_hardware_connection(monkeypatch, t
         assert window.motor_serial_status.text().startswith("MOTOR: DISCONNECTED")
         assert window.motor_connect.isEnabled()
         assert {window.recipe.itemText(index) for index in range(window.recipe.count())} == {
-            "STD-T", "Full-T", "STD-I", "Full-I"
+            "STD-T", "Full-T", "STD-I", "Full-I", "TUNE_BASIC_INPUT_3V_CHECK"
         }
+        window.recipe.setCurrentIndex(window.recipe.findData("TUNE_BASIC_INPUT_3V_CHECK"))
+        assert "limited" in window.sequence_status.text().lower()
+        assert len(window.sequence_checks) == 1
+        assert window.sequence_checks[0][0] == "TUNE_BASIC_INPUT_3V_CHECK"
         assert window.emergency_stop_fixed.isEnabled()
         assert window.sequence_all.isHidden()
         assert window.sequence_none.isHidden()
