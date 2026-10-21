@@ -348,9 +348,39 @@ def test_serial_manager_disconnect_clears_state_and_reports_close_exception():
     manager.disconnected.connect(lambda: disconnected.append(True))
     manager.serial = CloseFailure()
 
-    manager.disconnect()
+    result = manager.disconnect()
 
+    assert result is False
     assert manager.serial is None
     assert manager.reader is None
     assert disconnected == [True]
     assert any("serial close" in error and "close failed" in error for error in errors)
+
+
+def test_serial_manager_emergency_stop_reports_close_failure():
+    from communication.serial_manager import SerialManager
+
+    class CloseFailure:
+        is_open = True
+
+        def __init__(self):
+            self.writes = []
+
+        def write(self, data):
+            self.writes.append(data)
+
+        def close(self):
+            raise OSError("close failed")
+
+    manager = SerialManager()
+    fake = CloseFailure()
+    manager.serial = fake
+    result = manager.emergency_stop()
+
+    assert fake.writes == [b"PWM=0\\n", b"STOP\\n"]
+    assert result["pwm_zero"] is True
+    assert result["stop_command"] is True
+    assert result["disconnect"] is False
+    assert any("disconnect" in error and "cleanup" in error for error in result["errors"])
+    assert manager.serial is None
+    assert manager._emergency_stop_latched is True
