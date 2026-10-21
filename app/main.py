@@ -298,7 +298,7 @@ class MainWindow(BaseMainWindow):
         self.benchmark_detail.setText("3.00 V / 30 s; control mode shown explicitly")
         self._log_event(f"Recipe selected: {label} (Benchmark Type={('STANDARD' if benchmark_type==STANDARD_3V30S else 'FULL_PACKAGE')}, Voltage Control Mode={mode}).")
 
-legacy sequence loader removal    def _set_sequence_checks(self,checked):
+    def _set_sequence_checks(self,checked):
         for _,check in self.sequence_checks:check.setChecked(checked)
 
     def _update_sequence_highlight(self,active_id):
