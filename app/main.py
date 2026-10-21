@@ -63,22 +63,34 @@ class MainWindow(BaseMainWindow):
         self.battery_serial_status=QLabel("BATTERY: DISCONNECTED  /dev/ttyUSB0"); self.battery_connect=QPushButton("BATTERY CONNECT"); self.battery_disconnect=QPushButton("BATTERY DISCONNECT"); self.battery_disconnect.setEnabled(False)
         self.battery_connect.clicked.connect(self.connect_battery_serial); self.battery_disconnect.clicked.connect(self.disconnect_battery_serial)
         row.addWidget(self.motor_serial_status,0,0); row.addWidget(self.motor_connect,0,1); row.addWidget(self.motor_disconnect,0,2); row.addWidget(self.battery_serial_status,1,0); row.addWidget(self.battery_connect,1,1); row.addWidget(self.battery_disconnect,1,2)
-        root_layout.addWidget(device_box); tabs=QTabWidget(); tabs.addTab(old_central,"MOTOR BREAK-IN"); self.battery_tab=BatteryTab(self.db_path,transport=self.battery_serial_controller,parent=self); tabs.addTab(self.battery_tab,"BATTERY"); root_layout.addWidget(tabs,1); self._build_ui_log_panel(root_layout); self.setCentralWidget(root)
+        root_layout.addWidget(device_box)
+        # Fixed emergency stop outside the scrollable MOTOR tab.
+        self.emergency_stop_fixed = QPushButton("EMERGENCY STOP")
+        self.emergency_stop_fixed.setMinimumHeight(44)
+        self.emergency_stop_fixed.setEnabled(False)
+        self.emergency_stop_fixed.clicked.connect(self.stop_run)
+        root_layout.addWidget(self.emergency_stop_fixed)
+        tabs=QTabWidget(); tabs.addTab(old_central,"MOTOR BREAK-IN"); self.battery_tab=BatteryTab(self.db_path,transport=self.battery_serial_controller,parent=self); tabs.addTab(self.battery_tab,"BATTERY"); root_layout.addWidget(tabs,1); self._build_ui_log_panel(root_layout); self.setCentralWidget(root)
 
     BENCHMARK_PRESETS = UI_BENCHMARK_PRESETS
 
     def load_recipes(self):
+        # Only the four canonical benchmark combinations are exposed.
         self.recipe.clear()
-        for name in self.recipe_engine.names(): self.recipe.addItem(name, name)
-        for label in self.BENCHMARK_PRESETS: self.recipe.addItem(label, label)
+        for label in self.BENCHMARK_PRESETS:
+            self.recipe.addItem(label, label)
 
     def recipe_changed(self, index):
         name = self.recipe.itemData(index) if hasattr(self, "recipe") else None
-        if name in self.BENCHMARK_PRESETS:
-            benchmark_type, mode = self.BENCHMARK_PRESETS[name]
-            self._load_benchmark_sequence(benchmark_type, mode, name)
+        if name not in self.BENCHMARK_PRESETS:
+            self._clear_sequence_panel("Unsupported recipe blocked; select one of STD-T, Full-T, STD-I, Full-I.")
+            self.start.setEnabled(False)
+            self.sequence_execute.setEnabled(False)
             return
-        super().recipe_changed(index)
+        benchmark_type, mode = self.BENCHMARK_PRESETS[name]
+        self._load_benchmark_sequence(benchmark_type, mode, name)
+        self.start.setEnabled(True)
+        self.sequence_execute.setEnabled(True)
 
     def _build_ui_log_panel(self, parent_layout):
         box=QGroupBox("LOG / ERROR LOG"); layout=QVBoxLayout(box)
@@ -232,8 +244,11 @@ class MainWindow(BaseMainWindow):
 
     def _build_recipe_sequence_panel(self):
         self.recipe_engine=RecipeEngine();self.sequence_adapter=BreakinSequenceAdapter(self.breakin_controller);self.sequence_executor=SequenceExecutor(adapter=self.sequence_adapter);self.sequence_timer=QTimer(self);self.sequence_timer.setInterval(100);self.sequence_timer.timeout.connect(self._sequence_tick);self.sequence_selected_total=0
-        box=QGroupBox("SEQUENCE");root=QVBoxLayout(box);actions=QHBoxLayout();self.sequence_all=QPushButton("全選択");self.sequence_none=QPushButton("全解除");self.sequence_all.clicked.connect(lambda:self._set_sequence_checks(True));self.sequence_none.clicked.connect(lambda:self._set_sequence_checks(False));self.sequence_execute=QPushButton("選択Sequenceを実行");self.sequence_stop=QPushButton("Sequence停止");self.sequence_stop.setEnabled(False);self.sequence_execute.clicked.connect(self._execute_selected_sequences);self.sequence_stop.clicked.connect(self._stop_sequences)
-        actions.addWidget(self.sequence_all);actions.addWidget(self.sequence_none);actions.addStretch();actions.addWidget(self.sequence_execute);actions.addWidget(self.sequence_stop);root.addLayout(actions)
+        box=QGroupBox("BENCHMARK PLAN");root=QVBoxLayout(box);self.sequence_all=QPushButton("全選択");self.sequence_none=QPushButton("全解除");self.sequence_execute=QPushButton("選択Sequenceを実行");self.sequence_stop=QPushButton("Sequence停止")
+        # Retire generic sequence controls; this panel is display-only.
+        for control in (self.sequence_all, self.sequence_none, self.sequence_execute, self.sequence_stop):
+            control.hide()
+        self.sequence_stop.setEnabled(False)
         self.sequence_progress=QProgressBar();self.sequence_progress.setRange(0,100);self.sequence_progress.setValue(0);self.sequence_progress.setFormat("Sequence Progress: %p%")
         root.addWidget(self.sequence_progress);self.sequence_status=QLabel("未実行");root.addWidget(self.sequence_status);scroll=QScrollArea();scroll.setWidgetResizable(True);body=QWidget();self.sequence_layout=QVBoxLayout(body);scroll.setWidget(body);root.addWidget(scroll,1);self.sequence_checks=[];layout=self.motor_content.layout() if self.motor_content is not None else None
         if layout is not None:layout.insertWidget(1,box)
@@ -244,12 +259,17 @@ class MainWindow(BaseMainWindow):
         return self.recipe.currentData() if hasattr(self,"recipe") else None
 
     def _recipe_selection_changed(self,index):
+        # Fail closed: legacy YAML recipe execution is retired.
         name=self.recipe.itemData(index) if hasattr(self,"recipe") else None
-        if name in self.BENCHMARK_PRESETS:
-            benchmark_type, mode = self.BENCHMARK_PRESETS[name]
-            self._load_benchmark_sequence(benchmark_type, mode, name)
+        if name not in self.BENCHMARK_PRESETS:
+            self._clear_sequence_panel("Unsupported recipe blocked; only four benchmark presets are allowed.")
+            self.sequence_execute.setEnabled(False)
+            self.start.setEnabled(False)
             return
-        self._load_recipe_sequence(name)
+        benchmark_type, mode = self.BENCHMARK_PRESETS[name]
+        self._load_benchmark_sequence(benchmark_type, mode, name)
+        self.sequence_execute.setEnabled(True)
+        self.start.setEnabled(True)
 
     def _clear_sequence_panel(self,status):
         while self.sequence_layout.count():
@@ -271,18 +291,7 @@ class MainWindow(BaseMainWindow):
         self.benchmark_detail.setText("3.00 V / 30 s; control mode shown explicitly")
         self._log_event(f"Recipe selected: {label} (Benchmark Type={('STANDARD' if benchmark_type==STANDARD_3V30S else 'FULL_PACKAGE')}, Voltage Control Mode={mode}).")
 
-    def _load_recipe_sequence(self,name):
-        recipe=self.recipe_engine.get(name)
-        if recipe is None:self._clear_sequence_panel("レシピが見つかりません");return
-        while self.sequence_layout.count():
-            item=self.sequence_layout.takeAt(0);widget=item.widget()
-            if widget is not None:widget.deleteLater()
-        self.sequence_checks=[]
-        for sequence in recipe.sequences():
-            check=QCheckBox(f"{sequence.order:02d} | {sequence.sequence_id} | {sequence.command} | {sequence.direction or '-'} | PWM {sequence.pwm if sequence.pwm is not None else '-'} | {sequence.duration_sec if sequence.duration_sec is not None else '-'}s");check.setChecked(sequence.enabled);self.sequence_layout.addWidget(check);self.sequence_checks.append((sequence.sequence_id,check))
-        self.sequence_layout.addStretch();self._update_sequence_highlight(None);self.sequence_progress.setValue(0);self.sequence_status.setText(f"{recipe.name}: {len(self.sequence_checks)} Sequence")
-
-    def _set_sequence_checks(self,checked):
+legacy sequence loader removal    def _set_sequence_checks(self,checked):
         for _,check in self.sequence_checks:check.setChecked(checked)
 
     def _update_sequence_highlight(self,active_id):
@@ -316,23 +325,18 @@ class MainWindow(BaseMainWindow):
         self.sequence_status.setText(f"実行中: {current.sequence_id}  {progress}%  残り {remaining:.1f}s" if remaining is not None else f"実行中: {current.sequence_id}  {progress}%  条件待ち")
 
     def _execute_selected_sequences(self):
-        name=self._current_recipe_name()
-        if name in self.BENCHMARK_PRESETS:
-            benchmark_type,mode=self.BENCHMARK_PRESETS[name]
-            selected=[check for sid,check in self.sequence_checks if sid==name and check.isChecked()]
-            if len(selected)!=1: self.sequence_status.setText(f"{name} が選択されていません"); return
-            if not self._require_verified_motor(name): self.sequence_status.setText(f"{name}: BLOCKED / INFO NOT VERIFIED"); return
-            self._start_benchmark(benchmark_type, mode); return
-        recipe=self.recipe_engine.get(name)
-        if recipe is None:self.sequence_status.setText("レシピが選択されていません");return
-        enabled_ids={sid for sid,check in self.sequence_checks if check.isChecked()}
-        if not enabled_ids:self.sequence_status.setText("実施するSequenceが選択されていません");return
-        controller=self._motor_controller()
-        if controller is None or not getattr(controller,"connected",False):QMessageBox.warning(self,"Sequence","先にMOTOR CONNECTを実行してください。");return
-        if not self._require_verified_motor("Sequence"):
-            self.sequence_status.setText("BLOCKED / INFO NOT VERIFIED"); return
-        self.sequence_selected_ids=enabled_ids;self.sequence_selected_total=len(enabled_ids);self.sequence_progress.setValue(0);self.sequence_progress.setFormat(f"Sequence Progress: 0/{self.sequence_selected_total}  %p%")
-        self.sequence_executor.load_recipe(recipe,enabled_ids=enabled_ids);self.sequence_executor.start();self.sequence_timer.start();self.timer.start();self.sequence_execute.setEnabled(False);self.sequence_stop.setEnabled(True);self.start.setEnabled(False);self.stop.setEnabled(True);self.manager.setEnabled(False);self.instance.setEnabled(False);self.recipe.setEnabled(False);self.update_db.setEnabled(False);self.copy.setEnabled(False);self.result["STATUS"].setText("RUNNING");self.run_state.setText("STARTING...");current=self.sequence_executor.current();self._update_sequence_highlight(current.sequence_id if current else None);self._update_sequence_main_ui(current)
+        # Compatibility slot for START. Generic recipe/sequence execution is retired.
+        name = self._current_recipe_name()
+        preset = self.BENCHMARK_PRESETS.get(name)
+        if preset is None:
+            self._set_ui_error("UNSUPPORTED_RECIPE", "Only STD-T, Full-T, STD-I, and Full-I are allowed.")
+            self.sequence_status.setText("BLOCKED / unsupported recipe")
+            return
+        benchmark_type, mode = preset
+        if not self._require_verified_motor(name):
+            self.sequence_status.setText(f"{name}: BLOCKED / INFO NOT VERIFIED")
+            return
+        self._start_benchmark(benchmark_type, mode)
 
     def _start_benchmark(self, benchmark_type=STANDARD_3V30S, voltage_control_mode="TERMINAL"):
         if not self._require_verified_motor("Motor Benchmark"): return
@@ -342,7 +346,7 @@ class MainWindow(BaseMainWindow):
         if controller is None or not getattr(controller,"connected",False):QMessageBox.warning(self,"Benchmark","先にMOTOR CONNECTを実行してください。");return
         self.breakin_controller.selected_benchmark_type=benchmark_type
         self.breakin_controller.selected_benchmark_voltage_mode=voltage_control_mode
-        self.database_updated=False;self.last_result_data=None;self.last_result_benchmark=True;self.database_status.setText("DATABASE: NOT UPDATED");self.update_db.setEnabled(False);self.copy.setEnabled(False);self.start.setEnabled(False);self.manager.setEnabled(False);self.instance.setEnabled(False);self.recipe.setEnabled(False);self.stop.setEnabled(True);self.result["STATUS"].setText("RUNNING");self.run_state.setText("STARTING...")
+        self.database_updated=False;self.last_result_data=None;self.last_result_benchmark=True;self.database_status.setText("DATABASE: NOT UPDATED");self.update_db.setEnabled(False);self.copy.setEnabled(False);self.start.setEnabled(False);self.manager.setEnabled(False);self.instance.setEnabled(False);self.recipe.setEnabled(False);self.stop.setEnabled(True);self.emergency_stop_fixed.setEnabled(True);self.result["STATUS"].setText("RUNNING");self.run_state.setText("STARTING...")
         self.breakin_worker=BreakinWorker(self.breakin_controller,None,True)
         self.breakin_worker.completed.connect(lambda data:self.complete(data,True));self.breakin_worker.failed.connect(self.failed);self.breakin_worker.finished.connect(self.finished);self.timer.start();self.breakin_worker.start()
 
@@ -365,7 +369,7 @@ class MainWindow(BaseMainWindow):
         finally:
             self.sequence_timer.stop();self.timer.stop()
             if hasattr(self,"sequence_executor"):self.sequence_executor.stop("emergency_stop")
-            self.sequence_execute.setEnabled(True);self.sequence_stop.setEnabled(False);self.stop.setEnabled(False);self.start.setEnabled(True);self.manager.setEnabled(True);self.instance.setEnabled(True);self.recipe.setEnabled(True);self.run_state.setText("STOP REQUESTED / PHYSICAL STOP UNCONFIRMED");self.result["STATUS"].setText("STOP REQUESTED / UNCONFIRMED");self.sequence_status.setText("停止要求を送信しました。物理停止は未確認です。");self._log_event("Emergency STOP requested; physical motor stop is unconfirmed.");self._update_sequence_highlight(None)
+            self.sequence_execute.setEnabled(True);self.sequence_stop.setEnabled(False);self.stop.setEnabled(False);self.emergency_stop_fixed.setEnabled(False);self.start.setEnabled(False);self.manager.setEnabled(True);self.instance.setEnabled(True);self.recipe.setEnabled(True);self.run_state.setText("STOP REQUESTED / PHYSICAL STOP UNCONFIRMED");self.result["STATUS"].setText("STOP REQUESTED / UNCONFIRMED");self.sequence_status.setText("停止要求を送信しました。物理停止は未確認です。");self._log_event("Emergency STOP requested; physical motor stop is unconfirmed.");self._update_sequence_highlight(None)
 
     def _sequence_tick(self):
         try:
