@@ -433,6 +433,10 @@ class BreakinController:
             except (TypeError, ValueError, OverflowError):
                 voltage = float("nan")
             if raw_voltage is None or not math.isfinite(voltage) or not 0.0 <= voltage <= 12.0:
+                if target_voltage <= 0:
+                    # Zero-target fade-out has no positive-feedback gate.
+                    self.invalid_measurement_streak = 0
+                    return
                 self._record_invalid_measurement(f"invalid INPUT feedback {field}")
                 return
         else:
@@ -444,6 +448,9 @@ class BreakinController:
             except (TypeError, ValueError, OverflowError):
                 voltage = float("nan")
         if not math.isfinite(voltage) or not math.isfinite(target_voltage):
+            if target_voltage <= 0:
+                self.invalid_measurement_streak = 0
+                return
             self._record_invalid_measurement(f"non-finite {mode} feedback")
             return
         # Zero-target fade-out is explicitly exempt from a positive-voltage gate.
