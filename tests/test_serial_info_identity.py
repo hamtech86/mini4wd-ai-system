@@ -63,3 +63,15 @@ def test_wrong_info_model_does_not_verify_identity():
     assert controller._verify_info_response(timeout=0.1) is False
     assert controller.identity_verified is False
     assert "Unexpected motor device identity" in controller.identity_error
+
+
+
+def test_info_allows_unknown_extension_key_without_changing_identity():
+    controller = SerialController()
+    line = VALID_INFO + ",EXTRA=reserved-for-future"
+    controller.serial = FakeSerial([(line + "\n").encode("utf-8")])
+    controller.connected = True
+
+    assert controller._verify_info_response(timeout=0.1) is True
+    assert controller.identity_verified is True
+    assert "EXTRA" not in controller.device_info
