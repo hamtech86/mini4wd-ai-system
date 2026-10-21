@@ -120,6 +120,13 @@ class MeasurementManager:
         )
         if any(raw.get(name) is None for name in required):
             return None
+        for name in ("device_model", "instance_id", "direction", "state"):
+            if not isinstance(raw.get(name), str) or not raw[name].strip():
+                return None
+        if raw["device_model"] != "MOTOR_BREAKIN_V3":
+            return None
+        if str(raw["direction"]).upper() not in ("FWD", "REV"):
+            return None
 
         numeric_fields = (
             "elapsed_time", "raw_acs1", "raw_acs2", "current1", "current2",
