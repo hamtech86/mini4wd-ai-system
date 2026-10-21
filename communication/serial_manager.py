@@ -159,6 +159,8 @@ class SerialManager(QObject):
                 self.serial.reset_output_buffer()
                 self.raw_log_collector.reset()
                 self._identity_verified = False
+                self.device_info = None
+                self.identity_error = "INFO identity has not been verified."
                 self._active_arm_token = None
 
                 # Opening a USB serial port resets the Arduino. Do not expose
@@ -230,6 +232,10 @@ class SerialManager(QObject):
                 errors.append(f"serial close: {type(exc).__name__}: {exc}")
             finally:
                 self.serial = None
+                self._identity_verified = False
+                self.device_info = None
+                self._active_arm_token = None
+                self.identity_error = "Disconnected; identity verification reset."
 
             if errors:
                 message = "Disconnect cleanup encountered errors: " + "; ".join(errors)
