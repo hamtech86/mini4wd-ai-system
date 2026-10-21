@@ -71,6 +71,9 @@ class FakeSerial:
         self.writes.append(payload)
         if payload == b"INFO\n" and self.response is not None:
             self.lines.append((self.response + "\r\n").encode())
+        elif payload.startswith(b"ARM="):
+            token = payload.decode().strip().split("=", 1)[1]
+            self.lines.append(("ARMED," + token + "\r\n").encode())
         return len(payload)
 
     def readline(self):
@@ -93,8 +96,10 @@ def test_serial_connect_requests_info_and_verifies_expected_device(monkeypatch):
     assert b"INFO\n" in fake.writes
     assert controller.identity_verified is True
     assert controller.device_info["BUILD"] == "build-123"
+    assert controller.arm() is True
+    token = fake.writes[-1].decode().strip().split("=", 1)[1]
     assert controller.forward() == "FWD"
-    assert b"FWD\n" in fake.writes
+    assert f"FWD@{token}\n".encode() in fake.writes
     controller.disconnect()
     assert controller.identity_verified is False
 
