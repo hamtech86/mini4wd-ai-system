@@ -311,9 +311,13 @@ class SerialController:
             line = decoded.strip()
             if line == expected:
                 return True
-            if line.startswith("ARMED,") or line == "OK" or line.startswith("ERROR,"):
+            if line.startswith("ERROR,"):
                 self.identity_error = line
                 return False
+            # Generic OK or an acknowledgement for an older token is stale;
+            # it cannot authorize this ARM attempt.
+            if line == "OK" or line.startswith("ARMED,"):
+                continue
             if line.startswith("INFO"):
                 try:
                     self._validate_info_record(self.parser.parse(line))
