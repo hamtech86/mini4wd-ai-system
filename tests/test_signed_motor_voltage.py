@@ -59,3 +59,13 @@ def test_fractional_adc_integer_field_is_rejected():
     frame = data_frame(-2.8)
     frame["raw_acs1"] = 500.5
     assert manager._parse_frame(frame) is None
+
+
+
+def test_numeric_firmware_instance_id_remains_accepted():
+    manager = MeasurementManager()
+    frame = data_frame(-2.8)
+    frame["instance_id"] = 42
+    parsed = manager._parse_frame(frame)
+    assert parsed is not None
+    assert parsed["instance_id"] == 42
