@@ -84,6 +84,10 @@ class MainWindow(BaseMainWindow):
             self.recipe.addItem(label, label)
 
     def recipe_changed(self, index):
+        # Base MainWindow populates the combo during super().__init__, before
+        # this subclass builds the benchmark panel.
+        if not hasattr(self, "sequence_layout"):
+            return
         name = self.recipe.itemData(index) if hasattr(self, "recipe") else None
         if name not in self.BENCHMARK_PRESETS:
             self._clear_sequence_panel("Unsupported recipe blocked; select one of STD-T, Full-T, STD-I, Full-I.")
