@@ -66,3 +66,38 @@ def test_terminal_mode_uses_direction_normalized_motor_voltage():
     controller._voltage_control(phase, measurement)
 
     assert serial.pwm == [110]
+
+
+
+def test_phase_metadata_selects_input_mode_and_overrides_controller_default():
+    serial = FakeSerial()
+    controller = BreakinController(serial_controller=serial)
+    controller.current_pwm = 100
+    controller.benchmark_voltage_control_mode = "TERMINAL"
+    phase = BreakinPhase("TEST", duration_sec=1, pwm=100, direction="FWD",
+                         control="VOLTAGE", target_voltage=3.0,
+                         pwm_min=0, pwm_max=255,
+                         metadata={"voltage_control_mode": "INPUT"})
+    measurement = SimpleNamespace(voltage1=2.5, voltage2=2.0, motor_voltage=2.0)
+
+    controller._voltage_control(phase, measurement)
+
+    assert serial.pwm == [110]
+
+
+def test_missing_input_feedback_fails_safe_to_pwm_zero():
+    serial = FakeSerial()
+    controller = BreakinController(serial_controller=serial)
+    controller.running = True
+    controller.current_pwm = 100
+    controller.benchmark_voltage_control_mode = "INPUT"
+    phase = BreakinPhase("TEST", duration_sec=1, pwm=100, direction="REV",
+                         control="VOLTAGE", target_voltage=3.0,
+                         pwm_min=0, pwm_max=255)
+    measurement = SimpleNamespace(voltage1=2.5, motor_voltage=-2.5)
+
+    controller._voltage_control(phase, measurement)
+
+    assert controller.running is False
+    assert serial.pwm[-1] == 0
+    assert "voltage2" in controller.abort_reason
