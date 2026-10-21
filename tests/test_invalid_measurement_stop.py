@@ -57,3 +57,21 @@ def test_three_consecutive_invalid_input_feedback_samples_trigger_stop():
 
     assert controller.running is False
     assert transport.stop_calls == 1
+
+
+
+def test_measurement_exception_clears_last_good_sample():
+    class RaisingMeasurementManager:
+        def __init__(self):
+            self.last_measurement = object()
+
+        def collect(self):
+            raise OSError("serial read failed")
+
+    manager = RaisingMeasurementManager()
+    controller = BreakinController(serial_controller=StopTransport(),
+                                   measurement_manager=manager)
+    phase = BreakinPhase("TEST", duration_sec=10, pwm=60, direction="FWD", control="PWM")
+
+    assert controller._collect_measurement(phase) is None
+    assert manager.last_measurement is None
