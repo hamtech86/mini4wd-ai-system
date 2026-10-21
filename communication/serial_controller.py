@@ -65,47 +65,51 @@ class SerialController:
         return snapshot
 
     def connect(self):
-        # Reconnecting the same object must not clear an emergency STOP latch.
+        # Serialize the complete connection lifecycle with emergency STOP.
+        # A STOP that acquires this lock first permanently blocks this attempt;
+        # if connect owns it first, STOP runs only after connect has completed.
         with self._ensure_command_lock():
-            if getattr(self, "_emergency_stop_latched", False):
-                self.identity_error = "Reconnect blocked: emergency STOP latch requires a new application session."
+            # Reconnecting the same object must not clear an emergency STOP latch.
+            with self._ensure_command_lock():
+                if getattr(self, "_emergency_stop_latched", False):
+                    self.identity_error = "Reconnect blocked: emergency STOP latch requires a new application session."
+                    return False
+            # A new connection attempt always invalidates any prior identity.
+            self.identity_verified = False
+            self.device_info = None
+            self.identity_error = "INFO identity has not been verified."
+            if serial is None:
                 return False
-        # A new connection attempt always invalidates any prior identity.
-        self.identity_verified = False
-        self.device_info = None
-        self.identity_error = "INFO identity has not been verified."
-        if serial is None:
-            return False
 
-        try:
-            self.serial = serial.Serial(
-                self.serial_port,
-                self.baudrate,
-                timeout=1
-            )
-            self.serial.reset_input_buffer()
-            self.serial.reset_output_buffer()
-            # Opening an Arduino Uno serial port resets the board. Wait for
-            # firmware startup before reporting the port as ready.
-            time.sleep(2.0)
-            self.serial.reset_input_buffer()
-            self.serial.reset_output_buffer()
-            self.raw_log_collector.reset()
-            self.identity_verified = False
-            self.device_info = None
-            self.identity_error = "INFO response not received."
-            self.connected = True
-            print("SERIAL CONNECTED", self.serial_port, self.baudrate)
-            self.send_command("INFO")
-            self._verify_info_response(timeout=1.0)
-            return True
-        except Exception as e:
-            print("SERIAL CONNECT ERROR", e)
-            self.connected = False
-            self.identity_verified = False
-            self.device_info = None
-            self.identity_error = "Serial connection failed: " + str(e)
-            return False
+            try:
+                self.serial = serial.Serial(
+                    self.serial_port,
+                    self.baudrate,
+                    timeout=1
+                )
+                self.serial.reset_input_buffer()
+                self.serial.reset_output_buffer()
+                # Opening an Arduino Uno serial port resets the board. Wait for
+                # firmware startup before reporting the port as ready.
+                time.sleep(2.0)
+                self.serial.reset_input_buffer()
+                self.serial.reset_output_buffer()
+                self.raw_log_collector.reset()
+                self.identity_verified = False
+                self.device_info = None
+                self.identity_error = "INFO response not received."
+                self.connected = True
+                print("SERIAL CONNECTED", self.serial_port, self.baudrate)
+                self.send_command("INFO")
+                self._verify_info_response(timeout=1.0)
+                return True
+            except Exception as e:
+                print("SERIAL CONNECT ERROR", e)
+                self.connected = False
+                self.identity_verified = False
+                self.device_info = None
+                self.identity_error = "Serial connection failed: " + str(e)
+                return False
 
     def _verify_info_response(self, timeout=1.0):
         """Require an explicit, valid INFO response after opening the port."""
