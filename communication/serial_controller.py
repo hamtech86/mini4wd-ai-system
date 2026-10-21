@@ -267,16 +267,17 @@ class SerialController:
                 self.connected = False
                 self.identity_verified = False
                 self.device_info = None
+                self._active_arm_token = None
                 self.identity_error = "Disconnected; identity verification reset."
 
     def arm(self):
         """Explicitly authorize one run with a fresh token; this command never drives."""
         with self._ensure_command_lock():
-            if getattr(self, "_active_arm_token", None) and not self._stop_requested():
-                return True
             if not (self.connected and self.serial and self.identity_verified):
                 self.identity_error = "ARM blocked: connected, verified MOTOR_BREAKIN_V3 identity required."
                 return False
+            if getattr(self, "_active_arm_token", None) and not self._stop_requested():
+                return True
             token = secrets.token_hex(4).upper()
             result = self.send_command("ARM=" + token)
             if result is False:
