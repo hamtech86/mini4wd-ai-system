@@ -159,8 +159,12 @@ class SerialController:
         return self.send_command("REV")
 
     def set_pwm(self, pwm):
-        self.last_pwm = max(0, min(255, int(pwm)))
-        return self.send_command(f"PWM={self.last_pwm}")
+        requested_pwm = max(0, min(255, int(pwm)))
+        result = self.send_command(f"PWM={requested_pwm}")
+        # Do not report a blocked/unwritten command as the active output.
+        if result is not False:
+            self.last_pwm = requested_pwm
+        return result
 
     def stop_breakin(self):
         self.set_pwm(0)
