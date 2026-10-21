@@ -184,6 +184,11 @@ class BreakinController:
             if benchmark_type:
                 self.session.benchmark_type = str(benchmark_type)
                 self.session.purpose = "MOTOR_BENCHMARK"
+        arm_method = getattr(self.serial, "arm", None)
+        if callable(arm_method) and arm_method() is False:
+            self.running = False
+            raise RuntimeError("Break-in start rejected because explicit ARM was not accepted.")
+
         try:
             while self.running and self.phase_manager.has_next():
                 self.execute_phase(
