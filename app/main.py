@@ -309,6 +309,13 @@ class MainWindow(BaseMainWindow):
     def start_run(self):
         self._execute_selected_sequences()
 
+    def finished(self):
+        # The worker's asynchronous finish callback must not clear the
+        # emergency-stop latch by re-enabling START after STOP was requested.
+        super().finished()
+        if getattr(self, "_stop_latched", False):
+            self._set_stop_latched_ui()
+
     def complete(self,data,benchmark):
         super().complete(data,benchmark)
         self._update_estimated_result()
