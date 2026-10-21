@@ -69,3 +69,23 @@ def test_numeric_firmware_instance_id_remains_accepted():
     parsed = manager._parse_frame(frame)
     assert parsed is not None
     assert parsed["instance_id"] == 42
+
+
+
+def test_serial_csv_line_is_parsed_into_typed_measurement():
+    class SerialLine:
+        def read_measurement(self):
+            return ",".join([
+                "DATA", "MOTOR_BREAKIN_V3", "42", "1000", "500", "500",
+                "0.1", "0.1", "3.0", "0.2", "-2.8", "60", "REV", "RUN",
+                "0.1", "0.3", "0.01", "0.02", "0.4", "0.2", "3.1",
+                "60", "0.2", "100", "0.1", "24.0",
+            ])
+
+    manager = MeasurementManager(serial_controller=SerialLine())
+    measurement = manager.collect()
+
+    assert measurement is not None
+    assert measurement.motor_voltage == -2.8
+    assert measurement.instance_id == 42
+    assert manager.last_measurement is measurement
