@@ -152,6 +152,7 @@ def test_emergency_stop_serializes_with_an_in_flight_positive_pwm_write():
     controller.serial = fake
     controller.connected = True
     controller.identity_verified = True
+    controller._active_arm_token = "AABBCCDD"
 
     drive_thread = threading.Thread(target=lambda: controller.set_pwm(80))
     drive_thread.start()
@@ -238,6 +239,8 @@ def test_active_serial_manager_orders_emergency_stop_after_in_flight_write():
     manager = SerialManager()
     fake = BlockingSerial()
     manager.serial = fake
+    manager._identity_verified = True
+    manager._active_arm_token = "AABBCCDD"
 
     drive_thread = threading.Thread(target=lambda: manager.send("PWM=80"))
     drive_thread.start()
@@ -488,3 +491,53 @@ def test_stop_request_event_is_set_before_lock_wait():
         controller._command_lock.release()
     worker.join(timeout=2.0)
     assert done.is_set()
+
+
+def test_serial_controller_requires_explicit_arm_and_tags_each_drive_command():
+    class FakeSerial:
+        def __init__(self):
+            self.writes = []
+        def write(self, data):
+            self.writes.append(data)
+
+    controller = SerialController()
+    fake = FakeSerial()
+    controller.serial = fake
+    controller.connected = True
+    controller.identity_verified = True
+
+    assert controller.forward() is False
+    assert fake.writes == []
+    assert controller.arm() is True
+    arm_line = fake.writes[-1].decode().strip()
+    token = arm_line.split("=", 1)[1]
+    assert len(token) == 8
+    assert controller.forward() == "FWD"
+    assert fake.writes[-1] == f"FWD@{token}\\n".encode()
+    assert controller.set_pwm(80) == "PWM=80"
+    assert fake.writes[-1] == f"PWM=80@{token}\\n".encode()
+    assert controller.stop_breakin() == "STOP"
+    assert fake.writes[-2:] == [b"PWM=0\\n", b"STOP\\n"]
+    assert controller.forward() is False
+
+
+def test_serial_manager_requires_identity_and_explicit_arm():
+    class FakeSerial:
+        def __init__(self):
+            self.writes = []
+            self.is_open = True
+        def write(self, data):
+            self.writes.append(data)
+
+    manager = SerialManager()
+    fake = FakeSerial()
+    manager.serial = fake
+    assert manager.arm() is False
+    manager._identity_verified = True
+    assert manager.arm() is True
+    token = fake.writes[-1].decode().strip().split("=", 1)[1]
+    assert manager.send("REV") is True
+    assert fake.writes[-1] == f"REV@{token}\\n".encode()
+    assert manager.stop_breakin() is True
+    assert fake.writes[-2:] == [b"PWM=0\\n", b"STOP\\n"]
+    assert manager.send("REV") is False
