@@ -70,6 +70,11 @@ class SerialReader(QThread):
                 if self.raw_log_collector is not None and not line.startswith("INFO"):
                     self.raw_log_collector.append(raw_line)
 
+                # Command responses are control-plane messages, not CSV data.
+                if line == "OK" or line.startswith("ERROR,"):
+                    self.received.emit({"record_type": "COMMAND_RESPONSE", "value": line})
+                    continue
+
                 # CSVParser keeps DATA at its fixed 26-field contract.
                 if not line:
                     continue
