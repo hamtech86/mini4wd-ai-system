@@ -62,6 +62,8 @@ def test_emergency_stop_latches_ui_and_blocks_all_start_entry_points(stop_latche
     window.finished()
     assert not window.start.isEnabled()
     assert not window.sequence_execute.isEnabled()
+    assert not window.pause_button.isEnabled()
+    assert not window.resume_button.isEnabled()
 
     # Both normal and benchmark entry points must refuse to launch after STOP.
     window._execute_selected_sequences()
