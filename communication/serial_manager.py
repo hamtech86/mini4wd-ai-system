@@ -13,6 +13,7 @@ from PyQt5.QtCore import QObject, QThread, pyqtSignal
 
 import time
 import threading
+import secrets
 import serial
 import serial.tools.list_ports
 
@@ -109,6 +110,9 @@ class SerialManager(QObject):
         self._command_lock = threading.RLock()
         self._emergency_stop_latched = False
         self._emergency_stop_requested = threading.Event()
+        self._active_arm_token = None
+        self._identity_verified = False
+        self.received.connect(self._observe_identity)
 
     @property
     def is_connected(self):
@@ -133,9 +137,6 @@ class SerialManager(QObject):
 
     def connect(self, port):
         with self._command_lock:
-            if self._stop_requested():
-                self.error.emit("Reconnect blocked: emergency STOP latch requires a new application session.")
-                return False
             try:
                 logger.info(f"Connecting : {port}")
 
@@ -148,13 +149,13 @@ class SerialManager(QObject):
                 self.serial.reset_input_buffer()
                 self.serial.reset_output_buffer()
                 self.raw_log_collector.reset()
+                self._identity_verified = False
+                self._active_arm_token = None
 
                 # Opening a USB serial port resets the Arduino. Do not expose
                 # the connection as ready until the firmware boot window has
                 # completed.
                 time.sleep(self.ARDUINO_BOOT_SETTLE_SEC)
-                if self._stop_requested():
-                    raise RuntimeError("Connection aborted by emergency STOP request.")
                 self.serial.reset_input_buffer()
                 self.serial.reset_output_buffer()
 
@@ -224,27 +225,60 @@ class SerialManager(QObject):
     def _stop_requested(self):
         return self._emergency_stop_requested.is_set() or self._emergency_stop_latched
 
+    def _observe_identity(self, data):
+        if not isinstance(data, dict) or data.get("record_type") != "INFO":
+            return
+        self._identity_verified = (
+            data.get("TYPE") == "MOTOR"
+            and data.get("MODEL") == "MOTOR_BREAKIN_V3"
+            and all(isinstance(data.get(key), str) and data.get(key).strip()
+                    for key in ("FW", "BUILD", "ID"))
+        )
+
+    def arm(self) -> bool:
+        """Explicitly authorize one run with a fresh, non-driving token."""
+        with self._command_lock:
+            if not self.is_connected or not self._identity_verified:
+                self.error.emit("ARM blocked: verified MOTOR_BREAKIN_V3 identity required.")
+                return False
+            token = secrets.token_hex(4).upper()
+            if not self.send("ARM=" + token):
+                self._active_arm_token = None
+                return False
+            self._active_arm_token = token
+            # Only this explicit operation clears the host STOP latch.
+            self._emergency_stop_latched = False
+            self._emergency_stop_requested.clear()
+            return True
+
     def send(self, command: str) -> bool:
-        """Arduinoへコマンド送信, with a fail-closed emergency STOP latch."""
+        """Send safe commands normally; drive commands require explicit ARM."""
         with self._command_lock:
             normalized = str(command).strip().upper()
             drive_command = normalized in ("START", "FWD", "REV", "RESUME") or (
                 normalized.startswith("PWM=") and normalized != "PWM=0"
             )
-            if drive_command and self._stop_requested():
-                self.error.emit("Drive command blocked: emergency STOP latch is active; new application session required.")
-                logger.warning(f"TX blocked by emergency STOP latch: {command}")
+            is_arm = normalized.startswith("ARM=")
+            if drive_command and (self._stop_requested() or not self._active_arm_token):
+                self.error.emit("Drive command blocked: explicit ARM is required before every run.")
+                logger.warning(f"TX blocked until explicit ARM: {command}")
+                return False
+            if (drive_command or is_arm) and not self._identity_verified:
+                self.error.emit("Drive/ARM blocked: INFO identity is not verified.")
                 return False
             if not self.is_connected:
                 self.error.emit("Serial port is not connected.")
                 return False
 
             try:
-                message = f"{command}\n"
-                self.serial.write(message.encode("utf-8"))
-                logger.debug(f"TX : {command}")
+                wire_command = str(command)
+                if drive_command:
+                    wire_command += "@" + self._active_arm_token
+                self.serial.write((wire_command + "\n").encode("utf-8"))
+                logger.debug(f"TX : {wire_command}")
+                if normalized == "STOP":
+                    self._active_arm_token = None
                 return True
-
             except Exception as e:
                 logger.exception(e)
                 self.error.emit(str(e))
