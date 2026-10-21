@@ -258,3 +258,99 @@ def test_active_serial_manager_orders_emergency_stop_after_in_flight_write():
     assert fake.writes[:3] == [b"PWM=80\n", b"PWM=0\n", b"STOP\n"]
     assert manager.send("PWM=90") is False
     assert fake.writes == [b"PWM=80\n", b"PWM=0\n", b"STOP\n"]
+
+
+def test_controller_stop_during_port_open_cannot_be_followed_by_late_reconnect(monkeypatch):
+    import threading
+    import communication.serial_controller as serial_controller_module
+
+    open_entered = threading.Event()
+    release_open = threading.Event()
+
+    class FakeSerial:
+        def __init__(self, *args, **kwargs):
+            open_entered.set()
+            assert release_open.wait(timeout=3)
+            self.writes = []
+            self.closed = False
+            self.timeout = kwargs.get("timeout", 1)
+
+        def reset_input_buffer(self):
+            pass
+
+        def reset_output_buffer(self):
+            pass
+
+        @property
+        def in_waiting(self):
+            return 0
+
+        def write(self, data):
+            self.writes.append(data)
+
+        def close(self):
+            self.closed = True
+
+    class FakeSerialModule:
+        Serial = FakeSerial
+
+    monkeypatch.setattr(serial_controller_module, "serial", FakeSerialModule)
+    monkeypatch.setattr(serial_controller_module.time, "sleep", lambda *_: None)
+
+    controller = SerialController()
+    controller._verify_info_response = lambda timeout=1.0: False
+    connect_result = {}
+    connect_thread = threading.Thread(target=lambda: connect_result.update(ok=controller.connect()))
+    connect_thread.start()
+    assert open_entered.wait(timeout=2)
+
+    stop_started = threading.Event()
+    original_stop = controller.emergency_stop
+
+    def marked_stop():
+        stop_started.set()
+        return original_stop()
+
+    controller.emergency_stop = marked_stop
+    stop_result = {}
+    stop_thread = threading.Thread(target=lambda: stop_result.update(result=controller.emergency_stop()))
+    stop_thread.start()
+    assert stop_started.wait(timeout=2)
+
+    # Release the port-open call only after STOP has attempted to begin.
+    # The lifecycle lock must make STOP run after connect cleanup/completion.
+    release_open.set()
+    connect_thread.join(timeout=3)
+    stop_thread.join(timeout=3)
+
+    assert not connect_thread.is_alive()
+    assert not stop_thread.is_alive()
+    assert connect_result["ok"] is True
+    assert stop_result["result"]["stop_command"] is True
+    assert controller._emergency_stop_latched is True
+    assert controller.serial is None
+    assert controller.connected is False
+
+
+def test_serial_manager_disconnect_clears_state_and_reports_close_exception(qtbot):
+    from communication.serial_manager import SerialManager
+
+    class CloseFailure:
+        is_open = True
+
+        def close(self):
+            raise OSError("close failed")
+
+    manager = SerialManager()
+    errors = []
+    disconnected = []
+    manager.error.connect(errors.append)
+    manager.disconnected.connect(lambda: disconnected.append(True))
+    manager.serial = CloseFailure()
+
+    manager.disconnect()
+
+    assert manager.serial is None
+    assert manager.reader is None
+    assert disconnected == [True]
+    assert any("serial close" in error and "close failed" in error for error in errors)
