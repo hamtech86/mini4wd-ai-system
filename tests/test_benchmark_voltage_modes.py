@@ -180,3 +180,41 @@ def test_regular_recipe_raw_log_does_not_inherit_previous_benchmark_mode():
     controller._register_raw_log("DATA,raw,body\\r\\n")
     assert library.record.measurement_condition == "TuneBasic"
     assert "voltage_control_mode=" not in library.record.notes
+
+def test_stop_at_final_benchmark_phase_boundary_cannot_finish_successfully(monkeypatch):
+    controller, serial = make_controller("TERMINAL")
+    monkeypatch.setattr(benchmark_module, "_prepare_3v", lambda *args, **kwargs: True)
+
+    def stop_at_final_boundary(*args, **kwargs):
+        controller.emergency_stop_latched = True
+        controller.running = False
+        return True
+
+    monkeypatch.setattr(benchmark_module, "_timed_voltage", stop_at_final_boundary)
+
+    with pytest.raises(RuntimeError, match="Emergency STOP interrupted benchmark"):
+        run_benchmark(controller, STANDARD_3V30S, voltage_control_mode="INPUT")
+
+    assert controller.running is False
+    assert controller.emergency_stop_latched is True
+    assert "STOP" in serial.commands
+    assert controller.benchmark_voltage_control_mode == "TERMINAL"
+
+def test_stop_during_benchmark_raw_log_freeze_cannot_commit_success(monkeypatch):
+    controller, serial = make_controller("TERMINAL")
+    monkeypatch.setattr(benchmark_module, "_prepare_3v", lambda *args, **kwargs: True)
+    monkeypatch.setattr(benchmark_module, "_timed_voltage", lambda *args, **kwargs: True)
+
+    def stop_during_freeze():
+        controller.emergency_stop_latched = True
+        controller.running = False
+
+    controller._freeze_measurement_raw_log = stop_during_freeze
+
+    with pytest.raises(RuntimeError, match="Emergency STOP interrupted benchmark"):
+        run_benchmark(controller, STANDARD_3V30S, voltage_control_mode="INPUT")
+
+    assert controller.running is False
+    assert controller.emergency_stop_latched is True
+    assert "STOP" in serial.commands
+

@@ -571,7 +571,7 @@ class BreakinController:
             print("SERIAL STOP WARNING:", exc)
 
     def emergency_stop(self):
-        """Request serial stop even if checkpoint persistence fails.
+        """Request serial stop before checkpoint persistence or cleanup.
 
         Returned details describe software/serial attempts, not physical motor
         state. Physical stop must remain unconfirmed until independently checked.
@@ -583,15 +583,9 @@ class BreakinController:
                    "serial_result": None, "errors": []}
         if self.measurement_manager is not None:
             self.measurement_manager.last_measurement = None
-        try:
-            self._save_checkpoint()
-            outcome["checkpoint_saved"] = True
-        except Exception as exc:
-            outcome["errors"].append(f"checkpoint: {type(exc).__name__}: {exc}")
-        try:
-            self.clear_checkpoint()
-        except Exception as exc:
-            outcome["errors"].append(f"checkpoint clear: {type(exc).__name__}: {exc}")
+
+        # STOP is time-critical. Never let checkpoint I/O or cleanup delay the
+        # first serial emergency-stop attempt.
         try:
             outcome["serial_stop_attempted"] = True
             if hasattr(self.serial, "emergency_stop"):
@@ -601,5 +595,17 @@ class BreakinController:
                 outcome["serial_result"] = "fallback stop attempted"
         except Exception as exc:
             outcome["errors"].append(f"serial stop: {type(exc).__name__}: {exc}")
+
+        # Persistence is secondary to issuing STOP. Preserve best-effort
+        # checkpoint diagnostics/cleanup after the stop path has been attempted.
+        try:
+            self._save_checkpoint()
+            outcome["checkpoint_saved"] = True
+        except Exception as exc:
+            outcome["errors"].append(f"checkpoint: {type(exc).__name__}: {exc}")
+        try:
+            self.clear_checkpoint()
+        except Exception as exc:
+            outcome["errors"].append(f"checkpoint clear: {type(exc).__name__}: {exc}")
         self.last_emergency_stop_result = outcome
         return outcome

@@ -226,7 +226,7 @@ def run_benchmark(self, benchmark_type=STANDARD_3V30S, instance_id=None, purpose
         self.current_pwm = 0
         self.running = False
         if self.session is not None:
-            if self.abort_reason:
+            if self.abort_reason or getattr(self, "emergency_stop_latched", False):
                 self.session.error()
             else:
                 self.session.cancel()
@@ -238,6 +238,12 @@ def run_benchmark(self, benchmark_type=STANDARD_3V30S, instance_id=None, purpose
         self.benchmark_voltage_control_mode = "TERMINAL"
 
 def _finish_benchmark(self, phases):
+    # A STOP can race with the final phase returning success. Recheck before
+    # entering the success/finalization path so an interrupted run cannot be
+    # recorded as a completed benchmark.
+    if getattr(self, "emergency_stop_latched", False) or not self.running:
+        raise RuntimeError("Emergency STOP interrupted benchmark; result is incomplete.")
+
     # Freeze exactly at the benchmark boundary. Serial data arriving after
     # this point (including STOP/finalization lag) is not part of the log.
     freeze = getattr(self, "_freeze_measurement_raw_log", None)
@@ -247,6 +253,8 @@ def _finish_benchmark(self, phases):
         self.serial.stop_breakin()
     else:
         self.serial.set_pwm(0)
+    if getattr(self, "emergency_stop_latched", False):
+        raise RuntimeError("Emergency STOP interrupted benchmark; result is incomplete.")
     self.current_pwm = 0
     self.running = False
     phase_names = ",".join(phase.name for phase in phases)

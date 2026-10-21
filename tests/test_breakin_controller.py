@@ -140,3 +140,20 @@ def test_controller_latch_blocks_direct_restart_after_emergency_stop():
 
     with pytest.raises(RuntimeError, match="Emergency STOP latch is active"):
         controller.start(recipe)
+
+def test_emergency_stop_attempts_serial_before_checkpoint_io():
+    events = []
+
+    class OrderedSerial:
+        def emergency_stop(self):
+            events.append("serial_stop")
+            return {"pwm_zero": True, "stop_command": True, "disconnect": True, "errors": []}
+
+    controller = BreakinController(serial_controller=OrderedSerial())
+    controller._save_checkpoint = lambda: events.append("checkpoint_save")
+    controller.clear_checkpoint = lambda: events.append("checkpoint_clear")
+
+    controller.emergency_stop()
+
+    assert events == ["serial_stop", "checkpoint_save", "checkpoint_clear"]
+
