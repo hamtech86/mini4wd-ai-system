@@ -493,8 +493,28 @@ class BreakinController:
             print("SERIAL STOP WARNING:", exc)
 
     def emergency_stop(self):
+        """Request serial stop even if checkpoint persistence fails.
+
+        Returned details describe software/serial attempts, not physical motor
+        state. Physical stop must remain unconfirmed until independently checked.
+        """
         self.running = False
         self.paused = False
-        self._save_checkpoint()
-        if hasattr(self.serial, "emergency_stop"): self.serial.emergency_stop()
-        else: self.stop()
+        outcome = {"checkpoint_saved": False, "serial_stop_attempted": False,
+                   "serial_result": None, "errors": []}
+        try:
+            self._save_checkpoint()
+            outcome["checkpoint_saved"] = True
+        except Exception as exc:
+            outcome["errors"].append(f"checkpoint: {type(exc).__name__}: {exc}")
+        try:
+            outcome["serial_stop_attempted"] = True
+            if hasattr(self.serial, "emergency_stop"):
+                outcome["serial_result"] = self.serial.emergency_stop()
+            else:
+                self.stop()
+                outcome["serial_result"] = "fallback stop attempted"
+        except Exception as exc:
+            outcome["errors"].append(f"serial stop: {type(exc).__name__}: {exc}")
+        self.last_emergency_stop_result = outcome
+        return outcome
