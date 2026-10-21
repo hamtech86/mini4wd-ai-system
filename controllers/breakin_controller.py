@@ -487,6 +487,8 @@ class BreakinController:
         try:
             measurement = self.measurement_manager.collect() if self.measurement_manager else None
         except Exception as exc:
+            if self.measurement_manager is not None:
+                self.measurement_manager.last_measurement = None
             self._record_invalid_measurement(f"measurement acquisition error: {type(exc).__name__}")
             return None
         if measurement is None:
