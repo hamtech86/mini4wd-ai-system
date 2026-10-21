@@ -75,3 +75,18 @@ def test_measurement_exception_clears_last_good_sample():
 
     assert controller._collect_measurement(phase) is None
     assert manager.last_measurement is None
+
+
+
+def test_physical_current1_spike_cannot_be_masked_by_current_avg():
+    controller = BreakinController(serial_controller=StopTransport())
+    controller.safety_config = {"max_current": 5.0, "max_motor_temperature": 0, "max_pwm": 255}
+    measurement = {
+        "current1": 5.2,
+        "current2": 0.2,
+        "current_avg": 0.1,
+        "motor_temperature": 25.0,
+    }
+
+    assert controller._current_from_measurement(measurement) == 5.2
+    assert controller._safety_violation(measurement).startswith("SAFETY: current 5.20A")
