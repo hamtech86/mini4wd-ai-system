@@ -111,5 +111,21 @@ def test_runtime_displays_directional_input_voltage_and_physical_sensor_fields(s
 def test_recipe_dropdown_exposes_only_the_four_approved_presets(stop_latched_window):
     window = stop_latched_window
     assert [window.recipe.itemText(i) for i in range(window.recipe.count())] == [
-        "STD-T", "Full-T", "STD-I", "Full-I"
+        "STD-T", "Full-T", "STD-I", "Full-I", "TUNE_BASIC_INPUT_3V_CHECK"
     ]
+
+
+
+def test_limited_tunebasic_recipe_has_forward_and_reverse_input_phases(stop_latched_window):
+    from controllers.breakin_sequence_adapter import BreakinSequenceAdapter
+
+    window = stop_latched_window
+    window.recipe.setCurrentIndex(window.recipe.findData("TUNE_BASIC_INPUT_3V_CHECK"))
+    recipe = window.recipe_engine.get("TUNE_BASIC_INPUT_3V_CHECK")
+    assert recipe is not None
+    assert [phase.direction for phase in recipe.phases] == ["FWD", "REV"]
+    assert all(phase.metadata.get("voltage_control_mode") == "INPUT" for phase in recipe.phases)
+    sequences = recipe.sequences()
+    adapter = BreakinSequenceAdapter(None)
+    translated = [adapter.to_phase(sequence) for sequence in sequences]
+    assert [phase.metadata.get("voltage_control_mode") for phase in translated] == ["INPUT", "INPUT"]
