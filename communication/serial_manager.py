@@ -115,6 +115,7 @@ class SerialManager(QObject):
         self._command_lock = threading.RLock()
         self._emergency_stop_latched = False
         self._emergency_stop_requested = threading.Event()
+        self._emergency_stop_generation = 0
         self._active_arm_token = None
         self._identity_verified = False
         self.device_info = None
@@ -283,6 +284,7 @@ class SerialManager(QObject):
     def arm(self) -> bool:
         """Explicitly authorize one run with a fresh, non-driving token."""
         with self._command_lock:
+            stop_generation = self._emergency_stop_generation
             if not self.is_connected or not self._identity_verified:
                 self.error.emit("ARM blocked: verified MOTOR_BREAKIN_V3 identity required.")
                 return False
@@ -304,6 +306,13 @@ class SerialManager(QObject):
             if not acknowledged or self._arm_response_status != "ARMED," + token:
                 self._active_arm_token = None
                 self.error.emit("Token-matched ARM acknowledgement was not received; drive remains blocked.")
+                return False
+            # emergency_stop() publishes a generation change before waiting
+            # for this lock. Never clear a STOP that arrived during ARM.
+            if self._emergency_stop_generation != stop_generation:
+                self._active_arm_token = None
+                self.identity_error = "ARM cancelled: emergency STOP arrived during ARM handshake."
+                self.error.emit(self.identity_error)
                 return False
             self._active_arm_token = token
             # Exclude idle DATA collected while waiting for ARM acknowledgement.
@@ -351,6 +360,7 @@ class SerialManager(QObject):
         outcome = {"pwm_zero": False, "stop_command": False, "disconnect": False, "errors": []}
         # Signal immediately; do not wait for connect/INFO or an in-flight write
         # before blocking new drive commands.
+        self._emergency_stop_generation += 1
         self._emergency_stop_requested.set()
         with self._command_lock:
             self._emergency_stop_latched = True
