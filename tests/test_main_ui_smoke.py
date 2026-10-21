@@ -123,7 +123,9 @@ def test_emergency_stop_latches_restart_and_keeps_stop_available(monkeypatch, tm
 
         def emergency_stop(self):
             self.calls += 1
-            return {"stop_command": True}
+            return {"errors": ["serial write failed"],
+                    "serial_result": {"pwm_zero": False, "stop_command": False,
+                                      "errors": ["serial write failed"]}}
 
     try:
         fake_controller = FakeStopController()
@@ -133,6 +135,8 @@ def test_emergency_stop_latches_restart_and_keeps_stop_available(monkeypatch, tm
         assert fake_controller.calls == 1
         assert window._stop_latched is True
         assert window.emergency_stop_fixed.isEnabled()
+        assert window.error_code_label.text() == "Error Code: EMERGENCY_STOP_PATH_ERROR"
+        assert "serial write failed" in window.error_message_label.text()
         assert not window.start.isEnabled()
         assert not window.recipe.isEnabled()
         # A stop request with no physical confirmation must not start another run.
