@@ -456,8 +456,20 @@ class BreakinController:
             print("SERIAL STOP WARNING:", exc)
 
     def emergency_stop(self):
+        """Latch the controller stopped and attempt serial STOP even if checkpointing fails."""
         self.running = False
         self.paused = False
-        self._save_checkpoint()
-        if hasattr(self.serial, "emergency_stop"): self.serial.emergency_stop()
-        else: self.stop()
+        try:
+            self._save_checkpoint()
+        except Exception as exc:
+            # Checkpoint persistence must never gate the independent stop path.
+            print("EMERGENCY STOP WARNING (checkpoint):", exc)
+
+        try:
+            if hasattr(self.serial, "emergency_stop"):
+                return self.serial.emergency_stop()
+            return self.stop()
+        except Exception as exc:
+            # Do not allow a transport exception to leave the controller marked running.
+            print("EMERGENCY STOP WARNING (serial):", exc)
+            return False
