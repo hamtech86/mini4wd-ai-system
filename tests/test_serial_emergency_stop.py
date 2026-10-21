@@ -497,8 +497,17 @@ def test_serial_controller_requires_explicit_arm_and_tags_each_drive_command():
     class FakeSerial:
         def __init__(self):
             self.writes = []
+            self.pending = []
+            self.timeout = 1
+        @property
+        def in_waiting(self):
+            return len(self.pending)
+        def readline(self):
+            return self.pending.pop(0)
         def write(self, data):
             self.writes.append(data)
+            if data.startswith(b"ARM="):
+                self.pending.append(b"OK\\n")
 
     controller = SerialController()
     fake = FakeSerial()
@@ -528,6 +537,9 @@ def test_serial_manager_requires_identity_and_explicit_arm():
             self.is_open = True
         def write(self, data):
             self.writes.append(data)
+            if data.startswith(b"ARM="):
+                manager._arm_response_status = True
+                manager._arm_response_event.set()
 
     manager = SerialManager()
     fake = FakeSerial()
