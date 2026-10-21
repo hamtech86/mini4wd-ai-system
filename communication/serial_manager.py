@@ -163,9 +163,17 @@ class SerialManager(QObject):
                 self.reader.received.connect(self.received)
                 self.reader.error.connect(self.error)
                 self.reader.start()
+                # Request identity after the reader is live; boot INFO may have
+                # been discarded during the Arduino reset/settle window.
+                self.send("INFO")
+                identity_deadline = time.monotonic() + 1.0
+                while not self._identity_verified and time.monotonic() < identity_deadline:
+                    time.sleep(0.01)
 
                 logger.success("Arduino Connected")
                 self.connected.emit()
+                if not self._identity_verified:
+                    self.error.emit("MOTOR_BREAKIN_V3 INFO identity was not verified; drive remains blocked.")
                 return True
 
             except Exception as e:
