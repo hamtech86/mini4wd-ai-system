@@ -310,7 +310,12 @@ class MainWindow(QMainWindow):
         }
         for key, value in values.items():
             self.live[key].setText(str(value))
+        sequence_active = bool(getattr(getattr(self, "sequence_executor", None), "running", False))
         if not c or not getattr(c, "running", False):
+            if not sequence_active:
+                for key in ("INPUT VOLTAGE", "MOTOR VOLTAGE", "DRIVER INPUT CURRENT"):
+                    if key in self.progress:
+                        self.progress[key].setText("--")
             return
         phase = getattr(c, "current_phase", None)
         if phase is None:
