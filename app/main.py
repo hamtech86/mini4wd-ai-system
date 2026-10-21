@@ -37,6 +37,7 @@ from controllers.ui_benchmark_presets import BENCHMARK_PRESETS as UI_BENCHMARK_P
 class MainWindow(BaseMainWindow):
     def __init__(self, context=None):
         super().__init__(context)
+        self._stop_latched = False
         self.analysis_engine=AnalysisEngine(str(PROJECT_ROOT / "config"))
         bind_resume_api(type(self)); install_resume_controls(self); self._extract_motor_page(); self._build_estimated_result_panel()
         install_raw_log_paste_ui(self)
@@ -67,7 +68,9 @@ class MainWindow(BaseMainWindow):
         # Fixed emergency stop outside the scrollable MOTOR tab.
         self.emergency_stop_fixed = QPushButton("EMERGENCY STOP")
         self.emergency_stop_fixed.setMinimumHeight(44)
-        self.emergency_stop_fixed.setEnabled(False)
+        # Keep the physical-stop request available even while idle; it must
+        # never be disabled by recipe selection, scrolling, or run-state changes.
+        self.emergency_stop_fixed.setEnabled(True)
         self.emergency_stop_fixed.clicked.connect(self.stop_run)
         root_layout.addWidget(self.emergency_stop_fixed)
         tabs=QTabWidget(); tabs.addTab(old_central,"MOTOR BREAK-IN"); self.battery_tab=BatteryTab(self.db_path,transport=self.battery_serial_controller,parent=self); tabs.addTab(self.battery_tab,"BATTERY"); root_layout.addWidget(tabs,1); self._build_ui_log_panel(root_layout); self.setCentralWidget(root)
@@ -339,6 +342,9 @@ legacy sequence loader removal    def _set_sequence_checks(self,checked):
         self._start_benchmark(benchmark_type, mode)
 
     def _start_benchmark(self, benchmark_type=STANDARD_3V30S, voltage_control_mode="TERMINAL"):
+        if self._stop_latched:
+            self._set_ui_error("STOP_LATCHED", "Restart blocked after an emergency-stop request; physical stop remains unconfirmed.")
+            return
         if not self._require_verified_motor("Motor Benchmark"): return
         if not self.breakin_controller:
             QMessageBox.warning(self,"Controller","BreakinController is not available.");return
@@ -364,12 +370,27 @@ legacy sequence loader removal    def _set_sequence_checks(self,checked):
         super().failed(message)
 
     def stop_run(self):
+        self._stop_latched = True
         try:
-            if self.breakin_controller:self.breakin_controller.emergency_stop()
+            if self.breakin_controller:
+                self.breakin_controller.emergency_stop()
         finally:
             self.sequence_timer.stop();self.timer.stop()
             if hasattr(self,"sequence_executor"):self.sequence_executor.stop("emergency_stop")
-            self.sequence_execute.setEnabled(True);self.sequence_stop.setEnabled(False);self.stop.setEnabled(False);self.emergency_stop_fixed.setEnabled(False);self.start.setEnabled(False);self.manager.setEnabled(True);self.instance.setEnabled(True);self.recipe.setEnabled(True);self.run_state.setText("STOP REQUESTED / PHYSICAL STOP UNCONFIRMED");self.result["STATUS"].setText("STOP REQUESTED / UNCONFIRMED");self.sequence_status.setText("停止要求を送信しました。物理停止は未確認です。");self._log_event("Emergency STOP requested; physical motor stop is unconfirmed.");self._update_sequence_highlight(None)
+            self.sequence_execute.setEnabled(False);self.sequence_stop.setEnabled(False);self.stop.setEnabled(False);self.emergency_stop_fixed.setEnabled(True);self.start.setEnabled(False);self.manager.setEnabled(False);self.instance.setEnabled(False);self.recipe.setEnabled(False);self.run_state.setText("STOP REQUESTED / PHYSICAL STOP UNCONFIRMED");self.result["STATUS"].setText("STOP REQUESTED / UNCONFIRMED");self.sequence_status.setText("停止要求を送信しました。物理停止は未確認です。");self._log_event("Emergency STOP requested; physical stop is unconfirmed; restart latched.");self._update_sequence_highlight(None)
+
+    def finished(self):
+        # Base MainWindow.finished() unconditionally re-enables START. Preserve
+        # the emergency-stop latch across asynchronous worker completion.
+        super().finished()
+        if self._stop_latched:
+            self.start.setEnabled(False)
+            self.manager.setEnabled(False)
+            self.instance.setEnabled(False)
+            self.recipe.setEnabled(False)
+            self.emergency_stop_fixed.setEnabled(True)
+            self.run_state.setText("STOP REQUESTED / PHYSICAL STOP UNCONFIRMED")
+            self.result["STATUS"].setText("STOP REQUESTED / UNCONFIRMED")
 
     def _sequence_tick(self):
         try:
