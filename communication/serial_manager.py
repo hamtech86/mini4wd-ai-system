@@ -63,17 +63,17 @@ class SerialReader(QThread):
                     self.msleep(5)
                     continue
 
-                # Keep exact non-INFO serial text before parsing. INFO is an
-                # auxiliary identity response and must not enter measurement RawLog.
                 raw_line = self.serial_port.readline().decode("utf-8", errors="ignore")
                 line = raw_line.rstrip("\r\n")
-                if self.raw_log_collector is not None and not line.startswith("INFO"):
-                    self.raw_log_collector.append(raw_line)
 
-                # Command responses are control-plane messages, not CSV data.
+                # Command responses are control-plane messages, not measurement RawLog.
                 if line == "OK" or line.startswith("ERROR,"):
                     self.received.emit({"record_type": "COMMAND_RESPONSE", "value": line})
                     continue
+
+                # Keep exact non-INFO serial text before parsing.
+                if self.raw_log_collector is not None and not line.startswith("INFO"):
+                    self.raw_log_collector.append(raw_line)
 
                 # CSVParser keeps DATA at its fixed 26-field contract.
                 if not line:
@@ -117,6 +117,8 @@ class SerialManager(QObject):
         self._emergency_stop_requested = threading.Event()
         self._active_arm_token = None
         self._identity_verified = False
+        self.device_info = None
+        self.identity_error = "INFO identity has not been verified."
         self._arm_response_event = threading.Event()
         self._arm_response_status = None
 
@@ -259,6 +261,12 @@ class SerialManager(QObject):
             and all(isinstance(data.get(key), str) and data.get(key).strip()
                     for key in ("FW", "BUILD", "ID"))
         )
+        if self._identity_verified:
+            self.device_info = {key: data[key] for key in ("TYPE", "MODEL", "FW", "BUILD", "ID")}
+            self.identity_error = ""
+        else:
+            self.device_info = None
+            self.identity_error = "Unexpected or incomplete MOTOR_BREAKIN_V3 INFO identity."
 
     def arm(self) -> bool:
         """Explicitly authorize one run with a fresh, non-driving token."""
