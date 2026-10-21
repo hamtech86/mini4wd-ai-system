@@ -51,9 +51,9 @@
  * SECTION 03 : System Configuration
  ********************************************************************/
 
-constexpr char FW_VERSION[]   = "3.00";
+constexpr char FW_VERSION[]   = "3.01";
 // Unique identifier for the firmware build used in hardware verification logs.
-constexpr char FW_BUILD_ID[]  = "ACS-CAL-LOG-20261013-01";
+constexpr char FW_BUILD_ID[]  = "STOP-SAFETY-20261021-01";
 constexpr char DEVICE_TYPE[]  = "MOTOR";
 constexpr char DEVICE_MODEL[] = "MOTOR_BREAKIN_V3";
 
