@@ -168,8 +168,11 @@ class SerialController:
         return self.send_command("REV")
 
     def set_pwm(self, pwm):
-        self.last_pwm = max(0, min(255, int(pwm)))
-        return self.send_command(f"PWM={self.last_pwm}")
+        requested_pwm = max(0, min(255, int(pwm)))
+        result = self.send_command(f"PWM={requested_pwm}")
+        if result is not False:
+            self.last_pwm = requested_pwm
+        return result
 
     def stop_breakin(self):
         self.set_pwm(0)
@@ -199,13 +202,16 @@ class SerialController:
         return outcome
 
     def disconnect(self):
-        if self.serial:
-            self.serial.close()
-        self.serial = None
-        self.connected = False
-        self.identity_verified = False
-        self.device_info = None
-        self.identity_error = "Disconnected; identity verification reset."
+        handle = self.serial
+        try:
+            if handle:
+                handle.close()
+        finally:
+            self.serial = None
+            self.connected = False
+            self.identity_verified = False
+            self.device_info = None
+            self.identity_error = "Disconnected; identity verification reset."
 
     def send_command(self, command):
         self.command_log.append(command)
