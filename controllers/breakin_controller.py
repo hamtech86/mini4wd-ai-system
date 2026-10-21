@@ -395,12 +395,18 @@ class BreakinController:
 
     @classmethod
     def _current_from_measurement(cls, measurement):
-        current = cls._measurement_value(measurement, "current_avg", None)
-        if current is not None:
-            try: return abs(float(current))
-            except (TypeError, ValueError): pass
-        return max(abs(float(cls._measurement_value(measurement, "current1", 0.0) or 0.0)),
-                   abs(float(cls._measurement_value(measurement, "current2", 0.0) or 0.0)))
+        # Safety uses the greatest magnitude across the physical sensor channels
+        # and firmware average; current_avg must not mask a current1/current2 spike.
+        values = []
+        for name in ("current1", "current2", "current_avg"):
+            raw = cls._measurement_value(measurement, name, None)
+            try:
+                value = float(raw)
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if math.isfinite(value):
+                values.append(abs(value))
+        return max(values, default=0.0)
 
     @staticmethod
     def _value(measurement, name, default=0.0):
