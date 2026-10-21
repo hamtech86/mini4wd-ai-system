@@ -280,8 +280,9 @@ class SerialController:
                 return True
             token = secrets.token_hex(4).upper()
             result = self.send_command("ARM=" + token)
-            if result is False:
+            if result is False or not self._wait_for_command_ack(timeout=1.0):
                 self._active_arm_token = None
+                self.identity_error = "ARM was not acknowledged by firmware; drive remains blocked."
                 return False
             self._active_arm_token = token
             # Only this explicit user/workflow call may clear the host-side STOP latch.
@@ -289,6 +290,39 @@ class SerialController:
             self._ensure_stop_event().clear()
             self.identity_error = ""
             return True
+
+    def _wait_for_command_ack(self, timeout=1.0):
+        """Wait for firmware OK/ERROR without treating a successful write as acceptance."""
+        deadline = time.monotonic() + max(0.0, float(timeout))
+        while self.connected and self.serial and time.monotonic() < deadline:
+            try:
+                if not self.serial.in_waiting:
+                    time.sleep(0.01)
+                    continue
+                original_timeout = getattr(self.serial, "timeout", None)
+                try:
+                    self.serial.timeout = max(0.0, deadline - time.monotonic())
+                    decoded = self.serial.readline().decode("utf-8", errors="replace")
+                finally:
+                    self.serial.timeout = original_timeout
+            except Exception as exc:
+                self.identity_error = "Command acknowledgement read failed: " + str(exc)
+                return False
+            line = decoded.strip()
+            if line == "OK":
+                return True
+            if line.startswith("ERROR,"):
+                self.identity_error = line
+                return False
+            if line.startswith("INFO"):
+                try:
+                    self._validate_info_record(self.parser.parse(line))
+                except (ValueError, KeyError):
+                    self.identity_verified = False
+                    self.device_info = None
+            elif line:
+                self.raw_log_collector.append(decoded)
+        return False
 
     def send_command(self, command):
         with self._ensure_command_lock():
