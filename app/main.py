@@ -39,7 +39,7 @@ class MainWindow(BaseMainWindow):
         install_raw_log_paste_ui(self)
         self.battery_serial_controller = context.get("battery_serial_controller") if context else None
         self._build_recipe_sequence_panel(); self._build_integrated_ui()
-        if hasattr(self,"start"): self.start.setText("START SELECTED SEQUENCE")
+        if hasattr(self,"start"): self.start.setText("START BENCHMARK")
 
     def _extract_motor_page(self):
         central=self.centralWidget()
