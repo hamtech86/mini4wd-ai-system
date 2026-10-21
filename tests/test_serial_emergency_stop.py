@@ -55,3 +55,26 @@ def test_emergency_stop_attempts_disconnect_if_stop_command_raises():
     assert result["stop_command"] is False
     assert result["disconnect"] is True
     assert any("STOP write failed" in error for error in result["errors"])
+
+
+
+def test_disconnect_clears_state_even_when_close_raises():
+    class CloseFailure:
+        def close(self):
+            raise OSError("close failed")
+
+    controller = SerialController()
+    controller.serial = CloseFailure()
+    controller.connected = True
+    controller.identity_verified = True
+    controller.device_info = {"MODEL": "MOTOR_BREAKIN_V3"}
+
+    try:
+        controller.disconnect()
+    except OSError:
+        pass
+
+    assert controller.serial is None
+    assert controller.connected is False
+    assert controller.identity_verified is False
+    assert controller.device_info is None
