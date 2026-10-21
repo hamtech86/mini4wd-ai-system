@@ -409,6 +409,9 @@ float readMotorVoltage();
 // FUNC-401
 void sendLog();
 
+/* Voltage Control */
+void voltageControlUpdate();
+
 /* Utility */
 
 // FUNC-501
