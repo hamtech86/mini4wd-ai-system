@@ -34,12 +34,14 @@ class CSVParser:
                 raise ValueError("Malformed INFO field")
             key, value = token.split("=", 1)
             key, value = key.strip(), value.strip()
-            if key not in INFO_FIELDS:
-                raise ValueError(f"Unknown INFO field: {key}")
+            if not key or key == "record_type":
+                raise ValueError("Invalid INFO field name")
             if key in info:
                 raise ValueError(f"Duplicate INFO field: {key}")
             if not value:
                 raise ValueError(f"Empty INFO field: {key}")
+            # Unknown additional keys are allowed by the contract, but cannot
+            # overwrite record_type or any required field.
             info[key] = value
         missing = [key for key in INFO_FIELDS if key not in info]
         if missing:
