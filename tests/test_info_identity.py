@@ -32,7 +32,6 @@ def test_info_parser_accepts_required_fields_in_any_order(line):
         "INFO,TYPE=MOTOR,MODEL=MOTOR_BREAKIN_V3,FW=3.00,BUILD=x",
         "INFO,TYPE=MOTOR,MODEL=MOTOR_BREAKIN_V3,FW=3.00,BUILD=x,ID=y,ID=z",
         "INFO,TYPE=MOTOR,MODEL=MOTOR_BREAKIN_V3,FW=3.00,BUILD=x,ID=",
-        "INFO,TYPE=MOTOR,MODEL=MOTOR_BREAKIN_V3,FW=3.00,BUILD=x,ID=y,OTHER=z",
         "INFO,TYPE=MOTOR,MODEL=MOTOR_BREAKIN_V3,FW=3.00,BUILD=x,ID=y,broken",
     ],
 )
@@ -216,3 +215,11 @@ def test_serial_reader_excludes_info_but_preserves_data_and_cal_raw_lines():
     port.reader = reader
     reader.run()
     assert collector.lines == [data_line, cal_line]
+
+
+
+def test_info_parser_allows_unknown_extension_fields():
+    info = CSVParser().parse("INFO,TYPE=MOTOR,MODEL=MOTOR_BREAKIN_V3,FW=3.00,BUILD=x,ID=y,OTHER=z")
+    assert info["record_type"] == "INFO"
+    assert info["MODEL"] == "MOTOR_BREAKIN_V3"
+    assert info["OTHER"] == "z"

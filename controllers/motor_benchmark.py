@@ -39,6 +39,9 @@ def _prepare_3v(self, phase, duration=2.0):
             time.sleep(self.CONTROL_INTERVAL_SEC)
             continue
         measurement = _collect(self, phase)
+        if measurement is None:
+            time.sleep(self.CONTROL_INTERVAL_SEC)
+            continue
         if _safety(self, measurement):
             return False
         self._voltage_control(phase, measurement)
@@ -71,6 +74,9 @@ def _timed_pwm(self, phase, duration):
             time.sleep(self.CONTROL_INTERVAL_SEC)
             continue
         measurement = _collect(self, phase)
+        if measurement is None:
+            time.sleep(self.CONTROL_INTERVAL_SEC)
+            continue
         if _safety(self, measurement):
             return False
         time.sleep(self.CONTROL_INTERVAL_SEC)
@@ -124,6 +130,8 @@ def _begin(self, benchmark_type, instance_id=None, purpose="MEASUREMENT"):
 
 
 def run_benchmark(self, benchmark_type=STANDARD_3V30S, instance_id=None, purpose="MEASUREMENT", voltage_control_mode="TERMINAL"):
+    if getattr(self, "emergency_stop_latched", False):
+        raise RuntimeError("Emergency STOP latch is active; benchmark restart is blocked.")
     if benchmark_type not in (STANDARD_3V30S, FULL_PACKAGE):
         raise ValueError(f"Unsupported benchmark type: {benchmark_type}")
     if voltage_control_mode not in ("TERMINAL", "INPUT"):

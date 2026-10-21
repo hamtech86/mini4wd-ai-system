@@ -26,9 +26,22 @@ def test_main_window_builds_offscreen_without_hardware_connection(monkeypatch, t
     try:
         assert window.motor_serial_status.text().startswith("MOTOR: DISCONNECTED")
         assert window.motor_connect.isEnabled()
-        assert set(BENCHMARK_PRESETS) <= {
-            window.recipe.itemText(index) for index in range(window.recipe.count())
+        assert {window.recipe.itemText(index) for index in range(window.recipe.count())} == {
+            "STD-T", "Full-T", "STD-I", "Full-I", "TUNE_BASIC_INPUT_3V_CHECK"
         }
+        window.recipe.setCurrentIndex(window.recipe.findData("TUNE_BASIC_INPUT_3V_CHECK"))
+        assert "limited" in window.sequence_status.text().lower()
+        assert len(window.sequence_checks) == 1
+        assert window.sequence_checks[0][0] == "TUNE_BASIC_INPUT_3V_CHECK"
+        assert window.emergency_stop_fixed.isEnabled()
+        assert window.sequence_all.isHidden()
+        assert window.sequence_none.isHidden()
+        assert window.sequence_execute.isHidden()
+        assert window.sequence_stop.isHidden()
+        assert not hasattr(window, "sequence_executor")
+        assert not hasattr(window, "sequence_timer")
+        assert not hasattr(window, "pause_button")
+        assert not hasattr(window, "resume_button")
         assert window.ui_log.isReadOnly()
         assert {"DIR", "PWM", "INPUT VOLTAGE", "MOTOR VOLTAGE",
                 "DRIVER INPUT CURRENT", "ELAPSED", "REMAIN"} <= set(window.progress)
@@ -86,5 +99,53 @@ def test_runtime_telemetry_refresh_keeps_sensor_values_visible(monkeypatch, tmp_
         assert window.progress["PWM"].text() == "39"
         assert window.progress["ELAPSED"].text() == "1.2 s"
         assert window.progress["REMAIN"].text() == "12.3 s"
+    finally:
+        window.close()
+
+
+
+def test_emergency_stop_latches_restart_and_keeps_stop_available(monkeypatch, tmp_path):
+    import ui.main_window as base_ui
+    import app.main as main_app
+
+    class FakeBatteryTab(QWidget):
+        def __init__(self, *args, **kwargs):
+            super().__init__(kwargs.get("parent"))
+
+        def set_connected(self, connected):
+            self.connected = connected
+
+    database_path = str(tmp_path / "ui-stop-latch.db")
+    monkeypatch.setattr(base_ui, "resolve_database_path", lambda **kwargs: database_path)
+    monkeypatch.setattr(main_app, "BatteryTab", FakeBatteryTab)
+    app = QApplication.instance() or QApplication([])
+    window = main_app.MainWindow({"breakin_controller": None, "serial_controller": None,
+                                  "battery_serial_controller": None})
+    class FakeStopController:
+        def __init__(self):
+            self.calls = 0
+
+        def emergency_stop(self):
+            self.calls += 1
+            return {"errors": ["serial write failed"],
+                    "serial_result": {"pwm_zero": False, "stop_command": False,
+                                      "errors": ["serial write failed"]}}
+
+    try:
+        fake_controller = FakeStopController()
+        window.breakin_controller = fake_controller
+        assert window.emergency_stop_fixed.isEnabled()
+        window.emergency_stop_fixed.click()
+        assert fake_controller.calls == 1
+        assert window._stop_latched is True
+        assert window.emergency_stop_fixed.isEnabled()
+        assert window.error_code_label.text() == "Error Code: EMERGENCY_STOP_PATH_ERROR"
+        assert "serial write failed" in window.error_message_label.text()
+        assert not window.start.isEnabled()
+        assert not window.recipe.isEnabled()
+        # A stop request with no physical confirmation must not start another run.
+        window._start_benchmark()
+        assert window.error_code_label.text() == "Error Code: STOP_LATCHED"
+        assert not window.start.isEnabled()
     finally:
         window.close()
