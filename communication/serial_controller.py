@@ -178,13 +178,15 @@ class SerialController:
         # Try each safety action independently: a failed PWM=0 write must not
         # prevent the explicit STOP command or serial cleanup from being tried.
         try:
-            self.set_pwm(0)
+            if self.set_pwm(0) is False:
+                errors.append(("PWM=0", RuntimeError("command was not sent")))
         except Exception as exc:
             errors.append(("PWM=0", exc))
             print("EMERGENCY STOP WARNING (PWM=0):", exc)
 
         try:
-            self.send_command("STOP")
+            if self.send_command("STOP") is False:
+                errors.append(("STOP", RuntimeError("command was not sent")))
         except Exception as exc:
             errors.append(("STOP", exc))
             print("EMERGENCY STOP WARNING (STOP):", exc)
