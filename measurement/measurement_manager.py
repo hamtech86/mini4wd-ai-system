@@ -125,7 +125,7 @@ class MeasurementManager:
                 return None
         if raw["device_model"] != "MOTOR_BREAKIN_V3":
             return None
-        if str(raw["direction"]).upper() not in ("FWD", "REV"):
+        if raw["direction"] not in ("FWD", "REV"):
             return None
 
         numeric_fields = (
