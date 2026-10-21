@@ -75,8 +75,9 @@ class RecordType(Enum):
 # Arduino Commands
 # =====================================================
 
-# Firmware MOTOR_BREAKIN_V3.00 command protocol.
-# The firmware accepts bare FWD/REV and PWM=<0..255>.
+# Firmware MOTOR_BREAKIN_V3 command protocol.
+# Drive commands require a fresh ARM token: FWD@<token>, REV@<token>, PWM=<0..255>@<token>.
+# STOP/PWM=0 remain safe commands; ARM is accepted only with a token-matched ARMED response.
 CMD_START = "START"
 CMD_STOP = "STOP"
 
