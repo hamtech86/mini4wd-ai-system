@@ -112,7 +112,8 @@ class SerialManager(QObject):
         self._emergency_stop_requested = threading.Event()
         self._active_arm_token = None
         self._identity_verified = False
-        self.received.connect(self._observe_identity, type=Qt.DirectConnection)
+        self._arm_response_event = threading.Event()
+        self._arm_response_status = None
 
     @property
     def is_connected(self):
@@ -163,6 +164,7 @@ class SerialManager(QObject):
                     raise RuntimeError("Connection aborted by an emergency STOP racing with connect.")
 
                 self.reader = SerialReader(self.serial, self.raw_log_collector)
+                self.reader.received.connect(self._observe_identity, type=Qt.DirectConnection)
                 self.reader.received.connect(self.received)
                 self.reader.error.connect(self.error)
                 self.reader.start()
@@ -237,7 +239,14 @@ class SerialManager(QObject):
         return self._emergency_stop_requested.is_set() or self._emergency_stop_latched
 
     def _observe_identity(self, data):
-        if not isinstance(data, dict) or data.get("record_type") != "INFO":
+        if not isinstance(data, dict):
+            return
+        if data.get("record_type") == "COMMAND_RESPONSE":
+            value = data.get("value")
+            self._arm_response_status = value == "OK"
+            self._arm_response_event.set()
+            return
+        if data.get("record_type") != "INFO":
             return
         self._identity_verified = (
             data.get("TYPE") == "MOTOR"
@@ -255,8 +264,14 @@ class SerialManager(QObject):
             if self._active_arm_token and not self._stop_requested():
                 return True
             token = secrets.token_hex(4).upper()
+            self._arm_response_status = None
+            self._arm_response_event.clear()
             if not self.send("ARM=" + token):
                 self._active_arm_token = None
+                return False
+            if not self._arm_response_event.wait(timeout=1.0) or self._arm_response_status is not True:
+                self._active_arm_token = None
+                self.error.emit("ARM was not acknowledged by firmware; drive remains blocked.")
                 return False
             self._active_arm_token = token
             # Only this explicit operation clears the host STOP latch.
