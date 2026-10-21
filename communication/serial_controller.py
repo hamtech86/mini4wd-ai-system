@@ -265,6 +265,8 @@ class SerialController:
     def arm(self):
         """Explicitly authorize one run with a fresh token; this command never drives."""
         with self._ensure_command_lock():
+            if getattr(self, "_active_arm_token", None) and not self._stop_requested():
+                return True
             if not (self.connected and self.serial and self.identity_verified):
                 self.identity_error = "ARM blocked: connected, verified MOTOR_BREAKIN_V3 identity required."
                 return False
@@ -289,7 +291,7 @@ class SerialController:
                 normalized.startswith("PWM=") and normalized != "PWM=0"
             )
             is_arm = normalized.startswith("ARM=")
-            if drive_command and (self._stop_requested() or not self._active_arm_token):
+            if drive_command and (self._stop_requested() or not getattr(self, '_active_arm_token', None)):
                 self.identity_error = "Drive command blocked: explicit ARM is required after STOP and before each run."
                 print("SERIAL TX BLOCKED:", command, self.identity_error)
                 return False
@@ -300,7 +302,7 @@ class SerialController:
             if self.connected and self.serial:
                 wire_command = str(command)
                 if drive_command:
-                    wire_command = wire_command + "@" + self._active_arm_token
+                    wire_command = wire_command + "@" + getattr(self, "_active_arm_token")
                 self.serial.write((wire_command + "\n").encode("utf-8"))
                 if normalized == "STOP":
                     self._active_arm_token = None
