@@ -140,7 +140,7 @@ def test_emergency_stop_serializes_with_an_in_flight_positive_pwm_write():
 
         def write(self, data):
             self.writes.append(data)
-            if data == b"PWM=80\n":
+            if data.startswith(b"PWM=80@AABBCCDD\n"):
                 self.entered_positive_write.set()
                 assert self.release_positive_write.wait(timeout=2)
 
@@ -172,9 +172,9 @@ def test_emergency_stop_serializes_with_an_in_flight_positive_pwm_write():
     assert not stop_thread.is_alive()
     assert stop_result["pwm_zero"] is True
     assert stop_result["stop_command"] is True
-    assert fake.writes[:3] == [b"PWM=80\n", b"PWM=0\n", b"STOP\n"]
+    assert fake.writes[:3] == [b"PWM=80@AABBCCDD\n", b"PWM=0\n", b"STOP\n"]
     assert controller.send_command("PWM=90") is False
-    assert fake.writes == [b"PWM=80\n", b"PWM=0\n", b"STOP\n"]
+    assert fake.writes == [b"PWM=80@AABBCCDD\n", b"PWM=0\n", b"STOP\n"]
 
 
 def test_active_serial_manager_latches_drive_commands_after_emergency_stop():
@@ -229,7 +229,7 @@ def test_active_serial_manager_orders_emergency_stop_after_in_flight_write():
 
         def write(self, data):
             self.writes.append(data)
-            if data == b"PWM=80\n":
+            if data.startswith(b"PWM=80@AABBCCDD\n"):
                 self.entered.set()
                 assert self.release.wait(timeout=2)
 
@@ -258,9 +258,9 @@ def test_active_serial_manager_orders_emergency_stop_after_in_flight_write():
     assert not stop_thread.is_alive()
     assert stop_result["pwm_zero"] is True
     assert stop_result["stop_command"] is True
-    assert fake.writes[:3] == [b"PWM=80\n", b"PWM=0\n", b"STOP\n"]
+    assert fake.writes[:3] == [b"PWM=80@AABBCCDD\n", b"PWM=0\n", b"STOP\n"]
     assert manager.send("PWM=90") is False
-    assert fake.writes == [b"PWM=80\n", b"PWM=0\n", b"STOP\n"]
+    assert fake.writes == [b"PWM=80@AABBCCDD\n", b"PWM=0\n", b"STOP\n"]
 
 
 def test_controller_stop_during_port_open_cannot_be_followed_by_late_reconnect(monkeypatch):
