@@ -72,6 +72,7 @@ class MainWindow(BaseMainWindow):
         self.recipe.clear()
         for label in BENCHMARK_PRESETS:
             self.recipe.addItem(label, label)
+        self.recipe.addItem("TUNE_BASIC_INPUT_3V_CHECK", "TUNE_BASIC_INPUT_3V_CHECK")
 
     def recipe_changed(self, index):
         name = self.recipe.itemData(index) if hasattr(self, "recipe") else None
@@ -81,7 +82,10 @@ class MainWindow(BaseMainWindow):
                 benchmark_type, mode = preset
                 self._load_benchmark_sequence(benchmark_type, mode, name)
             return
-        self.sequence_status.setText("Unsupported recipe: only STD-T, Full-T, STD-I, and Full-I are supported.")
+        if name == "TUNE_BASIC_INPUT_3V_CHECK":
+            super().recipe_changed(index)
+            return
+        self.sequence_status.setText("Unsupported recipe: only the four benchmark presets and TUNE_BASIC_INPUT_3V_CHECK are supported.")
         self.result["STATUS"].setText("BLOCKED / UNSUPPORTED RECIPE")
 
     def _motor_controller(self):
@@ -232,6 +236,9 @@ class MainWindow(BaseMainWindow):
             benchmark_type, mode = preset
             self._load_benchmark_sequence(benchmark_type, mode, name)
             return
+        if name == "TUNE_BASIC_INPUT_3V_CHECK":
+            self._load_recipe_sequence(name)
+            return
         self._clear_sequence_panel("Unsupported recipe")
 
     def _clear_sequence_panel(self,status):
@@ -306,15 +313,50 @@ class MainWindow(BaseMainWindow):
             return
         name = self._current_recipe_name()
         preset = BENCHMARK_PRESETS.get(name)
-        if preset is None:
-            self._set_ui_error("UNSUPPORTED_RECIPE", "Only STD-T, Full-T, STD-I, and Full-I are supported.")
+        if preset is not None:
+            benchmark_type, mode = preset
+            selected = [check for sid, check in self.sequence_checks if sid == name and check.isChecked()]
+            if len(selected) != 1:
+                self.sequence_status.setText(f"{name} が選択されていません")
+                return
+            self._start_benchmark(benchmark_type, mode)
             return
-        benchmark_type, mode = preset
-        selected = [check for sid, check in self.sequence_checks if sid == name and check.isChecked()]
-        if len(selected) != 1:
-            self.sequence_status.setText(f"{name} が選択されていません")
+        if name == "TUNE_BASIC_INPUT_3V_CHECK":
+            self._execute_limited_tunebasic_check()
             return
-        self._start_benchmark(benchmark_type, mode)
+        self.sequence_status.setText("Unsupported recipe selected")
+        self.result["STATUS"].setText("BLOCKED / UNSUPPORTED RECIPE")
+
+    def _execute_limited_tunebasic_check(self):
+        if not self._require_verified_motor("TuneBasic INPUT 3V check"):
+            return
+        recipe = self.recipe_engine.get("TUNE_BASIC_INPUT_3V_CHECK")
+        if recipe is None:
+            self.sequence_status.setText("TUNE_BASIC_INPUT_3V_CHECK recipe is missing")
+            return
+        enabled_ids = {sid for sid, check in self.sequence_checks if check.isChecked()}
+        if not enabled_ids:
+            self.sequence_status.setText("実施するSequenceが選択されていません")
+            return
+        self.sequence_selected_ids = enabled_ids
+        self.sequence_selected_total = len(enabled_ids)
+        self.sequence_progress.setValue(0)
+        self.sequence_executor.load_recipe(recipe, enabled_ids=enabled_ids)
+        self.sequence_executor.start()
+        self.sequence_timer.start()
+        self.timer.start()
+        self.sequence_execute.setEnabled(False)
+        self.sequence_stop.setEnabled(True)
+        self.start.setEnabled(False)
+        self.stop.setEnabled(True)
+        self.manager.setEnabled(False)
+        self.instance.setEnabled(False)
+        self.recipe.setEnabled(False)
+        self.result["STATUS"].setText("RUNNING / LIMITED INPUT 3V CHECK")
+        self.run_state.setText("STARTING LIMITED INPUT 3V CHECK")
+        current = self.sequence_executor.current()
+        self._update_sequence_highlight(current.sequence_id if current else None)
+        self._update_sequence_main_ui(current)
 
     def _start_benchmark(self, benchmark_type=STANDARD_3V30S, voltage_control_mode="TERMINAL"):
         if getattr(self, "_stop_latched", False):
