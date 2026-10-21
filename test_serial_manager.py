@@ -1,48 +1,22 @@
-from communication.serial_manager import SerialManager
-import time
+"""Legacy direct motor test intentionally disabled.
+
+This script used SerialManager directly and could issue FWD/PWM without the
+verified INFO identity gate used by the integrated application. Use the
+integrated UI only after Issue #98 explicitly re-authorizes physical testing.
+"""
 
 
 def main():
-
-    print("=== SerialManager Test Start ===")
-
-    manager = SerialManager()
-
-    print("Connecting...")
-
-    if not manager.connect("/dev/ttyACM0"):
-        print("Connection failed")
-        return
-
-    print("Connected")
-
-
-    time.sleep(2)
-
-
-    print("FORWARD")
-    manager.forward()
-
-    time.sleep(2)
-
-
-    print("PWM 50")
-    manager.set_pwm(50)
-
-    time.sleep(5)
-
-
-    print("STOP")
-    manager.stop_breakin()
-
-    time.sleep(2)
-
-
-    manager.disconnect()
-
-    print("Test Complete")
+    print(
+        "BLOCKED: direct SerialManager motor test is disabled because this path "
+        "does not verify MOTOR_BREAKIN_V3 INFO identity."
+    )
+    print(
+        "No serial port was opened and no motor command was sent. "
+        "Use the integrated application only after Issue #98 re-authorizes testing."
+    )
+    return 2
 
 
 if __name__ == "__main__":
-    main()
-
+    raise SystemExit(main())
