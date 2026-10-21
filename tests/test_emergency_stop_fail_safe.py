@@ -76,3 +76,22 @@ def test_controller_checkpoint_failure_does_not_block_serial_stop(monkeypatch):
     assert controller.paused is False
     assert transport.called is True
     assert result is True
+
+
+
+def test_emergency_stop_clears_saved_resume_checkpoint(monkeypatch, tmp_path):
+    class StopTransport:
+        def emergency_stop(self):
+            return True
+
+    controller = BreakinController(serial_controller=StopTransport())
+    checkpoint = tmp_path / "breakin_resume.json"
+    monkeypatch.setattr(BreakinController, "CHECKPOINT_PATH", checkpoint)
+
+    def save_checkpoint():
+        checkpoint.write_text('{"recipe": "TUNE_BASIC"}', encoding="utf-8")
+
+    monkeypatch.setattr(controller, "_save_checkpoint", save_checkpoint)
+    controller.emergency_stop()
+
+    assert not checkpoint.exists()
