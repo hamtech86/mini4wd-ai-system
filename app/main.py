@@ -417,6 +417,11 @@ class MainWindow(BaseMainWindow):
         self.breakin_worker.start()
 
     def _limited_tunebasic_completed(self, data):
+        # A queued worker-completed signal can arrive after the UI has already
+        # processed STOP. Never let that stale signal overwrite the STOP state
+        # or make a stopped run eligible for persistence.
+        if self._reject_completion_after_stop():
+            return
         # Preserve the raw measurement log, but do not save this validation
         # run as a benchmark or update the motor database.
         self.result["STATUS"].setText("LIMITED INPUT 3V CHECK COMPLETE")
@@ -443,9 +448,30 @@ class MainWindow(BaseMainWindow):
         self._execute_selected_sequences()
 
     def complete(self,data,benchmark):
+        # Qt worker signals are queued: STOP may be handled on the UI thread
+        # after the controller returns but before this completion callback.
+        if self._reject_completion_after_stop():
+            return
         super().complete(data,benchmark)
         self._log_event("Measurement run completed. This status does not certify physical stop unless separately observed.")
         self._update_estimated_result()
+
+    def _reject_completion_after_stop(self):
+        """Prevent a late queued success signal from overriding emergency STOP."""
+        if not self._stop_latched:
+            return False
+        self.timer.stop()
+        self.database_updated = False
+        self.last_result_data = None
+        self.update_db.setEnabled(False)
+        self.copy.setEnabled(False)
+        if hasattr(self, "raw_log"):
+            self.raw_log.setEnabled(False)
+        self.run_state.setText("STOP REQUESTED / PHYSICAL STOP UNCONFIRMED")
+        self.result["STATUS"].setText("STOP REQUESTED / UNCONFIRMED")
+        self.result["SUMMARY"].setText("Completion signal ignored because emergency STOP was already requested.")
+        self._log_event("Late worker completion ignored after emergency STOP; result is not eligible for persistence.")
+        return True
 
     def failed(self, message):
         # Any worker exception is treated as unsafe termination; do not let the

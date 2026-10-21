@@ -149,3 +149,52 @@ def test_emergency_stop_latches_restart_and_keeps_stop_available(monkeypatch, tm
         assert not window.start.isEnabled()
     finally:
         window.close()
+
+def test_late_worker_success_signal_cannot_overwrite_emergency_stop(monkeypatch, tmp_path):
+    import ui.main_window as base_ui
+    import app.main as main_app
+
+    class FakeBatteryTab(QWidget):
+        def __init__(self, *args, **kwargs):
+            super().__init__(kwargs.get("parent"))
+
+        def set_connected(self, connected):
+            self.connected = connected
+
+    database_path = str(tmp_path / "ui-late-success-after-stop.db")
+    monkeypatch.setattr(base_ui, "resolve_database_path", lambda **kwargs: database_path)
+    monkeypatch.setattr(main_app, "BatteryTab", FakeBatteryTab)
+    app = QApplication.instance() or QApplication([])
+
+    for callback in ("complete", "_limited_tunebasic_completed"):
+        window = main_app.MainWindow({
+            "breakin_controller": None,
+            "serial_controller": None,
+            "battery_serial_controller": None,
+        })
+        try:
+            window._stop_latched = True
+            window.database_updated = False
+            window.last_result_data = {"stale": True}
+            window.update_db.setEnabled(True)
+            window.copy.setEnabled(True)
+            window.raw_log.setEnabled(True)
+            window.run_state.setText("STOP REQUESTED / PHYSICAL STOP UNCONFIRMED")
+            window.result["STATUS"].setText("STOP REQUESTED / UNCONFIRMED")
+
+            if callback == "complete":
+                window.complete({"result": "late"}, False)
+            else:
+                window._limited_tunebasic_completed({"result": "late"})
+
+            assert window._stop_latched is True
+            assert window.result["STATUS"].text() == "STOP REQUESTED / UNCONFIRMED"
+            assert window.run_state.text() == "STOP REQUESTED / PHYSICAL STOP UNCONFIRMED"
+            assert window.database_updated is False
+            assert window.last_result_data is None
+            assert not window.update_db.isEnabled()
+            assert not window.copy.isEnabled()
+            assert not window.raw_log.isEnabled()
+        finally:
+            window.close()
+
