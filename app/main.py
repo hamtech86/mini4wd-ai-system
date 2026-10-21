@@ -190,6 +190,25 @@ class MainWindow(BaseMainWindow):
         else:
             self.motor_serial_status.setText("MOTOR: CONNECTION FAILED  /dev/ttyACM0"); self._set_ui_error("MOTOR_SERIAL_CONNECT_FAILED","SerialController.connect() returned failure; device identity was not verified.")
 
+    def arm_motor(self):
+        """Explicit operator action to clear the UI STOP latch after identity verification."""
+        controller = self._motor_controller()
+        if not self._identity_verified(controller):
+            self._set_ui_error("MOTOR_IDENTITY_UNVERIFIED", "ARM blocked: reconnect and verify MOTOR_BREAKIN_V3 INFO first.")
+            return
+        arm = getattr(controller, "arm", None)
+        if not callable(arm) or arm() is not True:
+            self._set_ui_error("MOTOR_ARM_REJECTED", "Firmware did not acknowledge ARM; motor drive remains blocked.")
+            self.motor_arm.setEnabled(True)
+            return
+        self._stop_latched = False
+        if self.breakin_controller is not None and hasattr(self.breakin_controller, "emergency_stop_latched"):
+            self.breakin_controller.emergency_stop_latched = False
+        self.motor_arm.setEnabled(False)
+        self.motor_serial_status.setText("MOTOR: IDENTITY VERIFIED / EXPLICIT ARM ACCEPTED")
+        self._log_event("Explicit ARM accepted by firmware; this is not physical-stop confirmation.")
+        self._recipe_selection_changed(self.recipe.currentIndex())
+
     def disconnect_motor_serial(self):
         controller = self._motor_controller()
         if controller is not None and getattr(controller, "connected", False):
