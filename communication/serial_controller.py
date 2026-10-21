@@ -99,7 +99,10 @@ class SerialController:
                 self.connected = True
                 print("SERIAL CONNECTED", self.serial_port, self.baudrate)
                 self.send_command("INFO")
-                self._verify_info_response(timeout=1.0)
+                if not self._verify_info_response(timeout=1.0):
+                    # Never report a connection as ready without validated identity.
+                    # Do not send motor commands to an unidentified serial device.
+                    raise RuntimeError(self.identity_error or "INFO identity verification failed.")
                 return True
             except Exception as e:
                 print("SERIAL CONNECT ERROR", e)
