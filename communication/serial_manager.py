@@ -323,6 +323,8 @@ class SerialManager(QObject):
         return self.send(CMD_START)
 
     def stop_breakin(self):
+        # Keep the two-step stop contract for both routine and emergency exits.
+        self.send("PWM=0")
         return self.send(CMD_STOP)
 
     def forward(self):
