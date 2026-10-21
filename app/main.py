@@ -396,6 +396,10 @@ class MainWindow(BaseMainWindow):
         self.manager.setEnabled(False)
         self.instance.setEnabled(False)
         self.recipe.setEnabled(False)
+        if hasattr(self, "pause_button"):
+            self.pause_button.setEnabled(False)
+        if hasattr(self, "resume_button"):
+            self.resume_button.setEnabled(False)
         self.run_state.setText("STOP LATCHED / RESTART BLOCKED")
         self.result["STATUS"].setText("STOP LATCHED / RESTART BLOCKED")
         self.sequence_status.setText("緊急停止後の再始動はブロックされています。アプリ再起動だけでは実機停止を証明しません。")
