@@ -249,11 +249,11 @@ class SerialManager(QObject):
     def arm(self) -> bool:
         """Explicitly authorize one run with a fresh, non-driving token."""
         with self._command_lock:
-            if self._active_arm_token and not self._stop_requested():
-                return True
             if not self.is_connected or not self._identity_verified:
                 self.error.emit("ARM blocked: verified MOTOR_BREAKIN_V3 identity required.")
                 return False
+            if self._active_arm_token and not self._stop_requested():
+                return True
             token = secrets.token_hex(4).upper()
             if not self.send("ARM=" + token):
                 self._active_arm_token = None
