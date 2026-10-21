@@ -537,6 +537,8 @@ class BreakinController:
         """Latch the controller stopped and attempt serial STOP even if checkpointing fails."""
         self.running = False
         self.paused = False
+        if self.measurement_manager is not None:
+            self.measurement_manager.last_measurement = None
         try:
             self._save_checkpoint()
         except Exception as exc:
