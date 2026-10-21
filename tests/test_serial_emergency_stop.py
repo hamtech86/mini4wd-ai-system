@@ -330,6 +330,7 @@ def test_controller_stop_during_port_open_cannot_be_followed_by_late_reconnect(m
     assert connect_result["ok"] is False  # INFO verification failure must fail closed.
     assert stop_result["result"]["stop_command"] is False  # Connection was already rejected and closed.
     assert opened_handles[0].closed is True
+    assert opened_handles[0].writes == [b"INFO\n"]  # No motor command reaches an unidentified device.
     assert controller._emergency_stop_latched is True
     assert controller.serial is None
     assert controller.connected is False
