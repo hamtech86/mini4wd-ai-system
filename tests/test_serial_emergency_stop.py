@@ -266,6 +266,7 @@ def test_controller_stop_during_port_open_cannot_be_followed_by_late_reconnect(m
 
     open_entered = threading.Event()
     release_open = threading.Event()
+    opened_handles = []
 
     class FakeSerial:
         def __init__(self, *args, **kwargs):
@@ -274,6 +275,7 @@ def test_controller_stop_during_port_open_cannot_be_followed_by_late_reconnect(m
             self.writes = []
             self.closed = False
             self.timeout = kwargs.get("timeout", 1)
+            opened_handles.append(self)
 
         def reset_input_buffer(self):
             pass
@@ -325,11 +327,13 @@ def test_controller_stop_during_port_open_cannot_be_followed_by_late_reconnect(m
 
     assert not connect_thread.is_alive()
     assert not stop_thread.is_alive()
-    assert connect_result["ok"] is True
-    assert stop_result["result"]["stop_command"] is True
+    assert connect_result["ok"] is False  # INFO verification failure must fail closed.
+    assert stop_result["result"]["stop_command"] is False  # Connection was already rejected and closed.
+    assert opened_handles[0].closed is True
     assert controller._emergency_stop_latched is True
     assert controller.serial is None
     assert controller.connected is False
+    assert controller.identity_verified is False
 
 
 def test_serial_manager_disconnect_clears_state_and_reports_close_exception():
