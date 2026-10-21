@@ -7,6 +7,7 @@ recipe can resume from the interrupted phase instead of restarting at phase 1.
 """
 
 import json
+import math
 import time
 from pathlib import Path
 
@@ -402,9 +403,19 @@ class BreakinController:
         return BreakinController._measurement_value(measurement, name, default)
 
     def _voltage_control(self, phase, measurement):
-        voltage = float(self._value(measurement, "motor_voltage", 0.0) or 0.0)
-        if voltage <= 0: return
-        error = float(phase.target_voltage) - voltage
+        direction = str(getattr(phase, "direction", "FWD") or "FWD").upper()
+        mode = str(getattr(self, "benchmark_voltage_control_mode", "TERMINAL") or "TERMINAL").upper()
+        if mode == "INPUT":
+            field = "voltage1" if direction == "FWD" else "voltage2"
+            voltage = float(self._value(measurement, field, 0.0) or 0.0)
+        else:
+            # motor_voltage is signed V4-V5; normalize to active drive direction.
+            signed_voltage = float(self._value(measurement, "motor_voltage", 0.0) or 0.0)
+            voltage = signed_voltage if direction == "FWD" else -signed_voltage
+        target_voltage = float(phase.target_voltage)
+        if not math.isfinite(voltage) or not math.isfinite(target_voltage) or voltage <= 0:
+            return
+        error = target_voltage - voltage
         if abs(error) <= 0.02: return
         new_pwm = max(phase.pwm_min, min(phase.pwm_max, self.current_pwm + int(round(self.VOLTAGE_KP * error))))
         if new_pwm != self.current_pwm:
