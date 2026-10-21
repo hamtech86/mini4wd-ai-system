@@ -184,7 +184,7 @@ def test_regular_recipe_start_after_benchmark_clears_all_benchmark_sidecar_state
     assert record.measurement_session_id == "session-tunebasic"
     assert record.device_instance_id == "INSTANCE-TUNE"
     assert record.notes == ""
-    assert raw_body == "INFO,START\\nDATA,1,2,3\\n"
+    assert raw_body == "INFO,START\nDATA,1,2,3\n"
     assert controller._measurement_raw_log_parts == []
     assert controller._registered_raw_log_ids == ["MOTOR-000001"]
     assert controller.last_raw_log_id == "MOTOR-000001"
