@@ -31,6 +31,10 @@ jobs:
         run: |
           mkdir -p /tmp/MotoreRev
           cp firmware/motor/MotoreRev.ino /tmp/MotoreRev/MotoreRev.ino
+      - name: Run native firmware safety regression harness
+        run: |
+          g++ -std=c++11 -Wall -Wextra -I tests/firmware_safety tests/firmware_safety/test_motor_firmware_safety.cpp -o /tmp/motor_firmware_safety_test
+          /tmp/motor_firmware_safety_test
       - name: Compile for Arduino Uno
         run: arduino-cli compile --fqbn arduino:avr:uno --output-dir build/uno /tmp/MotoreRev
       - name: Record HEX SHA-256
