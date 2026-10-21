@@ -100,3 +100,11 @@ def test_runtime_displays_directional_input_voltage_and_physical_sensor_fields(s
     measurement.voltage2 = float("nan")
     window.refresh_runtime()
     assert window.progress["INPUT VOLTAGE"].text() == "--"
+
+
+
+def test_recipe_dropdown_exposes_only_the_four_approved_presets(stop_latched_window):
+    window = stop_latched_window
+    assert [window.recipe.itemText(i) for i in range(window.recipe.count())] == [
+        "STD-T", "Full-T", "STD-I", "Full-I"
+    ]
