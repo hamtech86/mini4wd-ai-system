@@ -36,6 +36,8 @@ def test_main_window_builds_offscreen_without_hardware_connection(monkeypatch, t
         assert window.sequence_stop.isHidden()
         assert not hasattr(window, "sequence_executor")
         assert not hasattr(window, "sequence_timer")
+        assert not hasattr(window, "pause_button")
+        assert not hasattr(window, "resume_button")
         assert window.ui_log.isReadOnly()
         assert {"DIR", "PWM", "INPUT VOLTAGE", "MOTOR VOLTAGE",
                 "DRIVER INPUT CURRENT", "ELAPSED", "REMAIN"} <= set(window.progress)
