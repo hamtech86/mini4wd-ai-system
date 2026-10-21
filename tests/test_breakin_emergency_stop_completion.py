@@ -42,10 +42,30 @@ def _recipe():
     )
 
 
+class FakeSession:
+    def __init__(self):
+        self.statuses = []
+
+    def finish(self, status):
+        self.statuses.append(status)
+
+
+class FakeSessionManager:
+    def __init__(self):
+        self.session = FakeSession()
+
+    def start(self, *args, **kwargs):
+        return self.session
+
+    def finish(self, status):
+        self.session.finish(status)
+
+
 @pytest.mark.parametrize("stop_boundary", ["during_phase", "phase_completion"])
 def test_emergency_stop_never_returns_a_successfully_completed_recipe(monkeypatch, stop_boundary):
     serial = FakeSerial()
-    controller = BreakinController(serial_controller=serial)
+    sessions = FakeSessionManager()
+    controller = BreakinController(serial_controller=serial, session_manager=sessions)
     # Prevent this unit test from touching the user's checkpoint file.
     monkeypatch.setattr(controller, "_save_checkpoint", lambda: None)
     monkeypatch.setattr(controller, "clear_checkpoint", lambda: None)
@@ -67,3 +87,5 @@ def test_emergency_stop_never_returns_a_successfully_completed_recipe(monkeypatc
     assert controller.emergency_stop_latched is True
     assert controller.running is False
     assert serial.stop_calls >= 1
+    assert sessions.session.statuses == ["ERROR"]
+    assert "COMPLETE" not in sessions.session.statuses
