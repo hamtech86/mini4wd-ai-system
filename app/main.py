@@ -119,9 +119,33 @@ class MainWindow(BaseMainWindow):
     def connect_motor_serial(self):
         controller=self._motor_controller()
         if controller is None: QMessageBox.warning(self,"Motor Connection","Motor serial controller is not available."); return
-        if controller.connected:return
-        if controller.connect(): self.motor_serial_status.setText("MOTOR: CONNECTED  /dev/ttyACM0 @ 57600"); self.motor_connect.setEnabled(False); self.motor_disconnect.setEnabled(True)
+        if controller.connected:
+            if not getattr(controller, "identity_verified", False):
+                self.motor_serial_status.setText("MOTOR: PORT CONNECTED / INFO NOT VERIFIED")
+            return
+        if controller.connect():
+            if getattr(controller, "identity_verified", False):
+                info = getattr(controller, "device_info", {}) or {}
+                self.motor_serial_status.setText(f"MOTOR: ID VERIFIED {info.get('MODEL', 'MOTOR_BREAKIN_V3')} /dev/ttyACM0 @ 57600")
+            else:
+                self.motor_serial_status.setText("MOTOR: PORT CONNECTED / INFO NOT VERIFIED")
+                self.run_state.setText("BLOCKED / INFO NOT VERIFIED")
+                self.result["STATUS"].setText("BLOCKED / INFO NOT VERIFIED")
+                self.result["SUMMARY"].setText(getattr(controller, "identity_error", "INFO identity is not verified."))
+            self.motor_connect.setEnabled(False); self.motor_disconnect.setEnabled(True)
         else:self.motor_serial_status.setText("MOTOR: CONNECTION FAILED  /dev/ttyACM0")
+
+    def _require_verified_motor(self, operation):
+        controller = self._motor_controller()
+        if controller is not None and getattr(controller, "connected", False) and getattr(controller, "identity_verified", False) is True:
+            return True
+        message = f"{operation} blocked: MOTOR_BREAKIN_V3 INFO identity is not verified; no drive command should be issued."
+        self.motor_serial_status.setText("MOTOR: PORT CONNECTED / INFO NOT VERIFIED")
+        self.run_state.setText("BLOCKED / INFO NOT VERIFIED")
+        self.result["STATUS"].setText("BLOCKED / INFO NOT VERIFIED")
+        self.result["SUMMARY"].setText(message)
+        self.sequence_status.setText(message)
+        return False
 
     def disconnect_motor_serial(self):
         controller=self._motor_controller()
@@ -295,6 +319,8 @@ class MainWindow(BaseMainWindow):
     def _start_benchmark(self, benchmark_type=STANDARD_3V30S, voltage_control_mode="TERMINAL"):
         if getattr(self, "_stop_latched", False):
             self._set_stop_latched_ui()
+            return
+        if not self._require_verified_motor("Motor Benchmark"):
             return
         if not self.breakin_controller:
             QMessageBox.warning(self,"Controller","BreakinController is not available.");return
