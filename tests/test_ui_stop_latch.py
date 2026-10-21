@@ -1,4 +1,8 @@
-"""Regression tests for the UI emergency-stop latch."""
+"""Regression tests for UI emergency-stop latching and sensor display."""
+import os
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from types import SimpleNamespace
 import pytest
 
 from PyQt5.QtWidgets import QApplication, QWidget
@@ -60,3 +64,39 @@ def test_emergency_stop_latches_ui_and_blocks_all_start_entry_points(stop_latche
     assert controller.start_calls == 0
     assert not window.start.isEnabled()
     assert not window.sequence_execute.isEnabled()
+
+
+
+def test_runtime_displays_directional_input_voltage_and_physical_sensor_fields(stop_latched_window):
+    window = stop_latched_window
+    measurement = SimpleNamespace(
+        direction="FWD", pwm=39, voltage1=3.065, voltage2=0.306,
+        motor_voltage=2.758, current1=0.059, current_avg=0.071,
+        state="RUN", motor_temperature=23.8,
+    )
+    controller = SimpleNamespace(
+        serial=SimpleNamespace(connected=True, direction="FWD", last_pwm=39),
+        measurement_manager=SimpleNamespace(last_measurement=measurement),
+        running=True,
+        current_phase=SimpleNamespace(name="BREAK_IN", direction="FWD", duration_sec=13.5),
+        current_phase_index=0,
+        total_phases=1,
+        current_pwm=39,
+        phase_elapsed_sec=lambda: 1.2,
+    )
+    window.breakin_controller = controller
+
+    window.refresh_runtime()
+    assert window.progress["INPUT VOLTAGE"].text() == "3.06 V"
+    assert window.progress["MOTOR VOLTAGE"].text() == "2.76 V"
+    assert window.progress["DRIVER INPUT CURRENT"].text() == "0.059 A"
+    assert window.progress["DIR"].text() == "FWD"
+    assert window.progress["PWM"].text() == "39"
+
+    # Reverse uses voltage2; missing or non-finite values are not fabricated.
+    measurement.direction = "REV"
+    window.refresh_runtime()
+    assert window.progress["INPUT VOLTAGE"].text() == "0.31 V"
+    measurement.voltage2 = float("nan")
+    window.refresh_runtime()
+    assert window.progress["INPUT VOLTAGE"].text() == "--"
