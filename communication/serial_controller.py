@@ -247,11 +247,14 @@ class SerialController:
             decoded = raw.decode("utf-8", errors="replace")
             if not decoded:
                 continue
-            self.raw_log_collector.append(decoded)
             line = decoded.strip()
             if not line:
                 continue
             print("SERIAL RX:", line)
+            # INFO is identity metadata, never part of a measurement RawLog.
+            if line.startswith("INFO"):
+                continue
+            self.raw_log_collector.append(decoded)
             if line.startswith("DATA,"):
                 latest_data = line
 
