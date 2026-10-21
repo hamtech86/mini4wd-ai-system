@@ -122,6 +122,7 @@ class SerialManager(QObject):
         self._arm_response_event = threading.Event()
         self._arm_response_status = None
         self._awaiting_arm_response = False
+        self._pending_arm_token = None
 
     @property
     def is_connected(self):
@@ -256,8 +257,12 @@ class SerialManager(QObject):
         if not isinstance(data, dict):
             return
         if data.get("record_type") == "COMMAND_RESPONSE":
-            if self._awaiting_arm_response:
-                self._arm_response_status = data.get("value")
+            value = data.get("value")
+            if self._awaiting_arm_response and (
+                value == "ARMED," + str(self._pending_arm_token)
+                or (isinstance(value, str) and value.startswith("ERROR,"))
+            ):
+                self._arm_response_status = value
                 self._arm_response_event.set()
             return
         if data.get("record_type") != "INFO":
@@ -286,13 +291,16 @@ class SerialManager(QObject):
             token = secrets.token_hex(4).upper()
             self._arm_response_status = None
             self._arm_response_event.clear()
+            self._pending_arm_token = token
             self._awaiting_arm_response = True
             if not self.send("ARM=" + token):
                 self._awaiting_arm_response = False
+                self._pending_arm_token = None
                 self._active_arm_token = None
                 return False
             acknowledged = self._arm_response_event.wait(timeout=1.0)
             self._awaiting_arm_response = False
+            self._pending_arm_token = None
             if not acknowledged or self._arm_response_status != "ARMED," + token:
                 self._active_arm_token = None
                 self.error.emit("Token-matched ARM acknowledgement was not received; drive remains blocked.")
