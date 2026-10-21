@@ -415,10 +415,33 @@ class MainWindow(BaseMainWindow):
         self._log_event("Measurement run completed. This status does not certify physical stop unless separately observed.")
         self._update_estimated_result()
 
-    def failed(self,message):
+    def failed(self, message):
+        # Any worker exception is treated as unsafe termination; do not let the
+        # base callback re-enable START or RESUME after a failed run.
+        self._stop_latched = True
+        try:
+            controller = getattr(self, "breakin_controller", None)
+            if controller is not None:
+                controller.emergency_stop()
+        except Exception:
+            logger.exception("Emergency STOP after worker failure failed")
         self._set_ui_error(None, message)
-        self._log_event("Worker reported failure; see Error Message for the actual reported text.")
+        self._log_event("Worker reported failure; emergency stop requested and restart latched.")
         super().failed(message)
+        self.start.setEnabled(False)
+        self.manager.setEnabled(False)
+        self.instance.setEnabled(False)
+        self.recipe.setEnabled(False)
+        self.sequence_execute.setEnabled(False)
+        self.sequence_stop.setEnabled(False)
+        self.stop.setEnabled(False)
+        self.emergency_stop_fixed.setEnabled(True)
+        if hasattr(self, "pause_button"):
+            self.pause_button.setEnabled(False)
+        if hasattr(self, "resume_button"):
+            self.resume_button.setEnabled(False)
+        self.run_state.setText("WORKER ERROR / STOP LATCHED")
+        self.result["STATUS"].setText("ERROR / STOP LATCHED")
 
     def stop_run(self):
         self._stop_latched = True
@@ -469,6 +492,16 @@ class MainWindow(BaseMainWindow):
         self.sequence_stop.setEnabled(False)
         self.stop.setEnabled(False)
         self.emergency_stop_fixed.setEnabled(True)
+        if hasattr(self, "pause_button"):
+            self.pause_button.setEnabled(False)
+        if hasattr(self, "resume_button"):
+            self.resume_button.setEnabled(False)
+        for key in ("INPUT VOLTAGE", "MOTOR VOLTAGE", "DRIVER INPUT CURRENT"):
+            if hasattr(self, "progress") and key in self.progress:
+                self.progress[key].setText("--")
+        for key in ("V", "A"):
+            if hasattr(self, "live") and key in self.live:
+                self.live[key].setText("--")
         self.start.setEnabled(False)
         self.manager.setEnabled(False)
         self.instance.setEnabled(False)
@@ -492,6 +525,10 @@ class MainWindow(BaseMainWindow):
             self.instance.setEnabled(False)
             self.recipe.setEnabled(False)
             self.emergency_stop_fixed.setEnabled(True)
+            if hasattr(self, "pause_button"):
+                self.pause_button.setEnabled(False)
+            if hasattr(self, "resume_button"):
+                self.resume_button.setEnabled(False)
             self.run_state.setText("STOP REQUESTED / PHYSICAL STOP UNCONFIRMED")
             self.result["STATUS"].setText("STOP REQUESTED / UNCONFIRMED")
 
