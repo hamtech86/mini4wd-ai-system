@@ -280,7 +280,7 @@ class SerialController:
                 return True
             token = secrets.token_hex(4).upper()
             result = self.send_command("ARM=" + token)
-            if result is False or not self._wait_for_command_ack(timeout=1.0):
+            if result is False or not self._wait_for_command_ack(expected='ARMED,' + token, timeout=1.0):
                 self._active_arm_token = None
                 self.identity_error = "ARM was not acknowledged by firmware; drive remains blocked."
                 return False
@@ -291,8 +291,8 @@ class SerialController:
             self.identity_error = ""
             return True
 
-    def _wait_for_command_ack(self, timeout=1.0):
-        """Wait for firmware OK/ERROR without treating a successful write as acceptance."""
+    def _wait_for_command_ack(self, expected, timeout=1.0):
+        """Wait for this exact ARM token acknowledgement, not a stale generic OK."""
         deadline = time.monotonic() + max(0.0, float(timeout))
         while self.connected and self.serial and time.monotonic() < deadline:
             try:
@@ -309,9 +309,9 @@ class SerialController:
                 self.identity_error = "Command acknowledgement read failed: " + str(exc)
                 return False
             line = decoded.strip()
-            if line == "OK":
+            if line == expected:
                 return True
-            if line.startswith("ERROR,"):
+            if line.startswith("ARMED,") or line == "OK" or line.startswith("ERROR,"):
                 self.identity_error = line
                 return False
             if line.startswith("INFO"):
