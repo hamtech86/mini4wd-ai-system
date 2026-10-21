@@ -62,6 +62,7 @@ class BreakinController:
         self._measurement_raw_log_parts = []
         self._measurement_boundary_reached = False
         self.invalid_measurement_streak = 0
+        self.emergency_stop_latched = False
 
     # ------------------------- checkpoint / resume -------------------------
     def _save_checkpoint(self):
@@ -144,6 +145,8 @@ class BreakinController:
         return self.start(recipe, instance_id=actual_instance, resume=True)
 
     def start(self, recipe, instance_id=None, resume=False):
+        if getattr(self, "emergency_stop_latched", False):
+            raise RuntimeError("Emergency STOP latch is active; restart requires a new application session and fresh INFO identity.")
         instance_id = instance_id if instance_id is not None else self.selected_instance_id
         self.active_instance_id = instance_id
         self.active_recipe_name = str(recipe.name).upper()
@@ -562,6 +565,7 @@ class BreakinController:
         Returned details describe software/serial attempts, not physical motor
         state. Physical stop must remain unconfirmed until independently checked.
         """
+        self.emergency_stop_latched = True
         self.running = False
         self.paused = False
         outcome = {"checkpoint_saved": False, "serial_stop_attempted": False,
