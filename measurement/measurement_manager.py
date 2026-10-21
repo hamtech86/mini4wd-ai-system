@@ -16,6 +16,7 @@ import math
 import time
 from typing import Dict, Optional
 
+from communication.csv_parser import CSVParser
 from measurement.measurement import Measurement
 from measurement.measurement_logger import MeasurementLogger
 from measurement.measurement_session import (
@@ -30,6 +31,7 @@ class MeasurementManager:
 
     def __init__(self, serial_controller=None):
         self.serial_controller = serial_controller
+        self.parser = CSVParser()
         self.session: Optional[MeasurementSession] = None
         self.logger = MeasurementLogger()
         self.filters = FilterGroup()
@@ -44,6 +46,15 @@ class MeasurementManager:
 
         if self.serial_controller:
             raw = self.serial_controller.read_measurement()
+
+        # SerialController deliberately preserves the original DATA CSV line
+        # for RawLog. Parse a separate copy for typed Measurement processing.
+        if isinstance(raw, (str, bytes)):
+            try:
+                line = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
+                raw = self.parser.parse(line)
+            except (TypeError, ValueError, OverflowError):
+                raw = None
 
         data = self._parse_frame(raw)
         if data is None:
