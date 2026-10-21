@@ -555,3 +555,83 @@ def test_serial_manager_requires_identity_and_explicit_arm():
     assert manager.stop_breakin() is True
     assert fake.writes[-2:] == [b"PWM=0\n", b"STOP\n"]
     assert manager.send("REV") is False
+
+
+def test_serial_controller_arm_does_not_clear_stop_arriving_during_ack():
+    class FakeSerial:
+        def __init__(self):
+            self.writes = []
+            self.closed = False
+        def write(self, data):
+            self.writes.append(data)
+        def close(self):
+            self.closed = True
+
+    controller = SerialController()
+    fake = FakeSerial()
+    controller.serial = fake
+    controller.connected = True
+    controller.identity_verified = True
+
+    def ack_with_concurrent_stop(expected, timeout=1.0):
+        # Deterministically inject STOP at the acknowledgement/commit boundary.
+        result = controller.emergency_stop()
+        assert result["stop_command"] is True
+        return True
+
+    controller._wait_for_command_ack = ack_with_concurrent_stop
+    assert controller.arm() is False
+    assert controller._emergency_stop_requested.is_set()
+    assert controller._emergency_stop_latched is True
+    assert controller._active_arm_token is None
+    assert fake.writes == [b"ARM=" + fake.writes[0].split(b"=", 1)[1]] + [b"PWM=0\n", b"STOP\n"]
+    assert fake.closed is True
+
+
+def test_serial_manager_arm_does_not_clear_stop_arriving_during_ack():
+    class FakeSerial:
+        def __init__(self):
+            self.writes = []
+            self.is_open = True
+        def write(self, data):
+            self.writes.append(data)
+        def close(self):
+            self.is_open = False
+
+    class AckEvent:
+        def __init__(self, manager):
+            self.manager = manager
+        def clear(self):
+            pass
+        def set(self):
+            pass
+        def wait(self, timeout=None):
+            # STOP arrives while arm() still owns the command lock.
+            result = self.manager.emergency_stop()
+            assert result["stop_command"] is True
+            return True
+
+    manager = SerialManager()
+    fake = FakeSerial()
+    manager.serial = fake
+    manager._identity_verified = True
+    manager._arm_response_event = AckEvent(manager)
+    # The fake reader normally delivers this status; provide the exact token
+    # status through the event-wait seam so this test focuses on the race.
+    manager._observe_identity = lambda data: None
+    original_send = manager.send
+
+    def send_with_ack(command):
+        result = original_send(command)
+        if command.startswith("ARM="):
+            manager._arm_response_status = "ARMED," + command.split("=", 1)[1]
+        return result
+
+    manager.send = send_with_ack
+    assert manager.arm() is False
+    assert manager._emergency_stop_requested.is_set()
+    assert manager._emergency_stop_latched is True
+    assert manager._active_arm_token is None
+    assert fake.writes[0].startswith(b"ARM=")
+    assert fake.writes[1:] == [b"PWM=0\n", b"STOP\n"]
+    assert fake.is_open is False
