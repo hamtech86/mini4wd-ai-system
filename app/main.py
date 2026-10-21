@@ -34,6 +34,9 @@ from controllers.motor_benchmark import STANDARD_3V30S, FULL_PACKAGE
 class MainWindow(BaseMainWindow):
     def __init__(self, context=None):
         super().__init__(context)
+        # An emergency STOP is latched for this application session. Do not
+        # allow a late timer/worker callback to re-enable a motor start.
+        self._stop_latched = False
         self.analysis_engine=AnalysisEngine(str(PROJECT_ROOT / "config"))
         bind_resume_api(type(self)); install_resume_controls(self); self._extract_motor_page(); self._build_estimated_result_panel()
         install_raw_log_paste_ui(self)
@@ -263,6 +266,9 @@ class MainWindow(BaseMainWindow):
         self.sequence_status.setText(f"実行中: {current.sequence_id}  {progress}%  残り {remaining:.1f}s" if remaining is not None else f"実行中: {current.sequence_id}  {progress}%  条件待ち")
 
     def _execute_selected_sequences(self):
+        if getattr(self, "_stop_latched", False):
+            self._set_stop_latched_ui()
+            return
         name=self._current_recipe_name()
         if name in (STANDARD_3V30S, FULL_PACKAGE):
             selected=[check for sid,check in self.sequence_checks if sid==name and check.isChecked()]
@@ -280,6 +286,9 @@ class MainWindow(BaseMainWindow):
         self.sequence_executor.load_recipe(recipe,enabled_ids=enabled_ids);self.sequence_executor.start();self.sequence_timer.start();self.timer.start();self.sequence_execute.setEnabled(False);self.sequence_stop.setEnabled(True);self.start.setEnabled(False);self.stop.setEnabled(True);self.manager.setEnabled(False);self.instance.setEnabled(False);self.recipe.setEnabled(False);self.update_db.setEnabled(False);self.copy.setEnabled(False);self.result["STATUS"].setText("RUNNING");self.run_state.setText("STARTING...");current=self.sequence_executor.current();self._update_sequence_highlight(current.sequence_id if current else None);self._update_sequence_main_ui(current)
 
     def _start_benchmark(self, benchmark_type=STANDARD_3V30S):
+        if getattr(self, "_stop_latched", False):
+            self._set_stop_latched_ui()
+            return
         if not self.breakin_controller:
             QMessageBox.warning(self,"Controller","BreakinController is not available.");return
         controller=self._motor_controller()
@@ -296,13 +305,36 @@ class MainWindow(BaseMainWindow):
         super().complete(data,benchmark)
         self._update_estimated_result()
 
+    def _set_stop_latched_ui(self):
+        self.sequence_execute.setEnabled(False)
+        self.sequence_stop.setEnabled(False)
+        self.stop.setEnabled(False)
+        self.start.setEnabled(False)
+        self.manager.setEnabled(False)
+        self.instance.setEnabled(False)
+        self.recipe.setEnabled(False)
+        self.run_state.setText("STOP LATCHED / RESTART BLOCKED")
+        self.result["STATUS"].setText("STOP LATCHED / RESTART BLOCKED")
+        self.sequence_status.setText("緊急停止後の再始動はブロックされています。アプリ再起動だけでは実機停止を証明しません。")
+
     def stop_run(self):
+        # Latch first: even if the serial operation or cleanup raises, no
+        # subsequent UI path may start another motor sequence this session.
+        self._stop_latched = True
         try:
-            if self.breakin_controller:self.breakin_controller.emergency_stop()
+            if hasattr(self,"sequence_executor"):
+                self.sequence_executor.stop("emergency_stop")
+        except Exception:
+            logger.exception("Failed to stop sequence executor after emergency STOP")
+        try:
+            if self.breakin_controller:
+                self.breakin_controller.emergency_stop()
+        except Exception:
+            logger.exception("Emergency STOP request failed")
         finally:
             self.sequence_timer.stop();self.timer.stop()
-            if hasattr(self,"sequence_executor"):self.sequence_executor.stop("emergency_stop")
-            self.sequence_execute.setEnabled(True);self.sequence_stop.setEnabled(False);self.stop.setEnabled(False);self.start.setEnabled(True);self.manager.setEnabled(True);self.instance.setEnabled(True);self.recipe.setEnabled(True);self.run_state.setText("EMERGENCY STOP");self.result["STATUS"].setText("EMERGENCY STOP");self.sequence_status.setText("緊急停止");self._update_sequence_highlight(None)
+            self._set_stop_latched_ui()
+            self._update_sequence_highlight(None)
 
     def _sequence_tick(self):
         try:
