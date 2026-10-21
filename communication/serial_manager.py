@@ -171,25 +171,39 @@ class SerialManager(QObject):
 
     def disconnect(self):
         with self._command_lock:
+            errors = []
+            logger.info("Disconnecting...")
+
+            # Always clear local references/state even if a worker wait or serial
+            # close raises. A failed close is reported; it is not proof the
+            # physical device is disconnected.
+            reader = self.reader
+            handle = self.serial
             try:
-                logger.info("Disconnecting...")
+                if reader is not None:
+                    try:
+                        reader.stop()
+                        reader.wait(1000)
+                    except Exception as exc:
+                        errors.append(f"reader shutdown: {type(exc).__name__}: {exc}")
+            finally:
+                self.reader = None
 
-                if self.reader is not None:
-                    self.reader.stop()
-                    self.reader.wait(1000)
-                    self.reader = None
+            try:
+                if handle is not None and getattr(handle, "is_open", False):
+                    handle.close()
+            except Exception as exc:
+                errors.append(f"serial close: {type(exc).__name__}: {exc}")
+            finally:
+                self.serial = None
 
-                if self.serial is not None:
-                    if self.serial.is_open:
-                        self.serial.close()
-                    self.serial = None
-
+            if errors:
+                message = "Disconnect cleanup encountered errors: " + "; ".join(errors)
+                logger.error(message)
+                self.error.emit(message)
+            else:
                 logger.success("Arduino Disconnected")
-                self.disconnected.emit()
-
-            except Exception as e:
-                logger.exception(e)
-                self.error.emit(str(e))
+            self.disconnected.emit()
 
     def send(self, command: str) -> bool:
         """Arduinoへコマンド送信, with a fail-closed emergency STOP latch."""
