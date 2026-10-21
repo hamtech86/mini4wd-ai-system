@@ -377,7 +377,7 @@ def test_serial_manager_emergency_stop_reports_close_failure():
     manager.serial = fake
     result = manager.emergency_stop()
 
-    assert fake.writes == [b"PWM=0\\n", b"STOP\\n"]
+    assert fake.writes == [b"PWM=0\n", b"STOP\n"]
     assert result["pwm_zero"] is True
     assert result["stop_command"] is True
     assert result["disconnect"] is False
