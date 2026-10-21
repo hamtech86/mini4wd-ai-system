@@ -77,8 +77,9 @@ class MainWindow(BaseMainWindow):
         name = self.recipe.itemData(index) if hasattr(self, "recipe") else None
         preset = BENCHMARK_PRESETS.get(name)
         if preset is not None:
-            benchmark_type, mode = preset
-            self._load_benchmark_sequence(benchmark_type, mode, name)
+            if hasattr(self, "sequence_layout"):
+                benchmark_type, mode = preset
+                self._load_benchmark_sequence(benchmark_type, mode, name)
             return
         self._set_ui_error("UNSUPPORTED_RECIPE", "Only STD-T, Full-T, STD-I, and Full-I are supported.")
 
@@ -289,15 +290,6 @@ class MainWindow(BaseMainWindow):
             self.sequence_status.setText(f"{name} が選択されていません")
             return
         self._start_benchmark(benchmark_type, mode)
-        return
-        recipe=self.recipe_engine.get(name)
-        if recipe is None:self.sequence_status.setText("レシピが選択されていません");return
-        enabled_ids={sid for sid,check in self.sequence_checks if check.isChecked()}
-        if not enabled_ids:self.sequence_status.setText("実施するSequenceが選択されていません");return
-        controller=self._motor_controller()
-        if controller is None or not getattr(controller,"connected",False):QMessageBox.warning(self,"Sequence","先にMOTOR CONNECTを実行してください。");return
-        self.sequence_selected_ids=enabled_ids;self.sequence_selected_total=len(enabled_ids);self.sequence_progress.setValue(0);self.sequence_progress.setFormat(f"Sequence Progress: 0/{self.sequence_selected_total}  %p%")
-        self.sequence_executor.load_recipe(recipe,enabled_ids=enabled_ids);self.sequence_executor.start();self.sequence_timer.start();self.timer.start();self.sequence_execute.setEnabled(False);self.sequence_stop.setEnabled(True);self.start.setEnabled(False);self.stop.setEnabled(True);self.manager.setEnabled(False);self.instance.setEnabled(False);self.recipe.setEnabled(False);self.update_db.setEnabled(False);self.copy.setEnabled(False);self.result["STATUS"].setText("RUNNING");self.run_state.setText("STARTING...");current=self.sequence_executor.current();self._update_sequence_highlight(current.sequence_id if current else None);self._update_sequence_main_ui(current)
 
     def _start_benchmark(self, benchmark_type=STANDARD_3V30S, voltage_control_mode="TERMINAL"):
         if getattr(self, "_stop_latched", False):
