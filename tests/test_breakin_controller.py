@@ -90,3 +90,22 @@ def test_emergency_stop():
 
     assert controller.running is False
     assert "EMERGENCY_STOP" in serial.commands
+
+
+
+def test_emergency_stop_attempts_serial_even_if_checkpoint_save_fails():
+    serial = MockSerialController()
+    controller = BreakinController(serial_controller=serial)
+    controller.running = True
+
+    def fail_checkpoint():
+        raise OSError("checkpoint unavailable")
+
+    controller._save_checkpoint = fail_checkpoint
+    result = controller.emergency_stop()
+
+    assert controller.running is False
+    assert "EMERGENCY_STOP" in serial.commands
+    assert result["checkpoint_saved"] is False
+    assert result["serial_stop_attempted"] is True
+    assert any("checkpoint unavailable" in error for error in result["errors"])
