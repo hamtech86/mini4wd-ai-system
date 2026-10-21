@@ -69,11 +69,9 @@ class SerialController:
         # A STOP that acquires this lock first permanently blocks this attempt;
         # if connect owns it first, STOP runs only after connect has completed.
         with self._ensure_command_lock():
-            # Reconnecting the same object must not clear an emergency STOP latch.
-            with self._ensure_command_lock():
-                if getattr(self, "_emergency_stop_latched", False):
-                    self.identity_error = "Reconnect blocked: emergency STOP latch requires a new application session."
-                    return False
+            if getattr(self, "_emergency_stop_latched", False):
+                self.identity_error = "Reconnect blocked: emergency STOP latch requires a new application session."
+                return False
             # A new connection attempt always invalidates any prior identity.
             self.identity_verified = False
             self.device_info = None
@@ -105,10 +103,18 @@ class SerialController:
                 return True
             except Exception as e:
                 print("SERIAL CONNECT ERROR", e)
-                self.connected = False
-                self.identity_verified = False
-                self.device_info = None
-                self.identity_error = "Serial connection failed: " + str(e)
+                handle = self.serial
+                try:
+                    if handle:
+                        handle.close()
+                except Exception as close_exc:
+                    print("SERIAL CONNECT CLEANUP ERROR", close_exc)
+                finally:
+                    self.serial = None
+                    self.connected = False
+                    self.identity_verified = False
+                    self.device_info = None
+                    self.identity_error = "Serial connection failed: " + str(e)
                 return False
 
     def _verify_info_response(self, timeout=1.0):
