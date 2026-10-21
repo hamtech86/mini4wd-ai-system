@@ -135,6 +135,11 @@ def refresh_resume_state(window):
     checkpoint = _checkpoint_for_window(window)
     resumable = _checkpoint_matches(window, checkpoint)
 
+    if getattr(window, "_stop_latched", False):
+        window.pause_button.setEnabled(False)
+        window.resume_button.setEnabled(False)
+        return
+
     window.pause_button.setEnabled(running and not paused)
     window.resume_button.setEnabled(paused or (not running and resumable))
 
@@ -165,6 +170,9 @@ def pause_run(window):
 
 
 def resume_run(window):
+    if getattr(window, "_stop_latched", False):
+        window.run_state.setText("STOP LATCHED / RESUME BLOCKED")
+        return
     controller = getattr(window, "breakin_controller", None)
     if controller is None:
         return
