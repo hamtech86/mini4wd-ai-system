@@ -61,7 +61,11 @@ class BreakinSequenceAdapter:
                 self.controller._voltage_control(phase, measurement)
 
     def stop_sequence(self, sequence):
-        self.controller.serial.set_pwm(0)
+        stop = getattr(self.controller.serial, "stop_breakin", None)
+        if callable(stop):
+            stop()
+        else:
+            self.controller.serial.set_pwm(0)
         self._active = None
 
     def read_metric(self, metric):
