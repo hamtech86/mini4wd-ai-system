@@ -29,6 +29,7 @@ from workers.breakin_worker import BreakinWorker
 from analysis.analysis_engine import AnalysisEngine
 from controllers.session_controller import SessionController
 from controllers.motor_benchmark import STANDARD_3V30S, FULL_PACKAGE
+from controllers.ui_benchmark_presets import BENCHMARK_PRESETS
 from controllers.current_display import format_driver_input_current, format_input_voltage, format_motor_voltage
 
 
@@ -67,18 +68,19 @@ class MainWindow(BaseMainWindow):
         root_layout.addWidget(device_box); tabs=QTabWidget(); tabs.addTab(old_central,"MOTOR BREAK-IN"); self.battery_tab=BatteryTab(self.db_path,transport=self.battery_serial_controller,parent=self); tabs.addTab(self.battery_tab,"BATTERY"); root_layout.addWidget(tabs,1); self.setCentralWidget(root)
 
     def load_recipes(self):
+        # The approved operator path exposes exactly the four benchmark presets.
         self.recipe.clear()
-        for name in self.recipe_engine.names():
-            self.recipe.addItem(name, name)
-        self.recipe.addItem(STANDARD_3V30S, STANDARD_3V30S)
-        self.recipe.addItem(FULL_PACKAGE, FULL_PACKAGE)
+        for label in BENCHMARK_PRESETS:
+            self.recipe.addItem(label, label)
 
     def recipe_changed(self, index):
         name = self.recipe.itemData(index) if hasattr(self, "recipe") else None
-        if name in (STANDARD_3V30S, FULL_PACKAGE):
-            self._load_benchmark_sequence(name)
+        preset = BENCHMARK_PRESETS.get(name)
+        if preset is not None:
+            benchmark_type, mode = preset
+            self._load_benchmark_sequence(benchmark_type, mode, name)
             return
-        super().recipe_changed(index)
+        self._set_ui_error("UNSUPPORTED_RECIPE", "Only STD-T, Full-T, STD-I, and Full-I are supported.")
 
     def _motor_controller(self):
         controller=getattr(self,"serial_controller",None)
@@ -199,10 +201,12 @@ class MainWindow(BaseMainWindow):
 
     def _recipe_selection_changed(self,index):
         name=self.recipe.itemData(index) if hasattr(self,"recipe") else None
-        if name in (STANDARD_3V30S, FULL_PACKAGE):
-            self._load_benchmark_sequence(name)
+        preset=BENCHMARK_PRESETS.get(name)
+        if preset is not None:
+            benchmark_type, mode = preset
+            self._load_benchmark_sequence(benchmark_type, mode, name)
             return
-        self._load_recipe_sequence(name)
+        self._clear_sequence_panel("Unsupported recipe")
 
     def _clear_sequence_panel(self,status):
         while self.sequence_layout.count():
@@ -210,19 +214,22 @@ class MainWindow(BaseMainWindow):
             if widget is not None:widget.deleteLater()
         self.sequence_checks=[];self.sequence_progress.setValue(0);self.sequence_status.setText(status)
 
-    def _load_benchmark_sequence(self, benchmark_type):
-        self._clear_sequence_panel(f"Motor Benchmark: {benchmark_type}")
-        check=QCheckBox(
-            "01 | STANDARD_3V30S | PREPARE 2 s → 3.00 V target 30 s"
+    def _load_benchmark_sequence(self, benchmark_type, mode="TERMINAL", label=None):
+        preset_label = label or benchmark_type
+        self._clear_sequence_panel(f"Motor Benchmark: {preset_label} / {mode}")
+        phases = (
+            "PREPARE 2 s → BASELINE 30 s"
             if benchmark_type == STANDARD_3V30S
-            else "01 | FULL_PACKAGE | PREPARE 2 s → BASELINE 30 s → +5% 30 s → RETURN 10 s → -5% 30 s → RETURN 10 s"
+            else "PREPARE 2 s → BASELINE 30 s → +5% 30 s → RETURN 10 s → -5% 30 s → RETURN 10 s"
         )
+        check = QCheckBox(f"01 | {preset_label} | {mode} feedback | {phases}")
         check.setChecked(True)
         check.setProperty("benchmark_type", benchmark_type)
+        check.setProperty("voltage_control_mode", mode)
         self.sequence_layout.addWidget(check)
-        self.sequence_checks=[(benchmark_type,check)]
+        self.sequence_checks = [(preset_label, check)]
         self.sequence_layout.addStretch()
-        self.sequence_status.setText(f"Motor Benchmark: {benchmark_type}")
+        self.sequence_status.setText(f"Motor Benchmark: {preset_label} / {mode}")
 
     def _load_recipe_sequence(self,name):
         recipe=self.recipe_engine.get(name)
@@ -271,13 +278,18 @@ class MainWindow(BaseMainWindow):
         if getattr(self, "_stop_latched", False):
             self._set_stop_latched_ui()
             return
-        name=self._current_recipe_name()
-        if name in (STANDARD_3V30S, FULL_PACKAGE):
-            selected=[check for sid,check in self.sequence_checks if sid==name and check.isChecked()]
-            if len(selected)!=1:
-                self.sequence_status.setText(f"{name} が選択されていません");return
-            self._start_benchmark(name)
+        name = self._current_recipe_name()
+        preset = BENCHMARK_PRESETS.get(name)
+        if preset is None:
+            self._set_ui_error("UNSUPPORTED_RECIPE", "Only STD-T, Full-T, STD-I, and Full-I are supported.")
             return
+        benchmark_type, mode = preset
+        selected = [check for sid, check in self.sequence_checks if sid == name and check.isChecked()]
+        if len(selected) != 1:
+            self.sequence_status.setText(f"{name} が選択されていません")
+            return
+        self._start_benchmark(benchmark_type, mode)
+        return
         recipe=self.recipe_engine.get(name)
         if recipe is None:self.sequence_status.setText("レシピが選択されていません");return
         enabled_ids={sid for sid,check in self.sequence_checks if check.isChecked()}
@@ -287,7 +299,7 @@ class MainWindow(BaseMainWindow):
         self.sequence_selected_ids=enabled_ids;self.sequence_selected_total=len(enabled_ids);self.sequence_progress.setValue(0);self.sequence_progress.setFormat(f"Sequence Progress: 0/{self.sequence_selected_total}  %p%")
         self.sequence_executor.load_recipe(recipe,enabled_ids=enabled_ids);self.sequence_executor.start();self.sequence_timer.start();self.timer.start();self.sequence_execute.setEnabled(False);self.sequence_stop.setEnabled(True);self.start.setEnabled(False);self.stop.setEnabled(True);self.manager.setEnabled(False);self.instance.setEnabled(False);self.recipe.setEnabled(False);self.update_db.setEnabled(False);self.copy.setEnabled(False);self.result["STATUS"].setText("RUNNING");self.run_state.setText("STARTING...");current=self.sequence_executor.current();self._update_sequence_highlight(current.sequence_id if current else None);self._update_sequence_main_ui(current)
 
-    def _start_benchmark(self, benchmark_type=STANDARD_3V30S):
+    def _start_benchmark(self, benchmark_type=STANDARD_3V30S, voltage_control_mode="TERMINAL"):
         if getattr(self, "_stop_latched", False):
             self._set_stop_latched_ui()
             return
@@ -296,6 +308,7 @@ class MainWindow(BaseMainWindow):
         controller=self._motor_controller()
         if controller is None or not getattr(controller,"connected",False):QMessageBox.warning(self,"Benchmark","先にMOTOR CONNECTを実行してください。");return
         self.breakin_controller.selected_benchmark_type=benchmark_type
+        self.breakin_controller.selected_benchmark_voltage_mode=voltage_control_mode
         self.database_updated=False;self.last_result_data=None;self.last_result_benchmark=True;self.database_status.setText("DATABASE: NOT UPDATED");self.update_db.setEnabled(False);self.copy.setEnabled(False);self.start.setEnabled(False);self.manager.setEnabled(False);self.instance.setEnabled(False);self.recipe.setEnabled(False);self.stop.setEnabled(True);self.result["STATUS"].setText("RUNNING");self.run_state.setText("STARTING...")
         self.breakin_worker=BreakinWorker(self.breakin_controller,None,True)
         self.breakin_worker.completed.connect(lambda data:self.complete(data,True));self.breakin_worker.failed.connect(self.failed);self.breakin_worker.finished.connect(self.finished);self.timer.start();self.breakin_worker.start()
