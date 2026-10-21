@@ -12,6 +12,7 @@ from PyQt5.QtWidgets import (
 )
 from controllers.recipe_engine import RecipeEngine
 from database.path_resolver import connect_database, configure_shared_database_path, resolve_database_path
+from controllers.current_display import format_driver_input_current, format_input_voltage, format_motor_voltage
 
 
 class BreakinWorker(QThread):
@@ -123,7 +124,7 @@ class MainWindow(QMainWindow):
         self.run_state = QLabel("READY")
         self.run_state.setStyleSheet("font-size:22px;font-weight:bold;")
         rv.addWidget(self.run_state)
-        self.progress = {k: QLabel("--") for k in ("STEP", "PHASE", "DIR", "PWM", "VOLT", "CURRENT", "ELAPSED", "REMAIN")}
+        self.progress = {k: QLabel("--") for k in ("STEP", "PHASE", "DIR", "PWM", "INPUT VOLTAGE", "MOTOR VOLTAGE", "DRIVER INPUT CURRENT", "ELAPSED", "REMAIN")}
         grid = QGridLayout()
         for i, key in enumerate(self.progress):
             box = QGroupBox(key)
@@ -318,7 +319,8 @@ class MainWindow(QMainWindow):
         duration = float(getattr(phase, "duration_sec", 0))
         index = int(getattr(c, "current_phase_index", 0))
         total = int(getattr(c, "total_phases", 0))
-        values = {"STEP": f"{index + 1} / {total}", "PHASE": getattr(phase, "name", "--"), "DIR": getattr(phase, "direction", "FWD"), "PWM": getattr(c, "current_pwm", 0), "VOLT": self.live["V"].text(), "CURRENT": self.live["A"].text(), "ELAPSED": f"{elapsed:.1f} s", "REMAIN": f"{max(0, duration - elapsed):.1f} s"}
+        direction = getattr(m, "direction", getattr(phase, "direction", None)) if m else getattr(phase, "direction", None)
+        values = {"STEP": f"{index + 1} / {total}", "PHASE": getattr(phase, "name", "--"), "DIR": direction or "--", "PWM": getattr(m, "pwm", getattr(c, "current_pwm", "--")) if m else getattr(c, "current_pwm", "--"), "INPUT VOLTAGE": format_input_voltage(m, direction), "MOTOR VOLTAGE": format_motor_voltage(m), "DRIVER INPUT CURRENT": format_driver_input_current(m), "ELAPSED": f"{elapsed:.1f} s", "REMAIN": f"{max(0, duration - elapsed):.1f} s"}
         for key, value in values.items():
             self.progress[key].setText(str(value))
         self.run_state.setText("RUNNING")
