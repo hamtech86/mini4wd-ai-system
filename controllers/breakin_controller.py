@@ -201,6 +201,11 @@ class BreakinController:
                 self.clear_checkpoint()
                 self.phase_manager.next_phase()
                 self.current_phase_index = self.phase_manager.current_index()
+            # A user emergency STOP can end execute_phase() without setting
+            # abort_reason. Never report/analyze that interrupted recipe as a
+            # normal completion merely because the phase loop has ended.
+            if self.emergency_stop_latched:
+                raise RuntimeError("Emergency STOP interrupted the active recipe; result is incomplete.")
             if self.abort_reason:
                 raise RuntimeError(self.abort_reason)
             if self.running:
