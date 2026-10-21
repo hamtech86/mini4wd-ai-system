@@ -72,6 +72,7 @@ class SerialController:
         # A STOP that acquires this lock first permanently blocks this attempt;
         # if connect owns it first, STOP runs only after connect has completed.
         with self._ensure_command_lock():
+            stop_was_already_latched = self._stop_requested()
             # A new connection attempt always invalidates any prior identity.
             self.identity_verified = False
             self.device_info = None
@@ -103,6 +104,12 @@ class SerialController:
                 # Keep the port available for safe STOP/PWM=0 commands, while
                 # send_command() blocks drive commands until INFO is verified.
                 self._verify_info_response(timeout=1.0)
+                if not stop_was_already_latched and self._stop_requested():
+                    self.identity_verified = False
+                    self.device_info = None
+                    self.identity_error = "Connection aborted by an emergency STOP racing with connect."
+                    self.disconnect()
+                    return False
                 return True
             except Exception as e:
                 print("SERIAL CONNECT ERROR", e)
