@@ -915,8 +915,8 @@ void processCommand(const char *cmd)
             sendError("ARM_REFUSED");
             return;
         }
-        // Discard bytes already queued behind ARM before enabling this token.
-        while (Serial.available() > 0) { (void)Serial.read(); }
+        // Each energizing command carries this token. Stale commands from
+        // previous runs carry a different token and are rejected independently.
         comm.rxIndex = 0;
         for (uint8_t i = 0; i < 8; ++i) activeArmToken[i] = token[i];
         activeArmToken[8] = '\0';
@@ -949,8 +949,6 @@ void processCommand(const char *cmd)
         runtime.paused = true;
         runtime.pwm = 0;
         analogWrite(PIN_PWM, 0);
-        driveArmed = false;
-        activeArmToken[0] = '\0';
         setState(STATE_PAUSE);
         sendOK();
         return;
