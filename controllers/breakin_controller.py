@@ -59,6 +59,7 @@ class BreakinController:
         # received during STOP/finalization is intentionally discarded.
         self._measurement_raw_log_parts = []
         self._measurement_boundary_reached = False
+        self.invalid_measurement_streak = 0
 
     # ------------------------- checkpoint / resume -------------------------
     def _save_checkpoint(self):
@@ -300,6 +301,9 @@ class BreakinController:
                 time.sleep(self.CONTROL_INTERVAL_SEC)
                 continue
             measurement = self._collect_measurement(phase)
+            if measurement is None:
+                time.sleep(self.CONTROL_INTERVAL_SEC)
+                continue
             if phase.control == "VOLTAGE" and phase.target_voltage is not None:
                 self._voltage_control(phase, measurement)
             elif phase.control == "VOLTAGE_RAMP":
@@ -402,7 +406,18 @@ class BreakinController:
     def _value(measurement, name, default=0.0):
         return BreakinController._measurement_value(measurement, name, default)
 
+    def _record_invalid_measurement(self, reason):
+        self.invalid_measurement_streak = int(getattr(self, "invalid_measurement_streak", 0)) + 1
+        if self.invalid_measurement_streak >= 3:
+            self.abort_reason = f"SAFETY: 3 consecutive invalid control samples ({reason})"
+            self.emergency_stop()
+            raise RuntimeError(self.abort_reason)
+
     def _voltage_control(self, phase, measurement):
+        if phase.target_voltage is None:
+            self.invalid_measurement_streak = 0
+            return
+        target_voltage = float(phase.target_voltage)
         direction = str(getattr(phase, "direction", "FWD") or "FWD").upper()
         metadata = getattr(phase, "metadata", {}) or {}
         mode = str(metadata.get(
@@ -418,18 +433,24 @@ class BreakinController:
             except (TypeError, ValueError, OverflowError):
                 voltage = float("nan")
             if raw_voltage is None or not math.isfinite(voltage) or not 0.0 <= voltage <= 12.0:
-                self.abort_reason = f"SAFETY: missing or invalid INPUT voltage feedback ({field})"
-                self.emergency_stop()
+                self._record_invalid_measurement(f"invalid INPUT feedback {field}")
                 return
         else:
             # motor_voltage is signed V4-V5; normalize to the active direction.
-            signed_voltage = float(self._value(measurement, "motor_voltage", 0.0) or 0.0)
-            voltage = signed_voltage if direction == "FWD" else -signed_voltage
-        if phase.target_voltage is None:
+            raw_voltage = self._value(measurement, "motor_voltage", None)
+            try:
+                signed_voltage = float(raw_voltage)
+                voltage = signed_voltage if direction == "FWD" else -signed_voltage
+            except (TypeError, ValueError, OverflowError):
+                voltage = float("nan")
+        if not math.isfinite(voltage) or not math.isfinite(target_voltage):
+            self._record_invalid_measurement(f"non-finite {mode} feedback")
             return
-        target_voltage = float(phase.target_voltage)
-        if not math.isfinite(voltage) or not math.isfinite(target_voltage) or voltage <= 0:
+        # Zero-target fade-out is explicitly exempt from a positive-voltage gate.
+        if target_voltage > 0 and voltage <= 0:
+            self._record_invalid_measurement(f"non-positive {mode} feedback")
             return
+        self.invalid_measurement_streak = 0
         error = target_voltage - voltage
         if abs(error) <= 0.02: return
         new_pwm = max(phase.pwm_min, min(phase.pwm_max, self.current_pwm + int(round(self.VOLTAGE_KP * error))))
@@ -456,14 +477,30 @@ class BreakinController:
         return None
 
     def _collect_measurement(self, phase):
-        if not self.measurement_manager: return None
-        measurement = self.measurement_manager.collect()
-        if measurement is not None:
-            if isinstance(measurement, dict):
-                measurement["phase"] = phase
-                measurement["phase_pwm"] = self.current_pwm
-                measurement["phase_direction"] = phase.direction
-            self.measurements.append(measurement)
+        try:
+            measurement = self.measurement_manager.collect() if self.measurement_manager else None
+        except Exception as exc:
+            self._record_invalid_measurement(f"measurement acquisition error: {type(exc).__name__}")
+            return None
+        if measurement is None:
+            self._record_invalid_measurement("missing or rejected DATA")
+            return None
+        control = str(getattr(phase, "control", "PWM") or "PWM").upper()
+        target = getattr(phase, "target_voltage", None)
+        ramp_start = getattr(phase, "start_voltage", None)
+        ramp_end = getattr(phase, "end_voltage", None)
+        needs_feedback = control in ("VOLTAGE", "VOLTAGE_RAMP", "BRUSH_PEAK_APPROACH") and (
+            (target is not None and float(target) > 0)
+            or (ramp_start is not None and float(ramp_start) > 0)
+            or (ramp_end is not None and float(ramp_end) > 0)
+        )
+        if not needs_feedback:
+            self.invalid_measurement_streak = 0
+        if isinstance(measurement, dict):
+            measurement["phase"] = phase
+            measurement["phase_pwm"] = self.current_pwm
+            measurement["phase_direction"] = phase.direction
+        self.measurements.append(measurement)
         return measurement
 
     def analyze(self, measurements):
