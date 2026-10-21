@@ -78,3 +78,98 @@ def test_disconnect_clears_state_even_when_close_raises():
     assert controller.connected is False
     assert controller.identity_verified is False
     assert controller.device_info is None
+
+
+def test_emergency_stop_latches_late_drive_commands_even_after_identity_is_reasserted():
+    class FakeSerial:
+        def __init__(self):
+            self.writes = []
+            self.closed = False
+
+        def write(self, data):
+            self.writes.append(data)
+
+        def close(self):
+            self.closed = True
+
+    controller = SerialController()
+    first = FakeSerial()
+    controller.serial = first
+    controller.connected = True
+    controller.identity_verified = True
+
+    result = controller.emergency_stop()
+
+    assert result["pwm_zero"] is True
+    assert result["stop_command"] is True
+    assert result["disconnect"] is True
+    assert first.writes == [b"PWM=0\\n", b"STOP\\n"]
+    assert first.closed is True
+
+    # Simulate a stale worker trying to reuse/reconnect the same controller
+    # after STOP. Even if identity is mistakenly marked verified, drive
+    # commands must remain blocked for this application-session object.
+    second = FakeSerial()
+    controller.serial = second
+    controller.connected = True
+    controller.identity_verified = True
+
+    assert controller.send_command("FWD") is False
+    assert controller.send_command("REV") is False
+    assert controller.send_command("START") is False
+    assert controller.send_command("RESUME") is False
+    assert controller.set_pwm(80) is False
+    assert second.writes == []
+
+    # Safe stop commands remain available after the latch.
+    assert controller.set_pwm(0) == "PWM=0"
+    assert controller.send_command("STOP") == "STOP"
+    assert second.writes == [b"PWM=0\\n", b"STOP\\n"]
+
+
+def test_emergency_stop_serializes_with_an_in_flight_positive_pwm_write():
+    import threading
+
+    class BlockingSerial:
+        def __init__(self):
+            self.writes = []
+            self.entered_positive_write = threading.Event()
+            self.release_positive_write = threading.Event()
+            self.closed = False
+
+        def write(self, data):
+            self.writes.append(data)
+            if data == b"PWM=80\\n":
+                self.entered_positive_write.set()
+                assert self.release_positive_write.wait(timeout=2)
+
+        def close(self):
+            self.closed = True
+
+    controller = SerialController()
+    fake = BlockingSerial()
+    controller.serial = fake
+    controller.connected = True
+    controller.identity_verified = True
+
+    drive_thread = threading.Thread(target=lambda: controller.set_pwm(80))
+    drive_thread.start()
+    assert fake.entered_positive_write.wait(timeout=2)
+
+    stop_result = {}
+    stop_thread = threading.Thread(target=lambda: stop_result.update(controller.emergency_stop()))
+    stop_thread.start()
+
+    # Let the already-started write finish; STOP must then be the final drive
+    # command, and later commands must be rejected by the latch.
+    fake.release_positive_write.set()
+    drive_thread.join(timeout=2)
+    stop_thread.join(timeout=2)
+
+    assert not drive_thread.is_alive()
+    assert not stop_thread.is_alive()
+    assert stop_result["pwm_zero"] is True
+    assert stop_result["stop_command"] is True
+    assert fake.writes[:3] == [b"PWM=80\\n", b"PWM=0\\n", b"STOP\\n"]
+    assert controller.send_command("PWM=90") is False
+    assert fake.writes == [b"PWM=80\\n", b"PWM=0\\n", b"STOP\\n"]
