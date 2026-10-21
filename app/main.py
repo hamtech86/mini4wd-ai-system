@@ -453,6 +453,8 @@ class MainWindow(BaseMainWindow):
         if self._reject_completion_after_stop():
             return
         super().complete(data,benchmark)
+        self._log_event("Measurement run completed. This status does not certify physical stop unless separately observed.")
+        self._update_estimated_result()
 
     def _reject_completion_after_stop(self):
         """Prevent a late queued success signal from overriding emergency STOP."""
@@ -470,8 +472,6 @@ class MainWindow(BaseMainWindow):
         self.result["SUMMARY"].setText("Completion signal ignored because emergency STOP was already requested.")
         self._log_event("Late worker completion ignored after emergency STOP; result is not eligible for persistence.")
         return True
-        self._log_event("Measurement run completed. This status does not certify physical stop unless separately observed.")
-        self._update_estimated_result()
 
     def failed(self, message):
         # Any worker exception is treated as unsafe termination; do not let the
