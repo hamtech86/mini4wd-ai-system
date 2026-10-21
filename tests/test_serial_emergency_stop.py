@@ -1,4 +1,5 @@
 from communication.serial_controller import SerialController
+from communication.serial_manager import SerialManager
 
 
 def test_emergency_stop_attempts_stop_and_disconnect_if_pwm_zero_raises():
@@ -172,4 +173,88 @@ def test_emergency_stop_serializes_with_an_in_flight_positive_pwm_write():
     assert stop_result["stop_command"] is True
     assert fake.writes[:3] == [b"PWM=80\\n", b"PWM=0\\n", b"STOP\\n"]
     assert controller.send_command("PWM=90") is False
+    assert fake.writes == [b"PWM=80\\n", b"PWM=0\\n", b"STOP\\n"]
+
+
+def test_active_serial_manager_latches_drive_commands_after_emergency_stop():
+    class FakeSerial:
+        def __init__(self):
+            self.writes = []
+            self.is_open = True
+
+        def write(self, data):
+            self.writes.append(data)
+
+        def close(self):
+            self.is_open = False
+
+    manager = SerialManager()
+    first = FakeSerial()
+    manager.serial = first
+
+    result = manager.emergency_stop()
+
+    assert result["pwm_zero"] is True
+    assert result["stop_command"] is True
+    assert result["disconnect"] is True
+    assert first.writes == [b"PWM=0\\n", b"STOP\\n"]
+    assert not first.is_open
+
+    # Simulate a stale worker attempting to reuse this manager after STOP.
+    second = FakeSerial()
+    manager.serial = second
+    assert manager.send("FWD") is False
+    assert manager.send("REV") is False
+    assert manager.send("START") is False
+    assert manager.send("RESUME") is False
+    assert manager.send("PWM=80") is False
+    assert second.writes == []
+
+    # The safety commands remain available after the latch.
+    assert manager.send("PWM=0") is True
+    assert manager.send("STOP") is True
+    assert second.writes == [b"PWM=0\\n", b"STOP\\n"]
+
+
+def test_active_serial_manager_orders_emergency_stop_after_in_flight_write():
+    import threading
+
+    class BlockingSerial:
+        def __init__(self):
+            self.writes = []
+            self.is_open = True
+            self.entered = threading.Event()
+            self.release = threading.Event()
+
+        def write(self, data):
+            self.writes.append(data)
+            if data == b"PWM=80\\n":
+                self.entered.set()
+                assert self.release.wait(timeout=2)
+
+        def close(self):
+            self.is_open = False
+
+    manager = SerialManager()
+    fake = BlockingSerial()
+    manager.serial = fake
+
+    drive_thread = threading.Thread(target=lambda: manager.send("PWM=80"))
+    drive_thread.start()
+    assert fake.entered.wait(timeout=2)
+
+    stop_result = {}
+    stop_thread = threading.Thread(target=lambda: stop_result.update(manager.emergency_stop()))
+    stop_thread.start()
+    fake.release.set()
+
+    drive_thread.join(timeout=2)
+    stop_thread.join(timeout=2)
+
+    assert not drive_thread.is_alive()
+    assert not stop_thread.is_alive()
+    assert stop_result["pwm_zero"] is True
+    assert stop_result["stop_command"] is True
+    assert fake.writes[:3] == [b"PWM=80\\n", b"PWM=0\\n", b"STOP\\n"]
+    assert manager.send("PWM=90") is False
     assert fake.writes == [b"PWM=80\\n", b"PWM=0\\n", b"STOP\\n"]
