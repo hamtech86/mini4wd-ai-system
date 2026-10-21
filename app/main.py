@@ -29,6 +29,7 @@ from workers.breakin_worker import BreakinWorker
 from analysis.analysis_engine import AnalysisEngine
 from controllers.session_controller import SessionController
 from controllers.motor_benchmark import STANDARD_3V30S, FULL_PACKAGE
+from controllers.current_display import format_driver_input_current, format_input_voltage, format_motor_voltage
 
 
 class MainWindow(BaseMainWindow):
@@ -256,7 +257,8 @@ class MainWindow(BaseMainWindow):
         remaining=self.sequence_executor.remaining_sec()
         elapsed=result.elapsed_sec if result is not None else 0.0
         if hasattr(self,"progress"):
-            values={"STEP":f"{min(completed+1,total)} / {total}","PHASE":getattr(current,"sequence_id","--"),"DIR":getattr(current,"direction","FWD"),"PWM":getattr(current,"pwm",0),"VOLT":f"{float(getattr(m,'motor_voltage',0)):.2f} V" if m else "--","CURRENT":f"{float(getattr(m,'current_avg',0)):.3f} A" if m else "--","ELAPSED":f"{elapsed:.1f} s","REMAIN":f"{remaining:.1f} s" if remaining is not None else "条件待ち"}
+            direction=getattr(m,"direction",getattr(current,"direction",None)) if m else getattr(current,"direction",None)
+            values={"STEP":f"{min(completed+1,total)} / {total}","PHASE":getattr(current,"sequence_id","--"),"DIR":direction or "--","PWM":getattr(m,"pwm",getattr(current,"pwm","--")) if m else getattr(current,"pwm","--"),"INPUT VOLTAGE":format_input_voltage(m,direction),"MOTOR VOLTAGE":format_motor_voltage(m),"DRIVER INPUT CURRENT":format_driver_input_current(m),"ELAPSED":f"{elapsed:.1f} s","REMAIN":f"{remaining:.1f} s" if remaining is not None else "条件待ち"}
             for key,value in values.items():
                 if key in self.progress:self.progress[key].setText(str(value))
         if hasattr(self,"live"):
