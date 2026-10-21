@@ -211,9 +211,12 @@ class SerialManager(QObject):
                 message = "Disconnect cleanup encountered errors: " + "; ".join(errors)
                 logger.error(message)
                 self.error.emit(message)
-            else:
-                logger.success("Arduino Disconnected")
+                self.disconnected.emit()
+                return False
+
+            logger.success("Arduino Disconnected")
             self.disconnected.emit()
+            return True
 
     def send(self, command: str) -> bool:
         """Arduinoへコマンド送信, with a fail-closed emergency STOP latch."""
@@ -255,8 +258,9 @@ class SerialManager(QObject):
             except Exception as exc:
                 outcome["errors"].append(f"STOP: {type(exc).__name__}: {exc}")
             try:
-                self.disconnect()
-                outcome["disconnect"] = True
+                outcome["disconnect"] = self.disconnect() is not False
+                if not outcome["disconnect"]:
+                    outcome["errors"].append("disconnect: serial/reader cleanup reported an error")
             except Exception as exc:
                 outcome["errors"].append(f"disconnect: {type(exc).__name__}: {exc}")
         self.last_emergency_stop_result = outcome
