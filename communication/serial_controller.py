@@ -4,11 +4,12 @@ MOTOR_BREAKIN_V3
 
 Break-in Controller <-> Arduino communication layer.
 
-Arduino firmware MOTOR_BREAKIN_V3.00 protocol:
-  FWD
-  REV
-  PWM=<0..255>
-  STOP
+Arduino firmware MOTOR_BREAKIN_V3 explicit-ARM protocol:
+  ARM=<8-hex-token> -> ARMED,<same-token>
+  FWD@<token>
+  REV@<token>
+  PWM=<0..255>@<token>
+  STOP (revokes token)
 """
 
 try:
