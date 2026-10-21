@@ -802,14 +802,16 @@ void calibrateACS712()
 
 void stopMotor()
 {
+    // A stop is authoritative: the independent voltage-control loop must
+    // never be able to re-apply PWM after STOP/initialization.
+    voltageControl.enabled = false;
+    runtime.pwm = 0;
     analogWrite(PIN_PWM, 0);
 
     digitalWrite(PIN_IN3, LOW);
-
     digitalWrite(PIN_IN4, LOW);
 
     runtime.running = false;
-
     runtime.paused = false;
 }
 
@@ -1005,38 +1007,25 @@ void processCommand(const char *cmd)
 
     
 
+    // Normal voltage feedback belongs to the host controller (Issue #35).
+    // Reject legacy target/enable commands instead of silently accepting them.
     if (strncmp(cmd, "TARGET=", 7) == 0)
     {
-        sendOK();
-
-        return;
-    }
-    
-    if(strncmp(cmd,"TARGET=",7)==0)
-    {
-        voltageControl.targetVoltage =
-            atof(cmd + 7);
-
-        sendOK();
-
+        sendError("UNSUPPORTED_COMMAND");
         return;
     }
 
-    if(strcmp(cmd,"VCTRL=ON")==0)
+    if (strcmp(cmd, "VCTRL=ON") == 0)
     {
-        voltageControl.enabled = true;
-
-        sendOK();
-
+        sendError("UNSUPPORTED_COMMAND");
         return;
     }
 
-    if(strcmp(cmd,"VCTRL=OFF")==0)
+    if (strcmp(cmd, "VCTRL=OFF") == 0)
     {
+        // Idempotent safety-compatibility command; it must not change PWM.
         voltageControl.enabled = false;
-
         sendOK();
-
         return;
     }
 
@@ -1857,8 +1846,10 @@ constexpr float VOLTAGE_DEADBAND = 0.03f; //±30mV
 
 void voltageControlUpdate()
 {
-
-    if (!voltageControl.enabled)
+    // Never let the legacy loop re-energize the motor outside an active RUN.
+    if (!voltageControl.enabled ||
+        !runtime.running ||
+        runtime.state != STATE_RUN)
     {
         return;
     }
