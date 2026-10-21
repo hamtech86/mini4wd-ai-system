@@ -96,15 +96,46 @@ class SerialController:
         return self.send_command("STOP")
 
     def emergency_stop(self):
-        self.set_pwm(0)
-        self.send_command("STOP")
-        self.disconnect()
+        """Best-effort STOP sequence; successful writes do not prove physical stop."""
+        was_connected = bool(self.connected and self.serial)
+        errors = []
+
+        # Try each safety action independently: a failed PWM=0 write must not
+        # prevent the explicit STOP command or serial cleanup from being tried.
+        try:
+            self.set_pwm(0)
+        except Exception as exc:
+            errors.append(("PWM=0", exc))
+            print("EMERGENCY STOP WARNING (PWM=0):", exc)
+
+        try:
+            self.send_command("STOP")
+        except Exception as exc:
+            errors.append(("STOP", exc))
+            print("EMERGENCY STOP WARNING (STOP):", exc)
+
+        try:
+            self.disconnect()
+        except Exception as exc:
+            errors.append(("disconnect", exc))
+            print("EMERGENCY STOP WARNING (disconnect):", exc)
+        finally:
+            # Keep software connection state fail-closed even if close() raises.
+            self.serial = None
+            self.connected = False
+
+        # True means writes/cleanup raised no exceptions and a connection was
+        # present at entry. It is NOT firmware acknowledgement or physical-stop proof.
+        return was_connected and not errors
 
     def disconnect(self):
-        if self.serial:
-            self.serial.close()
-        self.serial = None
-        self.connected = False
+        serial_handle = self.serial
+        try:
+            if serial_handle:
+                serial_handle.close()
+        finally:
+            self.serial = None
+            self.connected = False
 
     def send_command(self, command):
         self.command_log.append(command)
