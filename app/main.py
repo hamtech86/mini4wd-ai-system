@@ -351,9 +351,23 @@ class MainWindow(BaseMainWindow):
             if controller is None:
                 stop_errors.append("No motor controller available; serial STOP could not be attempted.")
             elif hasattr(controller, "emergency_stop"):
-                controller.emergency_stop()
+                stop_result = controller.emergency_stop()
+                if isinstance(stop_result, dict):
+                    stop_errors.extend(str(item) for item in stop_result.get("errors", []))
+                    serial_result = stop_result.get("serial_result")
+                    if isinstance(serial_result, dict):
+                        stop_errors.extend(str(item) for item in serial_result.get("errors", []))
+                        for key in ("pwm_zero", "stop_command"):
+                            if serial_result.get(key) is False:
+                                stop_errors.append(f"Serial {key} command was not confirmed by the transport.")
+                    else:
+                        for key in ("pwm_zero", "stop_command"):
+                            if stop_result.get(key) is False:
+                                stop_errors.append(f"Serial {key} command was not confirmed by the transport.")
             elif hasattr(controller, "stop_breakin"):
-                controller.stop_breakin()
+                stop_result = controller.stop_breakin()
+                if stop_result is False:
+                    stop_errors.append("Controller stop command returned failure.")
             else:
                 stop_errors.append("Controller has no emergency_stop/stop_breakin method.")
         except Exception as exc:
