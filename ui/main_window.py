@@ -11,6 +11,7 @@ from PyQt5.QtWidgets import (
     QSizePolicy, QVBoxLayout, QWidget
 )
 from controllers.recipe_engine import RecipeEngine
+from controllers.current_display import format_driver_input_current, format_input_voltage, format_motor_voltage
 from database.path_resolver import connect_database, configure_shared_database_path, resolve_database_path
 
 
@@ -123,7 +124,7 @@ class MainWindow(QMainWindow):
         self.run_state = QLabel("READY")
         self.run_state.setStyleSheet("font-size:22px;font-weight:bold;")
         rv.addWidget(self.run_state)
-        self.progress = {k: QLabel("--") for k in ("STEP", "PHASE", "DIR", "PWM", "VOLT", "CURRENT", "ELAPSED", "REMAIN")}
+        self.progress = {k: QLabel("--") for k in ("STEP", "PHASE", "DIR", "PWM", "INPUT VOLTAGE", "MOTOR VOLTAGE", "DRIVER INPUT CURRENT", "ELAPSED", "REMAIN")}
         grid = QGridLayout()
         for i, key in enumerate(self.progress):
             box = QGroupBox(key)
@@ -135,7 +136,7 @@ class MainWindow(QMainWindow):
             grid.addWidget(box, i // 4, i % 4)
         rv.addLayout(grid)
         livegrid = QGridLayout()
-        self.live = {k: QLabel("--") for k in ("Arduino", "DIR", "PWM", "RPM", "V", "A", "STATE", "TEMP")}
+        self.live = {k: QLabel("--") for k in ("Arduino", "RPM", "STATE", "TEMP")}
         for i, (key, widget) in enumerate(self.live.items()):
             livegrid.addWidget(QLabel(key + ":"), (i // 4) * 2, (i % 4) * 2)
             livegrid.addWidget(widget, (i // 4) * 2, (i % 4) * 2 + 1)
@@ -296,29 +297,60 @@ class MainWindow(QMainWindow):
         c = self.breakin_controller
         serial = getattr(c, "serial", None) if c else None
         m = getattr(getattr(c, "measurement_manager", None), "last_measurement", None) if c else None
-        self.live["Arduino"].setText("CONNECTED" if getattr(serial, "connected", False) else "DISCONNECTED")
+        self.live["Arduino"].setText("PORT CONNECTED / INFO UNVERIFIED" if getattr(serial, "connected", False) else "DISCONNECTED")
         rpm = self._latest_rpm()
         values = {
             "DIR": getattr(m, "direction", getattr(serial, "direction", "--")) if m else getattr(serial, "direction", "--"),
             "PWM": getattr(m, "pwm", getattr(serial, "last_pwm", 0)) if m else getattr(serial, "last_pwm", 0),
             "RPM": f"{rpm:.0f}" if rpm is not None else "--",
-            "V": f"{float(getattr(m, 'motor_voltage', 0)):.2f} V" if m else "--",
-            "A": f"{float(getattr(m, 'current_avg', 0)):.3f} A" if m else "--",
+            "V": format_motor_voltage(m),
+            "A": format_driver_input_current(m),
             "STATE": getattr(m, "state", "NO DATA") if m else "NO DATA",
             "TEMP": f"{float(getattr(m, 'motor_temperature', 0)):.1f} C" if m else "--",
         }
         for key, value in values.items():
-            self.live[key].setText(str(value))
+            # The canonical execution panel owns DIR/PWM/voltage/current.
+            # The supplemental live panel intentionally omits those duplicates.
+            if key in self.live:
+                self.live[key].setText(str(value))
         if not c or not getattr(c, "running", False):
             return
         phase = getattr(c, "current_phase", None)
         if phase is None:
             return
-        elapsed = float(c.phase_elapsed_sec()) if hasattr(c, "phase_elapsed_sec") else 0.0
-        duration = float(getattr(phase, "duration_sec", 0))
+        elapsed_provider = getattr(c, "elapsed_sec", None)
+        if callable(elapsed_provider):
+            try:
+                elapsed_value = elapsed_provider()
+            except (TypeError, ValueError, RuntimeError):
+                elapsed_value = None
+        elif hasattr(c, "phase_elapsed_sec"):
+            try:
+                elapsed_value = c.phase_elapsed_sec()
+            except (TypeError, ValueError, RuntimeError):
+                elapsed_value = None
+        else:
+            elapsed_value = None
+        elapsed_text = f"{float(elapsed_value):.1f} s" if elapsed_value is not None else "--"
         index = int(getattr(c, "current_phase_index", 0))
         total = int(getattr(c, "total_phases", 0))
-        values = {"STEP": f"{index + 1} / {total}", "PHASE": getattr(phase, "name", "--"), "DIR": getattr(phase, "direction", "FWD"), "PWM": getattr(c, "current_pwm", 0), "VOLT": self.live["V"].text(), "CURRENT": self.live["A"].text(), "ELAPSED": f"{elapsed:.1f} s", "REMAIN": f"{max(0, duration - elapsed):.1f} s"}
+        remaining_provider = getattr(c, "remaining_sec", None)
+        try:
+            remaining_value = remaining_provider() if callable(remaining_provider) else remaining_provider
+            remaining_text = f"{float(remaining_value):.1f} s" if remaining_value is not None else "--"
+        except (TypeError, ValueError, RuntimeError):
+            remaining_text = "--"
+        values = {
+            "STEP": f"{index + 1} / {total}",
+            "PHASE": getattr(phase, "name", "--"),
+            "DIR": getattr(m, "direction", getattr(phase, "direction", "--")) if m else getattr(phase, "direction", "--"),
+            "PWM": getattr(m, "pwm", getattr(c, "current_pwm", "--")) if m else getattr(c, "current_pwm", "--"),
+            "INPUT VOLTAGE": format_input_voltage(m, getattr(m, "direction", getattr(phase, "direction", None)) if m else getattr(phase, "direction", None)),
+            "MOTOR VOLTAGE": format_motor_voltage(m),
+            "DRIVER INPUT CURRENT": format_driver_input_current(m),
+            "ELAPSED": elapsed_text,
+            "REMAIN": remaining_text,
+        }
         for key, value in values.items():
             self.progress[key].setText(str(value))
         self.run_state.setText("RUNNING")
@@ -356,20 +388,15 @@ class MainWindow(QMainWindow):
         if self.breakin_controller:
             self.breakin_controller.emergency_stop()
         self.timer.stop()
-        self.run_state.setText("EMERGENCY STOP")
+        self.run_state.setText("STOP REQUESTED / PHYSICAL STOP UNCONFIRMED")
+        self.result["STATUS"].setText("STOP REQUESTED / UNCONFIRMED")
         self.stop.setEnabled(False)
         self.update_db.setEnabled(False)
 
     def complete(self, data, benchmark):
         self.timer.stop()
         self.refresh_runtime()
-        # Completion can arrive between the 100 ms UI refresh ticks. Force the result view to the exact benchmark boundary.
-        phase = getattr(self.breakin_controller, "current_phase", None)
-        if phase is not None:
-            duration = float(getattr(phase, "duration_sec", 0) or 0)
-            if duration > 0:
-                self.progress["ELAPSED"].setText(f"{duration:.1f} s")
-                self.progress["REMAIN"].setText("0.0 s")
+        # Keep displayed elapsed/remaining values sourced from controller data; do not synthesize a final duration.
         self.run_state.setText("COMPLETE")
         self.last_result_data = data
         self.last_result_benchmark = benchmark
@@ -384,7 +411,7 @@ class MainWindow(QMainWindow):
         self.result["BRUSH PEAK"].setText(f"{peak:.3f} A" if peak is not None else "NOT RECORDED")
         measurement = getattr(getattr(self.breakin_controller, "measurement_manager", None), "last_measurement", None)
         self.result["VOLTAGE"].setText(f"{float(getattr(measurement, 'motor_voltage', 0)):.2f} V" if measurement else "--")
-        self.result["CURRENT"].setText(f"{float(getattr(measurement, 'current_avg', 0)):.3f} A" if measurement else "--")
+        self.result["CURRENT"].setText(format_driver_input_current(measurement))
         self.result["PWM"].setText(str(getattr(measurement, "pwm", getattr(self.breakin_controller, "current_pwm", "--"))) if measurement else "--")
         self.result["DIRECTION"].setText(str(getattr(measurement, "direction", getattr(self.breakin_controller, "serial", None).direction if getattr(self.breakin_controller, "serial", None) else "--")))
         self.result["BENCHMARK"].setText("3.00 V / 30 s" if benchmark else "--")

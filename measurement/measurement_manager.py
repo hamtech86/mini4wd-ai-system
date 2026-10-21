@@ -23,6 +23,7 @@ from measurement.measurement_session import (
     MeasurementType,
 )
 from measurement.filters import FilterGroup
+from communication.csv_parser import CSVParser
 
 
 class MeasurementManager:
@@ -45,8 +46,20 @@ class MeasurementManager:
         if self.serial_controller:
             raw = self.serial_controller.read_measurement()
 
+        if isinstance(raw, str):
+            # SerialController returns the exact DATA CSV line. Parse it using
+            # the canonical 26-column protocol parser before validation.
+            parser = getattr(self.serial_controller, "parser", None) or CSVParser()
+            try:
+                raw = parser.parse(raw)
+            except (TypeError, ValueError, OverflowError):
+                self.last_measurement = None
+                return None
+
         data = self._parse_frame(raw)
         if data is None:
+            # Never reuse a previous valid sample after a missing/rejected frame.
+            self.last_measurement = None
             return None
         return self.create_measurement(data)
 
@@ -108,19 +121,49 @@ class MeasurementManager:
 
         # A missing field is INVALID, never an implicit 0 V / 0 A value.
         required = (
-            "elapsed_time", "current1", "current2",
-            "voltage1", "voltage2", "motor_voltage",
-            "pwm", "direction", "state",
+            "device_model", "instance_id", "elapsed_time", "raw_acs1", "raw_acs2",
+            "current1", "current2", "voltage1", "voltage2", "motor_voltage",
+            "pwm", "direction", "state", "current_avg", "power",
+            "current_ripple", "voltage_ripple", "peak_power", "peak_current",
+            "peak_voltage", "peak_pwm", "brush_peak_current", "raw_magnetic",
+            "magnetic_level", "motor_temperature",
         )
         if any(raw.get(name) is None for name in required):
             return None
+        if not isinstance(raw.get("device_model"), str) or not raw["device_model"].strip():
+            return None
+        if not isinstance(raw.get("direction"), str) or not raw["direction"].strip():
+            return None
+        if not isinstance(raw.get("state"), str) or not raw["state"].strip():
+            return None
+        instance_id = raw.get("instance_id")
+        if isinstance(instance_id, str):
+            if not instance_id.strip():
+                return None
+        elif not isinstance(instance_id, int) or isinstance(instance_id, bool) or instance_id < 0:
+            return None
+        if raw["device_model"] != "MOTOR_BREAKIN_V3" or raw["direction"] not in ("FWD", "REV"):
+            return None
 
-        for name in ("elapsed_time", "current1", "current2",
-                     "voltage1", "voltage2", "motor_voltage", "pwm"):
+        numeric_fields = (
+            "elapsed_time", "raw_acs1", "raw_acs2", "current1", "current2",
+            "voltage1", "voltage2", "motor_voltage", "pwm", "current_avg",
+            "power", "current_ripple", "voltage_ripple", "peak_power",
+            "peak_current", "peak_voltage", "peak_pwm", "brush_peak_current",
+            "raw_magnetic", "magnetic_level", "motor_temperature",
+        )
+        for name in numeric_fields:
             try:
                 if not math.isfinite(float(raw.get(name))):
                     return None
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
+                return None
+        integer_fields = ("elapsed_time", "raw_acs1", "raw_acs2", "pwm", "peak_pwm", "raw_magnetic")
+        for name in integer_fields:
+            try:
+                if not float(raw[name]).is_integer():
+                    return None
+            except (TypeError, ValueError, OverflowError):
                 return None
 
         # Plausibility rejection is intentionally above the configured
@@ -128,17 +171,20 @@ class MeasurementManager:
         # the safety mechanism instead of being hidden as an anomaly.
         if float(raw["elapsed_time"]) < 0:
             return None
+        if not (0 <= int(raw["raw_acs1"]) <= 1023 and 0 <= int(raw["raw_acs2"]) <= 1023):
+            return None
         if not (0.0 <= float(raw["voltage1"]) <= 12.0 and
                 0.0 <= float(raw["voltage2"]) <= 12.0 and
-                0.0 <= float(raw["motor_voltage"]) <= 12.0):
+                -12.0 <= float(raw["motor_voltage"]) <= 12.0):
             return None
         if abs(float(raw["current1"])) > 100.0 or abs(float(raw["current2"])) > 100.0:
             return None
         try:
             pwm = int(float(raw["pwm"]))
-        except (TypeError, ValueError):
+            peak_pwm = int(float(raw["peak_pwm"]))
+        except (TypeError, ValueError, OverflowError):
             return None
-        if not 0 <= pwm <= 255:
+        if not 0 <= pwm <= 255 or not 0 <= peak_pwm <= 255:
             return None
 
         fields = raw

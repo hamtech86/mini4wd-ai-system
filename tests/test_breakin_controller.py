@@ -5,6 +5,8 @@ Break-in Controller integration test
 Hardware-independent verification of the complete controller path.
 """
 
+import pytest
+
 from controllers.breakin_controller import BreakinController
 from controllers.recipe import BreakinPhase, BreakinRecipe
 
@@ -90,3 +92,51 @@ def test_emergency_stop():
 
     assert controller.running is False
     assert "EMERGENCY_STOP" in serial.commands
+
+
+
+def test_emergency_stop_attempts_serial_even_if_checkpoint_save_fails():
+    serial = MockSerialController()
+    controller = BreakinController(serial_controller=serial)
+    controller.running = True
+
+    def fail_checkpoint():
+        raise OSError("checkpoint unavailable")
+
+    controller._save_checkpoint = fail_checkpoint
+    result = controller.emergency_stop()
+
+    assert controller.running is False
+    assert "EMERGENCY_STOP" in serial.commands
+    assert result["checkpoint_saved"] is False
+    assert result["serial_stop_attempted"] is True
+    assert any("checkpoint unavailable" in error for error in result["errors"])
+
+
+
+def test_emergency_stop_clears_checkpoint_to_prevent_resume(monkeypatch, tmp_path):
+    serial = MockSerialController()
+    controller = BreakinController(serial_controller=serial)
+    checkpoint = tmp_path / "breakin_resume.json"
+    monkeypatch.setattr(BreakinController, "CHECKPOINT_PATH", checkpoint)
+
+    def save_checkpoint():
+        checkpoint.write_text('{"recipe": "TUNE_BASIC"}', encoding="utf-8")
+
+    controller._save_checkpoint = save_checkpoint
+    controller.emergency_stop()
+
+    assert not checkpoint.exists()
+
+
+
+def test_controller_latch_blocks_direct_restart_after_emergency_stop():
+    controller = BreakinController(serial_controller=MockSerialController())
+    controller.emergency_stop()
+    recipe = BreakinRecipe(
+        name="TEST",
+        phases=[BreakinPhase(name="PHASE1", duration_sec=0, pwm=0, direction="FWD")],
+    )
+
+    with pytest.raises(RuntimeError, match="Emergency STOP latch is active"):
+        controller.start(recipe)

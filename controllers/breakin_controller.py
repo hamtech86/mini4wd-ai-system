@@ -7,6 +7,7 @@ recipe can resume from the interrupted phase instead of restarting at phase 1.
 """
 
 import json
+import math
 import time
 from pathlib import Path
 
@@ -53,11 +54,15 @@ class BreakinController:
         self.last_brush_peak_current = 0.0
         self.brush_peak_target_current = 0.0
         self.brush_peak_reached = False
+        self.benchmark_voltage_control_mode = "TERMINAL"
+        self.benchmark_voltage_control_mode = "TERMINAL"
         # Raw serial data is collected only while a measurement phase is
         # active. Each phase is frozen at its exact end boundary; anything
         # received during STOP/finalization is intentionally discarded.
         self._measurement_raw_log_parts = []
         self._measurement_boundary_reached = False
+        self.invalid_measurement_streak = 0
+        self.emergency_stop_latched = False
 
     # ------------------------- checkpoint / resume -------------------------
     def _save_checkpoint(self):
@@ -69,7 +74,7 @@ class BreakinController:
             "instance_id": self.active_instance_id,
             "phase_index": self.current_phase_index,
             "phase_name": self.current_phase.name,
-            "phase_elapsed_sec": self.phase_elapsed_sec(),
+            "phase_elapsed_sec": (self.phase_elapsed_before_pause if self.paused else self._effective_elapsed()),
             "current_pwm": self.current_pwm,
             "direction": self.current_phase.direction,
             "paused": self.paused,
@@ -97,7 +102,7 @@ class BreakinController:
         """Pause safely while preserving the current phase position."""
         if not self.running or self.paused:
             return False
-        self.phase_elapsed_before_pause = self.phase_elapsed_sec()
+        self.phase_elapsed_before_pause = self._effective_elapsed()
         self.paused = True
         self.pause_started_at = time.time()
         self.serial.set_pwm(0)
@@ -140,6 +145,8 @@ class BreakinController:
         return self.start(recipe, instance_id=actual_instance, resume=True)
 
     def start(self, recipe, instance_id=None, resume=False):
+        if getattr(self, "emergency_stop_latched", False):
+            raise RuntimeError("Emergency STOP latch is active; restart requires a new application session and fresh INFO identity.")
         instance_id = instance_id if instance_id is not None else self.selected_instance_id
         self.active_instance_id = instance_id
         self.active_recipe_name = str(recipe.name).upper()
@@ -291,7 +298,32 @@ class BreakinController:
         return "".join(self._measurement_raw_log_parts)
 
     def _effective_elapsed(self):
-        return self.phase_elapsed_before_pause + self.phase_elapsed_sec()
+        if self.paused:
+            return max(0.0, float(self.phase_elapsed_before_pause or 0.0))
+        return max(0.0, float(self.phase_elapsed_before_pause or 0.0) + self.phase_elapsed_sec())
+
+    def elapsed_sec(self):
+        """Return controller-owned elapsed time including prior pause segments."""
+        return self._effective_elapsed()
+
+    def remaining_sec(self):
+        """Return controller-owned remaining time for the active timed phase.
+
+        None means there is no active phase or the phase has no fixed duration.
+        The UI must not synthesize this value from a separate duration guess.
+        """
+        phase = self.current_phase
+        duration = getattr(phase, "duration_sec", None) if phase is not None else None
+        if duration is None:
+            return None
+        try:
+            duration = float(duration)
+            elapsed = self._effective_elapsed()
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if duration < 0:
+            return None
+        return max(0.0, duration - elapsed)
 
     def _execute_standard_phase(self, phase, resume_elapsed=0.0):
         while self.running and self._effective_elapsed() < phase.duration_sec:
@@ -299,6 +331,9 @@ class BreakinController:
                 time.sleep(self.CONTROL_INTERVAL_SEC)
                 continue
             measurement = self._collect_measurement(phase)
+            if measurement is None:
+                time.sleep(self.CONTROL_INTERVAL_SEC)
+                continue
             if phase.control == "VOLTAGE" and phase.target_voltage is not None:
                 self._voltage_control(phase, measurement)
             elif phase.control == "VOLTAGE_RAMP":
@@ -390,23 +425,75 @@ class BreakinController:
 
     @classmethod
     def _current_from_measurement(cls, measurement):
-        current = cls._measurement_value(measurement, "current_avg", None)
-        if current is not None:
-            try: return abs(float(current))
-            except (TypeError, ValueError): pass
-        return max(abs(float(cls._measurement_value(measurement, "current1", 0.0) or 0.0)),
-                   abs(float(cls._measurement_value(measurement, "current2", 0.0) or 0.0)))
+        # Do not let a low firmware average mask a physical sensor spike.
+        values = []
+        for name in ("current1", "current2", "current_avg"):
+            raw = cls._measurement_value(measurement, name, None)
+            try:
+                value = float(raw)
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if math.isfinite(value):
+                values.append(abs(value))
+        return max(values, default=0.0)
 
     @staticmethod
     def _value(measurement, name, default=0.0):
         return BreakinController._measurement_value(measurement, name, default)
 
+    def _record_invalid_measurement(self, reason):
+        self.invalid_measurement_streak = int(getattr(self, "invalid_measurement_streak", 0)) + 1
+        if self.invalid_measurement_streak >= 3:
+            self.abort_reason = f"SAFETY: 3 consecutive invalid control samples ({reason})"
+            self.emergency_stop()
+            raise RuntimeError(self.abort_reason)
+
     def _voltage_control(self, phase, measurement):
-        voltage = float(self._value(measurement, "motor_voltage", 0.0) or 0.0)
-        if voltage <= 0: return
-        error = float(phase.target_voltage) - voltage
-        if abs(error) <= 0.02: return
-        new_pwm = max(phase.pwm_min, min(phase.pwm_max, self.current_pwm + int(round(self.VOLTAGE_KP * error))))
+        if phase.target_voltage is None:
+            self.invalid_measurement_streak = 0
+            return
+        target_voltage = float(phase.target_voltage)
+        direction = str(getattr(phase, "direction", "FWD") or "FWD").upper()
+        metadata = getattr(phase, "metadata", {}) or {}
+        mode = str(metadata.get(
+            "voltage_control_mode",
+            getattr(self, "benchmark_voltage_control_mode", "TERMINAL"),
+        ) or "TERMINAL").upper()
+        if mode == "INPUT":
+            field = "voltage1" if direction == "FWD" else "voltage2"
+            raw_voltage = self._value(measurement, field, None)
+            try:
+                voltage = float(raw_voltage)
+            except (TypeError, ValueError, OverflowError):
+                voltage = float("nan")
+            if raw_voltage is None or not math.isfinite(voltage) or not 0.0 <= voltage <= 12.0:
+                if target_voltage <= 0:
+                    self.invalid_measurement_streak = 0
+                    return
+                self._record_invalid_measurement(f"invalid INPUT feedback {field}")
+                return
+        else:
+            raw_voltage = self._value(measurement, "motor_voltage", None)
+            try:
+                signed_voltage = float(raw_voltage)
+                voltage = signed_voltage if direction == "FWD" else -signed_voltage
+            except (TypeError, ValueError, OverflowError):
+                voltage = float("nan")
+        if not math.isfinite(voltage) or not math.isfinite(target_voltage):
+            if target_voltage <= 0:
+                self.invalid_measurement_streak = 0
+                return
+            self._record_invalid_measurement(f"non-finite {mode} feedback")
+            return
+        if target_voltage > 0 and voltage <= 0:
+            self._record_invalid_measurement(f"non-positive {mode} feedback")
+            return
+        self.invalid_measurement_streak = 0
+        error = target_voltage - voltage
+        if abs(error) <= 0.02:
+            return
+        new_pwm = max(phase.pwm_min, min(phase.pwm_max,
+            self.current_pwm + int(round(self.VOLTAGE_KP * error))))
         if new_pwm != self.current_pwm:
             self.current_pwm = new_pwm
             self.serial.set_pwm(new_pwm)
@@ -430,14 +517,32 @@ class BreakinController:
         return None
 
     def _collect_measurement(self, phase):
-        if not self.measurement_manager: return None
-        measurement = self.measurement_manager.collect()
-        if measurement is not None:
-            if isinstance(measurement, dict):
-                measurement["phase"] = phase
-                measurement["phase_pwm"] = self.current_pwm
-                measurement["phase_direction"] = phase.direction
-            self.measurements.append(measurement)
+        try:
+            measurement = self.measurement_manager.collect() if self.measurement_manager else None
+        except Exception as exc:
+            if self.measurement_manager is not None:
+                self.measurement_manager.last_measurement = None
+            self._record_invalid_measurement(f"measurement acquisition error: {type(exc).__name__}")
+            return None
+        if measurement is None:
+            self._record_invalid_measurement("missing or rejected DATA")
+            return None
+        control = str(getattr(phase, "control", "PWM") or "PWM").upper()
+        target = getattr(phase, "target_voltage", None)
+        ramp_start = getattr(phase, "start_voltage", None)
+        ramp_end = getattr(phase, "end_voltage", None)
+        needs_feedback = control in ("VOLTAGE", "VOLTAGE_RAMP", "BRUSH_PEAK_APPROACH") and (
+            (target is not None and float(target) > 0)
+            or (ramp_start is not None and float(ramp_start) > 0)
+            or (ramp_end is not None and float(ramp_end) > 0)
+        )
+        if not needs_feedback:
+            self.invalid_measurement_streak = 0
+        if isinstance(measurement, dict):
+            measurement["phase"] = phase
+            measurement["phase_pwm"] = self.current_pwm
+            measurement["phase_direction"] = phase.direction
+        self.measurements.append(measurement)
         return measurement
 
     def analyze(self, measurements):
@@ -456,8 +561,35 @@ class BreakinController:
             print("SERIAL STOP WARNING:", exc)
 
     def emergency_stop(self):
+        """Request serial stop even if checkpoint persistence fails.
+
+        Returned details describe software/serial attempts, not physical motor
+        state. Physical stop must remain unconfirmed until independently checked.
+        """
+        self.emergency_stop_latched = True
         self.running = False
         self.paused = False
-        self._save_checkpoint()
-        if hasattr(self.serial, "emergency_stop"): self.serial.emergency_stop()
-        else: self.stop()
+        outcome = {"checkpoint_saved": False, "serial_stop_attempted": False,
+                   "serial_result": None, "errors": []}
+        if self.measurement_manager is not None:
+            self.measurement_manager.last_measurement = None
+        try:
+            self._save_checkpoint()
+            outcome["checkpoint_saved"] = True
+        except Exception as exc:
+            outcome["errors"].append(f"checkpoint: {type(exc).__name__}: {exc}")
+        try:
+            self.clear_checkpoint()
+        except Exception as exc:
+            outcome["errors"].append(f"checkpoint clear: {type(exc).__name__}: {exc}")
+        try:
+            outcome["serial_stop_attempted"] = True
+            if hasattr(self.serial, "emergency_stop"):
+                outcome["serial_result"] = self.serial.emergency_stop()
+            else:
+                self.stop()
+                outcome["serial_result"] = "fallback stop attempted"
+        except Exception as exc:
+            outcome["errors"].append(f"serial stop: {type(exc).__name__}: {exc}")
+        self.last_emergency_stop_result = outcome
+        return outcome

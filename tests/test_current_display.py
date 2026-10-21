@@ -1,0 +1,62 @@
+from types import SimpleNamespace
+
+import pytest
+
+from controllers.current_display import format_driver_input_current, format_input_voltage, format_motor_voltage
+
+
+@pytest.mark.parametrize(
+    ("direction", "expected"),
+    [("FWD", "1.23 V"), ("REV", "4.56 V")],
+)
+def test_input_voltage_uses_physical_input_for_direction(direction, expected):
+    measurement = SimpleNamespace(
+        direction=direction,
+        voltage1=1.234,
+        voltage2=4.556,
+        motor_voltage=-3.322,
+    )
+    assert format_input_voltage(measurement) == expected
+
+
+def test_input_voltage_prefers_active_phase_direction():
+    measurement = SimpleNamespace(direction="FWD", voltage1=1.2, voltage2=4.5)
+    assert format_input_voltage(measurement, "REV") == "4.50 V"
+
+
+@pytest.mark.parametrize("measurement", [None, SimpleNamespace(direction="SIDEWAYS")])
+def test_input_voltage_is_unavailable_without_valid_direction(measurement):
+    assert format_input_voltage(measurement) == "--"
+
+
+@pytest.mark.parametrize("value", [None, "bad", float("nan"), float("inf")])
+def test_input_voltage_rejects_missing_invalid_or_non_finite_values(value):
+    measurement = SimpleNamespace(direction="FWD", voltage1=value, voltage2=2.0)
+    assert format_input_voltage(measurement) == "--"
+
+
+def test_driver_input_current_uses_current1_from_acs712_one():
+    # Wiring defines ACS712 #1/A0 as driver input-path current.
+    assert format_driver_input_current(SimpleNamespace(current1=0.1234, current_avg=0.4567)) == "0.123 A"
+    assert format_driver_input_current(SimpleNamespace(current1=0.0)) == "0.000 A"
+
+
+def test_driver_input_current_preserves_real_zero_and_missing_as_placeholder():
+    assert format_driver_input_current(SimpleNamespace(current1=0.0)) == "0.000 A"
+    assert format_driver_input_current(None) == "--"
+    assert format_driver_input_current(SimpleNamespace(current_avg=0.5)) == "--"
+
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [(-3.125, "-3.12 V"), (0.0, "0.00 V"), (3.125, "3.12 V")],
+)
+def test_motor_voltage_preserves_signed_raw_value(value, expected):
+    assert format_motor_voltage(SimpleNamespace(motor_voltage=value)) == expected
+
+
+@pytest.mark.parametrize("value", [None, "bad", float("nan"), float("inf")])
+def test_motor_voltage_shows_placeholder_for_missing_or_invalid_value(value):
+    assert format_motor_voltage(SimpleNamespace(motor_voltage=value)) == "--"
+    assert format_motor_voltage(None) == "--"
