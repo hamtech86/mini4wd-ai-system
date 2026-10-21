@@ -491,6 +491,13 @@ class BreakinController:
             # Checkpoint persistence must never gate the independent stop path.
             print("EMERGENCY STOP WARNING (checkpoint):", exc)
 
+        # An emergency stop is not resumable. Clear the saved continuation so
+        # a later application launch cannot silently restart a stopped recipe.
+        try:
+            self.clear_checkpoint()
+        except Exception as exc:
+            print("EMERGENCY STOP WARNING (checkpoint clear):", exc)
+
         try:
             if hasattr(self.serial, "emergency_stop"):
                 return self.serial.emergency_stop()
