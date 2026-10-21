@@ -30,10 +30,10 @@ def test_main_window_builds_offscreen_without_hardware_connection(monkeypatch, t
             "STD-T", "Full-T", "STD-I", "Full-I"
         }
         assert window.emergency_stop_fixed.isEnabled()
-        assert not window.sequence_all.isVisible()
-        assert not window.sequence_none.isVisible()
-        assert not window.sequence_execute.isVisible()
-        assert not window.sequence_stop.isVisible()
+        assert window.sequence_all.isHidden()
+        assert window.sequence_none.isHidden()
+        assert window.sequence_execute.isHidden()
+        assert window.sequence_stop.isHidden()
         assert not hasattr(window, "sequence_executor")
         assert not hasattr(window, "sequence_timer")
         assert window.ui_log.isReadOnly()
