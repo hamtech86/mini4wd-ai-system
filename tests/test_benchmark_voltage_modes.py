@@ -44,7 +44,7 @@ def test_input_mode_reverse_uses_voltage2():
     controller.current_pwm = 100
     controller.benchmark_voltage_control_mode = "INPUT"
     phase = BreakinPhase("TEST", duration_sec=1, pwm=100, direction="REV",
-                         control_mode="VOLTAGE", target_voltage=3.0,
+                         control="VOLTAGE", target_voltage=3.0,
                          pwm_min=0, pwm_max=255)
     measurement = SimpleNamespace(voltage1=2.5, voltage2=2.0, motor_voltage=-2.5)
 
@@ -59,7 +59,7 @@ def test_terminal_mode_uses_direction_normalized_motor_voltage():
     controller.current_pwm = 100
     controller.benchmark_voltage_control_mode = "TERMINAL"
     phase = BreakinPhase("TEST", duration_sec=1, pwm=100, direction="REV",
-                         control_mode="VOLTAGE", target_voltage=3.0,
+                         control="VOLTAGE", target_voltage=3.0,
                          pwm_min=0, pwm_max=255)
     measurement = SimpleNamespace(voltage1=2.5, voltage2=2.0, motor_voltage=-2.5)
 
