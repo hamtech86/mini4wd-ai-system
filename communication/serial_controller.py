@@ -47,6 +47,7 @@ class SerialController:
         self._command_lock = threading.RLock()
         self._emergency_stop_latched = False
         self._emergency_stop_requested = threading.Event()
+        self._emergency_stop_generation = 0
         self._active_arm_token = None
 
     @property
@@ -220,6 +221,7 @@ class SerialController:
         # Publish the stop request before waiting for any in-flight serial operation.
         # Commands check this event under the command lock; an already-started
         # write may finish, but no later drive command may begin after the request.
+        self._emergency_stop_generation = getattr(self, "_emergency_stop_generation", 0) + 1
         self._ensure_stop_event().set()
         with self._ensure_command_lock():
             self._emergency_stop_latched = True
@@ -274,6 +276,7 @@ class SerialController:
     def arm(self):
         """Explicitly authorize one run with a fresh token; this command never drives."""
         with self._ensure_command_lock():
+            stop_generation = getattr(self, "_emergency_stop_generation", 0)
             if not (self.connected and self.serial and self.identity_verified):
                 self.identity_error = "ARM blocked: connected, verified MOTOR_BREAKIN_V3 identity required."
                 return False
@@ -284,6 +287,12 @@ class SerialController:
             if result is False or not self._wait_for_command_ack(expected='ARMED,' + token, timeout=1.0):
                 self._active_arm_token = None
                 self.identity_error = "ARM was not acknowledged by firmware; drive remains blocked."
+                return False
+            # A STOP request is published before it waits for this lock. If one
+            # arrived during the acknowledgement wait, never erase it here.
+            if getattr(self, "_emergency_stop_generation", 0) != stop_generation:
+                self._active_arm_token = None
+                self.identity_error = "ARM cancelled: emergency STOP arrived during ARM handshake."
                 return False
             self._active_arm_token = token
             # Measurement capture starts after ARM, immediately before the first
