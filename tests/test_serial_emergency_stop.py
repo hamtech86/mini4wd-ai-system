@@ -584,7 +584,8 @@ def test_serial_controller_arm_does_not_clear_stop_arriving_during_ack():
     assert controller._emergency_stop_requested.is_set()
     assert controller._emergency_stop_latched is True
     assert controller._active_arm_token is None
-    assert fake.writes == [b"ARM=" + fake.writes[0].split(b"=", 1)[1]] + [b"PWM=0\n", b"STOP\n"]
+    assert fake.writes[0].startswith(b"ARM=")
+    assert fake.writes[1:] == [b"PWM=0\n", b"STOP\n"]
     assert fake.closed is True
 
 
