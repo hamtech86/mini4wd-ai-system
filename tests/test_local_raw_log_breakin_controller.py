@@ -132,3 +132,59 @@ def test_consecutive_benchmarks_reset_raw_log_persistence_state(tmp_path):
     assert len(library.registered) == 2
     assert controller._measurement_raw_log_parts == []
     assert controller._registered_raw_log_ids == ["MOTOR-000002"]
+
+
+def test_regular_recipe_start_after_benchmark_clears_all_benchmark_sidecar_state(
+    tmp_path, monkeypatch
+):
+    from types import SimpleNamespace
+    from controllers.breakin_controller import BreakinController
+    from controllers.motor_benchmark import FULL_PACKAGE
+
+    serial = FakeSerial()
+    library = FakeLibrary(tmp_path)
+    controller = LocalRawLogBreakinController(
+        serial_controller=serial,
+        raw_log_library=library,
+    )
+
+    # Simulate a benchmark run on this same controller immediately before
+    # TuneBasic starts. The new run must not inherit benchmark metadata or ID.
+    controller.selected_benchmark_type = FULL_PACKAGE
+    controller.selected_benchmark_voltage_mode = "INPUT"
+    controller.benchmark_voltage_control_mode = "INPUT"
+    controller.benchmark_type = FULL_PACKAGE
+    controller.benchmark_purpose = "MOTOR_BENCHMARK"
+    controller.benchmark_baseline_pwm = 91
+    controller.last_raw_log_id = "MOTOR-000099"
+    controller.last_raw_log_path = "stale/path"
+    controller._registered_raw_log_ids = ["MOTOR-000099"]
+    controller._measurement_raw_log_parts = ["STALE BENCHMARK BODY\\n"]
+
+    def fake_base_start(self, recipe, instance_id=None, resume=False):
+        self.active_recipe_name = str(recipe.name).upper()
+        self.active_instance_id = instance_id
+        self.session = SimpleNamespace(
+            session_id="session-tunebasic",
+            firmware_version="MOTOR_BREAKIN_V3",
+        )
+        return "recipe-result"
+
+    monkeypatch.setattr(BreakinController, "start", fake_base_start)
+
+    result = controller.start(
+        SimpleNamespace(name="TuneBasic"),
+        instance_id="INSTANCE-TUNE",
+    )
+
+    assert result == "recipe-result"
+    assert len(library.registered) == 1
+    record, raw_body = library.registered[0]
+    assert record.measurement_condition == "TUNEBASIC"
+    assert record.measurement_session_id == "session-tunebasic"
+    assert record.device_instance_id == "INSTANCE-TUNE"
+    assert record.notes == ""
+    assert raw_body == "INFO,START\\nDATA,1,2,3\\n"
+    assert controller._measurement_raw_log_parts == []
+    assert controller._registered_raw_log_ids == ["MOTOR-000001"]
+    assert controller.last_raw_log_id == "MOTOR-000001"
