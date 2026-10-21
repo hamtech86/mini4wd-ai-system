@@ -200,3 +200,21 @@ def test_stop_at_final_benchmark_phase_boundary_cannot_finish_successfully(monke
     assert "STOP" in serial.commands
     assert controller.benchmark_voltage_control_mode == "TERMINAL"
 
+def test_stop_during_benchmark_raw_log_freeze_cannot_commit_success(monkeypatch):
+    controller, serial = make_controller("TERMINAL")
+    monkeypatch.setattr(benchmark_module, "_prepare_3v", lambda *args, **kwargs: True)
+    monkeypatch.setattr(benchmark_module, "_timed_voltage", lambda *args, **kwargs: True)
+
+    def stop_during_freeze():
+        controller.emergency_stop_latched = True
+        controller.running = False
+
+    controller._freeze_measurement_raw_log = stop_during_freeze
+
+    with pytest.raises(RuntimeError, match="Emergency STOP interrupted benchmark"):
+        run_benchmark(controller, STANDARD_3V30S, voltage_control_mode="INPUT")
+
+    assert controller.running is False
+    assert controller.emergency_stop_latched is True
+    assert "STOP" in serial.commands
+
