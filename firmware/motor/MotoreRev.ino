@@ -364,7 +364,8 @@ void initializePins();
 void initializeVariables();
 
 // FUNC_104
-void calibrateACS712();
+void calibrateACS712(bool emitRecord);
+void sendCalibration();
 
 // FUNC-151
 void setState(DeviceState newState);
@@ -503,15 +504,8 @@ void loop()
     {
         runtime.elapsedTime = now - runtime.startTime;
     }
-    if(
-    (now - voltageControl.controlTimer)
-    >= VOLTAGE_CONTROL_INTERVAL_MS
-    )
-    {
-        voltageControl.controlTimer = now;
-            
-        voltageControlUpdate();
-    }
+    // Normal voltage feedback is owned by Python/UI. Firmware only executes
+    // explicit direction/PWM commands and must not run a competing loop.
 
 }
 
@@ -676,7 +670,7 @@ void initializeSystem()
 
     initializePins();
 
-    calibrateACS712();
+    calibrateACS712(true);
 
     stopMotor();
 
@@ -776,8 +770,10 @@ void initializeVariables()
 calibrateACS712()
 ********************************************************************/
 
-void calibrateACS712()
+void calibrateACS712(bool emitRecord)
 {
+    // Recalibrate only while the motor is not being driven. This is called
+    // at boot and again on ARM after STOP/READY, before the next run.
     delay(300);
 
     long sum1 = 0;
@@ -793,7 +789,18 @@ void calibrateACS712()
     ACS1_ZERO = (float)sum1 / 200.0f;
     ACS2_ZERO = (float)sum2 / 200.0f;
 
-    // Report the final zero offsets actually used for current conversion.
+    if (emitRecord)
+    {
+        // Boot-time calibration record. Per-run snapshots are emitted by
+        // sendCalibration immediately before each drive-start command.
+        sendCalibration();
+    }
+}
+
+void sendCalibration()
+{
+    // Snapshot the offsets actually used by current conversion immediately
+    // before motor drive. CAL is an auxiliary RawLog line, never DATA column 27.
     Serial.print(F("CAL,ACS1_ZERO="));
     Serial.print(ACS1_ZERO, 2);
     Serial.print(F(",ACS2_ZERO="));
@@ -915,6 +922,14 @@ void processCommand(const char *cmd)
             sendError("ARM_REFUSED");
             return;
         }
+        // Refresh zero offsets after STOP/READY while outputs are inactive.
+        // PAUSE is excluded because the motor may still be coasting.
+        if (runtime.state == STATE_STOP || runtime.state == STATE_READY ||
+            runtime.state == STATE_COMPLETE)
+        {
+            calibrateACS712(false);
+        }
+
         // Each energizing command carries this token. Stale commands from
         // previous runs carry a different token and are rejected independently.
         comm.rxIndex = 0;
@@ -986,13 +1001,26 @@ void processCommand(const char *cmd)
         if (strcmp(command, "START") == 0)
         {
             runtime.paused = false;
+            sendCalibration();
             if (runtime.direction == DIR_FORWARD) startForward();
             else startReverse();
             sendOK();
             return;
         }
-        if (strcmp(command, "FWD") == 0) { startForward(); sendOK(); return; }
-        if (strcmp(command, "REV") == 0) { startReverse(); sendOK(); return; }
+        if (strcmp(command, "FWD") == 0)
+        {
+            sendCalibration();
+            startForward();
+            sendOK();
+            return;
+        }
+        if (strcmp(command, "REV") == 0)
+        {
+            sendCalibration();
+            startReverse();
+            sendOK();
+            return;
+        }
         if (strcmp(command, "RESUME") == 0)
         {
             if (!runtime.running || runtime.state != STATE_PAUSE)
@@ -1000,6 +1028,7 @@ void processCommand(const char *cmd)
                 sendError("RESUME_REFUSED");
                 return;
             }
+            sendCalibration();
             runtime.paused = false;
             setState(STATE_RUN);
             sendOK();
