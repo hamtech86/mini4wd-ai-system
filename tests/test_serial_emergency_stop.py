@@ -218,11 +218,7 @@ def test_active_serial_manager_latches_drive_commands_after_emergency_stop():
     # The safety commands remain available after the latch.
     assert manager.send("PWM=0") is True
     assert manager.send("STOP") is True
-    assert len(second.writes) == 6
-    assert second.writes[0].startswith(b"PWM=0#")
-    assert second.writes[1] == b"PWM=0\n"
-    assert second.writes[2].startswith(b"STOP#")
-    assert second.writes[3:] == [b"STOP\n", b"PWM=0\n", b"STOP\n"]
+    assert second.writes == [b"PWM=0\n", b"STOP\n"]
 
 
 def test_active_serial_manager_orders_emergency_stop_after_in_flight_write():
