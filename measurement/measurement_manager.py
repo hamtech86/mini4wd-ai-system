@@ -77,6 +77,12 @@ class MeasurementManager:
                 and raw["state"].strip().upper() not in ("RUN", "RUNNING")
             )
             if not is_non_running_data:
+                # After observing startup telemetry, an empty serial poll is
+                # expected while waiting for the next 100 ms DATA frame. Keep
+                # waiting only inside that already-started bounded window.
+                if deadline is not None and raw is None and time.monotonic() < deadline:
+                    time.sleep(self.NON_RUNNING_POLL_SEC)
+                    continue
                 # Never reuse a previous valid sample after a missing/rejected frame.
                 self.last_measurement = None
                 return None
