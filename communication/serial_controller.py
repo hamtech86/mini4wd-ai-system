@@ -284,7 +284,8 @@ class SerialController:
                 return True
             token = secrets.token_hex(4).upper()
             result = self.send_command("ARM=" + token)
-            if result is False or not self._wait_for_command_ack(expected='ARMED,' + token, timeout=1.0):
+            # Firmware samples 200 ACS712 readings before ARMED; allow that bounded calibration time.
+            if result is False or not self._wait_for_command_ack(expected='ARMED,' + token, timeout=2.0):
                 self._active_arm_token = None
                 self.identity_error = "ARM was not acknowledged by firmware; drive remains blocked."
                 return False
