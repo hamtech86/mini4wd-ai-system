@@ -416,11 +416,19 @@ class SerialManager(QObject):
                 # Always issue STOP even if PWM=0 acknowledgement timed out.
                 # If the first ACK was missing, do not claim STOP acknowledgement:
                 # an uncorrelated delayed PWM=0 OK could otherwise be misreported.
+                # Arm the response observer before writing STOP so a fast
+                # Arduino response cannot arrive between write() and wait().
+                self._stop_response_event.clear()
+                self._stop_response_status = None
+                self._awaiting_stop_response = True
                 outcome["stop_command"] = self.send(CMD_STOP)
                 if not outcome["stop_command"]:
                     outcome["errors"].append("STOP command write failed.")
                 elif outcome["pwm_zero_ack"]:
-                    outcome["stop_ack"] = self._wait_for_stop_ack_only()
+                    acknowledged = self._stop_response_event.wait(self.STOP_ACK_TIMEOUT_SEC)
+                    outcome["stop_ack"] = bool(
+                        acknowledged and self._stop_response_status == "OK"
+                    )
                     if not outcome["stop_ack"]:
                         outcome["errors"].append("STOP firmware ACK not received before timeout.")
                 else:
