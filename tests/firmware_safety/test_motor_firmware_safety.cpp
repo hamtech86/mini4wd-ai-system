@@ -71,6 +71,25 @@ int main() {
     assert(!driveArmed);
     assert(!runtime.running);
 
+    // Nonce-correlated safety commands are accepted without an ARM token.
+    // PWM=0 preserves RUN state but forces the output low; correlated STOP
+    // then stops the runtime and revokes the arm token.
+    processCommand("ARM=ABCDEF12");
+    processCommand("FWD@ABCDEF12");
+    assert(runtime.running);
+    runtime.pwm = 80;
+    mock_analog_write[PIN_PWM] = 80;
+    processCommand("PWM=0#TESTNONCE");
+    assert(runtime.running);
+    assert(runtime.pwm == 0);
+    assert(mock_analog_write[PIN_PWM] == 0);
+    processCommand("STOP#TESTNONCE");
+    assert(runtime.state == STATE_STOP);
+    assert(!runtime.running);
+    assert(!driveArmed);
+    assert(runtime.pwm == 0);
+    assert(mock_analog_write[PIN_PWM] == 0);
+
     // A periodic legacy update must not restore PWM after STOP.
     runtime.state = STATE_STOP;
     runtime.running = false;
