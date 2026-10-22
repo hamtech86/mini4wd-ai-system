@@ -10,6 +10,11 @@ def test_command_response_is_ignored_when_no_stop_ack_is_pending():
 
     assert not manager._stop_response_event.is_set()
 
+    manager._pending_stop_command = "STOP#NEWNONCE"
+    manager._awaiting_stop_response = True
+    manager._observe_identity({"record_type": "COMMAND_RESPONSE", "value": "OK,STOP#OLDNONCE"})
+    assert not manager._stop_response_event.is_set()
+
 
 def test_pwm_zero_and_stop_acknowledgements_are_correlated_in_order(monkeypatch):
     manager = SerialManager()
