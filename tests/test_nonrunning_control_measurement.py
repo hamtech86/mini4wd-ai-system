@@ -31,3 +31,19 @@ def test_running_frame_remains_a_valid_control_measurement():
     parsed = manager._parse_frame(data_frame("RUN"))
     assert parsed is not None
     assert parsed["state"] == "RUN"
+
+def test_collect_waits_for_run_after_ready_frame():
+    class SerialSequence:
+        def __init__(self):
+            self.frames = [data_frame("READY"), data_frame("RUN")]
+
+        def read_measurement(self):
+            if self.frames:
+                return self.frames.pop(0)
+            return None
+
+    manager = MeasurementManager(serial_controller=SerialSequence())
+    measurement = manager.collect()
+
+    assert measurement is not None
+    assert measurement.state == "RUN"
