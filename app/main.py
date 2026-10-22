@@ -597,9 +597,33 @@ class MainWindow(BaseMainWindow):
 
 
 
+def build_application_context():
+    """Construct application services without opening either serial port.
+
+    Connection to the motor or battery device remains an explicit operator
+    action from the UI; creating the transport objects does not connect them.
+    """
+    serial_controller = SerialController()
+    analysis_engine = AnalysisEngine(str(PROJECT_ROOT / "config"))
+    session_controller = SessionController()
+    application_builder = ApplicationBuilder(
+        serial_controller=serial_controller,
+        analysis_engine=analysis_engine,
+        session_manager=session_controller,
+    )
+    breakin_controller = application_builder.build_breakin_controller()
+    return {
+        "serial_controller": serial_controller,
+        "breakin_controller": breakin_controller,
+        "battery_serial_controller": BatterySerial(),
+    }
+
+
 if __name__ == "__main__":
-    # Launch this integrated subclass, not ui.main_window.MainWindow.
+    # Launch the integrated UI with its services wired, but do not connect
+    # to hardware until the operator explicitly selects CONNECT.
     app = QApplication.instance() or QApplication(sys.argv)
-    window = MainWindow()
+    context = build_application_context()
+    window = MainWindow(context=context)
     window.show()
     raise SystemExit(app.exec_())
