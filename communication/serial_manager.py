@@ -384,14 +384,19 @@ class SerialManager(QObject):
         self._pending_stop_command = correlated_command
         self._awaiting_stop_response = True
         sent = self.send(correlated_command)
-        if not sent:
+        # Compatibility fallback: older firmware does not understand the
+        # nonce-bearing command. The legacy command is also non-driving and
+        # remains safe; its plain OK is deliberately never counted as a
+        # correlated acknowledgement.
+        legacy_sent = self.send(command)
+        if not sent and not legacy_sent:
             self._awaiting_stop_response = False
             self._pending_stop_command = None
             return False, False
         acknowledged = self._stop_response_event.wait(self.STOP_ACK_TIMEOUT_SEC)
         self._awaiting_stop_response = False
         self._pending_stop_command = None
-        return True, bool(
+        return bool(sent or legacy_sent), bool(
             acknowledged and self._stop_response_status == "OK," + correlated_command
         )
 
@@ -431,7 +436,11 @@ class SerialManager(QObject):
                 self._stop_response_status = None
                 self._pending_stop_command = correlated_stop
                 self._awaiting_stop_response = True
-                outcome["stop_command"] = self.send(correlated_stop)
+                correlated_stop_sent = self.send(correlated_stop)
+                # Always follow with the legacy STOP as a safe compatibility
+                # fallback. Only the nonce echo can satisfy stop_ack.
+                legacy_stop_sent = self.send(CMD_STOP)
+                outcome["stop_command"] = bool(correlated_stop_sent or legacy_stop_sent)
                 if not outcome["stop_command"]:
                     outcome["errors"].append("STOP command write failed.")
                 elif outcome["pwm_zero_ack"]:
