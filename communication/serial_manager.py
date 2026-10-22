@@ -300,7 +300,8 @@ class SerialManager(QObject):
                 self._pending_arm_token = None
                 self._active_arm_token = None
                 return False
-            acknowledged = self._arm_response_event.wait(timeout=1.0)
+            # Firmware samples 200 ACS712 readings before ARMED; allow that bounded calibration time.
+            acknowledged = self._arm_response_event.wait(timeout=2.0)
             self._awaiting_arm_response = False
             self._pending_arm_token = None
             if not acknowledged or self._arm_response_status != "ARMED," + token:
