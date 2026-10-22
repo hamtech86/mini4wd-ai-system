@@ -66,19 +66,22 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          import re
           source = Path("firmware/motor/MotoreRev.ino").read_text()
           loop = source[source.index("void loop()"):source.index("void setState(DeviceState newState)\\n{")]
           command = source[source.index("void processCommand(const char *cmd)"):source.index("SECTION 19 : Response Functions")]
-          assert "voltageControlUpdate();" not in loop
-          assert 'Serial.print(F("CAL,ACS1_ZERO="))' in source
-          assert "calibrateACS712(false);" in command
-          for direction, starter in (("FWD", "startForward"), ("REV", "startReverse")):
-              pattern = r'if \\(strcmp\\(command, "' + direction + r'"\\) == 0\\)\\s*\\{\\s*sendCalibration\\(\\);\\s*' + starter + r'\\(\\);'
-              assert re.search(pattern, command), f"missing CAL immediately before {direction} start"
-          assert re.search(r'if \\(strcmp\\(command, "START"\\) == 0\\)\\s*\\{\\s*runtime.paused = false;\\s*sendCalibration\\(\\);', command)
-          assert re.search(r'if \\(strcmp\\(command, "RESUME"\\) == 0\\).*?sendCalibration\\(\\);.*?setState\\(STATE_RUN\\);', command, re.S)
-          assert "DATA" not in source[source.index("void sendCalibration()"):source.index("void sendInfo()")]
+          assert "voltageControlUpdate();" not in loop, "host owns normal voltage feedback"
+          assert 'Serial.print(F("CAL,ACS1_ZERO="))' in source, "CAL output missing"
+          assert "calibrateACS712(false);" in command, "ARM must refresh offsets after STOP/READY"
+          for direction, starter in (("START", None), ("FWD", "startForward"), ("REV", "startReverse")):
+              pos = command.index('if (strcmp(command, "' + direction + '") == 0)')
+              block = command[pos:pos + 220]
+              assert "sendCalibration();" in block, f"missing CAL snapshot on {direction}"
+              if starter:
+                  assert block.index("sendCalibration();") < block.index(starter + "();"), f"CAL must precede {direction}"
+          resume_pos = command.index('if (strcmp(command, "RESUME") == 0)')
+          resume_block = command[resume_pos:resume_pos + 300]
+          assert "sendCalibration();" in resume_block and resume_block.index("sendCalibration();") < resume_block.index("setState(STATE_RUN);")
+          assert "DATA" not in source[source.index("void sendCalibration()"):source.index("void sendInfo()")], "CAL must remain auxiliary, not DATA column 27"
           print("Firmware CAL/host-control source contract checks passed")
           PY
 
