@@ -15,8 +15,8 @@ def test_pwm_zero_and_stop_acknowledgements_are_correlated_in_order(monkeypatch)
     manager = SerialManager()
 
     def send_and_ack(command):
-        if command in ("PWM=0", "STOP"):
-            manager._observe_identity({"record_type": "COMMAND_RESPONSE", "value": "OK"})
+        if command.startswith("PWM=0#") or command.startswith("STOP#"):
+            manager._observe_identity({"record_type": "COMMAND_RESPONSE", "value": "OK," + command})
             return True
         return False
 
@@ -36,12 +36,12 @@ def test_stop_ack_is_not_claimed_when_pwm_zero_ack_is_missing(monkeypatch):
     manager = SerialManager()
 
     def send_with_missing_pwm_ack(command):
-        if command == "STOP":
-            # This OK is observed, but cannot be distinguished from a delayed
-            # PWM=0 response when the first acknowledgement never arrived.
-            manager._observe_identity({"record_type": "COMMAND_RESPONSE", "value": "OK"})
+        if command.startswith("STOP#"):
+            # Even a correctly correlated STOP ACK cannot compensate for the
+            # missing PWM=0 ACK: the full two-step handshake is incomplete.
+            manager._observe_identity({"record_type": "COMMAND_RESPONSE", "value": "OK," + command})
             return True
-        if command == "PWM=0":
+        if command.startswith("PWM=0#"):
             return True
         return False
 
@@ -54,4 +54,4 @@ def test_stop_ack_is_not_claimed_when_pwm_zero_ack_is_missing(monkeypatch):
     assert result["pwm_zero_ack"] is False
     assert result["stop_command"] is True
     assert result["stop_ack"] is False
-    assert any("cannot be safely correlated" in error for error in result["errors"])
+    assert any("PWM=0 firmware ACK not received" in error for error in result["errors"])
