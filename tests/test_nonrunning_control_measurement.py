@@ -35,7 +35,7 @@ def test_running_frame_remains_a_valid_control_measurement():
 def test_collect_waits_for_run_after_ready_frame():
     class SerialSequence:
         def __init__(self):
-            self.frames = [data_frame("READY"), data_frame("RUN")]
+            self.frames = [data_frame("READY"), None, data_frame("RUN")]
 
         def read_measurement(self):
             if self.frames:
