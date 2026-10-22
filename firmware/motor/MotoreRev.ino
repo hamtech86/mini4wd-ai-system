@@ -51,9 +51,9 @@
  * SECTION 03 : System Configuration
  ********************************************************************/
 
-constexpr char FW_VERSION[]   = "3.02";
-// Unique identifier for the firmware build used in hardware verification logs.
-constexpr char FW_BUILD_ID[]  = "EXPLICIT-ARM-20261022-01";
+constexpr char FW_VERSION[]   = "3.03";
+// Unique identifier for command-correlated emergency-stop acknowledgements.
+constexpr char FW_BUILD_ID[]  = "EXPLICIT-ARM-STOP-ACK-20261023-01";
 constexpr char DEVICE_TYPE[]  = "MOTOR";
 constexpr char DEVICE_MODEL[] = "MOTOR_BREAKIN_V3";
 
@@ -388,6 +388,7 @@ void sendStatus();
 
 // FUNC-205
 void sendOK();
+void sendCommandAck(const char *command);
 
 // FUNC-206
 void sendError(const char *message);
@@ -902,6 +903,27 @@ void processCommand(const char *cmd)
     if (strcmp(cmd, "STATUS") == 0) { sendStatus(); return; }
     if (strcmp(cmd, "PING") == 0) { Serial.println(F("PONG")); return; }
 
+    // Correlated non-driving safety commands. The caller supplies a fresh
+    // nonce so a delayed acknowledgement from an older command cannot satisfy
+    // the current emergency-stop handshake.
+    if (strncmp(cmd, "STOP#", 5) == 0 && strlen(cmd) > 5)
+    {
+        stopMotor();
+        driveArmed = false;
+        activeArmToken[0] = '\\0';
+        setState(STATE_STOP);
+        sendLog();
+        sendCommandAck(cmd);
+        return;
+    }
+    if (strncmp(cmd, "PWM=0#", 6) == 0 && strlen(cmd) > 6)
+    {
+        runtime.pwm = 0;
+        analogWrite(PIN_PWM, 0);
+        sendCommandAck(cmd);
+        return;
+    }
+
     // ARM is a non-driving, explicit authorization boundary. It is accepted
     // only while stopped, and the token is required on every later drive command.
     if (strncmp(cmd, "ARM=", 4) == 0)
@@ -1211,6 +1233,12 @@ Serial.print(runtime.pwm);
 void sendOK()
 {
     Serial.println(F("OK"));
+}
+
+void sendCommandAck(const char *command)
+{
+    Serial.print(F("OK,"));
+    Serial.println(command);
 }
 
 /********************************************************************
