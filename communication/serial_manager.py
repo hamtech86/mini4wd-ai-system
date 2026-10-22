@@ -381,10 +381,10 @@ class SerialManager(QObject):
         sent = self.send(command)
         if not sent:
             self._awaiting_stop_response = False
-            return False
+            return False, False
         acknowledged = self._stop_response_event.wait(self.STOP_ACK_TIMEOUT_SEC)
         self._awaiting_stop_response = False
-        return bool(acknowledged and self._stop_response_status == "OK")
+        return True, bool(acknowledged and self._stop_response_status == "OK")
 
     def emergency_stop(self):
         """Attempt PWM=0 and STOP; report writes and firmware ACKs separately.
@@ -404,8 +404,7 @@ class SerialManager(QObject):
         with self._command_lock:
             self._emergency_stop_latched = True
             try:
-                outcome["pwm_zero"] = self._send_stop_command_and_wait_ack(f"{CMD_PWM}0")
-                outcome["pwm_zero_ack"] = outcome["pwm_zero"]
+                outcome["pwm_zero"], outcome["pwm_zero_ack"] = self._send_stop_command_and_wait_ack(f"{CMD_PWM}0")
                 if not outcome["pwm_zero_ack"]:
                     outcome["errors"].append(
                         "PWM=0 firmware ACK not received; any later plain OK cannot be safely correlated."
