@@ -375,9 +375,8 @@ class SerialManager(QObject):
     def _send_stop_command_and_wait_ack(self, command):
         """Send a non-driving stop command and await its fresh firmware response.
 
-        Firmware replies with a plain OK (not a command ID). To avoid falsely
-        attributing a delayed PWM=0 response to STOP, STOP is only reported as
-        acknowledged when the preceding PWM=0 response was received first.
+        Firmware echoes the unique nonce-bearing command in its OK response.
+        Legacy plain OK responses cannot satisfy this handshake.
         """
         correlated_command = f"{command}#{secrets.token_hex(4).upper()}"
         self._stop_response_event.clear()
@@ -399,9 +398,9 @@ class SerialManager(QObject):
     def emergency_stop(self):
         """Attempt PWM=0 and STOP; report writes and firmware ACKs separately.
 
-        A firmware ACK is not proof that the motor physically stopped. The
-        command response protocol has no sequence IDs, so STOP ACK is accepted
-        only after a PWM=0 ACK was received in order.
+        A firmware ACK is not proof that the motor physically stopped. Each
+        stop command carries a fresh nonce and must receive its exact echo.
+        STOP ACK is accepted only after PWM=0 ACK, preserving the two-step contract.
         """
         outcome = {
             "pwm_zero": False, "pwm_zero_ack": False,
@@ -417,14 +416,14 @@ class SerialManager(QObject):
                 outcome["pwm_zero"], outcome["pwm_zero_ack"] = self._send_stop_command_and_wait_ack(f"{CMD_PWM}0")
                 if not outcome["pwm_zero_ack"]:
                     outcome["errors"].append(
-                        "PWM=0 firmware ACK not received; any later plain OK cannot be safely correlated."
+                        "PWM=0 nonce-correlated firmware ACK not received; the stop handshake is incomplete."
                     )
             except Exception as exc:
                 outcome["errors"].append(f"PWM=0: {type(exc).__name__}: {exc}")
             try:
                 # Always issue STOP even if PWM=0 acknowledgement timed out.
-                # If the first ACK was missing, do not claim STOP acknowledgement:
-                # an uncorrelated delayed PWM=0 OK could otherwise be misreported.
+                # If the first ACK was missing, do not claim the full stop handshake:
+                # a STOP ACK alone does not prove the PWM=0 step was acknowledged.
                 # Arm the response observer before writing STOP so a fast
                 # Arduino response cannot arrive between write() and wait().
                 correlated_stop = f"STOP#{secrets.token_hex(4).upper()}"
