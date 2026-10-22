@@ -59,7 +59,7 @@ def test_stop_ack_is_not_claimed_when_pwm_zero_ack_is_missing(monkeypatch):
     assert result["pwm_zero_ack"] is False
     assert result["stop_command"] is True
     assert result["stop_ack"] is False
-    assert any("PWM=0 firmware ACK not received" in error for error in result["errors"])
+    assert any("PWM=0 nonce-correlated firmware ACK not received" in error for error in result["errors"])
 
 
 
