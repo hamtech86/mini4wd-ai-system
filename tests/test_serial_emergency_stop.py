@@ -574,6 +574,8 @@ def test_serial_controller_arm_does_not_clear_stop_arriving_during_ack():
     controller.identity_verified = True
 
     def ack_with_concurrent_stop(expected, timeout=1.0):
+        # The firmware performs a bounded ACS712 zero refresh before ARMED.
+        assert timeout == 2.0
         # Deterministically inject STOP at the acknowledgement/commit boundary.
         result = controller.emergency_stop()
         assert result["stop_command"] is True
@@ -607,6 +609,8 @@ def test_serial_manager_arm_does_not_clear_stop_arriving_during_ack():
         def set(self):
             pass
         def wait(self, timeout=None):
+            # The firmware performs a bounded ACS712 zero refresh before ARMED.
+            assert timeout == 2.0
             # STOP arrives while arm() still owns the command lock.
             result = self.manager.emergency_stop()
             assert result["stop_command"] is True
