@@ -157,3 +157,30 @@ def test_emergency_stop_attempts_serial_before_checkpoint_io():
 
     assert events == ["serial_stop", "checkpoint_save", "checkpoint_clear"]
 
+
+
+def test_repeated_emergency_stop_preserves_first_attempt_and_does_not_retry():
+    class CountingSerial:
+        def __init__(self):
+            self.calls = 0
+
+        def emergency_stop(self):
+            self.calls += 1
+            return {
+                "pwm_zero": False,
+                "stop_command": False,
+                "disconnect": True,
+                "errors": ["serial write failed"],
+            }
+
+    serial = CountingSerial()
+    controller = BreakinController(serial_controller=serial)
+
+    first = controller.emergency_stop()
+    second = controller.emergency_stop()
+
+    assert serial.calls == 1
+    assert second is first
+    assert second["serial_result"]["pwm_zero"] is False
+    assert second["serial_result"]["stop_command"] is False
+    assert second["serial_result"]["errors"] == ["serial write failed"]

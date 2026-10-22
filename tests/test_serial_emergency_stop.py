@@ -198,7 +198,11 @@ def test_active_serial_manager_latches_drive_commands_after_emergency_stop():
     assert result["pwm_zero"] is True
     assert result["stop_command"] is True
     assert result["disconnect"] is True
-    assert first.writes == [b"PWM=0\n", b"STOP\n"]
+    assert len(first.writes) == 4
+    assert first.writes[0].startswith(b"PWM=0#")
+    assert first.writes[1] == b"PWM=0\n"
+    assert first.writes[2].startswith(b"STOP#")
+    assert first.writes[3] == b"STOP\n"
     assert not first.is_open
 
     # Simulate a stale worker attempting to reuse this manager after STOP.
@@ -258,9 +262,19 @@ def test_active_serial_manager_orders_emergency_stop_after_in_flight_write():
     assert not stop_thread.is_alive()
     assert stop_result["pwm_zero"] is True
     assert stop_result["stop_command"] is True
-    assert fake.writes[:3] == [b"PWM=80@AABBCCDD\n", b"PWM=0\n", b"STOP\n"]
+    assert len(fake.writes) == 5
+    assert fake.writes[0] == b"PWM=80@AABBCCDD\n"
+    assert fake.writes[1].startswith(b"PWM=0#")
+    assert fake.writes[2] == b"PWM=0\n"
+    assert fake.writes[3].startswith(b"STOP#")
+    assert fake.writes[4] == b"STOP\n"
     assert manager.send("PWM=90") is False
-    assert fake.writes == [b"PWM=80@AABBCCDD\n", b"PWM=0\n", b"STOP\n"]
+    assert len(fake.writes) == 5
+    assert fake.writes[0] == b"PWM=80@AABBCCDD\n"
+    assert fake.writes[1].startswith(b"PWM=0#")
+    assert fake.writes[2] == b"PWM=0\n"
+    assert fake.writes[3].startswith(b"STOP#")
+    assert fake.writes[4] == b"STOP\n"
 
 
 def test_controller_stop_during_port_open_cannot_be_followed_by_late_reconnect(monkeypatch):
@@ -385,7 +399,11 @@ def test_serial_manager_emergency_stop_reports_close_failure():
     manager.serial = fake
     result = manager.emergency_stop()
 
-    assert fake.writes == [b"PWM=0\n", b"STOP\n"]
+    assert len(fake.writes) == 4
+    assert fake.writes[0].startswith(b"PWM=0#")
+    assert fake.writes[1] == b"PWM=0\n"
+    assert fake.writes[2].startswith(b"STOP#")
+    assert fake.writes[3] == b"STOP\n"
     assert result["pwm_zero"] is True
     assert result["stop_command"] is True
     assert result["disconnect"] is False
@@ -638,7 +656,11 @@ def test_serial_manager_arm_does_not_clear_stop_arriving_during_ack():
     assert manager._emergency_stop_latched is True
     assert manager._active_arm_token is None
     assert fake.writes[0].startswith(b"ARM=")
-    assert fake.writes[1:] == [b"PWM=0\n", b"STOP\n"]
+    assert len(fake.writes[1:]) == 4
+    assert fake.writes[1].startswith(b"PWM=0#")
+    assert fake.writes[2] == b"PWM=0\n"
+    assert fake.writes[3].startswith(b"STOP#")
+    assert fake.writes[4] == b"STOP\n"
     assert fake.is_open is False
 
 

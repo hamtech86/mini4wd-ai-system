@@ -36,32 +36,63 @@ class MeasurementManager:
         self.filters = FilterGroup()
         self.last_measurement: Optional[Measurement] = None
 
+    NON_RUNNING_FRAME_WAIT_SEC = 0.25
+    NON_RUNNING_POLL_SEC = 0.01
+
     def collect(self):
         """
         BreakinController interface.
         Arduino frame acquisition entry point.
+
+        READY/INIT telemetry is expected while the firmware transitions into
+        RUN. Wait briefly for a RUN frame rather than counting startup telemetry
+        as a failed control sample. The wait is bounded; absent RUN telemetry
+        still returns None and remains subject to the controller's safety limit.
         """
-        raw = None
+        deadline = None
+        parser = getattr(self.serial_controller, "parser", None) or CSVParser()
 
-        if self.serial_controller:
-            raw = self.serial_controller.read_measurement()
+        while True:
+            raw = None
+            if self.serial_controller:
+                raw = self.serial_controller.read_measurement()
 
-        if isinstance(raw, str):
-            # SerialController returns the exact DATA CSV line. Parse it using
-            # the canonical 26-column protocol parser before validation.
-            parser = getattr(self.serial_controller, "parser", None) or CSVParser()
-            try:
-                raw = parser.parse(raw)
-            except (TypeError, ValueError, OverflowError):
+            if isinstance(raw, str):
+                # SerialController returns the exact DATA CSV line. Parse it using
+                # the canonical 26-column protocol parser before validation.
+                try:
+                    raw = parser.parse(raw)
+                except (TypeError, ValueError, OverflowError):
+                    self.last_measurement = None
+                    return None
+
+            data = self._parse_frame(raw)
+            if data is not None:
+                return self.create_measurement(data)
+
+            is_non_running_data = (
+                isinstance(raw, dict)
+                and raw.get("record_type") == "DATA"
+                and isinstance(raw.get("state"), str)
+                and raw["state"].strip().upper() not in ("RUN", "RUNNING")
+            )
+            if not is_non_running_data:
+                # After observing startup telemetry, an empty serial poll is
+                # expected while waiting for the next 100 ms DATA frame. Keep
+                # waiting only inside that already-started bounded window.
+                if deadline is not None and raw is None and time.monotonic() < deadline:
+                    time.sleep(self.NON_RUNNING_POLL_SEC)
+                    continue
+                # Never reuse a previous valid sample after a missing/rejected frame.
                 self.last_measurement = None
                 return None
 
-        data = self._parse_frame(raw)
-        if data is None:
-            # Never reuse a previous valid sample after a missing/rejected frame.
-            self.last_measurement = None
-            return None
-        return self.create_measurement(data)
+            if deadline is None:
+                deadline = time.monotonic() + self.NON_RUNNING_FRAME_WAIT_SEC
+            if time.monotonic() >= deadline:
+                self.last_measurement = None
+                return None
+            time.sleep(self.NON_RUNNING_POLL_SEC)
 
     @staticmethod
     def _to_int(value, default=0):
@@ -143,6 +174,14 @@ class MeasurementManager:
         elif not isinstance(instance_id, int) or isinstance(instance_id, bool) or instance_id < 0:
             return None
         if raw["device_model"] != "MOTOR_BREAKIN_V3" or raw["direction"] not in ("FWD", "REV"):
+            return None
+
+        # Only telemetry emitted while the firmware is actively running may
+        # drive voltage-control decisions. READY frames commonly contain 0 V
+        # before the first RUN sample and must not be interpreted as failed
+        # input-voltage feedback. Preserve every original frame in RawLog;
+        # this filter applies only to the control/measurement path.
+        if str(raw["state"]).strip().upper() not in ("RUN", "RUNNING"):
             return None
 
         numeric_fields = (

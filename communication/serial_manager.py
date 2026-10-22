@@ -67,7 +67,7 @@ class SerialReader(QThread):
                 line = raw_line.rstrip("\r\n")
 
                 # Command responses are control-plane messages, not measurement RawLog.
-                if line == "OK" or line.startswith("ARMED,") or line.startswith("ERROR,"):
+                if line == "OK" or line.startswith("OK,") or line.startswith("ARMED,") or line.startswith("ERROR,"):
                     self.received.emit({"record_type": "COMMAND_RESPONSE", "value": line})
                     continue
 
@@ -124,6 +124,12 @@ class SerialManager(QObject):
         self._arm_response_status = None
         self._awaiting_arm_response = False
         self._pending_arm_token = None
+        # Emergency-stop ACKs are observed by the reader thread's direct slot.
+        # Keep separate state so STOP can wait without blocking serial reception.
+        self._stop_response_event = threading.Event()
+        self._stop_response_status = None
+        self._awaiting_stop_response = False
+        self._pending_stop_command = None
 
     @property
     def is_connected(self):
@@ -265,6 +271,12 @@ class SerialManager(QObject):
             ):
                 self._arm_response_status = value
                 self._arm_response_event.set()
+            if self._awaiting_stop_response and (
+                value == "OK," + str(self._pending_stop_command)
+                or (isinstance(value, str) and value.startswith("ERROR,"))
+            ):
+                self._stop_response_status = value
+                self._stop_response_event.set()
             return
         if data.get("record_type") != "INFO":
             return
@@ -327,8 +339,10 @@ class SerialManager(QObject):
         """Send safe commands normally; drive commands require explicit ARM."""
         with self._command_lock:
             normalized = str(command).strip().upper()
-            drive_command = normalized in ("START", "FWD", "REV", "RESUME") or (
-                normalized.startswith("PWM=") and normalized != "PWM=0"
+            correlated_stop_command = normalized.startswith("STOP#") or normalized.startswith("PWM=0#")
+            drive_command = not correlated_stop_command and (
+                normalized in ("START", "FWD", "REV", "RESUME") or
+                (normalized.startswith("PWM=") and normalized != "PWM=0")
             )
             is_arm = normalized.startswith("ARM=")
             if drive_command and (self._stop_requested() or not self._active_arm_token):
@@ -348,7 +362,7 @@ class SerialManager(QObject):
                     wire_command += "@" + self._active_arm_token
                 self.serial.write((wire_command + "\n").encode("utf-8"))
                 logger.debug(f"TX : {wire_command}")
-                if normalized == "STOP":
+                if normalized == "STOP" or normalized.startswith("STOP#"):
                     self._active_arm_token = None
                 return True
             except Exception as e:
@@ -356,23 +370,93 @@ class SerialManager(QObject):
                 self.error.emit(str(e))
                 return False
 
+    STOP_ACK_TIMEOUT_SEC = 0.75
+
+    def _send_stop_command_and_wait_ack(self, command):
+        """Send a non-driving stop command and await its fresh firmware response.
+
+        Firmware echoes the unique nonce-bearing command in its OK response.
+        Legacy plain OK responses cannot satisfy this handshake.
+        """
+        correlated_command = f"{command}#{secrets.token_hex(4).upper()}"
+        self._stop_response_event.clear()
+        self._stop_response_status = None
+        self._pending_stop_command = correlated_command
+        self._awaiting_stop_response = True
+        sent = self.send(correlated_command)
+        # Compatibility fallback: older firmware does not understand the
+        # nonce-bearing command. The legacy command is also non-driving and
+        # remains safe; its plain OK is deliberately never counted as a
+        # correlated acknowledgement.
+        legacy_sent = self.send(command)
+        if not sent and not legacy_sent:
+            self._awaiting_stop_response = False
+            self._pending_stop_command = None
+            return False, False
+        acknowledged = self._stop_response_event.wait(self.STOP_ACK_TIMEOUT_SEC)
+        self._awaiting_stop_response = False
+        self._pending_stop_command = None
+        return bool(sent or legacy_sent), bool(
+            acknowledged and self._stop_response_status == "OK," + correlated_command
+        )
+
     def emergency_stop(self):
-        """Serialize PWM=0 and STOP, then block all later drive commands."""
-        outcome = {"pwm_zero": False, "stop_command": False, "disconnect": False, "errors": []}
-        # Signal immediately; do not wait for connect/INFO or an in-flight write
-        # before blocking new drive commands.
+        """Attempt PWM=0 and STOP; report writes and firmware ACKs separately.
+
+        A firmware ACK is not proof that the motor physically stopped. Each
+        stop command carries a fresh nonce and must receive its exact echo.
+        STOP ACK is accepted only after PWM=0 ACK, preserving the two-step contract.
+        """
+        outcome = {
+            "pwm_zero": False, "pwm_zero_ack": False,
+            "stop_command": False, "stop_ack": False,
+            "disconnect": False, "errors": []
+        }
+        # Signal immediately before waiting on the command lock.
         self._emergency_stop_generation += 1
         self._emergency_stop_requested.set()
         with self._command_lock:
             self._emergency_stop_latched = True
             try:
-                outcome["pwm_zero"] = self.send(f"{CMD_PWM}0")
+                outcome["pwm_zero"], outcome["pwm_zero_ack"] = self._send_stop_command_and_wait_ack(f"{CMD_PWM}0")
+                if not outcome["pwm_zero_ack"]:
+                    outcome["errors"].append(
+                        "PWM=0 nonce-correlated firmware ACK not received; the stop handshake is incomplete."
+                    )
             except Exception as exc:
                 outcome["errors"].append(f"PWM=0: {type(exc).__name__}: {exc}")
             try:
-                outcome["stop_command"] = self.send(CMD_STOP)
+                # Always issue STOP even if PWM=0 acknowledgement timed out.
+                # If the first ACK was missing, do not claim the full stop handshake:
+                # a STOP ACK alone does not prove the PWM=0 step was acknowledged.
+                # Arm the response observer before writing STOP so a fast
+                # Arduino response cannot arrive between write() and wait().
+                correlated_stop = f"STOP#{secrets.token_hex(4).upper()}"
+                self._stop_response_event.clear()
+                self._stop_response_status = None
+                self._pending_stop_command = correlated_stop
+                self._awaiting_stop_response = True
+                correlated_stop_sent = self.send(correlated_stop)
+                # Always follow with the legacy STOP as a safe compatibility
+                # fallback. Only the nonce echo can satisfy stop_ack.
+                legacy_stop_sent = self.send(CMD_STOP)
+                outcome["stop_command"] = bool(correlated_stop_sent or legacy_stop_sent)
+                if not outcome["stop_command"]:
+                    outcome["errors"].append("STOP command write failed.")
+                elif outcome["pwm_zero_ack"]:
+                    acknowledged = self._stop_response_event.wait(self.STOP_ACK_TIMEOUT_SEC)
+                    outcome["stop_ack"] = bool(
+                        acknowledged and self._stop_response_status == "OK," + correlated_stop
+                    )
+                    if not outcome["stop_ack"]:
+                        outcome["errors"].append("STOP firmware ACK not received before timeout.")
+                else:
+                    outcome["errors"].append("STOP firmware ACK status is unconfirmed because PWM=0 ACK was missing.")
             except Exception as exc:
                 outcome["errors"].append(f"STOP: {type(exc).__name__}: {exc}")
+            finally:
+                self._awaiting_stop_response = False
+                self._pending_stop_command = None
             try:
                 outcome["disconnect"] = self.disconnect() is not False
                 if not outcome["disconnect"]:
@@ -381,6 +465,7 @@ class SerialManager(QObject):
                 outcome["errors"].append(f"disconnect: {type(exc).__name__}: {exc}")
         self.last_emergency_stop_result = outcome
         return outcome
+
 
     def start_breakin(self):
         return self.send(CMD_START)
