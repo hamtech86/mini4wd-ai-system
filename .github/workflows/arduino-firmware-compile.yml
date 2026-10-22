@@ -67,7 +67,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           source = Path("firmware/motor/MotoreRev.ino").read_text()
-          loop = source[source.index("void loop()"):source.index("void setState")]
+          loop = source[source.index("void loop()"):source.index("void setState(DeviceState newState)\\n{")]
           command = source[source.index("void processCommand(const char *cmd)"):source.index("SECTION 19 : Response Functions")]
           assert "voltageControlUpdate();" not in loop, "firmware loop must not own voltage feedback"
           assert 'Serial.print(F("CAL,ACS1_ZERO="))' in source, "CAL output missing"
