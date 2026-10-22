@@ -640,3 +640,32 @@ def test_serial_manager_arm_does_not_clear_stop_arriving_during_ack():
     assert fake.writes[0].startswith(b"ARM=")
     assert fake.writes[1:] == [b"PWM=0\n", b"STOP\n"]
     assert fake.is_open is False
+
+
+def test_ui_arm_is_blocked_after_stop_latch_even_after_reconnect_identity():
+    from types import SimpleNamespace
+    from app.main import MainWindow
+
+    events = []
+
+    class FakeButton:
+        def __init__(self):
+            self.enabled = True
+
+        def setEnabled(self, enabled):
+            self.enabled = enabled
+
+    ui = SimpleNamespace(
+        _stop_latched=True,
+        _set_ui_error=lambda code, message: events.append((code, message)),
+        motor_arm=FakeButton(),
+        _motor_controller=lambda: events.append("controller_lookup") or object(),
+    )
+
+    MainWindow.arm_motor(ui)
+
+    assert ui.motor_arm.enabled is False
+    assert events
+    assert events[0][0] == "STOP_LATCHED"
+    assert "Physical stop is unconfirmed" in events[0][1]
+    assert "controller_lookup" not in events
