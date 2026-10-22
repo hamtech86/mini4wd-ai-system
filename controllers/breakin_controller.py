@@ -575,7 +575,21 @@ class BreakinController:
 
         Returned details describe software/serial attempts, not physical motor
         state. Physical stop must remain unconfirmed until independently checked.
+        Repeated calls preserve the first attempt result: the serial controller
+        disconnects after its initial emergency-stop attempt, so a second call
+        cannot retry over that closed port and must not overwrite the evidence.
         """
+        if getattr(self, "emergency_stop_latched", False):
+            previous = getattr(self, "last_emergency_stop_result", None)
+            if isinstance(previous, dict):
+                return previous
+            return {
+                "checkpoint_saved": False,
+                "serial_stop_attempted": False,
+                "serial_result": None,
+                "errors": ["Emergency STOP already latched; prior attempt result is unavailable."],
+            }
+
         self.emergency_stop_latched = True
         self.running = False
         self.paused = False
