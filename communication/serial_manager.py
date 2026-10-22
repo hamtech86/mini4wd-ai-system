@@ -445,15 +445,6 @@ class SerialManager(QObject):
         self.last_emergency_stop_result = outcome
         return outcome
 
-    def _wait_for_stop_ack_only(self):
-        self._stop_response_event.clear()
-        self._stop_response_status = None
-        self._awaiting_stop_response = True
-        # STOP was written immediately before entering this method. The reader
-        # slot can set the event before wait() starts, which Event preserves.
-        acknowledged = self._stop_response_event.wait(self.STOP_ACK_TIMEOUT_SEC)
-        self._awaiting_stop_response = False
-        return bool(acknowledged and self._stop_response_status == "OK")
 
     def start_breakin(self):
         return self.send(CMD_START)
