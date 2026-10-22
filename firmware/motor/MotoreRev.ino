@@ -910,7 +910,7 @@ void processCommand(const char *cmd)
     {
         stopMotor();
         driveArmed = false;
-        activeArmToken[0] = '\\0';
+        activeArmToken[0] = '\0';
         setState(STATE_STOP);
         sendLog();
         sendCommandAck(cmd);
