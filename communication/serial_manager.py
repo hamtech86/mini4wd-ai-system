@@ -67,7 +67,7 @@ class SerialReader(QThread):
                 line = raw_line.rstrip("\r\n")
 
                 # Command responses are control-plane messages, not measurement RawLog.
-                if line == "OK" or line.startswith("ARMED,") or line.startswith("ERROR,"):
+                if line == "OK" or line.startswith("OK,") or line.startswith("ARMED,") or line.startswith("ERROR,"):
                     self.received.emit({"record_type": "COMMAND_RESPONSE", "value": line})
                     continue
 
@@ -129,6 +129,7 @@ class SerialManager(QObject):
         self._stop_response_event = threading.Event()
         self._stop_response_status = None
         self._awaiting_stop_response = False
+        self._pending_stop_command = None
 
     @property
     def is_connected(self):
@@ -271,7 +272,8 @@ class SerialManager(QObject):
                 self._arm_response_status = value
                 self._arm_response_event.set()
             if self._awaiting_stop_response and (
-                value == "OK" or (isinstance(value, str) and value.startswith("ERROR,"))
+                value == "OK," + str(self._pending_stop_command)
+                or (isinstance(value, str) and value.startswith("ERROR,"))
             ):
                 self._stop_response_status = value
                 self._stop_response_event.set()
@@ -337,8 +339,10 @@ class SerialManager(QObject):
         """Send safe commands normally; drive commands require explicit ARM."""
         with self._command_lock:
             normalized = str(command).strip().upper()
-            drive_command = normalized in ("START", "FWD", "REV", "RESUME") or (
-                normalized.startswith("PWM=") and normalized != "PWM=0"
+            correlated_stop_command = normalized.startswith("STOP#") or normalized.startswith("PWM=0#")
+            drive_command = not correlated_stop_command and (
+                normalized in ("START", "FWD", "REV", "RESUME") or
+                (normalized.startswith("PWM=") and normalized != "PWM=0")
             )
             is_arm = normalized.startswith("ARM=")
             if drive_command and (self._stop_requested() or not self._active_arm_token):
@@ -358,7 +362,7 @@ class SerialManager(QObject):
                     wire_command += "@" + self._active_arm_token
                 self.serial.write((wire_command + "\n").encode("utf-8"))
                 logger.debug(f"TX : {wire_command}")
-                if normalized == "STOP":
+                if normalized == "STOP" or normalized.startswith("STOP#"):
                     self._active_arm_token = None
                 return True
             except Exception as e:
@@ -375,16 +379,22 @@ class SerialManager(QObject):
         attributing a delayed PWM=0 response to STOP, STOP is only reported as
         acknowledged when the preceding PWM=0 response was received first.
         """
+        correlated_command = f"{command}#{secrets.token_hex(4).upper()}"
         self._stop_response_event.clear()
         self._stop_response_status = None
+        self._pending_stop_command = correlated_command
         self._awaiting_stop_response = True
-        sent = self.send(command)
+        sent = self.send(correlated_command)
         if not sent:
             self._awaiting_stop_response = False
+            self._pending_stop_command = None
             return False, False
         acknowledged = self._stop_response_event.wait(self.STOP_ACK_TIMEOUT_SEC)
         self._awaiting_stop_response = False
-        return True, bool(acknowledged and self._stop_response_status == "OK")
+        self._pending_stop_command = None
+        return True, bool(
+            acknowledged and self._stop_response_status == "OK," + correlated_command
+        )
 
     def emergency_stop(self):
         """Attempt PWM=0 and STOP; report writes and firmware ACKs separately.
@@ -417,16 +427,18 @@ class SerialManager(QObject):
                 # an uncorrelated delayed PWM=0 OK could otherwise be misreported.
                 # Arm the response observer before writing STOP so a fast
                 # Arduino response cannot arrive between write() and wait().
+                correlated_stop = f"STOP#{secrets.token_hex(4).upper()}"
                 self._stop_response_event.clear()
                 self._stop_response_status = None
+                self._pending_stop_command = correlated_stop
                 self._awaiting_stop_response = True
-                outcome["stop_command"] = self.send(CMD_STOP)
+                outcome["stop_command"] = self.send(correlated_stop)
                 if not outcome["stop_command"]:
                     outcome["errors"].append("STOP command write failed.")
                 elif outcome["pwm_zero_ack"]:
                     acknowledged = self._stop_response_event.wait(self.STOP_ACK_TIMEOUT_SEC)
                     outcome["stop_ack"] = bool(
-                        acknowledged and self._stop_response_status == "OK"
+                        acknowledged and self._stop_response_status == "OK," + correlated_stop
                     )
                     if not outcome["stop_ack"]:
                         outcome["errors"].append("STOP firmware ACK not received before timeout.")
@@ -436,6 +448,7 @@ class SerialManager(QObject):
                 outcome["errors"].append(f"STOP: {type(exc).__name__}: {exc}")
             finally:
                 self._awaiting_stop_response = False
+                self._pending_stop_command = None
             try:
                 outcome["disconnect"] = self.disconnect() is not False
                 if not outcome["disconnect"]:
