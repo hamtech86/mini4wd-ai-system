@@ -60,6 +60,27 @@ jobs:
           echo "HEX artifact staged at $artifact_dir/MotoreRev.ino.hex"
           cat "$artifact_dir/build-manifest.txt"
 
+      - name: Verify firmware CAL and host-owned control contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          source = Path("firmware/motor/MotoreRev.ino").read_text()
+          loop = source[source.index("void loop()"):source.index("void setState")]
+          command = source[source.index("void processCommand(const char *cmd)"):source.index("SECTION 19 : Response Functions")]
+          assert "voltageControlUpdate();" not in loop, "firmware loop must not own voltage feedback"
+          assert 'Serial.print(F("CAL,ACS1_ZERO="))' in source, "CAL output missing"
+          assert "calibrateACS712(false);" in command, "ARM after STOP/READY must refresh zero offsets"
+          for token, start in [('"START"', 'startForward()'), ('"FWD"', 'startForward()'), ('"REV"', 'startReverse()')]:
+              pos = command.index(token)
+              end = command.find("return;", pos)
+              block = command[pos:end]
+              assert "sendCalibration();" in block and start in block, f"missing CAL before {token} drive start"
+          assert "DATA" not in source[source.index("void sendCalibration()"):source.index("void sendInfo()")], "CAL helper must not alter DATA schema"
+          print("Firmware CAL/host-control source contract checks passed")
+          PY
+
       - name: Upload compiled Uno firmware
         uses: actions/upload-artifact@v4
         with:
