@@ -200,7 +200,7 @@ def test_active_serial_manager_latches_drive_commands_after_emergency_stop():
     assert result["disconnect"] is True
     assert len(first.writes) == 4
     assert first.writes[0].startswith(b"PWM=0#")
-    assert first.writes[1:] [0] == b"PWM=0\n"
+    assert first.writes[1] == b"PWM=0\n"
     assert first.writes[2].startswith(b"STOP#")
     assert first.writes[3] == b"STOP\n"
     assert not first.is_open
