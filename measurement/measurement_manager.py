@@ -145,6 +145,14 @@ class MeasurementManager:
         if raw["device_model"] != "MOTOR_BREAKIN_V3" or raw["direction"] not in ("FWD", "REV"):
             return None
 
+        # Only telemetry emitted while the firmware is actively running may
+        # drive voltage-control decisions. READY frames commonly contain 0 V
+        # before the first RUN sample and must not be interpreted as failed
+        # input-voltage feedback. Preserve every original frame in RawLog;
+        # this filter applies only to the control/measurement path.
+        if str(raw["state"]).strip().upper() not in ("RUN", "RUNNING"):
+            return None
+
         numeric_fields = (
             "elapsed_time", "raw_acs1", "raw_acs2", "current1", "current2",
             "voltage1", "voltage2", "motor_voltage", "pwm", "current_avg",
