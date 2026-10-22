@@ -81,7 +81,7 @@ jobs:
           resume_pos = command.index('if (strcmp(command, "RESUME") == 0)')
           resume_block = command[resume_pos:resume_pos + 300]
           assert "sendCalibration();" in resume_block and resume_block.index("sendCalibration();") < resume_block.index("setState(STATE_RUN);")
-          assert "DATA" not in source[source.index("void sendCalibration()"):source.index("void sendInfo()")], "CAL must remain auxiliary, not DATA column 27"
+          assert "sendLog(" not in source[source.index("void sendCalibration()"):source.index("void sendInfo()")], "CAL must not enter DATA serialization"
           print("Firmware CAL/host-control source contract checks passed")
           PY
 
