@@ -49,6 +49,8 @@ class SerialController:
         self._emergency_stop_requested = threading.Event()
         self._emergency_stop_generation = 0
         self._active_arm_token = None
+        # Detect an unexpected firmware reboot while a run is armed.
+        self.unexpected_reboot_detected = False
 
     @property
     def raw_log(self):
@@ -296,6 +298,7 @@ class SerialController:
                 self.identity_error = "ARM cancelled: emergency STOP arrived during ARM handshake."
                 return False
             self._active_arm_token = token
+            self.unexpected_reboot_detected = False
             # Measurement capture starts after ARM, immediately before the first
             # tagged drive command; discard idle DATA collected during handshake.
             self.raw_log_collector.reset()
@@ -387,6 +390,18 @@ class SerialController:
                 continue
             print("SERIAL RX:", line)
             if line.startswith("INFO"):
+                # INFO reappearing during an armed run indicates a reboot or
+                # replaced serial stream. Never reuse the old ARM token.
+                if getattr(self, "_active_arm_token", None):
+                    self.unexpected_reboot_detected = True
+                    self._active_arm_token = None
+                    self.identity_verified = False
+                    self.device_info = None
+                    self.identity_error = (
+                        "Unexpected firmware INFO during an armed run; "
+                        "run aborted and fresh INFO/ARM is required."
+                    )
+                    break
                 # INFO is not a DATA/RawLog row; only a valid identity can update state.
                 try:
                     info = self.parser.parse(line)
@@ -399,6 +414,8 @@ class SerialController:
             if line.startswith("DATA,"):
                 latest_data = line
 
+        if getattr(self, "unexpected_reboot_detected", False):
+            return None
         if latest_data is not None:
             self.last_raw_data = latest_data
 
