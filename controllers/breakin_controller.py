@@ -576,9 +576,21 @@ class BreakinController:
             raise RuntimeError(self.abort_reason)
 
         if measurement is None:
-            # Do not advance a timed phase after a detected firmware restart.
-            # Ordinary telemetry gaps retain their existing handling; repeated
-            # invalid control samples are governed by the existing fail-safe path.
+            control = str(getattr(phase, "control", "PWM") or "PWM").upper()
+            target = getattr(phase, "target_voltage", None)
+            ramp_start = getattr(phase, "start_voltage", None)
+            ramp_end = getattr(phase, "end_voltage", None)
+            needs_feedback = control in ("VOLTAGE", "VOLTAGE_RAMP", "BRUSH_PEAK_APPROACH") and (
+                control == "BRUSH_PEAK_APPROACH"
+                or (target is not None and float(target) > 0)
+                or (ramp_start is not None and float(ramp_start) > 0)
+                or (ramp_end is not None and float(ramp_end) > 0)
+            )
+            if needs_feedback:
+                # Missing/rejected control DATA counts toward the existing
+                # three-consecutive-sample fail-safe; do not let phase time
+                # advance indefinitely with stale PWM and no feedback.
+                self._record_invalid_measurement("missing or rejected DATA")
             return None
 
         # The fixed 26-column DATA contract already carries both raw ACS712 ADC
