@@ -214,3 +214,105 @@ def test_late_worker_success_signal_cannot_overwrite_emergency_stop(monkeypatch,
         finally:
             window.close()
 
+
+
+
+def test_verified_fresh_connection_enables_explicit_arm_without_driving(monkeypatch, tmp_path):
+    import ui.main_window as base_ui
+    import app.main as main_app
+
+    class FakeBatteryTab(QWidget):
+        def __init__(self, *args, **kwargs):
+            super().__init__(kwargs.get("parent"))
+
+        def set_connected(self, connected):
+            self.connected = connected
+
+    class FakeMotorController:
+        def __init__(self):
+            self.connected = False
+            self.identity_verified = False
+            self.device_info = None
+            self.arm_calls = 0
+
+        def connect(self):
+            self.connected = True
+            self.identity_verified = True
+            self.device_info = {
+                "MODEL": "MOTOR_BREAKIN_V3", "FW": "3.03",
+                "BUILD": "EXPLICIT-ARM-STOP-ACK-20261023-01", "ID": "000001",
+            }
+            return True
+
+        def arm(self):
+            self.arm_calls += 1
+            return True
+
+    database_path = str(tmp_path / "ui-explicit-arm.db")
+    monkeypatch.setattr(base_ui, "resolve_database_path", lambda **kwargs: database_path)
+    monkeypatch.setattr(main_app, "BatteryTab", FakeBatteryTab)
+    app = QApplication.instance() or QApplication([])
+    motor = FakeMotorController()
+    window = main_app.MainWindow({
+        "breakin_controller": None,
+        "serial_controller": motor,
+        "battery_serial_controller": None,
+    })
+    try:
+        assert not window.motor_arm.isEnabled()
+        window.connect_motor_serial()
+        assert window._identity_verified(motor)
+        assert window.motor_arm.isEnabled()
+        assert motor.arm_calls == 0  # connect/identity verification must not drive or ARM
+        window.motor_arm.click()
+        assert motor.arm_calls == 1
+        assert window.motor_arm.isEnabled() is False
+        assert window._stop_latched is False
+    finally:
+        window.close()
+
+
+def test_stop_latch_keeps_arm_disabled_after_reconnect(monkeypatch, tmp_path):
+    import ui.main_window as base_ui
+    import app.main as main_app
+
+    class FakeBatteryTab(QWidget):
+        def __init__(self, *args, **kwargs):
+            super().__init__(kwargs.get("parent"))
+
+        def set_connected(self, connected):
+            self.connected = connected
+
+    class FakeMotorController:
+        def __init__(self):
+            self.connected = False
+            self.identity_verified = False
+            self.device_info = None
+
+        def connect(self):
+            self.connected = True
+            self.identity_verified = True
+            self.device_info = {
+                "MODEL": "MOTOR_BREAKIN_V3", "FW": "3.03",
+                "BUILD": "EXPLICIT-ARM-STOP-ACK-20261023-01", "ID": "000001",
+            }
+            return True
+
+    database_path = str(tmp_path / "ui-arm-stop-latch.db")
+    monkeypatch.setattr(base_ui, "resolve_database_path", lambda **kwargs: database_path)
+    monkeypatch.setattr(main_app, "BatteryTab", FakeBatteryTab)
+    app = QApplication.instance() or QApplication([])
+    motor = FakeMotorController()
+    window = main_app.MainWindow({
+        "breakin_controller": None,
+        "serial_controller": motor,
+        "battery_serial_controller": None,
+    })
+    try:
+        window._stop_latched = True
+        window.connect_motor_serial()
+        assert window._identity_verified(motor)
+        assert not window.motor_arm.isEnabled()
+        assert "RESTART REQUIRED AFTER STOP" in window.motor_serial_status.text()
+    finally:
+        window.close()
