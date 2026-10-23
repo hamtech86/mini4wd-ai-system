@@ -13,6 +13,7 @@ from pathlib import Path
 
 from .phase_manager import PhaseManager
 from .recipe import BreakinPhase, BreakinRecipe
+from .timed_voltage_phase import run_timed_voltage_phase
 
 
 class BreakinController:
@@ -336,6 +337,13 @@ class BreakinController:
         return max(0.0, duration - elapsed)
 
     def _execute_standard_phase(self, phase, resume_elapsed=0.0):
+        # TuneBasic fixed-voltage phases use the exact same feedback iteration
+        # as STD-I. Recipe timing/phase transitions remain controller-owned.
+        if phase.control == "VOLTAGE":
+            return run_timed_voltage_phase(
+                self, phase, phase.duration_sec,
+                save_checkpoint=True, initial_elapsed=resume_elapsed,
+            )
         while self.running and self._effective_elapsed() < phase.duration_sec:
             if self.paused:
                 time.sleep(self.CONTROL_INTERVAL_SEC)
