@@ -1370,6 +1370,25 @@ void updateSensors()
 
  sensor.rawACS2 = readACS2();
 
+ // ACS712 5A sensors are expected to sit near their calibrated midpoint.
+ // ADC rail readings are not trustworthy current measurements. While RUN is
+ // active, latch a firmware-side fault and stop drive immediately. Keep the
+ // fixed DATA CSV schema unchanged; ERROR carries the explicit diagnosis and
+ // subsequent DATA records preserve both raw ADC samples for analysis.
+ const bool acs1Rail = (sensor.rawACS1 <= 2 || sensor.rawACS1 >= 1021);
+ const bool acs2Rail = (sensor.rawACS2 <= 2 || sensor.rawACS2 >= 1021);
+ if (runtime.state == STATE_RUN && (acs1Rail || acs2Rail))
+ {
+     stopMotor();
+     driveArmed = false;
+     activeArmToken[0] = '\\0';
+     setState(STATE_ERROR);
+     Serial.print(F("ERROR,ACS712_ADC_RAIL,"));
+     Serial.print(acs1Rail ? F("ACS1,") : F("ACS2,"));
+     Serial.println(acs1Rail ? sensor.rawACS1 : sensor.rawACS2);
+     return;
+ }
+
 //======================================================
 // AUTO ZERO
 // READY状態のみオフセット更新
