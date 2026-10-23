@@ -27,7 +27,8 @@ def test_main_window_builds_offscreen_without_hardware_connection(monkeypatch, t
         assert window.motor_serial_status.text().startswith("MOTOR: DISCONNECTED")
         assert window.motor_connect.isEnabled()
         assert {window.recipe.itemText(index) for index in range(window.recipe.count())} == {
-            "STD-I", "Full-I", "TUNE_BASIC_INPUT_3V_CHECK"
+            "STD-I", "Full-I", "TUNE_BASIC (SELECT / RESUME PLAN ONLY)",
+        "TUNE_BASIC_INPUT_3V_CHECK"
         }
         assert window.recipe.findData("TUNE_BASIC") == -1
         # Direct/programmatic invocation must be blocked as well as the UI option.
