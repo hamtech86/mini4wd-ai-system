@@ -83,7 +83,7 @@ def test_info_rows_are_excluded_from_raw_log():
 
 def test_unexpected_info_during_armed_run_marks_reboot_and_revokes_token():
     controller = SerialController()
-    controller.serial = FakeSerial([(VALID_INFO + "\\n").encode("utf-8")])
+    controller.serial = FakeSerial([(VALID_INFO + "\n").encode("utf-8")])
     controller.connected = True
     controller.identity_verified = True
     controller.device_info = {"TYPE": "MOTOR", "MODEL": "MOTOR_BREAKIN_V3",
@@ -102,7 +102,7 @@ def test_unexpected_info_during_armed_run_marks_reboot_and_revokes_token():
 
 def test_info_during_idle_read_is_not_misclassified_as_reboot():
     controller = SerialController()
-    controller.serial = FakeSerial([(VALID_INFO + "\\n").encode("utf-8")])
+    controller.serial = FakeSerial([(VALID_INFO + "\n").encode("utf-8")])
     controller.connected = True
 
     assert controller.read_measurement() is None
