@@ -27,24 +27,12 @@ def test_main_window_builds_offscreen_without_hardware_connection(monkeypatch, t
         assert window.motor_serial_status.text().startswith("MOTOR: DISCONNECTED")
         assert window.motor_connect.isEnabled()
         assert {window.recipe.itemText(index) for index in range(window.recipe.count())} == {
-            "STD-I", "Full-I", "TUNEBASIC (FULL INPUT)", "TUNE_BASIC_INPUT_3V_CHECK"
+            "STD-I", "Full-I", "TUNE_BASIC_INPUT_3V_CHECK"
         }
-        window.recipe.setCurrentIndex(window.recipe.findData("TUNE_BASIC"))
-        full_recipe = window.recipe_engine.get("TUNE_BASIC")
-        assert len(full_recipe.phases) == 11
-        assert len(window.sequence_checks) == 1
-        assert window.sequence_checks[0][0] == "TUNE_BASIC"
-        assert "full recipe" in window.sequence_status.text().lower()
-        assert all(
-            phase.metadata.get("voltage_control_mode") == "INPUT"
-            for phase in full_recipe.phases
-            if phase.control in {"VOLTAGE", "VOLTAGE_RAMP"}
-        )
-        # Dispatch the full recipe without starting hardware in this UI test.
-        dispatched = []
-        monkeypatch.setattr(window, "_start_tunebasic_recipe", lambda: dispatched.append("TUNE_BASIC"))
-        window._execute_selected_sequences()
-        assert dispatched == ["TUNE_BASIC"]
+        assert window.recipe.findData("TUNE_BASIC") == -1
+        # Direct/programmatic invocation must be blocked as well as the UI option.
+        window._start_tunebasic_recipe()
+        assert window.error_code_label.text() == "Error Code: TUNEBASIC_BLOCKED_UNTIL_ISSUE98"
         window.recipe.setCurrentIndex(window.recipe.findData("TUNE_BASIC_INPUT_3V_CHECK"))
         assert "limited" in window.sequence_status.text().lower()
         assert len(window.sequence_checks) == 1
@@ -242,13 +230,13 @@ def test_recipe_combo_uses_stable_width_policy_across_tunebasic_selection(monkey
         combo = window.recipe
         assert combo.sizeAdjustPolicy() == QComboBox.AdjustToMinimumContentsLengthWithIcon
         assert combo.minimumContentsLength() >= len("TUNE_BASIC_INPUT_3V_CHECK")
-        combo.setCurrentIndex(combo.findData("TUNE_BASIC"))
+        combo.setCurrentIndex(combo.findData("TUNE_BASIC_INPUT_3V_CHECK"))
         app.processEvents()
-        width_full = combo.sizeHint().width()
+        width_limited = combo.sizeHint().width()
         combo.setCurrentIndex(combo.findData("STD-I"))
         app.processEvents()
         width_short = combo.sizeHint().width()
-        assert width_full == width_short
+        assert width_limited == width_short
     finally:
         window.close()
 
@@ -274,11 +262,11 @@ def test_tunebasic_phase_detail_wraps_without_forcing_horizontal_growth(monkeypa
         "battery_serial_controller": None,
     })
     try:
-        window.recipe.setCurrentIndex(window.recipe.findData("TUNE_BASIC"))
+        window.recipe.setCurrentIndex(window.recipe.findData("TUNE_BASIC_INPUT_3V_CHECK"))
         app.processEvents()
         assert window.phase_detail.wordWrap() is True
         assert window.phase_detail.sizePolicy().horizontalPolicy() == QSizePolicy.Ignored
-        assert window.phase_detail.text().count(" → ") >= 10
+        assert "limited" in window.sequence_status.text().lower()
     finally:
         window.close()
 
