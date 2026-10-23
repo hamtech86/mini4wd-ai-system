@@ -77,13 +77,11 @@ class MainWindow(BaseMainWindow):
     BENCHMARK_PRESETS = UI_BENCHMARK_PRESETS
 
     def load_recipes(self):
-        # Benchmark and TuneBasic are separate operator choices. Only the
-        # supported INPUT Benchmark presets are exposed; TuneBasic is its own
-        # full recipe plus the short, previously validated INPUT check.
+        # Full TuneBasic remains blocked until Issue #98's limited hardware
+        # check has been reviewed, including RawLog and physical stop behavior.
         self.recipe.clear()
         for label in self.BENCHMARK_PRESETS:
             self.recipe.addItem(label, label)
-        self.recipe.addItem("TUNEBASIC (FULL INPUT)", "TUNE_BASIC")
         self.recipe.addItem("TUNE_BASIC_INPUT_3V_CHECK", "TUNE_BASIC_INPUT_3V_CHECK")
 
     def recipe_changed(self, index):
@@ -93,9 +91,10 @@ class MainWindow(BaseMainWindow):
             return
         name = self.recipe.itemData(index) if hasattr(self, "recipe") else None
         if name == "TUNE_BASIC":
-            self._load_tunebasic_sequence()
-            self.start.setEnabled(True)
-            self.sequence_execute.setEnabled(True)
+            self._clear_sequence_panel("Full TuneBasic blocked pending Issue #98 limited-check RawLog and physical-stop review.")
+            self._set_ui_error("FULL_TUNEBASIC_BLOCKED", "Only TUNE_BASIC_INPUT_3V_CHECK is permitted until Issue #98 is cleared.")
+            self.start.setEnabled(False)
+            self.sequence_execute.setEnabled(False)
             return
         if name == "TUNE_BASIC_INPUT_3V_CHECK":
             self._load_limited_tunebasic_sequence()
@@ -457,6 +456,11 @@ class MainWindow(BaseMainWindow):
         self._start_benchmark(benchmark_type, mode)
 
     def _start_tunebasic_recipe(self):
+        # Defense in depth: do not permit direct/programmatic dispatch of the
+        # full 11-phase recipe while Issue #98's physical gate remains open.
+        self._set_ui_error("FULL_TUNEBASIC_BLOCKED", "Only TUNE_BASIC_INPUT_3V_CHECK is permitted until Issue #98 is cleared.")
+        self.sequence_status.setText("BLOCKED / Issue #98 limited-check review required")
+        return
         if self._stop_latched:
             self._set_ui_error("STOP_LATCHED", "Restart blocked after emergency STOP.")
             return
