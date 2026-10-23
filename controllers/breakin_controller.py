@@ -569,6 +569,13 @@ class BreakinController:
             self._record_invalid_measurement(f"measurement acquisition error: {type(exc).__name__}")
             return None
         if measurement is None:
+            if getattr(self.serial, "unexpected_reboot_detected", False):
+                self.abort_reason = (
+                    "SAFETY: firmware reboot detected during active recipe; "
+                    "old ARM session invalidated and restart blocked."
+                )
+                self.emergency_stop()
+                raise RuntimeError(self.abort_reason)
             # DATA is used for feedback and logging, but an absent telemetry
             # frame alone must not abort the timed TuneBasic phase. The phase
             # continues at its current PWM and voltage correction resumes when
