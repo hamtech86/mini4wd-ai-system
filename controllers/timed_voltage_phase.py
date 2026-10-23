@@ -6,10 +6,10 @@ and TuneBasic voltage phases. Recipe orchestration remains in each caller.
 import time
 
 
-def run_timed_voltage_phase(controller, phase, duration_sec, *, save_checkpoint=False):
+def run_timed_voltage_phase(controller, phase, duration_sec, *, save_checkpoint=False, initial_elapsed=0.0):
     """Run one voltage-controlled phase using the controller's common safety path."""
     controller.phase_started_at = time.time()
-    controller.phase_elapsed_before_pause = 0.0
+    controller.phase_elapsed_before_pause = max(0.0, float(initial_elapsed or 0.0))
     while controller.running and controller._effective_elapsed() < float(duration_sec):
         if controller.paused:
             time.sleep(controller.CONTROL_INTERVAL_SEC)
