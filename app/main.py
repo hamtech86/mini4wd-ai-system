@@ -392,7 +392,7 @@ class MainWindow(BaseMainWindow):
             return
         preset = self.BENCHMARK_PRESETS.get(name)
         if preset is None:
-            self._set_ui_error("UNSUPPORTED_RECIPE", "Only four Benchmark presets and the limited TuneBasic INPUT 3V check are allowed.")
+            self._set_ui_error("UNSUPPORTED_RECIPE", "Only STD-I and Full-I INPUT Benchmark presets and the limited TuneBasic INPUT 3V check are allowed.")
             self.sequence_status.setText("BLOCKED / unsupported recipe")
             return
         benchmark_type, mode = preset
@@ -449,7 +449,7 @@ class MainWindow(BaseMainWindow):
         self.result["SUMMARY"].setText("Review FWD/REV RawLog and sensor feedback before authorizing full TuneBasic.")
         self._log_event("Limited TuneBasic INPUT 3V check completed; full 9 V recipe remains gated pending review.")
 
-    def _start_benchmark(self, benchmark_type=STANDARD_3V30S, voltage_control_mode="TERMINAL"):
+    def _start_benchmark(self, benchmark_type=STANDARD_3V30S, voltage_control_mode="INPUT"):
         if self._stop_latched:
             self._set_ui_error("STOP_LATCHED", "Restart blocked after an emergency-stop request; physical stop remains unconfirmed.")
             return
