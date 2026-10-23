@@ -2,40 +2,49 @@
 
 ## Purpose
 
-Safely validate direction-specific INPUT voltage control before running the full TuneBasic recipe.
+Run the configured TuneBasic INPUT recipe using the current integrated Main UI. This procedure records the actual operator checks and does not treat CI or serial acknowledgements as proof of physical stopping.
 
 ## Preconditions
 
-- Use the motor device on `/dev/ttyACM0` only.
-- `/dev/ttyUSB0` is the battery-discharge device; do not select or open it for motor control.
-- Firmware is already flashed. Do not reflash as part of this test.
-- Secure the motor/chassis and keep an emergency stop available.
-- Confirm that the UI identifies the connected device as `MOTOR_BREAKIN_V3`.
-- Confirm the displayed direction, PWM, V4/Input Voltage and V5 measurements update.
-- Do not run `TUNE_BASIC` for this first hardware check.
+- Use the motor Arduino on `/dev/ttyACM0` only.
+- `/dev/ttyUSB0` belongs to the battery-discharge device; never select or open it for motor control.
+- Do not flash firmware as part of this procedure. Confirm the connected device reports `MODEL=MOTOR_BREAKIN_V3`, `FW=3.03`, and `BUILD=EXPLICIT-ARM-STOP-ACK-20261023-01` before enabling operation.
+- Secure the motor/chassis and keep the physical motor power switch immediately reachable.
+- Confirm Input Voltage, Motor Voltage, Driver Input Current, DIR, PWM, elapsed time, and remaining time are updating plausibly before starting.
+- Confirm the operator can reach UI STOP and the physical power switch without delay.
+- If identity is missing/mismatched, measurements are stale/invalid, or the controller is already stop-latched, do not start; resolve that specific condition rather than treating Issue #98 as a blanket work blocker.
 
-## Test recipe
+## Recipe
 
-Select `TUNE_BASIC_INPUT_3V_CHECK`. This isolated recipe contains only two 10-second stages and does not include any 9 V stages:
+Select `TUNEBASIC (FULL INPUT)`, which dispatches the `TUNE_BASIC` recipe. Nominal configured duration is 510 seconds (8 minutes 30 seconds):
 
-1. `CHECK_FWD_INPUT_3V`: FWD, target V4 / `voltage1` = 3.00 V, PWM limited to 35–120.
-2. `CHECK_REV_INPUT_3V`: REV, target V5 / `voltage2` = 3.00 V, PWM limited to 35–120.
+1. FWD 3.00 V start — 30 s, PWM 35–120.
+2. FWD ramp 3.00 → 9.00 V — 60 s, PWM 35–245.
+3. FWD 9.00 V hold — 60 s, PWM 35–245.
+4. FWD fade-out 9.00 → 0.00 V — 30 s.
+5. FWD rest — 60 s, PWM 0.
+6. REV 3.00 V start — 30 s, PWM 35–120.
+7. REV ramp 3.00 → 9.00 V — 60 s, PWM 35–245.
+8. REV 9.00 V hold — 60 s, PWM 35–245.
+9. REV fade-out 9.00 → 0.00 V — 30 s.
+10. REV rest — 60 s, PWM 0.
+11. Final FWD 3.00 V benchmark — 30 s, PWM 35–120.
 
-## Operator checks
+All voltage-controlled stages use INPUT feedback: FWD controls from V4 / `voltage1`; REV controls from V5 / `voltage2`. Signed `motor_voltage = V4 - V5` is a separate terminal measurement and must not substitute for INPUT feedback.
 
-1. Start the limited recipe only after all preconditions are met.
-2. During FWD, confirm the controller adjusts PWM based on V4 / Input Voltage, not `motor_voltage`.
-3. During REV, confirm the controller adjusts PWM based on V5 / Input Voltage, not the signed `motor_voltage`.
-4. Stop immediately if the selected input-side voltage moves away from the target, the displayed readings are invalid/missing, direction does not match the stage, the motor behaves unexpectedly, or any safety limit is reached.
-5. If either direction cannot approach 3.00 V within the limited stage, stop and record the RawLog; do not proceed to the full TuneBasic recipe or any 9 V stage.
+## During the run
 
-## Acceptance criteria
+- Watch Input Voltage, Motor Voltage, Driver Input Current, DIR, PWM, elapsed time, and remaining time throughout the run.
+- Common configured limits are motor temperature 70 °C, current 5.0 A, and PWM 245. Do not override the configured limits.
+- Press UI STOP immediately if the motor behaves unexpectedly, direction does not match the phase, sensor data becomes missing/invalid, a configured safety limit is reached, or the measured response departs materially from the target.
+- If the motor does not physically stop immediately after UI STOP, cut power with the physical switch and do not restart.
+- Do not leave the running system unattended.
 
-- The FWD stage uses V4 / `voltage1` for voltage feedback.
-- The REV stage uses V5 / `voltage2` for voltage feedback.
-- PWM remains within 35–120 during this limited check.
-- Negative signed `motor_voltage = V4 - V5` measurements in REV are accepted by the measurement parser and remain signed.
-- Missing or invalid control measurements are rejected, not fabricated as zero.
-- The operator can stop the test immediately.
+## Completion and evidence
 
-This procedure is an operator-supervised hardware check, not approval to run the full TuneBasic recipe. Do not merge the implementation until CI and this real-device check pass.
+- Confirm the UI reports completion and that the motor is physically stopped.
+- Preserve the RawLog and inspect phase transitions, FWD/REV voltage feedback, current, temperature, and stop behavior.
+- Record separately: UI completion state, RawLog evidence, observed physical stopping, firmware identity, and any errors.
+- If an unexpected behavior or stop discrepancy occurs, keep the log and diagnose that concrete failure before another run. Do not infer physical safety from a passing CI job or a serial ACK alone.
+
+Issue #98 is the place to record the physical result and any remaining safety findings; its existence alone is not a reason to stop unrelated software preparation.
