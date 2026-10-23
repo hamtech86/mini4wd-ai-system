@@ -73,14 +73,30 @@ class LocalRawLogBreakinController(BreakinController):
         return self._register_raw_log(raw_body)
 
 
+    @staticmethod
+    def _parse_raw_header_metadata(raw_body):
+        """Read model and firmware version from the immutable INFO header."""
+        for line in raw_body.splitlines():
+            if not line.startswith("INFO,"):
+                continue
+            fields = {}
+            for item in line.split(",")[1:]:
+                if "=" not in item:
+                    continue
+                key, value = item.split("=", 1)
+                fields[key.strip().upper()] = value.strip()
+            return fields.get("MODEL", ""), fields.get("FW", "")
+        return "", ""
+
     def _register_raw_log(self, raw_body=None):
         if raw_body is None:
             raw_body = getattr(self, "measurement_raw_log", "") or getattr(self.serial, "raw_log", "") or ""
         if not raw_body:
             return None
 
+        header_model, header_firmware_version = self._parse_raw_header_metadata(raw_body)
         session_id = getattr(self.session, "session_id", None)
-        firmware = getattr(self.session, "firmware_version", "") or ""
+        firmware = header_firmware_version or getattr(self.session, "firmware_version", "") or ""
         active_recipe_name = getattr(self, "active_recipe_name", None)
         is_benchmark = active_recipe_name in ("STANDARD_3V30S", "FULL_PACKAGE")
         if is_benchmark:
@@ -116,6 +132,7 @@ class LocalRawLogBreakinController(BreakinController):
 
         record = RawLog(
             device_type="MOTOR",
+            device_model=header_model,
             firmware_version=firmware,
             device_instance_id=instance_id,
             motor_id=instance_id,
