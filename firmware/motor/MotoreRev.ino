@@ -53,7 +53,7 @@
 
 constexpr char FW_VERSION[]   = "3.03";
 // Unique identifier for command-correlated emergency-stop acknowledgements.
-constexpr char FW_BUILD_ID[]  = "EXPLICIT-ARM-STOP-ACK-20261023-01";
+constexpr char FW_BUILD_ID[]  = "ARM-STOP-ACK-ACS712-RAIL-20261023-01";
 constexpr char DEVICE_TYPE[]  = "MOTOR";
 constexpr char DEVICE_MODEL[] = "MOTOR_BREAKIN_V3";
 
