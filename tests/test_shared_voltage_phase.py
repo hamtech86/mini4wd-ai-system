@@ -60,7 +60,7 @@ def test_shared_voltage_runner_checkpoints_tunebasic_iterations():
     phase = SimpleNamespace(name="TuneBasic Phase 1", target_voltage=3.0)
 
     assert run_timed_voltage_phase(
-        controller, phase, 2.0, save_checkpoint=True, initial_elapsed=4.0
+        controller, phase, 10.0, save_checkpoint=True, initial_elapsed=4.0
     ) is True
     assert controller.phase_elapsed_before_pause == 4.0
     assert "checkpoint" in controller.events
