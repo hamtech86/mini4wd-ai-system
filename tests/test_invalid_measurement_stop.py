@@ -23,7 +23,7 @@ class StopTransport:
         self.pwm.append(value)
 
 
-def test_three_consecutive_missing_samples_trigger_emergency_stop():
+def test_missing_data_does_not_abort_timed_phase():
     transport = StopTransport()
     controller = BreakinController(serial_controller=transport,
                                    measurement_manager=EmptyMeasurementManager())
@@ -32,11 +32,10 @@ def test_three_consecutive_missing_samples_trigger_emergency_stop():
 
     assert controller._collect_measurement(phase) is None
     assert controller._collect_measurement(phase) is None
-    with pytest.raises(RuntimeError, match="3 consecutive invalid control samples"):
-        controller._collect_measurement(phase)
+    assert controller._collect_measurement(phase) is None
 
-    assert controller.running is False
-    assert transport.stop_calls == 1
+    assert controller.running is True
+    assert transport.stop_calls == 0
 
 
 def test_three_consecutive_invalid_input_feedback_samples_trigger_stop():
