@@ -159,7 +159,7 @@ def test_regular_recipe_start_after_benchmark_clears_all_benchmark_sidecar_state
     controller.last_raw_log_id = "MOTOR-000099"
     controller.last_raw_log_path = "stale/path"
     controller._registered_raw_log_ids = ["MOTOR-000099"]
-    controller._measurement_raw_log_parts = ["STALE BENCHMARK BODY\\n"]
+    controller._measurement_raw_log_parts = ["STALE BENCHMARK BODY\n"]
 
     def fake_base_start(self, recipe, instance_id=None, resume=False):
         self.active_recipe_name = str(recipe.name).upper()
@@ -188,3 +188,48 @@ def test_regular_recipe_start_after_benchmark_clears_all_benchmark_sidecar_state
     assert controller._measurement_raw_log_parts == []
     assert controller._registered_raw_log_ids == ["MOTOR-000001"]
     assert controller.last_raw_log_id == "MOTOR-000001"
+
+
+
+def test_rawlog_metadata_uses_model_and_firmware_from_info_header(tmp_path):
+    serial = FakeSerial()
+    library = FakeLibrary(tmp_path)
+    controller = LocalRawLogBreakinController(
+        serial_controller=serial,
+        raw_log_library=library,
+    )
+    controller.session = FakeSession()
+    controller.active_instance_id = "INSTANCE-005"
+    controller.active_recipe_name = "RECIPE-METADATA"
+    raw_body = (
+        "INFO,TYPE=MOTOR,MODEL=MOTOR_BREAKIN_V3,FW=3.03,"
+        "BUILD=EXPLICIT-ARM-STOP-ACK-20261023-01\n"
+        "DATA,MOTOR_BREAKIN_V3,000001,0\n"
+    )
+
+    record = controller._register_raw_log(raw_body)
+
+    assert record.device_model == "MOTOR_BREAKIN_V3"
+    assert record.firmware_version == "3.03"
+    stored, _, _ = library.get(record.log_id)
+    assert stored.device_model == "MOTOR_BREAKIN_V3"
+    assert stored.firmware_version == "3.03"
+    assert library.read_raw(record.log_id) == raw_body
+
+
+def test_rawlog_metadata_falls_back_to_session_firmware_when_info_header_lacks_fw(tmp_path):
+    serial = FakeSerial()
+    library = FakeLibrary(tmp_path)
+    controller = LocalRawLogBreakinController(
+        serial_controller=serial,
+        raw_log_library=library,
+    )
+    controller.session = FakeSession()
+    controller.active_instance_id = "INSTANCE-006"
+    controller.active_recipe_name = "RECIPE-METADATA"
+    raw_body = "INFO,TYPE=MOTOR,MODEL=MOTOR_BREAKIN_V3\nDATA,1,2,3\n"
+
+    record = controller._register_raw_log(raw_body)
+
+    assert record.device_model == "MOTOR_BREAKIN_V3"
+    assert record.firmware_version == "MOTOR_BREAKIN_V3"
