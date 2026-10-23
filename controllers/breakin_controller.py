@@ -451,6 +451,30 @@ class BreakinController:
     def _value(measurement, name, default=0.0):
         return BreakinController._measurement_value(measurement, name, default)
 
+    @classmethod
+    def _acs_adc_rail_fault(cls, measurement):
+        """Return a fault description when a raw ACS712 sample is near ADC rails.
+
+        The Uno ADC is 10-bit (0..1023). Values <=2 or >=1021 are treated as
+        rail faults: these readings cannot reliably distinguish current from a
+        sensor/wiring/ADC saturation condition. Missing raw fields are handled
+        by MeasurementManager's DATA validation; legacy unit-test doubles that
+        do not expose raw fields remain compatible with this helper.
+        """
+        for name in ("raw_acs1", "raw_acs2"):
+            raw = cls._measurement_value(measurement, name, None)
+            if raw is None:
+                continue
+            try:
+                value = float(raw)
+            except (TypeError, ValueError, OverflowError):
+                return f"ACS712 sensor fault: invalid {name}"
+            if not math.isfinite(value) or not value.is_integer() or not 0 <= value <= 1023:
+                return f"ACS712 sensor fault: invalid {name} ADC sample"
+            if value <= 2 or value >= 1021:
+                return f"ACS712 sensor fault: {name} ADC rail sample ({int(value)}/1023)"
+        return None
+
     def _record_invalid_measurement(self, reason):
         self.invalid_measurement_streak = int(getattr(self, "invalid_measurement_streak", 0)) + 1
         if self.invalid_measurement_streak >= 3:
@@ -537,6 +561,18 @@ class BreakinController:
         if measurement is None:
             self._record_invalid_measurement("missing or rejected DATA")
             return None
+
+        # The fixed 26-column DATA contract already carries both raw ACS712 ADC
+        # readings. A reading at either ADC rail is a sensor/path fault, not a
+        # trustworthy current value. Fail closed immediately, before appending
+        # the derived current to the measurement series or applying voltage control.
+        # Keep this separate from the valid-sample 5 A over-current guard.
+        rail_fault = self._acs_adc_rail_fault(measurement)
+        if rail_fault:
+            self.abort_reason = f"SAFETY: {rail_fault}"
+            self.emergency_stop()
+            raise RuntimeError(self.abort_reason)
+
         control = str(getattr(phase, "control", "PWM") or "PWM").upper()
         target = getattr(phase, "target_voltage", None)
         ramp_start = getattr(phase, "start_voltage", None)
