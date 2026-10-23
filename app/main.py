@@ -456,53 +456,13 @@ class MainWindow(BaseMainWindow):
         self._start_benchmark(benchmark_type, mode)
 
     def _start_tunebasic_recipe(self):
-        # Defense in depth: do not permit direct/programmatic dispatch of the
-        # full 11-phase recipe while Issue #98's physical gate remains open.
-        self._set_ui_error("FULL_TUNEBASIC_BLOCKED", "Only TUNE_BASIC_INPUT_3V_CHECK is permitted until Issue #98 is cleared.")
+        """Full TuneBasic is blocked until Issue #98's physical gate is cleared."""
+        self._set_ui_error(
+            "FULL_TUNEBASIC_BLOCKED",
+            "Only TUNE_BASIC_INPUT_3V_CHECK is permitted until Issue #98 is cleared.",
+        )
         self.sequence_status.setText("BLOCKED / Issue #98 limited-check review required")
         return
-        if self._stop_latched:
-            self._set_ui_error("STOP_LATCHED", "Restart blocked after emergency STOP.")
-            return
-        if not self._require_verified_motor("TuneBasic full INPUT recipe"):
-            self.sequence_status.setText("TUNE_BASIC: BLOCKED / INFO NOT VERIFIED")
-            return
-        recipe = self.recipe_engine.get("TUNE_BASIC")
-        if recipe is None:
-            self._set_ui_error("MISSING_RECIPE", "TUNE_BASIC is missing from config/breakin_recipes.yaml.")
-            return
-        # Fail closed if any voltage-controlled phase lacks explicit INPUT
-        # feedback metadata; never fall back to TERMINAL mode.
-        for phase in recipe.phases:
-            if phase.control in {"VOLTAGE", "VOLTAGE_RAMP"} and str(phase.metadata.get("voltage_control_mode", "")).upper() != "INPUT":
-                self._set_ui_error("TUNEBASIC_CONTROL_MODE_INVALID", f"{phase.name} must explicitly use INPUT feedback.")
-                return
-        controller = self._motor_controller()
-        if controller is None or not getattr(controller, "connected", False):
-            self._set_ui_error("MOTOR_NOT_CONNECTED", "Connect and verify MOTOR_BREAKIN_V3 before starting.")
-            return
-        self.database_updated = False
-        self.last_result_data = None
-        self.last_result_benchmark = False
-        self.database_status.setText("DATABASE: NOT UPDATED")
-        self.update_db.setEnabled(False)
-        self.copy.setEnabled(False)
-        self.start.setEnabled(False)
-        self.manager.setEnabled(False)
-        self.instance.setEnabled(False)
-        self.recipe.setEnabled(False)
-        self.stop.setEnabled(True)
-        self.emergency_stop_fixed.setEnabled(True)
-        self.result["STATUS"].setText("RUNNING / TUNEBASIC FULL INPUT")
-        self.run_state.setText("STARTING TUNEBASIC FULL INPUT")
-        self._log_event("Starting full TUNE_BASIC recipe through BreakinWorker; INPUT feedback is required for every voltage phase.")
-        self.breakin_worker = BreakinWorker(self.breakin_controller, recipe, False)
-        self.breakin_worker.completed.connect(lambda data: self.complete(data, False))
-        self.breakin_worker.failed.connect(self.failed)
-        self.breakin_worker.finished.connect(self.finished)
-        self.timer.start()
-        self.breakin_worker.start()
-
     def _start_limited_tunebasic_check(self):
         if self._stop_latched:
             self._set_ui_error("STOP_LATCHED", "Restart blocked after emergency STOP.")
