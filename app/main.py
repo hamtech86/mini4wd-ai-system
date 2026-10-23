@@ -343,8 +343,8 @@ class MainWindow(BaseMainWindow):
             if widget is not None:widget.deleteLater()
         self.sequence_checks=[];self.sequence_progress.setValue(0);self.sequence_status.setText(status)
 
-    def _load_benchmark_sequence(self, benchmark_type, mode="TERMINAL", preset_label=None):
-        label=preset_label or ("STD-T" if benchmark_type==STANDARD_3V30S else "Full-T")
+    def _load_benchmark_sequence(self, benchmark_type, mode="INPUT", preset_label=None):
+        label=preset_label or ("STD-I" if benchmark_type==STANDARD_3V30S else "Full-I")
         self._clear_sequence_panel(f"Motor Benchmark: {label} / {benchmark_type} / {mode}")
         detail=("01 | STANDARD_3V30S | PREPARE 2 s → 3.00 V target 30 s" if benchmark_type==STANDARD_3V30S else "01 | FULL_PACKAGE | PREPARE 2 s → BASELINE 30 s → +5% 30 s → RETURN 10 s → -5% 30 s → RETURN 10 s")
         check=QCheckBox(f"{label} | Benchmark Type={('STANDARD' if benchmark_type==STANDARD_3V30S else 'FULL_PACKAGE')} | Voltage Control Mode={mode} | {detail}")
