@@ -109,3 +109,75 @@ def test_info_during_idle_read_is_not_misclassified_as_reboot():
     assert controller.read_measurement() is None
     assert controller.device_reboot_detected is False
     assert controller.identity_verified is True
+
+
+
+def test_missing_control_data_triggers_existing_three_sample_fail_safe():
+    from types import SimpleNamespace
+    from controllers.breakin_controller import BreakinController
+
+    class MissingMeasurementManager:
+        last_measurement = None
+
+        def collect(self):
+            return None
+
+    class StopRecorder:
+        device_reboot_detected = False
+
+        def __init__(self):
+            self.stop_calls = 0
+
+        def emergency_stop(self):
+            self.stop_calls += 1
+            return {"pwm_zero": False, "stop_command": False, "disconnect": True, "errors": []}
+
+    serial = StopRecorder()
+    controller = BreakinController(serial, measurement_manager=MissingMeasurementManager())
+    phase = SimpleNamespace(control="VOLTAGE", target_voltage=3.0,
+                             start_voltage=None, end_voltage=None, direction="FWD")
+
+    assert controller._collect_measurement(phase) is None
+    assert controller._collect_measurement(phase) is None
+    try:
+        controller._collect_measurement(phase)
+        assert False, "third consecutive missing control sample must abort"
+    except RuntimeError as exc:
+        assert "3 consecutive invalid control samples" in str(exc)
+    assert serial.stop_calls == 1
+    assert controller.emergency_stop_latched is True
+
+
+def test_detected_reboot_aborts_even_when_measurement_is_missing():
+    from types import SimpleNamespace
+    from controllers.breakin_controller import BreakinController
+
+    class MissingMeasurementManager:
+        last_measurement = None
+
+        def collect(self):
+            return None
+
+    class RebootedSerial:
+        device_reboot_detected = True
+        device_reboot_reason = "Unexpected INFO received during an armed run; firmware reboot suspected."
+
+        def __init__(self):
+            self.stop_calls = 0
+
+        def emergency_stop(self):
+            self.stop_calls += 1
+            return {"pwm_zero": False, "stop_command": False, "disconnect": True, "errors": []}
+
+    serial = RebootedSerial()
+    controller = BreakinController(serial, measurement_manager=MissingMeasurementManager())
+    phase = SimpleNamespace(control="VOLTAGE", target_voltage=3.0,
+                             start_voltage=None, end_voltage=None, direction="FWD")
+
+    try:
+        controller._collect_measurement(phase)
+        assert False, "detected reboot must abort immediately"
+    except RuntimeError as exc:
+        assert "firmware reboot detected" in str(exc).lower()
+    assert serial.stop_calls == 1
+    assert controller.emergency_stop_latched is True
