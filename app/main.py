@@ -58,7 +58,7 @@ class MainWindow(BaseMainWindow):
         old_central=self.takeCentralWidget() or self.motor_page; root=QWidget(); root_layout=QVBoxLayout(root); root_layout.setContentsMargins(5,5,5,5)
         device_box=QGroupBox("DEVICE CONNECTION"); row=QGridLayout(device_box)
         self.motor_serial_status=QLabel("MOTOR: DISCONNECTED  /dev/ttyACM0"); self.motor_connect=QPushButton("MOTOR CONNECT"); self.motor_disconnect=QPushButton("MOTOR DISCONNECT"); self.motor_disconnect.setEnabled(False)
-        self.motor_arm=QPushButton("ARM / RE-ARM"); self.motor_arm.setEnabled(False); self.motor_arm.setToolTip("Non-driving authorization; available after STOP when MOTOR_BREAKIN_V3 identity is verified.")
+        self.motor_arm=QPushButton("ARM / RE-ARM"); self.motor_arm.setEnabled(False); self.motor_arm.setToolTip("Explicit ARM is required before drive. After STOP, reconnecting cannot clear the latch; physically switch motor power off before starting a fresh application session.")
         self.motor_connect.clicked.connect(self.connect_motor_serial); self.motor_disconnect.clicked.connect(self.disconnect_motor_serial); self.motor_arm.clicked.connect(self.arm_motor)
         self.battery_serial_status=QLabel("BATTERY: DISCONNECTED  /dev/ttyUSB0"); self.battery_connect=QPushButton("BATTERY CONNECT"); self.battery_disconnect=QPushButton("BATTERY DISCONNECT"); self.battery_disconnect.setEnabled(False)
         self.battery_connect.clicked.connect(self.connect_battery_serial); self.battery_disconnect.clicked.connect(self.disconnect_battery_serial)
@@ -193,14 +193,22 @@ class MainWindow(BaseMainWindow):
                 # A new INFO identity after reconnect is not proof that the
                 # previous motor run physically stopped. A STOP/error latch can
                 # only be cleared by starting a fresh application session.
-                self.motor_arm.setEnabled(False)
                 if self._stop_latched:
+                    self.motor_arm.setEnabled(False)
                     self.motor_serial_status.setText(
                         "MOTOR: IDENTITY VERIFIED / RESTART REQUIRED AFTER STOP"
                     )
                     self._log_event(
                         "Reconnect identity verified, but ARM remains blocked: "
                         "previous stop was not physically confirmed."
+                    )
+                else:
+                    # A fresh application session with valid identity must be
+                    # able to explicitly ARM before any positive drive command.
+                    self.motor_arm.setEnabled(True)
+                    self._log_event(
+                        "Motor identity verified; explicit ARM is available. "
+                        "No drive command has been issued."
                     )
                 self._log_event("Motor INFO identity verified: " + str(info))
             else:
