@@ -94,11 +94,37 @@ class MainWindow(BaseMainWindow):
             return
         name = self.recipe.itemData(index) if hasattr(self, "recipe") else None
         if name == "TUNE_BASIC":
-            self._clear_sequence_panel("TUNE_BASIC blocked until Issue #98 safety review is explicitly cleared.")
+            # Allow recipe/phase selection for pseudo-resume planning only.
+            # Display the configured sequence and any compatible checkpoint,
+            # but keep every path that can issue drive commands disabled.
+            self._load_tunebasic_sequence()
+            checkpoint = None
+            controller = getattr(self, "breakin_controller", None)
+            if controller is not None and callable(getattr(controller, "resume_checkpoint", None)):
+                checkpoint = controller.resume_checkpoint()
+            if checkpoint and str(checkpoint.get("recipe", "")).upper() == "TUNE_BASIC":
+                phase_name = checkpoint.get("phase_name", "unknown")
+                elapsed = checkpoint.get("phase_elapsed_sec", 0)
+                self.sequence_status.setText(
+                    f"RESUME PLAN ONLY — saved position: {phase_name}, {elapsed}s elapsed. "
+                    "No automatic motor restart."
+                )
+                self._log_event(
+                    f"TuneBasic pseudo-resume checkpoint shown: phase={phase_name}, elapsed={elapsed}s; "
+                    "drive remains blocked pending Issue #98."
+                )
+            else:
+                self.sequence_status.setText(
+                    "RESUME PLAN ONLY — full TuneBasic is selectable for phase inspection; "
+                    "execution remains blocked by Issue #98."
+                )
             self.start.setEnabled(False)
             self.sequence_execute.setEnabled(False)
-            self._set_ui_error("TUNEBASIC_BLOCKED_UNTIL_ISSUE98",
-                               "Full TuneBasic is blocked by Issue #131 until Issue #98 is explicitly cleared.")
+            self._set_ui_error(
+                "TUNEBASIC_RESUME_PLAN_ONLY",
+                "TuneBasic is selectable for sequence/resume planning only. "
+                "Drive execution remains blocked until Issue #98 is explicitly cleared."
+            )
             return
         if name == "TUNE_BASIC_INPUT_3V_CHECK":
             self._load_limited_tunebasic_sequence()
