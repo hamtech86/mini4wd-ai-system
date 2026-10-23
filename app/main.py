@@ -330,6 +330,11 @@ class MainWindow(BaseMainWindow):
 
     def _recipe_selection_changed(self, index):
         name = self.recipe.itemData(index) if hasattr(self, "recipe") else None
+        if name == "TUNE_BASIC":
+            self._load_tunebasic_sequence()
+            self.sequence_execute.setEnabled(True)
+            self.start.setEnabled(True)
+            return
         if name == "TUNE_BASIC_INPUT_3V_CHECK":
             self._load_limited_tunebasic_sequence()
             self.sequence_execute.setEnabled(True)
