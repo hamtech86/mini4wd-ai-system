@@ -30,10 +30,15 @@ def test_main_window_builds_offscreen_without_hardware_connection(monkeypatch, t
             "STD-I", "Full-I", "TUNE_BASIC (SELECT / RESUME PLAN ONLY)",
         "TUNE_BASIC_INPUT_3V_CHECK"
         }
-        assert window.recipe.findData("TUNE_BASIC") == -1
+        assert window.recipe.findData("TUNE_BASIC") >= 0
         # Direct/programmatic invocation must be blocked as well as the UI option.
         window._start_tunebasic_recipe()
         assert window.error_code_label.text() == "Error Code: TUNEBASIC_BLOCKED_UNTIL_ISSUE98"
+        window.recipe.setCurrentIndex(window.recipe.findData("TUNE_BASIC"))
+        assert "RESUME PLAN ONLY" in window.sequence_status.text()
+        assert "FWD_3V_START" in window.phase_detail.text()
+        assert not window.start.isEnabled()
+        assert not window.sequence_execute.isEnabled()
         window.recipe.setCurrentIndex(window.recipe.findData("TUNE_BASIC_INPUT_3V_CHECK"))
         assert "limited" in window.sequence_status.text().lower()
         assert len(window.sequence_checks) == 1
