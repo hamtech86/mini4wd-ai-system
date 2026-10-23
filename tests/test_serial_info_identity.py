@@ -78,3 +78,33 @@ def test_info_rows_are_excluded_from_raw_log():
     assert "INFO," not in controller.raw_log
     assert "CAL,ACS1=2.50,ACS2=2.51" in controller.raw_log
     assert data_line in controller.raw_log
+
+
+
+def test_unexpected_info_during_armed_run_marks_reboot_and_revokes_token():
+    controller = SerialController()
+    controller.serial = FakeSerial([(VALID_INFO + "\\n").encode("utf-8")])
+    controller.connected = True
+    controller.identity_verified = True
+    controller.device_info = {"TYPE": "MOTOR", "MODEL": "MOTOR_BREAKIN_V3",
+                              "FW": "3.03", "BUILD": "EXPLICIT-ARM-STOP-ACK-20261023-01",
+                              "ID": "000001"}
+    controller._active_arm_token = "DEADBEEF"
+
+    assert controller.read_measurement() is None
+    assert controller.device_reboot_detected is True
+    assert "reboot suspected" in controller.device_reboot_reason.lower()
+    assert controller._active_arm_token is None
+    assert controller.identity_verified is False
+    assert controller.device_info is None
+    assert "INFO," not in controller.raw_log
+
+
+def test_info_during_idle_read_is_not_misclassified_as_reboot():
+    controller = SerialController()
+    controller.serial = FakeSerial([(VALID_INFO + "\\n").encode("utf-8")])
+    controller.connected = True
+
+    assert controller.read_measurement() is None
+    assert controller.device_reboot_detected is False
+    assert controller.identity_verified is True
