@@ -357,13 +357,18 @@ class BreakinController:
             time.sleep(self.CONTROL_INTERVAL_SEC)
 
     def _execute_brush_peak_approach(self, phase, resume_elapsed=0.0):
-        # Do not interpret an absent/INVALID sample as zero current. Wait for
-        # the next VALID sample before establishing the brush-peak reference.
+        # DATA is optional for phase timing. If no valid telemetry arrives,
+        # do not wait forever for a brush-peak reference; let this timed phase
+        # expire and allow the remaining TuneBasic recipe to proceed.
+        max_duration = phase.max_duration_sec or phase.duration_sec or 1800
         measurement = None
-        while self.running and measurement is None:
+        while self.running and measurement is None and self._effective_elapsed() < max_duration:
             measurement = self._collect_measurement(phase)
             if measurement is None:
                 time.sleep(self.CONTROL_INTERVAL_SEC)
+        if measurement is None:
+            self.serial.set_pwm(0)
+            return
         peak = self._estimate_brush_peak_current()
         if peak < phase.peak_min_current:
             self.abort_reason = f"BRUSH PEAK APPROACH requires benchmark peak >= {phase.peak_min_current:.3f} A; measured {peak:.3f} A"
@@ -371,12 +376,17 @@ class BreakinController:
             return
         target = peak * (1.0 - phase.peak_margin_ratio)
         self.brush_peak_target_current = target
-        max_duration = phase.max_duration_sec or phase.duration_sec or 1800
         while self.running and self._effective_elapsed() < max_duration:
             if self.paused:
                 time.sleep(self.CONTROL_INTERVAL_SEC)
                 continue
             measurement = self._collect_measurement(phase)
+            if measurement is None:
+                # Missing telemetry must not be reclassified as zero current
+                # or fed into voltage validation. Keep the timed phase running
+                # at its current PWM until a valid sample returns.
+                time.sleep(self.CONTROL_INTERVAL_SEC)
+                continue
             current = self._current_from_measurement(measurement)
             if current > self.last_brush_peak_current:
                 self.last_brush_peak_current = current
@@ -559,9 +569,12 @@ class BreakinController:
             self._record_invalid_measurement(f"measurement acquisition error: {type(exc).__name__}")
             return None
         if measurement is None:
-            reason = getattr(self.measurement_manager, "last_rejection_reason", None)
-            detail = f"missing or rejected DATA: {reason}" if reason else "missing or rejected DATA"
-            self._record_invalid_measurement(detail)
+            # DATA is used for feedback and logging, but an absent telemetry
+            # frame alone must not abort the timed TuneBasic phase. The phase
+            # continues at its current PWM and voltage correction resumes when
+            # a valid DATA frame arrives. Explicit invalid voltage feedback on
+            # received frames and the independent current/PWM/temperature
+            # checks remain unchanged.
             return None
 
         # The fixed 26-column DATA contract already carries both raw ACS712 ADC
