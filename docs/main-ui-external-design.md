@@ -1,10 +1,10 @@
 # Main UI 外部設計正本
 
 - 文書ID: MAIN-UI-EXT-DESIGN
-- 版: 1.1
+- 版: 1.2
 - 作成日: 2026-10-23
 - 対象: `hamtech86/mini4wd-ai-system` の Main UI
-- 関連: [Issue #35 — 最新仕様・正本](https://github.com/hamtech86/mini4wd-ai-system/issues/35)、[Issue #80 — Main UI改修](https://github.com/hamtech86/mini4wd-ai-system/issues/80)、[PR #92 — Draft Main UI改修](https://github.com/hamtech86/mini4wd-ai-system/pull/92)、[Issue #93 — 統合ゲート](https://github.com/hamtech86/mini4wd-ai-system/issues/93)
+- 関連: [Issue #35 — 最新仕様・正本](https://github.com/hamtech86/mini4wd-ai-system/issues/35)、[Issue #80 — Main UI改修](https://github.com/hamtech86/mini4wd-ai-system/issues/80)、[Issue #93 — 統合ゲート](https://github.com/hamtech86/mini4wd-ai-system/issues/93)、[PR #119 — Benchmark preset scope](https://github.com/hamtech86/mini4wd-ai-system/pull/119)、[PR #120 — TuneBasic INPUT ramps](https://github.com/hamtech86/mini4wd-ai-system/pull/120)
 
 ## 1. 文書の位置付けと優先順位
 
@@ -121,6 +121,14 @@ DATA の列順・RawLog 本文・センサー値を表示都合で変更しな�
 - Benchmark の既定モードも INPUT とし、既定ラベルは STD-I / Full-I とする。
 - Benchmark の実行手順・制御アルゴリズムそのものは本 UI 設計の対象外であり、変更しない。
 
+### 4.1 TuneBasic の INPUT 制御と実機ゲート
+
+- TuneBasic は Benchmark とは独立した Recipe とする。Main の Recipe dropdown で公開するのは、限定試験用の `TUNE_BASIC_INPUT_3V_CHECK` のみとする。全 TuneBasic / 9 V シーケンスを UI から開始可能にする変更は、Issue #98 の実機安全性レビューと司令塔の判断が済むまで行わない。
+- レシピカタログ内の全 TuneBasic 電圧制御フェーズは INPUT モードを使用する。FWD は `voltage1` / V4、REV は `voltage2` / V5 をフィードバックに使う。
+- INPUT モードは 3 V 開始だけでなく、3→9 V ランプ、9 V 保持、フェードアウト、最終 3 V ベンチマークまで引き継ぐ。ランプ制御が内部制御フェーズを生成する場合も、元フェーズの `voltage_control_mode` を保持する。
+- `motor_voltage = V4 - V5` は符号付き端子間測定値として表示・保存する。INPUT 制御値の代用にしない。REV で負の `motor_voltage` が得られても、REV の INPUT フィードバックは V5 / `voltage2` を使う。
+- 自動テスト・ログ・シリアル ACK は物理停止の証明ではない。Issue #98 の実機ゲートは別管理とし、CI 成功だけで全 TuneBasic や反復運転を許可しない。
+
 ## 5. LOG / ERROR LOG
 
 - LOG と ERROR LOG を区別して表示する。
@@ -192,7 +200,7 @@ CI 成功は自動テストの成功を意味するだけで、画面目視・�
 
 ## 10. 現時点の実装追跡
 
-2026-10-18 時点の PR #92 は Draft・未マージであり、本書は PR のマージや Draft 解除を許可するものではない。PR #92 の HEAD や CI 状態は変動するため、本書に固定値として埋め込まず、PR と Issue #93 で追跡する。
+2026-10-23 時点で PR #92 の Main UI統合と PR #119 の Benchmark preset scope、PR #120 の TuneBasic INPUT ramp propagation は main に統合済み。PR #119 と #120 の CI は成功している。ただし、GUIの目視確認と Issue #98 が管理する実機安全性判断は自動テストとは別であり、本書はそれらの完了を宣言しない。今後の実装状態は main と Issue #93 / #98 の最新コメントで追跡し、古い Draft PR の本文を現行仕様として参照しない。
 
 実装報告は以下を分けて記載する。
 
