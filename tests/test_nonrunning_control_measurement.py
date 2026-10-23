@@ -47,3 +47,20 @@ def test_collect_waits_for_run_after_ready_frame():
 
     assert measurement is not None
     assert measurement.state == "RUN"
+
+
+def test_rejection_diagnostics_identify_non_running_state():
+    manager = MeasurementManager()
+    reason = manager._explain_rejected_frame(data_frame("READY"))
+    assert reason == "DATA state not running: 'READY'"
+
+
+def test_rejection_diagnostics_identify_missing_frame():
+    assert MeasurementManager._explain_rejected_frame(None) == "no DATA frame received"
+
+
+def test_rejection_diagnostics_identify_missing_fields():
+    frame = data_frame("RUN")
+    frame["voltage1"] = None
+    reason = MeasurementManager._explain_rejected_frame(frame)
+    assert reason == "missing DATA fields: voltage1"
