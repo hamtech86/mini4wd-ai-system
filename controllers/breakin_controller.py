@@ -568,13 +568,17 @@ class BreakinController:
                 self.measurement_manager.last_measurement = None
             self._record_invalid_measurement(f"measurement acquisition error: {type(exc).__name__}")
             return None
+        serial_rebooted = bool(getattr(self.serial, "device_reboot_detected", False))
+        if serial_rebooted:
+            reason = getattr(self.serial, "device_reboot_reason", "") or "Unexpected firmware INFO during active run."
+            self.abort_reason = "SAFETY: firmware reboot detected during active run; " + reason
+            self.emergency_stop()
+            raise RuntimeError(self.abort_reason)
+
         if measurement is None:
-            # DATA is used for feedback and logging, but an absent telemetry
-            # frame alone must not abort the timed TuneBasic phase. The phase
-            # continues at its current PWM and voltage correction resumes when
-            # a valid DATA frame arrives. Explicit invalid voltage feedback on
-            # received frames and the independent current/PWM/temperature
-            # checks remain unchanged.
+            # Do not advance a timed phase after a detected firmware restart.
+            # Ordinary telemetry gaps retain their existing handling; repeated
+            # invalid control samples are governed by the existing fail-safe path.
             return None
 
         # The fixed 26-column DATA contract already carries both raw ACS712 ADC
