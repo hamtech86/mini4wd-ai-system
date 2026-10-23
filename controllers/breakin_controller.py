@@ -419,7 +419,7 @@ class BreakinController:
         target = start + (end - start) * ratio
         error_target = BreakinPhase(name=phase.name, duration_sec=phase.duration_sec,
             pwm=self.current_pwm, direction=phase.direction, control="VOLTAGE",
-            target_voltage=target, pwm_min=phase.pwm_min, pwm_max=phase.pwm_max)
+            target_voltage=target, pwm_min=phase.pwm_min, pwm_max=phase.pwm_max, metadata=dict(phase.metadata))
         measurement = self.measurements[-1] if self.measurements else None
         self._voltage_control(error_target, measurement)
 
