@@ -78,3 +78,34 @@ def test_info_rows_are_excluded_from_raw_log():
     assert "INFO," not in controller.raw_log
     assert "CAL,ACS1=2.50,ACS2=2.51" in controller.raw_log
     assert data_line in controller.raw_log
+
+
+
+def test_unexpected_info_during_armed_run_invalidates_old_arm_and_discards_data():
+    controller = SerialController()
+    data_line = "DATA," + ",".join(["0"] * 25)
+    handle = FakeSerial([
+        b"========================================\n",
+        (VALID_INFO + "\n").encode("utf-8"),
+        (data_line + "\n").encode("utf-8"),
+    ])
+    controller.serial = handle
+    controller.connected = True
+    controller.identity_verified = True
+    controller.device_info = {
+        "TYPE": "MOTOR",
+        "MODEL": "MOTOR_BREAKIN_V3",
+        "FW": "3.03",
+        "BUILD": "EXPLICIT-ARM-STOP-ACK-20261023-01",
+        "ID": "000001",
+    }
+    controller._active_arm_token = "9C66043A"
+
+    assert controller.read_measurement() is None
+    assert controller.unexpected_reboot_detected is True
+    assert controller._active_arm_token is None
+    assert controller.identity_verified is False
+    assert controller.device_info is None
+    assert "Unexpected firmware INFO" in controller.identity_error
+    # DATA after the boot identity must not be treated as part of the old run.
+    assert len(handle.lines) == 1
