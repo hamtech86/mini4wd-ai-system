@@ -94,6 +94,7 @@ def test_unexpected_info_during_armed_run_marks_reboot_and_revokes_token():
     assert controller.read_measurement() is None
     assert controller.device_reboot_detected is True
     assert "reboot suspected" in controller.device_reboot_reason.lower()
+    assert controller.device_reboot_raw_line == VALID_INFO
     assert controller._active_arm_token is None
     assert controller.identity_verified is False
     assert controller.device_info is None
