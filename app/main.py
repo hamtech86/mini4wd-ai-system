@@ -35,6 +35,7 @@ class MainWindow(BaseMainWindow):
     def __init__(self, context=None):
         super().__init__(context)
         self._stop_latched = False
+        self._arm_accepted = False
         self.analysis_engine=AnalysisEngine(str(PROJECT_ROOT / "config"))
         self.recipe_engine=RecipeEngine(str(PROJECT_ROOT / "config" / "breakin_recipes.yaml"))
         self._extract_motor_page(); self._build_estimated_result_panel()
@@ -148,6 +149,17 @@ class MainWindow(BaseMainWindow):
         if hasattr(self,"result") and "STATUS" in self.result: self.result["STATUS"].setText("BLOCKED / INFO NOT VERIFIED")
         self._log_event(message); return False
 
+    def _require_explicit_arm(self, operation):
+        if self._arm_accepted:
+            return True
+        message=f"{operation} blocked: explicit ARM has not been acknowledged in this application session; no drive command was issued."
+        self._set_ui_error("MOTOR_NOT_ARMED", message)
+        self.run_state.setText("BLOCKED / ARM REQUIRED")
+        if hasattr(self, "result") and "STATUS" in self.result:
+            self.result["STATUS"].setText("BLOCKED / ARM REQUIRED")
+        self._log_event(message)
+        return False
+
     def _motor_controller(self):
         controller=getattr(self,"serial_controller",None)
         if controller is not None:return controller
@@ -187,6 +199,7 @@ class MainWindow(BaseMainWindow):
         if controller.connected: self.motor_serial_status.setText("MOTOR: PORT CONNECTED / INFO NOT VERIFIED"); return
         if controller.connect():
             self.motor_connect.setEnabled(False); self.motor_disconnect.setEnabled(True)
+            self._arm_accepted = False
             if self._identity_verified(controller):
                 info = getattr(controller, "device_info", {}) or {}
                 self.motor_serial_status.setText("MOTOR: IDENTITY VERIFIED / " + str(info.get("MODEL")) + " / FW " + str(info.get("FW")) + " / " + str(info.get("ID")))
@@ -238,6 +251,7 @@ class MainWindow(BaseMainWindow):
             self.motor_arm.setEnabled(True)
             return
         self._stop_latched = False
+        self._arm_accepted = True
         if self.breakin_controller is not None and hasattr(self.breakin_controller, "emergency_stop_latched"):
             self.breakin_controller.emergency_stop_latched = False
         self.motor_arm.setEnabled(False)
@@ -471,6 +485,9 @@ class MainWindow(BaseMainWindow):
         if not self._require_verified_motor("TuneBasic full INPUT recipe"):
             self.sequence_status.setText("TUNE_BASIC: BLOCKED / INFO NOT VERIFIED")
             return
+        if not self._require_explicit_arm("TuneBasic full INPUT recipe"):
+            self.sequence_status.setText("TUNE_BASIC: BLOCKED / ARM REQUIRED")
+            return
         recipe = self.recipe_engine.get("TUNE_BASIC")
         if recipe is None:
             self._set_ui_error("MISSING_RECIPE", "TUNE_BASIC is missing from config/breakin_recipes.yaml.")
@@ -512,6 +529,8 @@ class MainWindow(BaseMainWindow):
             self._set_ui_error("STOP_LATCHED", "Restart blocked after emergency STOP.")
             return
         if not self._require_verified_motor("TuneBasic INPUT 3V check"):
+            return
+        if not self._require_explicit_arm("TuneBasic INPUT 3V check"):
             return
         recipe = self.recipe_engine.get("TUNE_BASIC_INPUT_3V_CHECK")
         if recipe is None:
@@ -560,6 +579,7 @@ class MainWindow(BaseMainWindow):
             self._set_ui_error("STOP_LATCHED", "Restart blocked after an emergency-stop request; physical stop remains unconfirmed.")
             return
         if not self._require_verified_motor("Motor Benchmark"): return
+        if not self._require_explicit_arm("Motor Benchmark"): return
         if not self.breakin_controller:
             QMessageBox.warning(self,"Controller","BreakinController is not available.");return
         controller=self._motor_controller()
@@ -603,6 +623,7 @@ class MainWindow(BaseMainWindow):
         # Any worker exception is treated as unsafe termination; do not let the
         # base callback re-enable START or RESUME after a failed run.
         self._stop_latched = True
+        self._arm_accepted = False
         try:
             controller = getattr(self, "breakin_controller", None)
             if controller is not None:
@@ -629,6 +650,7 @@ class MainWindow(BaseMainWindow):
 
     def stop_run(self):
         self._stop_latched = True
+        self._arm_accepted = False
         stop_errors = []
         controller = getattr(self, "breakin_controller", None)
         if controller is None:
