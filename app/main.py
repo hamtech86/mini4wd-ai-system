@@ -82,6 +82,9 @@ class MainWindow(BaseMainWindow):
         self.recipe.clear()
         for label in self.BENCHMARK_PRESETS:
             self.recipe.addItem(label, label)
+        # Visible/selectable for sequence inspection and future pseudo-resume
+        # planning only. Selection must never authorize full TuneBasic motion.
+        self.recipe.addItem("TUNE_BASIC (SELECT / RESUME PLAN ONLY)", "TUNE_BASIC")
         self.recipe.addItem("TUNE_BASIC_INPUT_3V_CHECK", "TUNE_BASIC_INPUT_3V_CHECK")
 
     def recipe_changed(self, index):
@@ -331,11 +334,20 @@ class MainWindow(BaseMainWindow):
     def _recipe_selection_changed(self, index):
         name = self.recipe.itemData(index) if hasattr(self, "recipe") else None
         if name == "TUNE_BASIC":
-            self._clear_sequence_panel("TUNE_BASIC blocked until Issue #98 safety review is explicitly cleared.")
+            # Display the configured phase list so the user can select the
+            # recipe and plan a pseudo-resume after STOP. This is display-only:
+            # both UI and programmatic full-recipe starts remain safety-gated.
+            self._load_tunebasic_sequence()
             self.sequence_execute.setEnabled(False)
             self.start.setEnabled(False)
-            self._set_ui_error("TUNEBASIC_BLOCKED_UNTIL_ISSUE98",
-                               "Full TuneBasic is blocked by Issue #131 until Issue #98 is explicitly cleared.")
+            self.sequence_status.setText(
+                "SELECTED FOR RESUME PLANNING ONLY / execution blocked by Issue #98"
+            )
+            self._set_ui_error(
+                "TUNEBASIC_RESUME_PLAN_ONLY",
+                "TuneBasic phases are selectable for inspection/planning only. "
+                "Full execution and phase resume remain blocked until Issue #98 is cleared."
+            )
             return
         if name == "TUNE_BASIC_INPUT_3V_CHECK":
             self._load_limited_tunebasic_sequence()
@@ -434,9 +446,11 @@ class MainWindow(BaseMainWindow):
             return
         name = self._current_recipe_name()
         if name == "TUNE_BASIC":
-            self._set_ui_error("TUNEBASIC_BLOCKED_UNTIL_ISSUE98",
-                               "Full TuneBasic cannot be started until Issue #98 is explicitly cleared.")
-            self.sequence_status.setText("BLOCKED / Issue #98 safety review required")
+            self._set_ui_error(
+                "TUNEBASIC_RESUME_PLAN_ONLY",
+                "TuneBasic sequence selection is for resume planning only; execution remains blocked until Issue #98 is cleared."
+            )
+            self.sequence_status.setText("BLOCKED / resume plan only / Issue #98")
             return
         if name == "TUNE_BASIC_INPUT_3V_CHECK":
             selected = [check for sid, check in self.sequence_checks if sid == name and check.isChecked()]
