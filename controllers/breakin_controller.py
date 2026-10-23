@@ -377,6 +377,12 @@ class BreakinController:
                 time.sleep(self.CONTROL_INTERVAL_SEC)
                 continue
             measurement = self._collect_measurement(phase)
+            if measurement is None:
+                # Missing telemetry must not be reclassified as zero current
+                # or fed into voltage validation. Keep the timed phase running
+                # at its current PWM until a valid sample returns.
+                time.sleep(self.CONTROL_INTERVAL_SEC)
+                continue
             current = self._current_from_measurement(measurement)
             if current > self.last_brush_peak_current:
                 self.last_brush_peak_current = current
