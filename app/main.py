@@ -77,13 +77,11 @@ class MainWindow(BaseMainWindow):
     BENCHMARK_PRESETS = UI_BENCHMARK_PRESETS
 
     def load_recipes(self):
-        # Benchmark and TuneBasic are separate operator choices. Only the
-        # supported INPUT Benchmark presets are exposed; TuneBasic is its own
-        # full recipe plus the short, previously validated INPUT check.
+        # Issue #98/#131 safety gate: only the approved limited check may be
+        # selected until the full TuneBasic recipe is explicitly authorized.
         self.recipe.clear()
         for label in self.BENCHMARK_PRESETS:
             self.recipe.addItem(label, label)
-        self.recipe.addItem("TUNEBASIC (FULL INPUT)", "TUNE_BASIC")
         self.recipe.addItem("TUNE_BASIC_INPUT_3V_CHECK", "TUNE_BASIC_INPUT_3V_CHECK")
 
     def recipe_changed(self, index):
@@ -93,9 +91,11 @@ class MainWindow(BaseMainWindow):
             return
         name = self.recipe.itemData(index) if hasattr(self, "recipe") else None
         if name == "TUNE_BASIC":
-            self._load_tunebasic_sequence()
-            self.start.setEnabled(True)
-            self.sequence_execute.setEnabled(True)
+            self._clear_sequence_panel("TUNE_BASIC blocked until Issue #98 safety review is explicitly cleared.")
+            self.start.setEnabled(False)
+            self.sequence_execute.setEnabled(False)
+            self._set_ui_error("TUNEBASIC_BLOCKED_UNTIL_ISSUE98",
+                               "Full TuneBasic is blocked by Issue #131 until Issue #98 is explicitly cleared.")
             return
         if name == "TUNE_BASIC_INPUT_3V_CHECK":
             self._load_limited_tunebasic_sequence()
@@ -432,11 +432,9 @@ class MainWindow(BaseMainWindow):
             return
         name = self._current_recipe_name()
         if name == "TUNE_BASIC":
-            selected = [check for sid, check in self.sequence_checks if sid == name and check.isChecked()]
-            if len(selected) != 1:
-                self.sequence_status.setText("TUNE_BASIC full recipe is not selected.")
-                return
-            self._start_tunebasic_recipe()
+            self._set_ui_error("TUNEBASIC_BLOCKED_UNTIL_ISSUE98",
+                               "Full TuneBasic cannot be started until Issue #98 is explicitly cleared.")
+            self.sequence_status.setText("BLOCKED / Issue #98 safety review required")
             return
         if name == "TUNE_BASIC_INPUT_3V_CHECK":
             selected = [check for sid, check in self.sequence_checks if sid == name and check.isChecked()]
@@ -457,6 +455,12 @@ class MainWindow(BaseMainWindow):
         self._start_benchmark(benchmark_type, mode)
 
     def _start_tunebasic_recipe(self):
+        # Defense in depth: this method must remain non-startable even if called
+        # directly or a stale UI selection bypasses the recipe dropdown.
+        self._set_ui_error("TUNEBASIC_BLOCKED_UNTIL_ISSUE98",
+                           "Full TuneBasic cannot be started until Issue #98 is explicitly cleared.")
+        self.sequence_status.setText("BLOCKED / Issue #98 safety review required")
+        return
         if self._stop_latched:
             self._set_ui_error("STOP_LATCHED", "Restart blocked after emergency STOP.")
             return
