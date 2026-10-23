@@ -251,3 +251,34 @@ def test_recipe_combo_uses_stable_width_policy_across_tunebasic_selection(monkey
         assert width_full == width_short
     finally:
         window.close()
+
+def test_tunebasic_phase_detail_wraps_without_forcing_horizontal_growth(monkeypatch, tmp_path):
+    import ui.main_window as base_ui
+    import app.main as main_app
+    from PyQt5.QtWidgets import QSizePolicy
+
+    class FakeBatteryTab(QWidget):
+        def __init__(self, *args, **kwargs):
+            super().__init__(kwargs.get("parent"))
+
+        def set_connected(self, connected):
+            self.connected = connected
+
+    database_path = str(tmp_path / "ui-phase-wrap.db")
+    monkeypatch.setattr(base_ui, "resolve_database_path", lambda **kwargs: database_path)
+    monkeypatch.setattr(main_app, "BatteryTab", FakeBatteryTab)
+    app = QApplication.instance() or QApplication([])
+    window = main_app.MainWindow({
+        "breakin_controller": None,
+        "serial_controller": None,
+        "battery_serial_controller": None,
+    })
+    try:
+        window.recipe.setCurrentIndex(window.recipe.findData("TUNE_BASIC"))
+        app.processEvents()
+        assert window.phase_detail.wordWrap() is True
+        assert window.phase_detail.sizePolicy().horizontalPolicy() == QSizePolicy.Ignored
+        assert window.phase_detail.text().count(" → ") >= 10
+    finally:
+        window.close()
+
