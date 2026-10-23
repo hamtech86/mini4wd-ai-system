@@ -22,5 +22,10 @@ def test_full_tunebasic_3v_stages_use_input_feedback_without_changing_9v_stages(
     assert phases["FWD_3V_START"].metadata.get("voltage_control_mode") == "INPUT"
     assert phases["REV_3V_START"].metadata.get("voltage_control_mode") == "INPUT"
     assert phases["BENCHMARK_3V"].metadata.get("voltage_control_mode") == "INPUT"
-    assert phases["FWD_9V_HOLD"].metadata.get("voltage_control_mode", "TERMINAL") == "TERMINAL"
-    assert phases["REV_9V_HOLD"].metadata.get("voltage_control_mode", "TERMINAL") == "TERMINAL"
+    # Full TuneBasic voltage phases now consistently use INPUT feedback, including 9 V holds.
+    assert phases["FWD_9V_HOLD"].metadata.get("voltage_control_mode") == "INPUT"
+    assert phases["REV_9V_HOLD"].metadata.get("voltage_control_mode") == "INPUT"
+    assert phases["FWD_RAMP_3_TO_9V"].metadata.get("voltage_control_mode") == "INPUT"
+    assert phases["REV_RAMP_3_TO_9V"].metadata.get("voltage_control_mode") == "INPUT"
+    assert phases["FWD_FADEOUT"].metadata.get("voltage_control_mode") == "INPUT"
+    assert phases["REV_FADEOUT"].metadata.get("voltage_control_mode") == "INPUT"
