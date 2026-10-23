@@ -1,8 +1,7 @@
 """Main UI benchmark preset metadata with executable backend mode mapping."""
 
+# Project scope: INPUT control only. TERMINAL presets are intentionally excluded.
 BENCHMARK_PRESETS = {
-    "STD-T": ("STANDARD_3V30S", "TERMINAL"),
-    "Full-T": ("FULL_PACKAGE", "TERMINAL"),
     "STD-I": ("STANDARD_3V30S", "INPUT"),
     "Full-I": ("FULL_PACKAGE", "INPUT"),
 }
@@ -14,6 +13,6 @@ def get_benchmark_preset(label):
 
 
 def is_benchmark_mode_supported(label):
-    """Return true when the label maps to a supported type and control mode."""
+    """Return true only for the two supported INPUT-mode Benchmark presets."""
     preset = get_benchmark_preset(label)
-    return preset is not None and preset[1] in ("TERMINAL", "INPUT")
+    return preset is not None and preset[1] == "INPUT"
