@@ -571,6 +571,9 @@ class BreakinController:
         serial_rebooted = bool(getattr(self.serial, "device_reboot_detected", False))
         if serial_rebooted:
             reason = getattr(self.serial, "device_reboot_reason", "") or "Unexpected firmware INFO during active run."
+            raw_line = getattr(self.serial, "device_reboot_raw_line", None)
+            if raw_line:
+                reason += "; captured INFO line: " + str(raw_line)
             self.abort_reason = "SAFETY: firmware reboot detected during active run; " + reason
             self.emergency_stop()
             raise RuntimeError(self.abort_reason)
@@ -587,10 +590,14 @@ class BreakinController:
                 or (ramp_end is not None and float(ramp_end) > 0)
             )
             if needs_feedback:
+                # Use MeasurementManager's structured rejection diagnosis when
+                # available, instead of collapsing every failure into "no DATA".
+                rejection = getattr(self.measurement_manager, "last_rejection_reason", None)
+                rejection = rejection or "no DATA frame received"
                 # Missing/rejected control DATA counts toward the existing
                 # three-consecutive-sample fail-safe; do not let phase time
                 # advance indefinitely with stale PWM and no feedback.
-                self._record_invalid_measurement("missing or rejected DATA")
+                self._record_invalid_measurement(rejection)
             return None
 
         # The fixed 26-column DATA contract already carries both raw ACS712 ADC
