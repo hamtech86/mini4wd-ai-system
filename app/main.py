@@ -331,9 +331,11 @@ class MainWindow(BaseMainWindow):
     def _recipe_selection_changed(self, index):
         name = self.recipe.itemData(index) if hasattr(self, "recipe") else None
         if name == "TUNE_BASIC":
-            self._load_tunebasic_sequence()
-            self.sequence_execute.setEnabled(True)
-            self.start.setEnabled(True)
+            self._clear_sequence_panel("TUNE_BASIC blocked until Issue #98 safety review is explicitly cleared.")
+            self.sequence_execute.setEnabled(False)
+            self.start.setEnabled(False)
+            self._set_ui_error("TUNEBASIC_BLOCKED_UNTIL_ISSUE98",
+                               "Full TuneBasic is blocked by Issue #131 until Issue #98 is explicitly cleared.")
             return
         if name == "TUNE_BASIC_INPUT_3V_CHECK":
             self._load_limited_tunebasic_sequence()
