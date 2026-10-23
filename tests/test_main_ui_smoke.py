@@ -214,3 +214,40 @@ def test_late_worker_success_signal_cannot_overwrite_emergency_stop(monkeypatch,
         finally:
             window.close()
 
+
+
+
+def test_recipe_combo_uses_stable_width_policy_across_tunebasic_selection(monkeypatch, tmp_path):
+    import ui.main_window as base_ui
+    import app.main as main_app
+    from PyQt5.QtWidgets import QComboBox
+
+    class FakeBatteryTab(QWidget):
+        def __init__(self, *args, **kwargs):
+            super().__init__(kwargs.get("parent"))
+
+        def set_connected(self, connected):
+            self.connected = connected
+
+    database_path = str(tmp_path / "ui-recipe-width.db")
+    monkeypatch.setattr(base_ui, "resolve_database_path", lambda **kwargs: database_path)
+    monkeypatch.setattr(main_app, "BatteryTab", FakeBatteryTab)
+    app = QApplication.instance() or QApplication([])
+    window = main_app.MainWindow({
+        "breakin_controller": None,
+        "serial_controller": None,
+        "battery_serial_controller": None,
+    })
+    try:
+        combo = window.recipe
+        assert combo.sizeAdjustPolicy() == QComboBox.AdjustToMinimumContentsLengthWithIcon
+        assert combo.minimumContentsLength() >= len("TUNE_BASIC_INPUT_3V_CHECK")
+        combo.setCurrentIndex(combo.findData("TUNE_BASIC"))
+        app.processEvents()
+        width_full = combo.sizeHint().width()
+        combo.setCurrentIndex(combo.findData("STD-I"))
+        app.processEvents()
+        width_short = combo.sizeHint().width()
+        assert width_full == width_short
+    finally:
+        window.close()
