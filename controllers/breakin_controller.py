@@ -559,7 +559,9 @@ class BreakinController:
             self._record_invalid_measurement(f"measurement acquisition error: {type(exc).__name__}")
             return None
         if measurement is None:
-            self._record_invalid_measurement("missing or rejected DATA")
+            reason = getattr(self.measurement_manager, "last_rejection_reason", None)
+            detail = f"missing or rejected DATA: {reason}" if reason else "missing or rejected DATA"
+            self._record_invalid_measurement(detail)
             return None
 
         # The fixed 26-column DATA contract already carries both raw ACS712 ADC

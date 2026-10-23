@@ -422,7 +422,7 @@ class MainWindow(BaseMainWindow):
         self.sequence_layout.addStretch()
         self.sequence_status.setText(f"TuneBasic full recipe ready: {len(recipe.phases)} phases; INPUT feedback; no hardware test implied.")
         self.recipe_detail.setText("TuneBasic full recipe / INPUT feedback / FWD + REV / separate from Benchmark")
-        self.phase_detail.setText(" | ".join(rows))
+        self.phase_detail.setText(" → ".join(phase.name for phase in recipe.phases) + "\n" + " | ".join(rows))
         self.benchmark_detail.setText(f"{len(recipe.phases)} phases / {recipe.total_time()} s nominal recipe duration")
         self._log_event(f"Recipe selected: TUNE_BASIC full INPUT recipe ({len(recipe.phases)} phases).")
 
