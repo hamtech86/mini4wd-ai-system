@@ -27,8 +27,24 @@ def test_main_window_builds_offscreen_without_hardware_connection(monkeypatch, t
         assert window.motor_serial_status.text().startswith("MOTOR: DISCONNECTED")
         assert window.motor_connect.isEnabled()
         assert {window.recipe.itemText(index) for index in range(window.recipe.count())} == {
-            "STD-I", "Full-I", "TUNE_BASIC_INPUT_3V_CHECK"
+            "STD-I", "Full-I", "TUNEBASIC (FULL INPUT)", "TUNE_BASIC_INPUT_3V_CHECK"
         }
+        window.recipe.setCurrentIndex(window.recipe.findData("TUNE_BASIC"))
+        full_recipe = window.recipe_engine.get("TUNE_BASIC")
+        assert len(full_recipe.phases) == 11
+        assert len(window.sequence_checks) == 1
+        assert window.sequence_checks[0][0] == "TUNE_BASIC"
+        assert "full recipe" in window.sequence_status.text().lower()
+        assert all(
+            phase.metadata.get("voltage_control_mode") == "INPUT"
+            for phase in full_recipe.phases
+            if phase.control in {"VOLTAGE", "VOLTAGE_RAMP"}
+        )
+        # Dispatch the full recipe without starting hardware in this UI test.
+        dispatched = []
+        monkeypatch.setattr(window, "_start_tunebasic_recipe", lambda: dispatched.append("TUNE_BASIC"))
+        window._execute_selected_sequences()
+        assert dispatched == ["TUNE_BASIC"]
         window.recipe.setCurrentIndex(window.recipe.findData("TUNE_BASIC_INPUT_3V_CHECK"))
         assert "limited" in window.sequence_status.text().lower()
         assert len(window.sequence_checks) == 1
