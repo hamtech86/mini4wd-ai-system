@@ -1,8 +1,8 @@
 # Main UI 外部設計正本
 
 - 文書ID: MAIN-UI-EXT-DESIGN
-- 版: 1.0
-- 作成日: 2026-10-18
+- 版: 1.1
+- 作成日: 2026-10-23
 - 対象: `hamtech86/mini4wd-ai-system` の Main UI
 - 関連: [Issue #35 — 最新仕様・正本](https://github.com/hamtech86/mini4wd-ai-system/issues/35)、[Issue #80 — Main UI改修](https://github.com/hamtech86/mini4wd-ai-system/issues/80)、[PR #92 — Draft Main UI改修](https://github.com/hamtech86/mini4wd-ai-system/pull/92)、[Issue #93 — 統合ゲート](https://github.com/hamtech86/mini4wd-ai-system/issues/93)
 
@@ -107,19 +107,18 @@ DATA の列順・RawLog 本文・センサー値を表示都合で変更しな�
 
 ## 4. Recipe 選択
 
-既存 Recipe dropdown から以下の 4 プリセットを選択でき、Recipe 名と Benchmark Type / Voltage Control Mode の対応を UI 上で明示する。
+プロジェクトオーナーの決定（2026-10-23）により、Benchmark の対象プリセットは **STD-I と Full-I のみ** とする。TERMINAL 方式（STD-T / Full-T）は電圧挙動が不安定になりやすく、高抵抗モーターが起動しない場合があるため、Benchmark の対象外とし、受入条件にも含めない。TuneBasic は Benchmark と独立した Recipe とする。
 
 | Recipe | Benchmark Type | Voltage Control Mode |
 |---|---|---|
-| STD-T | STANDARD | TERMINAL |
-| Full-T | FULL_PACKAGE | TERMINAL |
 | STD-I | STANDARD | INPUT |
 | Full-I | FULL_PACKAGE | INPUT |
 
+- UI の Recipe dropdown は STD-I、Full-I、独立した TUNE_BASIC_INPUT_3V_CHECK のみを表示する。
 - 「3.00 V / 30 s」のような条件表示だけで制御方式を識別させない。
 - 選択された Type と Mode は Backend の実行コンテキストへ明示的に渡す。
-- INPUT の選択時に INPUT 対応 Backend がない場合、実行をブロックして原因を表示する。TERMINAL へ暗黙にフォールバックしない。
-- 通常 Recipe の開始時に、前回 Benchmark の制御モードを誤って引き継がない。
+- INPUT 対応 Backend がない場合、実行をブロックして原因を表示する。別モードへ暗黙にフォールバックしない。
+- Benchmark の既定モードも INPUT とし、既定ラベルは STD-I / Full-I とする。
 - Benchmark の実行手順・制御アルゴリズムそのものは本 UI 設計の対象外であり、変更しない。
 
 ## 5. LOG / ERROR LOG
@@ -171,7 +170,7 @@ Instance History は新しい History テーブルを作らず、既存の Insta
 
 ### 自動テストで確認する項目
 
-- 4 Recipe の名称・Benchmark Type・Voltage Control Mode の対応
+- STD-I / Full-I の名称・Benchmark Type・Voltage Control Mode の対応、および STD-T / Full-T が非対応であること
 - 選択した制御モードが実行コンテキストへ伝播し、暗黙フォールバックしないこと
 - Input Voltage / Motor Voltage / Driver Input Current の取得元と欠損値の扱い
 - Elapsed Time / Remaining Time が Controller / SequenceExecutor の値を表示し、UI で再計算されないこと

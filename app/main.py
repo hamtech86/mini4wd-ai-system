@@ -343,8 +343,8 @@ class MainWindow(BaseMainWindow):
             if widget is not None:widget.deleteLater()
         self.sequence_checks=[];self.sequence_progress.setValue(0);self.sequence_status.setText(status)
 
-    def _load_benchmark_sequence(self, benchmark_type, mode="TERMINAL", preset_label=None):
-        label=preset_label or ("STD-T" if benchmark_type==STANDARD_3V30S else "Full-T")
+    def _load_benchmark_sequence(self, benchmark_type, mode="INPUT", preset_label=None):
+        label=preset_label or ("STD-I" if benchmark_type==STANDARD_3V30S else "Full-I")
         self._clear_sequence_panel(f"Motor Benchmark: {label} / {benchmark_type} / {mode}")
         detail=("01 | STANDARD_3V30S | PREPARE 2 s → 3.00 V target 30 s" if benchmark_type==STANDARD_3V30S else "01 | FULL_PACKAGE | PREPARE 2 s → BASELINE 30 s → +5% 30 s → RETURN 10 s → -5% 30 s → RETURN 10 s")
         check=QCheckBox(f"{label} | Benchmark Type={('STANDARD' if benchmark_type==STANDARD_3V30S else 'FULL_PACKAGE')} | Voltage Control Mode={mode} | {detail}")
@@ -392,7 +392,7 @@ class MainWindow(BaseMainWindow):
             return
         preset = self.BENCHMARK_PRESETS.get(name)
         if preset is None:
-            self._set_ui_error("UNSUPPORTED_RECIPE", "Only four Benchmark presets and the limited TuneBasic INPUT 3V check are allowed.")
+            self._set_ui_error("UNSUPPORTED_RECIPE", "Only STD-I and Full-I INPUT Benchmark presets and the limited TuneBasic INPUT 3V check are allowed.")
             self.sequence_status.setText("BLOCKED / unsupported recipe")
             return
         benchmark_type, mode = preset
@@ -449,7 +449,7 @@ class MainWindow(BaseMainWindow):
         self.result["SUMMARY"].setText("Review FWD/REV RawLog and sensor feedback before authorizing full TuneBasic.")
         self._log_event("Limited TuneBasic INPUT 3V check completed; full 9 V recipe remains gated pending review.")
 
-    def _start_benchmark(self, benchmark_type=STANDARD_3V30S, voltage_control_mode="TERMINAL"):
+    def _start_benchmark(self, benchmark_type=STANDARD_3V30S, voltage_control_mode="INPUT"):
         if self._stop_latched:
             self._set_ui_error("STOP_LATCHED", "Restart blocked after an emergency-stop request; physical stop remains unconfirmed.")
             return
