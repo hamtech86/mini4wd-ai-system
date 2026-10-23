@@ -77,10 +77,13 @@ class MainWindow(BaseMainWindow):
     BENCHMARK_PRESETS = UI_BENCHMARK_PRESETS
 
     def load_recipes(self):
-        # Only the four canonical benchmark combinations are exposed.
+        # Benchmark and TuneBasic are separate operator choices. Only the
+        # supported INPUT Benchmark presets are exposed; TuneBasic is its own
+        # full recipe plus the short, previously validated INPUT check.
         self.recipe.clear()
         for label in self.BENCHMARK_PRESETS:
             self.recipe.addItem(label, label)
+        self.recipe.addItem("TUNEBASIC (FULL INPUT)", "TUNE_BASIC")
         self.recipe.addItem("TUNE_BASIC_INPUT_3V_CHECK", "TUNE_BASIC_INPUT_3V_CHECK")
 
     def recipe_changed(self, index):
@@ -89,6 +92,11 @@ class MainWindow(BaseMainWindow):
         if not hasattr(self, "sequence_layout"):
             return
         name = self.recipe.itemData(index) if hasattr(self, "recipe") else None
+        if name == "TUNE_BASIC":
+            self._load_tunebasic_sequence()
+            self.start.setEnabled(True)
+            self.sequence_execute.setEnabled(True)
+            return
         if name == "TUNE_BASIC_INPUT_3V_CHECK":
             self._load_limited_tunebasic_sequence()
             self.start.setEnabled(True)
@@ -378,11 +386,53 @@ class MainWindow(BaseMainWindow):
         self.benchmark_detail.setText("10 s per direction; PWM capped at 35–120")
         self._log_event("Recipe selected: TUNE_BASIC_INPUT_3V_CHECK (INPUT feedback, FWD+REV, limited duration).")
 
+    def _load_tunebasic_sequence(self):
+        recipe = self.recipe_engine.get("TUNE_BASIC")
+        if recipe is None:
+            self._clear_sequence_panel("TUNE_BASIC recipe missing; execution unavailable.")
+            self._set_ui_error("MISSING_RECIPE", "TUNE_BASIC is not defined in config/breakin_recipes.yaml.")
+            return
+        self._clear_sequence_panel("TuneBasic full recipe / INPUT feedback / FWD + REV")
+        rows = []
+        for index, phase in enumerate(recipe.phases, 1):
+            target = (f"{phase.target_voltage:.2f} V" if phase.target_voltage is not None else
+                      f"{phase.start_voltage:.2f} → {phase.end_voltage:.2f} V" if phase.start_voltage is not None and phase.end_voltage is not None else
+                      f"PWM {phase.pwm}")
+            duration = f"{phase.duration_sec} s" if phase.duration_sec else "bounded by controller"
+            mode = str(phase.metadata.get("voltage_control_mode", "INPUT")).upper()
+            if phase.control in {"VOLTAGE", "VOLTAGE_RAMP"} and mode != "INPUT":
+                self._clear_sequence_panel(f"Blocked: {phase.name} is not configured for INPUT feedback.")
+                self._set_ui_error("TUNEBASIC_CONTROL_MODE_INVALID", f"{phase.name} requires INPUT voltage feedback; got {mode}.")
+                return
+            rows.append(f"{index:02d} | {phase.name} | {phase.direction} | {phase.control} | {target} | {duration}")
+        check = QCheckBox("TUNE_BASIC | Full recipe | INPUT feedback | " + " → ".join(p.name for p in recipe.phases))
+        check.setChecked(True)
+        check.setProperty("recipe_name", "TUNE_BASIC")
+        self.sequence_layout.addWidget(check)
+        self.sequence_checks = [("TUNE_BASIC", check)]
+        for row in rows:
+            label = QLabel(row)
+            label.setWordWrap(True)
+            self.sequence_layout.addWidget(label)
+        self.sequence_layout.addStretch()
+        self.sequence_status.setText(f"TuneBasic full recipe ready: {len(recipe.phases)} phases; INPUT feedback; no hardware test implied.")
+        self.recipe_detail.setText("TuneBasic full recipe / INPUT feedback / FWD + REV / separate from Benchmark")
+        self.phase_detail.setText(" | ".join(rows))
+        self.benchmark_detail.setText(f"{len(recipe.phases)} phases / {recipe.total_time()} s nominal recipe duration")
+        self._log_event(f"Recipe selected: TUNE_BASIC full INPUT recipe ({len(recipe.phases)} phases).")
+
     def _execute_selected_sequences(self):
         if self._stop_latched:
             self._set_ui_error("STOP_LATCHED", "Restart blocked after an emergency-stop request; physical stop remains unconfirmed.")
             return
         name = self._current_recipe_name()
+        if name == "TUNE_BASIC":
+            selected = [check for sid, check in self.sequence_checks if sid == name and check.isChecked()]
+            if len(selected) != 1:
+                self.sequence_status.setText("TUNE_BASIC full recipe is not selected.")
+                return
+            self._start_tunebasic_recipe()
+            return
         if name == "TUNE_BASIC_INPUT_3V_CHECK":
             selected = [check for sid, check in self.sequence_checks if sid == name and check.isChecked()]
             if len(selected) != 1:
@@ -400,6 +450,49 @@ class MainWindow(BaseMainWindow):
             self.sequence_status.setText(f"{name}: BLOCKED / INFO NOT VERIFIED")
             return
         self._start_benchmark(benchmark_type, mode)
+
+    def _start_tunebasic_recipe(self):
+        if self._stop_latched:
+            self._set_ui_error("STOP_LATCHED", "Restart blocked after emergency STOP.")
+            return
+        if not self._require_verified_motor("TuneBasic full INPUT recipe"):
+            self.sequence_status.setText("TUNE_BASIC: BLOCKED / INFO NOT VERIFIED")
+            return
+        recipe = self.recipe_engine.get("TUNE_BASIC")
+        if recipe is None:
+            self._set_ui_error("MISSING_RECIPE", "TUNE_BASIC is missing from config/breakin_recipes.yaml.")
+            return
+        # Fail closed if any voltage-controlled phase lacks explicit INPUT
+        # feedback metadata; never fall back to TERMINAL mode.
+        for phase in recipe.phases:
+            if phase.control in {"VOLTAGE", "VOLTAGE_RAMP"} and str(phase.metadata.get("voltage_control_mode", "")).upper() != "INPUT":
+                self._set_ui_error("TUNEBASIC_CONTROL_MODE_INVALID", f"{phase.name} must explicitly use INPUT feedback.")
+                return
+        controller = self._motor_controller()
+        if controller is None or not getattr(controller, "connected", False):
+            self._set_ui_error("MOTOR_NOT_CONNECTED", "Connect and verify MOTOR_BREAKIN_V3 before starting.")
+            return
+        self.database_updated = False
+        self.last_result_data = None
+        self.last_result_benchmark = False
+        self.database_status.setText("DATABASE: NOT UPDATED")
+        self.update_db.setEnabled(False)
+        self.copy.setEnabled(False)
+        self.start.setEnabled(False)
+        self.manager.setEnabled(False)
+        self.instance.setEnabled(False)
+        self.recipe.setEnabled(False)
+        self.stop.setEnabled(True)
+        self.emergency_stop_fixed.setEnabled(True)
+        self.result["STATUS"].setText("RUNNING / TUNEBASIC FULL INPUT")
+        self.run_state.setText("STARTING TUNEBASIC FULL INPUT")
+        self._log_event("Starting full TUNE_BASIC recipe through BreakinWorker; INPUT feedback is required for every voltage phase.")
+        self.breakin_worker = BreakinWorker(self.breakin_controller, recipe, False)
+        self.breakin_worker.completed.connect(lambda data: self.complete(data, False))
+        self.breakin_worker.failed.connect(self.failed)
+        self.breakin_worker.finished.connect(self.finished)
+        self.timer.start()
+        self.breakin_worker.start()
 
     def _start_limited_tunebasic_check(self):
         if self._stop_latched:
