@@ -202,8 +202,12 @@ def test_initial_empty_serial_poll_waits_for_startup_run_data(monkeypatch):
     """An empty first poll must not count as a failed control sample if DATA arrives shortly after."""
     from measurement.measurement_manager import MeasurementManager
 
+    class IdentityParser:
+        def parse(self, raw):
+            return {"accepted": True} if raw == "DATA,follow-up" else None
+
     class StartupSerial:
-        parser = None
+        parser = IdentityParser()
 
         def __init__(self):
             self.frames = [None, "DATA,follow-up"]
@@ -215,7 +219,7 @@ def test_initial_empty_serial_poll_waits_for_startup_run_data(monkeypatch):
 
     serial = StartupSerial()
     manager = MeasurementManager(serial)
-    monkeypatch.setattr(manager, "_parse_frame", lambda raw: {"accepted": True} if raw == "DATA,follow-up" else None)
+    monkeypatch.setattr(manager, "_parse_frame", lambda raw: raw if raw == {"accepted": True} else None)
     monkeypatch.setattr(manager, "create_measurement", lambda data: data)
 
     result = manager.collect()
