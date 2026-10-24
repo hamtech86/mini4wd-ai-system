@@ -34,8 +34,14 @@ def test_main_window_builds_offscreen_without_hardware_connection(monkeypatch, t
         # Direct/programmatic invocation must be blocked as well as the UI option.
         window._start_tunebasic_recipe()
         assert window.error_code_label.text() == "Error Code: TUNEBASIC_BLOCKED_UNTIL_ISSUE98"
+        from types import SimpleNamespace
+        window.breakin_controller = SimpleNamespace(resume_checkpoint=lambda: {
+            "recipe": "TUNE_BASIC", "phase_name": "FWD_3V_START", "phase_elapsed_sec": 4.5
+        })
         window.recipe.setCurrentIndex(window.recipe.findData("TUNE_BASIC"))
         assert "RESUME PLAN ONLY" in window.sequence_status.text()
+        assert "FWD_3V_START" in window.sequence_status.text()
+        assert "4.5s elapsed" in window.sequence_status.text()
         assert "FWD_3V_START" in window.phase_detail.text()
         assert not window.start.isEnabled()
         assert not window.sequence_execute.isEnabled()
