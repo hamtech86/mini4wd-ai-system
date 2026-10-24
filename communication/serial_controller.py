@@ -42,6 +42,9 @@ class SerialController:
         self.identity_verified = False
         self.device_info = None
         self.identity_error = "INFO identity has not been verified."
+        self.device_reboot_detected = False
+        self.device_reboot_reason = ""
+        self.device_reboot_raw_line = None
         # Serialize every serial command with emergency STOP. Once latched,
         # drive commands remain blocked for this controller's lifetime.
         self._command_lock = threading.RLock()
@@ -282,6 +285,9 @@ class SerialController:
                 return False
             if getattr(self, "_active_arm_token", None) and not self._stop_requested():
                 return True
+            self.device_reboot_detected = False
+            self.device_reboot_reason = ""
+            self.device_reboot_raw_line = None
             token = secrets.token_hex(4).upper()
             result = self.send_command("ARM=" + token)
             # Firmware samples 200 ACS712 readings before ARMED; allow that bounded calibration time.
@@ -387,7 +393,18 @@ class SerialController:
                 continue
             print("SERIAL RX:", line)
             if line.startswith("INFO"):
-                # INFO is not a DATA/RawLog row; only a valid identity can update state.
+                # INFO is expected at connect/ARM, but during an armed run it
+                # indicates that firmware restarted and lost its ARM state.
+                if getattr(self, "_active_arm_token", None) and not self._stop_requested():
+                    self.device_reboot_detected = True
+                    self.device_reboot_reason = "Unexpected INFO received during an armed run; firmware reboot suspected."
+                    self.device_reboot_raw_line = line
+                    self.identity_verified = False
+                    self.device_info = None
+                    self.identity_error = self.device_reboot_reason
+                    self._active_arm_token = None
+                    continue
+                # Outside an active armed run, INFO is ordinary identity metadata.
                 try:
                     info = self.parser.parse(line)
                     self._validate_info_record(info)

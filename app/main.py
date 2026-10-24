@@ -77,13 +77,14 @@ class MainWindow(BaseMainWindow):
     BENCHMARK_PRESETS = UI_BENCHMARK_PRESETS
 
     def load_recipes(self):
-        # Benchmark and TuneBasic are separate operator choices. Only the
-        # supported INPUT Benchmark presets are exposed; TuneBasic is its own
-        # full recipe plus the short, previously validated INPUT check.
+        # Issue #98/#131 safety gate: only the approved limited check may be
+        # selected until the full TuneBasic recipe is explicitly authorized.
         self.recipe.clear()
         for label in self.BENCHMARK_PRESETS:
             self.recipe.addItem(label, label)
-        self.recipe.addItem("TUNEBASIC (FULL INPUT)", "TUNE_BASIC")
+        # Visible/selectable for sequence inspection and future pseudo-resume
+        # planning only. Selection must never authorize full TuneBasic motion.
+        self.recipe.addItem("TUNE_BASIC (SELECT / RESUME PLAN ONLY)", "TUNE_BASIC")
         self.recipe.addItem("TUNE_BASIC_INPUT_3V_CHECK", "TUNE_BASIC_INPUT_3V_CHECK")
 
     def recipe_changed(self, index):
@@ -93,9 +94,37 @@ class MainWindow(BaseMainWindow):
             return
         name = self.recipe.itemData(index) if hasattr(self, "recipe") else None
         if name == "TUNE_BASIC":
+            # Allow recipe/phase selection for pseudo-resume planning only.
+            # Display the configured sequence and any compatible checkpoint,
+            # but keep every path that can issue drive commands disabled.
             self._load_tunebasic_sequence()
-            self.start.setEnabled(True)
-            self.sequence_execute.setEnabled(True)
+            checkpoint = None
+            controller = getattr(self, "breakin_controller", None)
+            if controller is not None and callable(getattr(controller, "resume_checkpoint", None)):
+                checkpoint = controller.resume_checkpoint()
+            if checkpoint and str(checkpoint.get("recipe", "")).upper() == "TUNE_BASIC":
+                phase_name = checkpoint.get("phase_name", "unknown")
+                elapsed = checkpoint.get("phase_elapsed_sec", 0)
+                self.sequence_status.setText(
+                    f"RESUME PLAN ONLY — saved position: {phase_name}, {elapsed}s elapsed. "
+                    "No automatic motor restart."
+                )
+                self._log_event(
+                    f"TuneBasic pseudo-resume checkpoint shown: phase={phase_name}, elapsed={elapsed}s; "
+                    "drive remains blocked pending Issue #98."
+                )
+            else:
+                self.sequence_status.setText(
+                    "RESUME PLAN ONLY — full TuneBasic is selectable for phase inspection; "
+                    "execution remains blocked by Issue #98."
+                )
+            self.start.setEnabled(False)
+            self.sequence_execute.setEnabled(False)
+            self._set_ui_error(
+                "TUNEBASIC_RESUME_PLAN_ONLY",
+                "TuneBasic is selectable for sequence/resume planning only. "
+                "Drive execution remains blocked until Issue #98 is explicitly cleared."
+            )
             return
         if name == "TUNE_BASIC_INPUT_3V_CHECK":
             self._load_limited_tunebasic_sequence()
@@ -331,9 +360,36 @@ class MainWindow(BaseMainWindow):
     def _recipe_selection_changed(self, index):
         name = self.recipe.itemData(index) if hasattr(self, "recipe") else None
         if name == "TUNE_BASIC":
+            # Display the configured phase list so the user can select the
+            # recipe and plan a pseudo-resume after STOP. This is display-only:
+            # both UI and programmatic full-recipe starts remain safety-gated.
             self._load_tunebasic_sequence()
-            self.sequence_execute.setEnabled(True)
-            self.start.setEnabled(True)
+            self.sequence_execute.setEnabled(False)
+            self.start.setEnabled(False)
+            checkpoint = None
+            controller = getattr(self, "breakin_controller", None)
+            if controller is not None and callable(getattr(controller, "resume_checkpoint", None)):
+                checkpoint = controller.resume_checkpoint()
+            if checkpoint and str(checkpoint.get("recipe", "")).upper() == "TUNE_BASIC":
+                phase_name = checkpoint.get("phase_name", "unknown")
+                elapsed = checkpoint.get("phase_elapsed_sec", 0)
+                self.sequence_status.setText(
+                    f"RESUME PLAN ONLY — saved position: {phase_name}, {elapsed}s elapsed. "
+                    "No automatic motor restart; execution blocked by Issue #98."
+                )
+                self._log_event(
+                    f"TuneBasic pseudo-resume checkpoint shown: phase={phase_name}, elapsed={elapsed}s; "
+                    "drive remains blocked pending Issue #98."
+                )
+            else:
+                self.sequence_status.setText(
+                    "RESUME PLAN ONLY — selected for phase inspection; execution blocked by Issue #98"
+                )
+            self._set_ui_error(
+                "TUNEBASIC_RESUME_PLAN_ONLY",
+                "TuneBasic phases are selectable for inspection/planning only. "
+                "Full execution and phase resume remain blocked until Issue #98 is cleared."
+            )
             return
         if name == "TUNE_BASIC_INPUT_3V_CHECK":
             self._load_limited_tunebasic_sequence()
@@ -432,11 +488,11 @@ class MainWindow(BaseMainWindow):
             return
         name = self._current_recipe_name()
         if name == "TUNE_BASIC":
-            selected = [check for sid, check in self.sequence_checks if sid == name and check.isChecked()]
-            if len(selected) != 1:
-                self.sequence_status.setText("TUNE_BASIC full recipe is not selected.")
-                return
-            self._start_tunebasic_recipe()
+            self._set_ui_error(
+                "TUNEBASIC_RESUME_PLAN_ONLY",
+                "TuneBasic sequence selection is for resume planning only; execution remains blocked until Issue #98 is cleared."
+            )
+            self.sequence_status.setText("BLOCKED / resume plan only / Issue #98")
             return
         if name == "TUNE_BASIC_INPUT_3V_CHECK":
             selected = [check for sid, check in self.sequence_checks if sid == name and check.isChecked()]
@@ -457,47 +513,11 @@ class MainWindow(BaseMainWindow):
         self._start_benchmark(benchmark_type, mode)
 
     def _start_tunebasic_recipe(self):
-        if self._stop_latched:
-            self._set_ui_error("STOP_LATCHED", "Restart blocked after emergency STOP.")
-            return
-        if not self._require_verified_motor("TuneBasic full INPUT recipe"):
-            self.sequence_status.setText("TUNE_BASIC: BLOCKED / INFO NOT VERIFIED")
-            return
-        recipe = self.recipe_engine.get("TUNE_BASIC")
-        if recipe is None:
-            self._set_ui_error("MISSING_RECIPE", "TUNE_BASIC is missing from config/breakin_recipes.yaml.")
-            return
-        # Fail closed if any voltage-controlled phase lacks explicit INPUT
-        # feedback metadata; never fall back to TERMINAL mode.
-        for phase in recipe.phases:
-            if phase.control in {"VOLTAGE", "VOLTAGE_RAMP"} and str(phase.metadata.get("voltage_control_mode", "")).upper() != "INPUT":
-                self._set_ui_error("TUNEBASIC_CONTROL_MODE_INVALID", f"{phase.name} must explicitly use INPUT feedback.")
-                return
-        controller = self._motor_controller()
-        if controller is None or not getattr(controller, "connected", False):
-            self._set_ui_error("MOTOR_NOT_CONNECTED", "Connect and verify MOTOR_BREAKIN_V3 before starting.")
-            return
-        self.database_updated = False
-        self.last_result_data = None
-        self.last_result_benchmark = False
-        self.database_status.setText("DATABASE: NOT UPDATED")
-        self.update_db.setEnabled(False)
-        self.copy.setEnabled(False)
-        self.start.setEnabled(False)
-        self.manager.setEnabled(False)
-        self.instance.setEnabled(False)
-        self.recipe.setEnabled(False)
-        self.stop.setEnabled(True)
-        self.emergency_stop_fixed.setEnabled(True)
-        self.result["STATUS"].setText("RUNNING / TUNEBASIC FULL INPUT")
-        self.run_state.setText("STARTING TUNEBASIC FULL INPUT")
-        self._log_event("Starting full TUNE_BASIC recipe through BreakinWorker; INPUT feedback is required for every voltage phase.")
-        self.breakin_worker = BreakinWorker(self.breakin_controller, recipe, False)
-        self.breakin_worker.completed.connect(lambda data: self.complete(data, False))
-        self.breakin_worker.failed.connect(self.failed)
-        self.breakin_worker.finished.connect(self.finished)
-        self.timer.start()
-        self.breakin_worker.start()
+        # Defense in depth: direct/programmatic calls are blocked as well as
+        # the recipe dropdown until Issue #98 is explicitly cleared.
+        self._set_ui_error("TUNEBASIC_BLOCKED_UNTIL_ISSUE98",
+                           "Full TuneBasic cannot be started until Issue #98 is explicitly cleared.")
+        self.sequence_status.setText("BLOCKED / Issue #98 safety review required")
 
     def _start_limited_tunebasic_check(self):
         if self._stop_latched:

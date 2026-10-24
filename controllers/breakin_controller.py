@@ -13,6 +13,7 @@ from pathlib import Path
 
 from .phase_manager import PhaseManager
 from .recipe import BreakinPhase, BreakinRecipe
+from .timed_voltage_phase import run_timed_voltage_phase
 
 
 class BreakinController:
@@ -24,6 +25,8 @@ class BreakinController:
         "max_pwm": 245,
     }
     CHECKPOINT_PATH = Path("data/breakin_resume.json")
+    # Issue #98 safety gate: full TuneBasic remains unavailable until explicit clearance.
+    FULL_TUNEBASIC_ENABLED = False
 
     def __init__(self, serial_controller, measurement_manager=None,
                  analysis_engine=None, database=None, session_manager=None,
@@ -145,6 +148,12 @@ class BreakinController:
         return self.start(recipe, instance_id=actual_instance, resume=True)
 
     def start(self, recipe, instance_id=None, resume=False):
+        recipe_name = str(getattr(recipe, "name", "")).upper()
+        if recipe_name == "TUNE_BASIC" and not self.FULL_TUNEBASIC_ENABLED:
+            raise RuntimeError(
+                "Full TuneBasic execution is blocked until Issue #98 is explicitly cleared; "
+                "selection is available for sequence/resume planning only."
+            )
         if getattr(self, "emergency_stop_latched", False):
             raise RuntimeError("Emergency STOP latch is active; restart requires a new application session and fresh INFO identity.")
         instance_id = instance_id if instance_id is not None else self.selected_instance_id
@@ -336,6 +345,13 @@ class BreakinController:
         return max(0.0, duration - elapsed)
 
     def _execute_standard_phase(self, phase, resume_elapsed=0.0):
+        # TuneBasic fixed-voltage phases use the exact same feedback iteration
+        # as STD-I. Recipe timing/phase transitions remain controller-owned.
+        if phase.control == "VOLTAGE":
+            return run_timed_voltage_phase(
+                self, phase, phase.duration_sec,
+                save_checkpoint=True, initial_elapsed=resume_elapsed,
+            )
         while self.running and self._effective_elapsed() < phase.duration_sec:
             if self.paused:
                 time.sleep(self.CONTROL_INTERVAL_SEC)
@@ -568,13 +584,36 @@ class BreakinController:
                 self.measurement_manager.last_measurement = None
             self._record_invalid_measurement(f"measurement acquisition error: {type(exc).__name__}")
             return None
+        serial_rebooted = bool(getattr(self.serial, "device_reboot_detected", False))
+        if serial_rebooted:
+            reason = getattr(self.serial, "device_reboot_reason", "") or "Unexpected firmware INFO during active run."
+            raw_line = getattr(self.serial, "device_reboot_raw_line", None)
+            if raw_line:
+                reason += "; captured INFO line: " + str(raw_line)
+            self.abort_reason = "SAFETY: firmware reboot detected during active run; " + reason
+            self.emergency_stop()
+            raise RuntimeError(self.abort_reason)
+
         if measurement is None:
-            # DATA is used for feedback and logging, but an absent telemetry
-            # frame alone must not abort the timed TuneBasic phase. The phase
-            # continues at its current PWM and voltage correction resumes when
-            # a valid DATA frame arrives. Explicit invalid voltage feedback on
-            # received frames and the independent current/PWM/temperature
-            # checks remain unchanged.
+            control = str(getattr(phase, "control", "PWM") or "PWM").upper()
+            target = getattr(phase, "target_voltage", None)
+            ramp_start = getattr(phase, "start_voltage", None)
+            ramp_end = getattr(phase, "end_voltage", None)
+            needs_feedback = control in ("VOLTAGE", "VOLTAGE_RAMP", "BRUSH_PEAK_APPROACH") and (
+                control == "BRUSH_PEAK_APPROACH"
+                or (target is not None and float(target) > 0)
+                or (ramp_start is not None and float(ramp_start) > 0)
+                or (ramp_end is not None and float(ramp_end) > 0)
+            )
+            if needs_feedback:
+                # Use MeasurementManager's structured rejection diagnosis when
+                # available, instead of collapsing every failure into "no DATA".
+                rejection = getattr(self.measurement_manager, "last_rejection_reason", None)
+                rejection = rejection or "no DATA frame received"
+                # Missing/rejected control DATA counts toward the existing
+                # three-consecutive-sample fail-safe; do not let phase time
+                # advance indefinitely with stale PWM and no feedback.
+                self._record_invalid_measurement(rejection)
             return None
 
         # The fixed 26-column DATA contract already carries both raw ACS712 ADC

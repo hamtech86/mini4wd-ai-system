@@ -7,6 +7,7 @@ from __future__ import annotations
 import time
 from .recipe import BreakinPhase
 from .breakin_controller import BreakinController
+from .timed_voltage_phase import run_timed_voltage_phase
 
 STANDARD_3V30S = "STANDARD_3V30S"
 FULL_PACKAGE = "FULL_PACKAGE"
@@ -50,20 +51,8 @@ def _prepare_3v(self, phase, duration=2.0):
 
 
 def _timed_voltage(self, phase, duration):
-    self.phase_started_at = time.time()
-    self.phase_elapsed_before_pause = 0.0
-    started = time.monotonic()
-    while self.running and time.monotonic() - started < duration:
-        if self.paused:
-            time.sleep(self.CONTROL_INTERVAL_SEC)
-            continue
-        measurement = _collect(self, phase)
-        if _safety(self, measurement):
-            return False
-        self._voltage_control(phase, measurement)
-        time.sleep(self.CONTROL_INTERVAL_SEC)
-    return self.running
-
+    """STD-I timed INPUT-voltage execution; shared with TuneBasic phases."""
+    return run_timed_voltage_phase(self, phase, duration)
 
 def _timed_pwm(self, phase, duration):
     self.phase_started_at = time.time()
