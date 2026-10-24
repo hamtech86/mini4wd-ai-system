@@ -1,8 +1,8 @@
 # Main UI 外部設計正本
 
 - 文書ID: MAIN-UI-EXT-DESIGN
-- 版: 1.2
-- 作成日: 2026-10-23
+- 版: 1.3
+- 作成日: 2026-10-24
 - 対象: `hamtech86/mini4wd-ai-system` の Main UI
 - 関連: [Issue #35 — 最新仕様・正本](https://github.com/hamtech86/mini4wd-ai-system/issues/35)、[Issue #80 — Main UI改修](https://github.com/hamtech86/mini4wd-ai-system/issues/80)、[Issue #93 — 統合ゲート](https://github.com/hamtech86/mini4wd-ai-system/issues/93)、[PR #119 — Benchmark preset scope](https://github.com/hamtech86/mini4wd-ai-system/pull/119)、[PR #120 — TuneBasic INPUT ramps](https://github.com/hamtech86/mini4wd-ai-system/pull/120)
 
@@ -114,7 +114,7 @@ DATA の列順・RawLog 本文・センサー値を表示都合で変更しな�
 | STD-I | STANDARD | INPUT |
 | Full-I | FULL_PACKAGE | INPUT |
 
-- UI の Recipe dropdown は STD-I、Full-I、独立した TUNE_BASIC_INPUT_3V_CHECK のみを表示する。
+- UI の Recipe dropdown は STD-I、Full-I、`TUNEBASIC (FULL INPUT)`、独立した `TUNE_BASIC_INPUT_3V_CHECK` を表示する。Full TuneBasic は `TUNE_BASIC` レシピへ接続するが、Issue #98 が明示的に解除されるまでは選択・フェーズ確認・擬似レジューム計画のみとし、実行はUI・プログラム経路の両方で禁止する。
 - 「3.00 V / 30 s」のような条件表示だけで制御方式を識別させない。
 - 選択された Type と Mode は Backend の実行コンテキストへ明示的に渡す。
 - INPUT 対応 Backend がない場合、実行をブロックして原因を表示する。別モードへ暗黙にフォールバックしない。
@@ -123,11 +123,11 @@ DATA の列順・RawLog 本文・センサー値を表示都合で変更しな�
 
 ### 4.1 TuneBasic の INPUT 制御と実機ゲート
 
-- TuneBasic は Benchmark とは独立した Recipe とする。Main の Recipe dropdown で公開するのは、限定試験用の `TUNE_BASIC_INPUT_3V_CHECK` のみとする。全 TuneBasic / 9 V シーケンスを UI から開始可能にする変更は、Issue #98 の実機安全性レビューと司令塔の判断が済むまで行わない。
+- TuneBasic は Benchmark とは独立した Recipe とする。Main の Recipe dropdown では、限定確認用 `TUNE_BASIC_INPUT_3V_CHECK` と全工程 `TUNEBASIC (FULL INPUT)` の両方を選択・確認できる。ただし Issue #98 が明示的に解除されるまでは、全工程 TuneBasic はフェーズ確認・擬似レジューム計画のみであり、UI とプログラムの両経路で実行を禁止する。現時点で許可されている実機確認は、FW 3.03 / BUILD `EXPLICIT-ARM-STOP-ACK-20261023-01` の識別確認後に行う、限定 `TUNE_BASIC_INPUT_3V_CHECK`（FWD 10秒 + REV 10秒、3.00 V、PWM 35–120）のみ。Issue #98 はこの実機結果と、後続運転を許可するかの明示的判断を管理する。
 - レシピカタログ内の全 TuneBasic 電圧制御フェーズは INPUT モードを使用する。FWD は `voltage1` / V4、REV は `voltage2` / V5 をフィードバックに使う。
 - INPUT モードは 3 V 開始だけでなく、3→9 V ランプ、9 V 保持、フェードアウト、最終 3 V ベンチマークまで引き継ぐ。ランプ制御が内部制御フェーズを生成する場合も、元フェーズの `voltage_control_mode` を保持する。
 - `motor_voltage = V4 - V5` は符号付き端子間測定値として表示・保存する。INPUT 制御値の代用にしない。REV で負の `motor_voltage` が得られても、REV の INPUT フィードバックは V5 / `voltage2` を使う。
-- 自動テスト・ログ・シリアル ACK は物理停止の証明ではない。Issue #98 の実機ゲートは別管理とし、CI 成功だけで全 TuneBasic や反復運転を許可しない。
+- 自動テスト・ログ・シリアル ACK は物理停止の証明ではない。Issue #98 が未完了でも、ソフトウェア準備・回帰テスト・UIの選択表示は継続できる。一方、Full TuneBasic は Issue #98 の明示的解除前には UI からも直接関数呼び出しからも開始できない。限定実機確認の合否・物理停止確認と、Full TuneBasic の実行許可は別々に記録する。
 
 ## 5. LOG / ERROR LOG
 
@@ -200,7 +200,7 @@ CI 成功は自動テストの成功を意味するだけで、画面目視・�
 
 ## 10. 現時点の実装追跡
 
-2026-10-23 時点で PR #92 の Main UI統合と PR #119 の Benchmark preset scope、PR #120 の TuneBasic INPUT ramp propagation は main に統合済み。PR #119 と #120 の CI は成功している。ただし、GUIの目視確認と Issue #98 が管理する実機安全性判断は自動テストとは別であり、本書はそれらの完了を宣言しない。今後の実装状態は main と Issue #93 / #98 の最新コメントで追跡し、古い Draft PR の本文を現行仕様として参照しない。
+2026-10-24 時点で PR #92 の Main UI統合、PR #119 の Benchmark preset scope、PR #120 の TuneBasic INPUT ramp propagation、および commit `db3c117049839c3731f57f9661041052d0a4ac77` の Full TuneBasic UI公開は main に統合済み。PR #119 と #120 の CI は成功している。ただし、GUIの目視確認と Issue #98 が管理する実機安全性判断は自動テストとは別であり、本書はそれらの完了を宣言しない。今後の実装状態は main と Issue #93 / #98 の最新コメントで追跡し、古い Draft PR の本文を現行仕様として参照しない。
 
 実装報告は以下を分けて記載する。
 
