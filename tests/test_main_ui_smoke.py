@@ -326,6 +326,10 @@ def test_verified_fresh_connection_enables_explicit_arm_without_driving(monkeypa
         "serial_controller": motor,
         "battery_serial_controller": None,
     })
+    # MainWindow resolves the motor transport from its own serial_controller
+    # attribute (or breakin_controller.serial_controller); context injection
+    # alone is not wired by this app subclass.
+    window.serial_controller = motor
     try:
         assert not window.motor_arm.isEnabled()
         window.connect_motor_serial()
