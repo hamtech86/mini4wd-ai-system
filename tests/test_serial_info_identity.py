@@ -198,19 +198,21 @@ def test_direct_controller_start_blocks_full_tunebasic_until_issue98_clearance()
     assert controller.FULL_TUNEBASIC_ENABLED is False
 
 
-def test_initial_empty_serial_poll_waits_for_startup_run_data(monkeypatch):
-    """An empty first poll must not count as a failed control sample if DATA arrives shortly after."""
+def test_initial_empty_serial_poll_waits_for_startup_run_data():
+    """An initially empty serial poll is followed by a valid 26-field RUN DATA frame."""
     from measurement.measurement_manager import MeasurementManager
 
-    class IdentityParser:
-        def parse(self, raw):
-            return {"accepted": True} if raw == "DATA,follow-up" else None
+    # Exact protocol order: DATA plus the 25 fields in CSV_FIELDS.
+    run_data = "DATA,MOTOR_BREAKIN_V3,000001,100,512,512,0.10,0.11,3.00,0.00,3.00,80,FWD,RUN,0.105,0.315,0.01,0.01,0.32,0.11,3.00,80,0.12,0,0,25.0"
 
     class StartupSerial:
-        parser = IdentityParser()
+        from communication.csv_parser import CSVParser
+        parser = CSVParser()
 
         def __init__(self):
-            self.frames = [None, "DATA,follow-up"]
+            # Represents the first poll occurring just before the next periodic
+            # DATA frame, then the first actual RUN frame.
+            self.frames = [None, run_data]
             self.calls = 0
 
         def read_measurement(self):
@@ -219,11 +221,12 @@ def test_initial_empty_serial_poll_waits_for_startup_run_data(monkeypatch):
 
     serial = StartupSerial()
     manager = MeasurementManager(serial)
-    monkeypatch.setattr(manager, "_parse_frame", lambda raw: raw if raw == {"accepted": True} else None)
-    monkeypatch.setattr(manager, "create_measurement", lambda data: data)
 
     result = manager.collect()
 
-    assert result == {"accepted": True}
+    assert result is not None
     assert serial.calls == 2
     assert manager.last_rejection_reason is None
+    assert getattr(result, "state", None) == "RUN" or (
+        isinstance(result, dict) and result.get("state") == "RUN"
+    )
