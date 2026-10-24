@@ -64,6 +64,26 @@ def test_tunebasic_has_expected_bidirectional_input_sequence(recipe_engine):
     assert recipe.phases[-1].direction == "FWD"
 
 
+
+def test_limited_tunebasic_check_has_a_real_rest_phase_between_directions(recipe_engine):
+    recipe = recipe_engine.get("TUNE_BASIC_INPUT_3V_CHECK")
+    assert recipe is not None
+    assert [phase.name for phase in recipe.phases] == [
+        "CHECK_FWD_INPUT_3V",
+        "CHECK_REST_AFTER_FWD",
+        "CHECK_REV_INPUT_3V",
+    ]
+    rest = recipe.phases[1]
+    assert rest.control == "PWM"
+    assert rest.pwm == 0
+    assert rest.duration_sec == 60
+    assert rest.direction == "FWD"
+    assert recipe.phases[0].duration_sec == 10
+    assert recipe.phases[2].duration_sec == 10
+    assert recipe.phases[0].direction == "FWD"
+    assert recipe.phases[2].direction == "REV"
+
+
 def test_full_tunebasic_remains_blocked_before_any_motor_command(recipe_engine):
     serial = NoCommandSerial()
     controller = BreakinController(serial_controller=serial)
