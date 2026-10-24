@@ -76,6 +76,26 @@ def test_full_tunebasic_remains_blocked_before_any_motor_command(recipe_engine):
     assert controller.running is False
 
 
+def test_tunebasic_9v_ramps_and_holds_have_explicit_input_targets(recipe_engine):
+    recipe = recipe_engine.get("TUNE_BASIC")
+    by_name = {phase.name: phase for phase in recipe.phases}
+
+    assert by_name["FWD_RAMP_3_TO_9V"].start_voltage == 3.0
+    assert by_name["FWD_RAMP_3_TO_9V"].end_voltage == 9.0
+    assert by_name["REV_RAMP_3_TO_9V"].start_voltage == 3.0
+    assert by_name["REV_RAMP_3_TO_9V"].end_voltage == 9.0
+    assert by_name["FWD_9V_HOLD"].target_voltage == 9.0
+    assert by_name["REV_9V_HOLD"].target_voltage == 9.0
+    assert by_name["FWD_FADEOUT"].start_voltage == 9.0
+    assert by_name["FWD_FADEOUT"].end_voltage == 0.0
+    assert by_name["REV_FADEOUT"].start_voltage == 9.0
+    assert by_name["REV_FADEOUT"].end_voltage == 0.0
+    assert by_name["FWD_RAMP_3_TO_9V"].pwm_max == 245
+    assert by_name["REV_RAMP_3_TO_9V"].pwm_max == 245
+    assert by_name["FWD_9V_HOLD"].pwm_max == 245
+    assert by_name["REV_9V_HOLD"].pwm_max == 245
+
+
 def test_tunebasic_fixed_voltage_phase_uses_shared_timed_voltage_helper(monkeypatch):
     calls = []
 
