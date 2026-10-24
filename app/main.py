@@ -366,9 +366,25 @@ class MainWindow(BaseMainWindow):
             self._load_tunebasic_sequence()
             self.sequence_execute.setEnabled(False)
             self.start.setEnabled(False)
-            self.sequence_status.setText(
-                "RESUME PLAN ONLY — selected for phase inspection; execution blocked by Issue #98"
-            )
+            checkpoint = None
+            controller = getattr(self, "breakin_controller", None)
+            if controller is not None and callable(getattr(controller, "resume_checkpoint", None)):
+                checkpoint = controller.resume_checkpoint()
+            if checkpoint and str(checkpoint.get("recipe", "")).upper() == "TUNE_BASIC":
+                phase_name = checkpoint.get("phase_name", "unknown")
+                elapsed = checkpoint.get("phase_elapsed_sec", 0)
+                self.sequence_status.setText(
+                    f"RESUME PLAN ONLY — saved position: {phase_name}, {elapsed}s elapsed. "
+                    "No automatic motor restart; execution blocked by Issue #98."
+                )
+                self._log_event(
+                    f"TuneBasic pseudo-resume checkpoint shown: phase={phase_name}, elapsed={elapsed}s; "
+                    "drive remains blocked pending Issue #98."
+                )
+            else:
+                self.sequence_status.setText(
+                    "RESUME PLAN ONLY — selected for phase inspection; execution blocked by Issue #98"
+                )
             self._set_ui_error(
                 "TUNEBASIC_RESUME_PLAN_ONLY",
                 "TuneBasic phases are selectable for inspection/planning only. "
