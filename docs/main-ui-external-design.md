@@ -114,7 +114,7 @@ DATA の列順・RawLog 本文・センサー値を表示都合で変更しな�
 | STD-I | STANDARD | INPUT |
 | Full-I | FULL_PACKAGE | INPUT |
 
-- UI の Recipe dropdown は STD-I、Full-I、`TUNEBASIC (FULL INPUT)`、独立した `TUNE_BASIC_INPUT_3V_CHECK` を表示する。Full TuneBasic は `TUNE_BASIC` レシピへ接続し、限定確認レシピとは別の選択肢として扱う。
+- UI の Recipe dropdown は STD-I、Full-I、`TUNEBASIC (FULL INPUT)`、独立した `TUNE_BASIC_INPUT_3V_CHECK` を表示する。Full TuneBasic は `TUNE_BASIC` レシピへ接続するが、Issue #98 が明示的に解除されるまでは選択・フェーズ確認・擬似レジューム計画のみとし、実行はUI・プログラム経路の両方で禁止する。
 - 「3.00 V / 30 s」のような条件表示だけで制御方式を識別させない。
 - 選択された Type と Mode は Backend の実行コンテキストへ明示的に渡す。
 - INPUT 対応 Backend がない場合、実行をブロックして原因を表示する。別モードへ暗黙にフォールバックしない。
@@ -123,11 +123,11 @@ DATA の列順・RawLog 本文・センサー値を表示都合で変更しな�
 
 ### 4.1 TuneBasic の INPUT 制御と実機ゲート
 
-- TuneBasic は Benchmark とは独立した Recipe とする。Main の Recipe dropdown では、限定確認用 `TUNE_BASIC_INPUT_3V_CHECK` と全工程 `TUNEBASIC (FULL INPUT)` の両方を公開する。Issue #98 は実機結果・残課題の追跡先であり、それを理由にソフトウェア準備や既存のUI経路の検証を停止しない。実機の開始判断はこの外部設計書で代替せず、実施者がデバイス識別・監視・停止手段を確認して行う。
+- TuneBasic は Benchmark とは独立した Recipe とする。Main の Recipe dropdown では、限定確認用 `TUNE_BASIC_INPUT_3V_CHECK` と全工程 `TUNEBASIC (FULL INPUT)` の両方を選択・確認できる。ただし Issue #98 が明示的に解除されるまでは、全工程 TuneBasic はフェーズ確認・擬似レジューム計画のみであり、UI とプログラムの両経路で実行を禁止する。現時点で許可されている実機確認は、FW 3.03 / BUILD `EXPLICIT-ARM-STOP-ACK-20261023-01` の識別確認後に行う、限定 `TUNE_BASIC_INPUT_3V_CHECK`（FWD 10秒 + REV 10秒、3.00 V、PWM 35–120）のみ。Issue #98 はこの実機結果と、後続運転を許可するかの明示的判断を管理する。
 - レシピカタログ内の全 TuneBasic 電圧制御フェーズは INPUT モードを使用する。FWD は `voltage1` / V4、REV は `voltage2` / V5 をフィードバックに使う。
 - INPUT モードは 3 V 開始だけでなく、3→9 V ランプ、9 V 保持、フェードアウト、最終 3 V ベンチマークまで引き継ぐ。ランプ制御が内部制御フェーズを生成する場合も、元フェーズの `voltage_control_mode` を保持する。
 - `motor_voltage = V4 - V5` は符号付き端子間測定値として表示・保存する。INPUT 制御値の代用にしない。REV で負の `motor_voltage` が得られても、REV の INPUT フィードバックは V5 / `voltage2` を使う。
-- 自動テスト・ログ・シリアル ACK は物理停止の証明ではない。実機結果は Issue #98 に記録するが、同Issueの未完了をソフトウェア作業全体の停止理由にしない。Full TuneBasic は UI から選択でき、開始時に MOTOR_BREAKIN_V3 のINFO識別、接続状態、STOPラッチ、全電圧フェーズの明示的INPUT設定を検査する。
+- 自動テスト・ログ・シリアル ACK は物理停止の証明ではない。Issue #98 が未完了でも、ソフトウェア準備・回帰テスト・UIの選択表示は継続できる。一方、Full TuneBasic は Issue #98 の明示的解除前には UI からも直接関数呼び出しからも開始できない。限定実機確認の合否・物理停止確認と、Full TuneBasic の実行許可は別々に記録する。
 
 ## 5. LOG / ERROR LOG
 
