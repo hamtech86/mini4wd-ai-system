@@ -206,3 +206,41 @@ def test_emergency_stop_preserves_interrupted_phase_raw_log_after_stop_attempt()
 
     assert events[:2] == ["stop", "freeze"]
     assert controller.measurement_raw_log == "DATA,interrupted-phase\\n"
+
+
+def test_limited_tunebasic_direct_controller_start_requires_exact_firmware():
+    serial = MockSerialController()
+    serial.identity_verified = True
+    serial.device_info = {
+        "TYPE": "MOTOR",
+        "MODEL": "MOTOR_BREAKIN_V3",
+        "FW": "3.03",
+        "BUILD": "OTHER-20261024-01",
+    }
+    controller = BreakinController(serial_controller=serial)
+    recipe = BreakinRecipe(
+        name="TUNE_BASIC_INPUT_3V_CHECK",
+        phases=[BreakinPhase(name="FWD", duration_sec=10, pwm=64, direction="FWD")],
+    )
+    with pytest.raises(RuntimeError, match="exact authorized firmware identity"):
+        controller.start(recipe)
+    assert serial.commands == []
+
+
+def test_limited_tunebasic_direct_controller_start_rejects_unverified_identity():
+    serial = MockSerialController()
+    serial.identity_verified = False
+    serial.device_info = {
+        "TYPE": "MOTOR",
+        "MODEL": "MOTOR_BREAKIN_V3",
+        "FW": "3.03",
+        "BUILD": "EXPLICIT-ARM-STOP-ACK-20261023-01",
+    }
+    controller = BreakinController(serial_controller=serial)
+    recipe = BreakinRecipe(
+        name="TUNE_BASIC_INPUT_3V_CHECK",
+        phases=[BreakinPhase(name="FWD", duration_sec=10, pwm=64, direction="FWD")],
+    )
+    with pytest.raises(RuntimeError, match="exact authorized firmware identity"):
+        controller.start(recipe)
+    assert serial.commands == []
