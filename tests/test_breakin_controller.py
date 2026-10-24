@@ -184,3 +184,25 @@ def test_repeated_emergency_stop_preserves_first_attempt_and_does_not_retry():
     assert second["serial_result"]["pwm_zero"] is False
     assert second["serial_result"]["stop_command"] is False
     assert second["serial_result"]["errors"] == ["serial write failed"]
+
+
+
+def test_emergency_stop_preserves_interrupted_phase_raw_log_after_stop_attempt():
+    events = []
+
+    class RawLogSerial:
+        def emergency_stop(self):
+            events.append("stop")
+            return {"pwm_zero": True, "stop_command": True, "disconnect": True, "errors": []}
+
+        def freeze_raw_log(self):
+            events.append("freeze")
+            return "DATA,interrupted-phase\\n"
+
+    controller = BreakinController(serial_controller=RawLogSerial())
+    controller.running = True
+
+    controller.emergency_stop()
+
+    assert events[:2] == ["stop", "freeze"]
+    assert controller.measurement_raw_log == "DATA,interrupted-phase\\n"
