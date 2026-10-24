@@ -196,3 +196,30 @@ def test_direct_controller_start_blocks_full_tunebasic_until_issue98_clearance()
     except RuntimeError as exc:
         assert "Issue #98" in str(exc)
     assert controller.FULL_TUNEBASIC_ENABLED is False
+
+
+def test_initial_empty_serial_poll_waits_for_startup_run_data(monkeypatch):
+    """An empty first poll must not count as a failed control sample if DATA arrives shortly after."""
+    from measurement.measurement_manager import MeasurementManager
+
+    class StartupSerial:
+        parser = None
+
+        def __init__(self):
+            self.frames = [None, "DATA,follow-up"]
+            self.calls = 0
+
+        def read_measurement(self):
+            self.calls += 1
+            return self.frames.pop(0) if self.frames else None
+
+    serial = StartupSerial()
+    manager = MeasurementManager(serial)
+    monkeypatch.setattr(manager, "_parse_frame", lambda raw: {"accepted": True} if raw == "DATA,follow-up" else None)
+    monkeypatch.setattr(manager, "create_measurement", lambda data: data)
+
+    result = manager.collect()
+
+    assert result == {"accepted": True}
+    assert serial.calls == 2
+    assert manager.last_rejection_reason is None
