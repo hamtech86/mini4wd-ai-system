@@ -536,11 +536,36 @@ class MainWindow(BaseMainWindow):
                            "Full TuneBasic cannot be started until Issue #98 is explicitly cleared.")
         self.sequence_status.setText("BLOCKED / Issue #98 safety review required")
 
+    def _require_limited_tunebasic_firmware(self):
+        """Require the exact firmware build authorized by Issue #98 for the limited test."""
+        controller = self._motor_controller()
+        info = getattr(controller, "device_info", None) or {}
+        expected = {
+            "MODEL": "MOTOR_BREAKIN_V3",
+            "FW": "3.03",
+            "BUILD": "EXPLICIT-ARM-STOP-ACK-20261023-01",
+        }
+        actual = {key: info.get(key) for key in expected}
+        if actual == expected:
+            return True
+        message = (
+            "TuneBasic INPUT 3V check blocked: firmware identity does not match "
+            "the Issue #98 authorized build. "
+            f"Expected {expected}; received {actual}. No drive command was issued."
+        )
+        self._set_ui_error("MOTOR_FIRMWARE_BUILD_MISMATCH", message)
+        self.run_state.setText("BLOCKED / FIRMWARE BUILD MISMATCH")
+        self.result["STATUS"].setText("BLOCKED / FIRMWARE BUILD MISMATCH")
+        self._log_event(message)
+        return False
+
     def _start_limited_tunebasic_check(self):
         if self._stop_latched:
             self._set_ui_error("STOP_LATCHED", "Restart blocked after emergency STOP.")
             return
         if not self._require_verified_motor("TuneBasic INPUT 3V check"):
+            return
+        if not self._require_limited_tunebasic_firmware():
             return
         if not self._require_explicit_arm("TuneBasic INPUT 3V check"):
             return
