@@ -17,8 +17,27 @@ class BreakinSequenceAdapter:
         self._last_measurement = None
 
     def start_sequence(self, sequence):
-        arm_method = getattr(self.controller.serial, "arm", None)
-        if callable(arm_method) and arm_method() is False:
+        # The generic sequence executor bypasses MainWindow's recipe callback.
+        # Enforce the authorized firmware identity at this last software boundary
+        # before ARM, direction, or PWM can be issued.
+        serial_controller = self.controller.serial
+        info = getattr(serial_controller, "device_info", None) or {}
+        expected = {
+            "TYPE": "MOTOR",
+            "MODEL": "MOTOR_BREAKIN_V3",
+            "FW": "3.03",
+            "BUILD": "EXPLICIT-ARM-STOP-ACK-20261023-01",
+        }
+        if (
+            getattr(serial_controller, "identity_verified", False) is not True
+            or any(info.get(key) != value for key, value in expected.items())
+        ):
+            raise RuntimeError(
+                "Sequence start rejected: exact authorized MOTOR_BREAKIN_V3 firmware "
+                "identity is required; no ARM or drive command was issued."
+            )
+        arm_method = getattr(serial_controller, "arm", None)
+        if not callable(arm_method) or arm_method() is False:
             raise RuntimeError("Sequence start rejected because explicit ARM was not accepted.")
         self._active = sequence
         if sequence.direction == "REV":
