@@ -125,3 +125,33 @@ def test_tunebasic_fixed_voltage_phase_uses_shared_timed_voltage_helper(monkeypa
     assert calls[0][1] is phase
     assert calls[0][2] == 30
     assert calls[0][3] == {"save_checkpoint": True, "initial_elapsed": 4.0}
+
+
+def test_tunebasic_ramp_checks_safety_before_changing_pwm(monkeypatch):
+    controller = BreakinController(serial_controller=NoCommandSerial())
+    phase = BreakinPhase(
+        name="FWD_RAMP_3_TO_9V", duration_sec=60, pwm=80,
+        direction="FWD", control="VOLTAGE_RAMP", start_voltage=3.0,
+        end_voltage=9.0, pwm_min=35, pwm_max=245,
+        metadata={"voltage_control_mode": "INPUT"},
+    )
+    controller.running = True
+    controller.phase_started_at = 0.0
+    controller.phase_manager = type("PhaseManagerStub", (), {"current_index": lambda self: 1})()
+    monkeypatch.setattr(controller, "_effective_elapsed", lambda: 0.1)
+    monkeypatch.setattr(controller, "_collect_measurement", lambda _phase: {"current1": 5.2})
+    monkeypatch.setattr(controller, "_safety_violation", lambda _measurement: "SAFETY: current 5.20A >= 5.00A")
+    ramp_calls = []
+    monkeypatch.setattr(controller, "_voltage_ramp_control", lambda _phase: ramp_calls.append(_phase.name))
+    stop_calls = []
+    def fake_emergency_stop():
+        stop_calls.append(True)
+        controller.running = False
+        return {"serial_stop_attempted": True}
+    monkeypatch.setattr(controller, "emergency_stop", fake_emergency_stop)
+
+    controller._execute_standard_phase(phase)
+
+    assert ramp_calls == []
+    assert stop_calls == [True]
+    assert controller.abort_reason == "SAFETY: current 5.20A >= 5.00A"
