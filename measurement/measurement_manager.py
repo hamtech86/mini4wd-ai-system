@@ -51,6 +51,7 @@ class MeasurementManager:
         still returns None and remains subject to the controller's safety limit.
         """
         deadline = None
+        initial_no_data_deadline = None
         self.last_rejection_reason = None
         parser = getattr(self.serial_controller, "parser", None) or CSVParser()
 
@@ -82,12 +83,18 @@ class MeasurementManager:
                 and raw["state"].strip().upper() not in ("RUN", "RUNNING")
             )
             if not is_non_running_data:
-                # After observing startup telemetry, an empty serial poll is
-                # expected while waiting for the next 100 ms DATA frame. Keep
-                # waiting only inside that already-started bounded window.
-                if deadline is not None and raw is None and time.monotonic() < deadline:
-                    time.sleep(self.NON_RUNNING_POLL_SEC)
-                    continue
+                # A serial poll can legitimately occur just before the next
+                # 100 ms DATA frame. Give an initially empty poll one short,
+                # bounded acquisition window; genuinely absent DATA still
+                # returns None and counts toward the existing fail-safe streak.
+                # Do not wait on malformed/rejected DATA or other frame types.
+                if raw is None:
+                    now = time.monotonic()
+                    if initial_no_data_deadline is None:
+                        initial_no_data_deadline = now + 0.12
+                    if now < initial_no_data_deadline:
+                        time.sleep(self.NON_RUNNING_POLL_SEC)
+                        continue
                 # Never reuse a previous valid sample after a missing/rejected frame.
                 self.last_measurement = None
                 return None
