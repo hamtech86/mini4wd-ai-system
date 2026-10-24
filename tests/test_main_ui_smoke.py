@@ -380,6 +380,7 @@ def test_stop_latch_keeps_arm_disabled_after_reconnect(monkeypatch, tmp_path):
         "serial_controller": motor,
         "battery_serial_controller": None,
     })
+    window.serial_controller = motor
     try:
         window._stop_latched = True
         window.connect_motor_serial()
