@@ -367,7 +367,7 @@ class MainWindow(BaseMainWindow):
             self.sequence_execute.setEnabled(False)
             self.start.setEnabled(False)
             self.sequence_status.setText(
-                "SELECTED FOR RESUME PLANNING ONLY / execution blocked by Issue #98"
+                "RESUME PLAN ONLY — selected for phase inspection; execution blocked by Issue #98"
             )
             self._set_ui_error(
                 "TUNEBASIC_RESUME_PLAN_ONLY",
