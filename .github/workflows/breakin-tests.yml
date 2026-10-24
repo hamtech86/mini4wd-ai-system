@@ -63,6 +63,7 @@ jobs:
 
   test-full-suite:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -71,6 +72,6 @@ jobs:
       - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt pytest
+          python -m pip install -r requirements.txt pytest pytest-timeout
       - name: Run full pytest suite (hardware serial scripts excluded)
-        run: python -m pytest -q --ignore=serial_command_test.py --ignore=serial_test.py
+        run: python -m pytest -vv --timeout=60 --ignore=serial_command_test.py --ignore=serial_test.py
