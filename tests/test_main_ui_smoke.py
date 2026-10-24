@@ -420,6 +420,9 @@ def test_benchmark_requires_explicit_arm_after_identity_verification(monkeypatch
         "serial_controller": motor,
         "battery_serial_controller": None,
     })
+    # app.main.MainWindow resolves its active controller from its own attribute
+    # (or the break-in controller), not solely from the constructor context.
+    window.serial_controller = motor
     try:
         window._start_benchmark()
         assert window.error_code_label.text() == "Error Code: MOTOR_NOT_ARMED"
