@@ -700,6 +700,24 @@ class BreakinController:
         except Exception as exc:
             outcome["errors"].append(f"serial stop: {type(exc).__name__}: {exc}")
 
+        # Capture the interrupted phase's raw serial evidence only AFTER the
+        # time-critical STOP attempt. Aborted phases do not reach
+        # execute_phase()'s normal freeze boundary, so without this they vanish
+        # from measurement_raw_log even though the transport collector saw them.
+        try:
+            freeze = getattr(self.serial, "freeze_raw_log", None)
+            if callable(freeze):
+                raw_body = freeze()
+            else:
+                raw_body = getattr(self.serial, "raw_log", "") or ""
+                reset = getattr(self.serial, "reset_raw_log", None)
+                if callable(reset):
+                    reset()
+            if raw_body:
+                self._measurement_raw_log_parts.append(raw_body)
+        except Exception as exc:
+            outcome["errors"].append(f"raw log capture: {type(exc).__name__}: {exc}")
+
         # Persistence is secondary to issuing STOP. Preserve best-effort
         # checkpoint diagnostics/cleanup after the stop path has been attempted.
         try:
