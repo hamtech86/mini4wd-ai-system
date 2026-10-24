@@ -25,6 +25,8 @@ class BreakinController:
         "max_pwm": 245,
     }
     CHECKPOINT_PATH = Path("data/breakin_resume.json")
+    # Issue #98 safety gate: full TuneBasic remains unavailable until explicit clearance.
+    FULL_TUNEBASIC_ENABLED = False
 
     def __init__(self, serial_controller, measurement_manager=None,
                  analysis_engine=None, database=None, session_manager=None,
@@ -146,6 +148,12 @@ class BreakinController:
         return self.start(recipe, instance_id=actual_instance, resume=True)
 
     def start(self, recipe, instance_id=None, resume=False):
+        recipe_name = str(getattr(recipe, "name", "")).upper()
+        if recipe_name == "TUNE_BASIC" and not self.FULL_TUNEBASIC_ENABLED:
+            raise RuntimeError(
+                "Full TuneBasic execution is blocked until Issue #98 is explicitly cleared; "
+                "selection is available for sequence/resume planning only."
+            )
         if getattr(self, "emergency_stop_latched", False):
             raise RuntimeError("Emergency STOP latch is active; restart requires a new application session and fresh INFO identity.")
         instance_id = instance_id if instance_id is not None else self.selected_instance_id
