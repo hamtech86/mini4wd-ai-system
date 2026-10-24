@@ -181,3 +181,18 @@ def test_detected_reboot_aborts_even_when_measurement_is_missing():
         assert "firmware reboot detected" in str(exc).lower()
     assert serial.stop_calls == 1
     assert controller.emergency_stop_latched is True
+
+def test_direct_controller_start_blocks_full_tunebasic_until_issue98_clearance():
+    from types import SimpleNamespace
+    from controllers.breakin_controller import BreakinController
+
+    # The guard must run before controller state, serial, ARM, or PWM access.
+    controller = BreakinController.__new__(BreakinController)
+    recipe = SimpleNamespace(name="TUNE_BASIC", phases=[])
+
+    try:
+        controller.start(recipe)
+        assert False, "direct full TuneBasic start must remain blocked by Issue #98"
+    except RuntimeError as exc:
+        assert "Issue #98" in str(exc)
+    assert controller.FULL_TUNEBASIC_ENABLED is False
