@@ -34,14 +34,14 @@ jobs:
         id: install
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt pytest
+          python -m pip install -r requirements.txt pytest pytest-timeout
 
       - name: Run resolver and DB caller integration tests
         id: focused
         if: steps.install.outcome == 'success'
         continue-on-error: true
         run: |
-          python -m pytest -q \
+          python -m pytest -vv --timeout=60 --timeout-method=thread \
             tests/database/test_path_resolver.py \
             tests/database/test_path_resolver_integration.py \
             --junitxml=pytest-db-path-safety.xml
@@ -51,7 +51,7 @@ jobs:
         if: always() && steps.install.outcome == 'success'
         continue-on-error: true
         run: |
-          python -m pytest -q --junitxml=pytest-full-suite.xml
+          python -m pytest -vv --timeout=60 --timeout-method=thread --durations=30 --junitxml=pytest-full-suite.xml
 
       - name: Upload pytest reports
         if: always()
