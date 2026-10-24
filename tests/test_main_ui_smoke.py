@@ -430,3 +430,45 @@ def test_benchmark_requires_explicit_arm_after_identity_verification(monkeypatch
         assert window.breakin_worker is None
     finally:
         window.close()
+
+
+def test_limited_tunebasic_requires_exact_authorized_firmware_build(monkeypatch, tmp_path):
+    import app.main as main_app
+    import ui.main_window as base_ui
+
+    class FakeBatteryTab(QWidget):
+        def __init__(self, *args, **kwargs):
+            super().__init__(kwargs.get("parent"))
+
+        def set_connected(self, connected):
+            self.connected = connected
+
+    class FakeMotorController:
+        connected = True
+        identity_verified = True
+        device_info = {
+            "MODEL": "MOTOR_BREAKIN_V3", "FW": "3.03",
+            # Validly formatted, but not the exact build authorized by Issue #98.
+            "BUILD": "OTHER-20261024-01", "ID": "000001",
+        }
+
+    database_path = str(tmp_path / "limited-tunebasic-fw-gate.db")
+    monkeypatch.setattr(base_ui, "resolve_database_path", lambda **kwargs: database_path)
+    monkeypatch.setattr(main_app, "BatteryTab", FakeBatteryTab)
+    app = QApplication.instance() or QApplication([])
+    motor = FakeMotorController()
+    window = main_app.MainWindow({
+        "breakin_controller": None,
+        "serial_controller": motor,
+        "battery_serial_controller": None,
+    })
+    window.serial_controller = motor
+    window._arm_accepted = True
+    try:
+        window._start_limited_tunebasic_check()
+        assert window.error_code_label.text() == "Error Code: MOTOR_FIRMWARE_BUILD_MISMATCH"
+        assert "No drive command was issued" in window.error_message_label.text()
+        assert "FIRMWARE BUILD MISMATCH" in window.run_state.text()
+        assert window.breakin_worker is None
+    finally:
+        window.close()
