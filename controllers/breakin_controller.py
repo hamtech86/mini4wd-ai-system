@@ -149,6 +149,22 @@ class BreakinController:
 
     def start(self, recipe, instance_id=None, resume=False):
         recipe_name = str(getattr(recipe, "name", "")).upper()
+        if recipe_name == "TUNE_BASIC_INPUT_3V_CHECK":
+            info = getattr(self.serial, "device_info", None) or {}
+            expected = {
+                "TYPE": "MOTOR",
+                "MODEL": "MOTOR_BREAKIN_V3",
+                "FW": "3.03",
+                "BUILD": "EXPLICIT-ARM-STOP-ACK-20261023-01",
+            }
+            if (
+                getattr(self.serial, "identity_verified", False) is not True
+                or any(info.get(key) != value for key, value in expected.items())
+            ):
+                raise RuntimeError(
+                    "Limited TuneBasic check blocked: exact authorized firmware identity "
+                    "is required; no ARM or drive command was issued."
+                )
         if recipe_name == "TUNE_BASIC" and not self.FULL_TUNEBASIC_ENABLED:
             raise RuntimeError(
                 "Full TuneBasic execution is blocked until Issue #98 is explicitly cleared; "
