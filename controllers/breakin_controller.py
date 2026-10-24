@@ -376,15 +376,18 @@ class BreakinController:
             if measurement is None:
                 time.sleep(self.CONTROL_INTERVAL_SEC)
                 continue
-            if phase.control == "VOLTAGE" and phase.target_voltage is not None:
-                self._voltage_control(phase, measurement)
-            elif phase.control == "VOLTAGE_RAMP":
-                self._voltage_ramp_control(phase)
+            # Check the measured sample against safety limits before changing
+            # PWM. In particular, a ramp must not apply a new target from a
+            # sample that already violates the current/temperature/PWM guard.
             safety = self._safety_violation(measurement)
             if safety:
                 self.abort_reason = safety
                 self.emergency_stop()
                 break
+            if phase.control == "VOLTAGE" and phase.target_voltage is not None:
+                self._voltage_control(phase, measurement)
+            elif phase.control == "VOLTAGE_RAMP":
+                self._voltage_ramp_control(phase)
             self._save_checkpoint()
             time.sleep(self.CONTROL_INTERVAL_SEC)
 
