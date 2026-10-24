@@ -35,6 +35,7 @@ class MainWindow(BaseMainWindow):
     def __init__(self, context=None):
         super().__init__(context)
         self._stop_latched = False
+        self._arm_accepted = False
         self.analysis_engine=AnalysisEngine(str(PROJECT_ROOT / "config"))
         self.recipe_engine=RecipeEngine(str(PROJECT_ROOT / "config" / "breakin_recipes.yaml"))
         self._extract_motor_page(); self._build_estimated_result_panel()
@@ -58,7 +59,7 @@ class MainWindow(BaseMainWindow):
         old_central=self.takeCentralWidget() or self.motor_page; root=QWidget(); root_layout=QVBoxLayout(root); root_layout.setContentsMargins(5,5,5,5)
         device_box=QGroupBox("DEVICE CONNECTION"); row=QGridLayout(device_box)
         self.motor_serial_status=QLabel("MOTOR: DISCONNECTED  /dev/ttyACM0"); self.motor_connect=QPushButton("MOTOR CONNECT"); self.motor_disconnect=QPushButton("MOTOR DISCONNECT"); self.motor_disconnect.setEnabled(False)
-        self.motor_arm=QPushButton("ARM / RE-ARM"); self.motor_arm.setEnabled(False); self.motor_arm.setToolTip("Non-driving authorization; available after STOP when MOTOR_BREAKIN_V3 identity is verified.")
+        self.motor_arm=QPushButton("ARM / RE-ARM"); self.motor_arm.setEnabled(False); self.motor_arm.setToolTip("Explicit ARM is required before drive. After STOP, reconnecting cannot clear the latch; physically switch motor power off before starting a fresh application session.")
         self.motor_connect.clicked.connect(self.connect_motor_serial); self.motor_disconnect.clicked.connect(self.disconnect_motor_serial); self.motor_arm.clicked.connect(self.arm_motor)
         self.battery_serial_status=QLabel("BATTERY: DISCONNECTED  /dev/ttyUSB0"); self.battery_connect=QPushButton("BATTERY CONNECT"); self.battery_disconnect=QPushButton("BATTERY DISCONNECT"); self.battery_disconnect.setEnabled(False)
         self.battery_connect.clicked.connect(self.connect_battery_serial); self.battery_disconnect.clicked.connect(self.disconnect_battery_serial)
@@ -177,6 +178,17 @@ class MainWindow(BaseMainWindow):
         if hasattr(self,"result") and "STATUS" in self.result: self.result["STATUS"].setText("BLOCKED / INFO NOT VERIFIED")
         self._log_event(message); return False
 
+    def _require_explicit_arm(self, operation):
+        if self._arm_accepted:
+            return True
+        message=f"{operation} blocked: explicit ARM has not been acknowledged in this application session; no drive command was issued."
+        self._set_ui_error("MOTOR_NOT_ARMED", message)
+        self.run_state.setText("BLOCKED / ARM REQUIRED")
+        if hasattr(self, "result") and "STATUS" in self.result:
+            self.result["STATUS"].setText("BLOCKED / ARM REQUIRED")
+        self._log_event(message)
+        return False
+
     def _motor_controller(self):
         controller=getattr(self,"serial_controller",None)
         if controller is not None:return controller
@@ -216,14 +228,15 @@ class MainWindow(BaseMainWindow):
         if controller.connected: self.motor_serial_status.setText("MOTOR: PORT CONNECTED / INFO NOT VERIFIED"); return
         if controller.connect():
             self.motor_connect.setEnabled(False); self.motor_disconnect.setEnabled(True)
+            self._arm_accepted = False
             if self._identity_verified(controller):
                 info = getattr(controller, "device_info", {}) or {}
                 self.motor_serial_status.setText("MOTOR: IDENTITY VERIFIED / " + str(info.get("MODEL")) + " / FW " + str(info.get("FW")) + " / " + str(info.get("ID")))
                 # A new INFO identity after reconnect is not proof that the
                 # previous motor run physically stopped. A STOP/error latch can
                 # only be cleared by starting a fresh application session.
-                self.motor_arm.setEnabled(False)
                 if self._stop_latched:
+                    self.motor_arm.setEnabled(False)
                     self.motor_serial_status.setText(
                         "MOTOR: IDENTITY VERIFIED / RESTART REQUIRED AFTER STOP"
                     )
@@ -231,6 +244,9 @@ class MainWindow(BaseMainWindow):
                         "Reconnect identity verified, but ARM remains blocked: "
                         "previous stop was not physically confirmed."
                     )
+                else:
+                    self.motor_arm.setEnabled(True)
+                    self._log_event("Motor identity verified; explicit ARM is available. No drive command has been issued.")
                 self._log_event("Motor INFO identity verified: " + str(info))
             else:
                 self.motor_serial_status.setText("MOTOR: PORT CONNECTED / INFO NOT VERIFIED — DRIVE BLOCKED")
@@ -259,6 +275,7 @@ class MainWindow(BaseMainWindow):
             self.motor_arm.setEnabled(True)
             return
         self._stop_latched = False
+        self._arm_accepted = True
         if self.breakin_controller is not None and hasattr(self.breakin_controller, "emergency_stop_latched"):
             self.breakin_controller.emergency_stop_latched = False
         self.motor_arm.setEnabled(False)
@@ -525,6 +542,8 @@ class MainWindow(BaseMainWindow):
             return
         if not self._require_verified_motor("TuneBasic INPUT 3V check"):
             return
+        if not self._require_explicit_arm("TuneBasic INPUT 3V check"):
+            return
         recipe = self.recipe_engine.get("TUNE_BASIC_INPUT_3V_CHECK")
         if recipe is None:
             self._set_ui_error("MISSING_RECIPE", "TUNE_BASIC_INPUT_3V_CHECK recipe is missing.")
@@ -572,6 +591,7 @@ class MainWindow(BaseMainWindow):
             self._set_ui_error("STOP_LATCHED", "Restart blocked after an emergency-stop request; physical stop remains unconfirmed.")
             return
         if not self._require_verified_motor("Motor Benchmark"): return
+        if not self._require_explicit_arm("Motor Benchmark"): return
         if not self.breakin_controller:
             QMessageBox.warning(self,"Controller","BreakinController is not available.");return
         controller=self._motor_controller()
@@ -615,6 +635,7 @@ class MainWindow(BaseMainWindow):
         # Any worker exception is treated as unsafe termination; do not let the
         # base callback re-enable START or RESUME after a failed run.
         self._stop_latched = True
+        self._arm_accepted = False
         try:
             controller = getattr(self, "breakin_controller", None)
             if controller is not None:
@@ -641,6 +662,7 @@ class MainWindow(BaseMainWindow):
 
     def stop_run(self):
         self._stop_latched = True
+        self._arm_accepted = False
         stop_errors = []
         controller = getattr(self, "breakin_controller", None)
         if controller is None:
