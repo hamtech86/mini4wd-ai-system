@@ -135,7 +135,7 @@ recipes:
       - {name: SEAT, pwm: 70, duration_sec: 240}
       - {name: CONDITION, pwm: 105, duration_sec: 420}
       - {name: HIGH, pwm: 150, duration_sec: 480}
-      - {name: FINISH, pwm: 190, pwm_min: 35, pwm_max: 120, duration_sec: 300, direction: FWD}
+      - {name: FINISH, pwm: 190, duration_sec: 300}
       - {name: BENCHMARK_3V, control: VOLTAGE, target_voltage: 3.00, pwm_min: 35, pwm_max: 120, duration_sec: 30, direction: FWD}
 
 aliases:
