@@ -97,6 +97,21 @@ class PhysicalVerificationReport:
         for record in selected:
             body = self.library.read_raw(record.log_id)
             (raw_dir / f"{_safe(record.log_id)}.log").write_text(body, encoding="utf-8", newline="")
+            (raw_dir / f"{_safe(record.log_id)}.metadata.json").write_text(
+                json.dumps({
+                    "log_id": record.log_id,
+                    "device_type": record.device_type,
+                    "device_model": record.device_model,
+                    "firmware_version": record.firmware_version,
+                    "device_instance_id": record.device_instance_id,
+                    "measurement_session_id": record.measurement_session_id,
+                    "acquired_at": record.acquired_at,
+                    "measurement_condition": record.measurement_condition,
+                    "source_reference": record.source_reference,
+                    "notes": record.notes,
+                }, ensure_ascii=False, indent=2) + "\\n",
+                encoding="utf-8",
+            )
 
         preview = (
             f"Verification run: {run_id}\nInstance: {instance_id}\nRecipe: {recipe or '--'}\n"
