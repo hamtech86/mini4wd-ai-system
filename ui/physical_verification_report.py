@@ -109,7 +109,7 @@ class PhysicalVerificationReport:
                     "measurement_condition": record.measurement_condition,
                     "source_reference": record.source_reference,
                     "notes": record.notes,
-                }, ensure_ascii=False, indent=2) + "\\n",
+                }, ensure_ascii=False, indent=2) + "\n",
                 encoding="utf-8",
             )
 
