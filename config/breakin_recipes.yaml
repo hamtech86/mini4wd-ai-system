@@ -58,6 +58,7 @@ recipes:
       torque_priority: 0.70
     stages:
       - {name: CHECK_FWD_INPUT_3V, control: VOLTAGE, target_voltage: 3.00, voltage_control_mode: INPUT, pwm: 60, pwm_min: 35, pwm_max: 120, duration_sec: 10, direction: FWD}
+      - {name: CHECK_REST_AFTER_FWD, control: PWM, pwm: 0, duration_sec: 60, direction: FWD}
       - {name: CHECK_REV_INPUT_3V, control: VOLTAGE, target_voltage: 3.00, voltage_control_mode: INPUT, pwm: 60, pwm_min: 35, pwm_max: 120, duration_sec: 10, direction: REV}
 
   FINISH_BRUSH_PEAK_2V:
@@ -134,7 +135,7 @@ recipes:
       - {name: SEAT, pwm: 70, duration_sec: 240}
       - {name: CONDITION, pwm: 105, duration_sec: 420}
       - {name: HIGH, pwm: 150, duration_sec: 480}
-      - {name: FINISH, pwm: 190, duration_sec: 300}
+      - {name: FINISH, pwm: 190, pwm_min: 35, pwm_max: 120, duration_sec: 300, direction: FWD}
       - {name: BENCHMARK_3V, control: VOLTAGE, target_voltage: 3.00, pwm_min: 35, pwm_max: 120, duration_sec: 30, direction: FWD}
 
 aliases:
