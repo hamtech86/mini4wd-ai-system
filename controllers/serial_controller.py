@@ -61,6 +61,18 @@ class SerialController:
         return self.serial.is_connected
 
     @property
+    def identity_verified(self):
+        return bool(getattr(self.serial, "_identity_verified", False))
+
+    @property
+    def device_info(self):
+        return getattr(self.serial, "device_info", None)
+
+    @property
+    def identity_error(self):
+        return getattr(self.serial, "identity_error", "INFO identity has not been verified.")
+
+    @property
     def raw_log(self):
         """Current measurement/connection raw-log snapshot."""
         return self.serial.raw_log
@@ -136,6 +148,10 @@ class SerialController:
 
     def send(self, command: str):
         return self.serial.send(command)
+
+    def arm(self):
+        """Explicit non-driving authorization for the next motor run."""
+        return self.serial.arm()
 
     def start_breakin(self):
         return self.serial.start_breakin()

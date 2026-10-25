@@ -17,6 +17,9 @@ class BreakinSequenceAdapter:
         self._last_measurement = None
 
     def start_sequence(self, sequence):
+        arm_method = getattr(self.controller.serial, "arm", None)
+        if callable(arm_method) and arm_method() is False:
+            raise RuntimeError("Sequence start rejected because explicit ARM was not accepted.")
         self._active = sequence
         if sequence.direction == "REV":
             self.controller.serial.reverse()
@@ -58,7 +61,11 @@ class BreakinSequenceAdapter:
                 self.controller._voltage_control(phase, measurement)
 
     def stop_sequence(self, sequence):
-        self.controller.serial.set_pwm(0)
+        stop = getattr(self.controller.serial, "stop_breakin", None)
+        if callable(stop):
+            stop()
+        else:
+            self.controller.serial.set_pwm(0)
         self._active = None
 
     def read_metric(self, metric):

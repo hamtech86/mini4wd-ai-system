@@ -107,6 +107,12 @@ class MainWindow(QMainWindow):
         r.addWidget(QLabel("RECIPE"))
         self.recipe = QComboBox()
         self.recipe.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        # Keep the recipe row geometry stable when switching between short
+        # benchmark names and the longer TuneBasic labels. AdjustToContents can
+        # change the combo's size hint after selection and make the row/layout
+        # visibly stretch.
+        self.recipe.setMinimumContentsLength(25)
+        self.recipe.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
         self.recipe.currentIndexChanged.connect(self.recipe_changed)
         r.addWidget(self.recipe, 1)
         self.start = QPushButton("START BREAK-IN")
@@ -154,6 +160,11 @@ class MainWindow(QMainWindow):
         line.addWidget(self.benchmark_detail, 1)
         dv.addLayout(line)
         self.phase_detail = QLabel("-")
+        # TuneBasic's phase list is much longer than benchmark recipes. It must
+        # wrap within the available window width instead of increasing the
+        # content's minimum width and stretching the entire UI horizontally.
+        self.phase_detail.setWordWrap(True)
+        self.phase_detail.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         dv.addWidget(self.phase_detail)
         main.addWidget(detail)
 

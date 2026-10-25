@@ -35,33 +35,117 @@ class MeasurementManager:
         self.logger = MeasurementLogger()
         self.filters = FilterGroup()
         self.last_measurement: Optional[Measurement] = None
+        self.last_rejection_reason = None
+
+    NON_RUNNING_FRAME_WAIT_SEC = 0.25
+    NON_RUNNING_POLL_SEC = 0.01
 
     def collect(self):
         """
         BreakinController interface.
         Arduino frame acquisition entry point.
+
+        READY/INIT telemetry is expected while the firmware transitions into
+        RUN. Wait briefly for a RUN frame rather than counting startup telemetry
+        as a failed control sample. The wait is bounded; absent RUN telemetry
+        still returns None and remains subject to the controller's safety limit.
         """
-        raw = None
+        deadline = None
+        initial_no_data_deadline = None
+        self.last_rejection_reason = None
+        parser = getattr(self.serial_controller, "parser", None) or CSVParser()
 
-        if self.serial_controller:
-            raw = self.serial_controller.read_measurement()
+        while True:
+            raw = None
+            if self.serial_controller:
+                raw = self.serial_controller.read_measurement()
 
-        if isinstance(raw, str):
-            # SerialController returns the exact DATA CSV line. Parse it using
-            # the canonical 26-column protocol parser before validation.
-            parser = getattr(self.serial_controller, "parser", None) or CSVParser()
-            try:
-                raw = parser.parse(raw)
-            except (TypeError, ValueError, OverflowError):
+            if isinstance(raw, str):
+                # SerialController returns the exact DATA CSV line. Parse it using
+                # the canonical 26-column protocol parser before validation.
+                try:
+                    raw = parser.parse(raw)
+                except (TypeError, ValueError, OverflowError) as exc:
+                    self.last_rejection_reason = f"DATA parse failed: {type(exc).__name__}: {exc}"
+                    self.last_measurement = None
+                    return None
+
+            data = self._parse_frame(raw)
+            if data is not None:
+                self.last_rejection_reason = None
+                return self.create_measurement(data)
+            self.last_rejection_reason = self._explain_rejected_frame(raw)
+
+            is_non_running_data = (
+                isinstance(raw, dict)
+                and raw.get("record_type") == "DATA"
+                and isinstance(raw.get("state"), str)
+                and raw["state"].strip().upper() not in ("RUN", "RUNNING")
+            )
+            if not is_non_running_data:
+                # A serial poll can legitimately occur just before the next
+                # 100 ms DATA frame. Give an initially empty poll one short,
+                # bounded acquisition window; genuinely absent DATA still
+                # returns None and counts toward the existing fail-safe streak.
+                # Do not wait on malformed/rejected DATA or other frame types.
+                if raw is None:
+                    now = time.monotonic()
+                    if initial_no_data_deadline is None:
+                        initial_no_data_deadline = now + 0.12
+                    if now < initial_no_data_deadline:
+                        time.sleep(self.NON_RUNNING_POLL_SEC)
+                        continue
+                # Never reuse a previous valid sample after a missing/rejected frame.
                 self.last_measurement = None
                 return None
 
-        data = self._parse_frame(raw)
-        if data is None:
-            # Never reuse a previous valid sample after a missing/rejected frame.
-            self.last_measurement = None
-            return None
-        return self.create_measurement(data)
+            if deadline is None:
+                deadline = time.monotonic() + self.NON_RUNNING_FRAME_WAIT_SEC
+            if time.monotonic() >= deadline:
+                self.last_measurement = None
+                return None
+            time.sleep(self.NON_RUNNING_POLL_SEC)
+
+
+    @staticmethod
+    def _explain_rejected_frame(raw):
+        """Return a concise diagnostic without changing acceptance rules."""
+        if raw is None:
+            return "no DATA frame received"
+        if not isinstance(raw, dict):
+            return f"unexpected frame type: {type(raw).__name__}"
+        if raw.get("record_type") != "DATA":
+            return f"unexpected record_type: {raw.get('record_type')!r}"
+        required = (
+            "device_model", "instance_id", "elapsed_time", "raw_acs1", "raw_acs2",
+            "current1", "current2", "voltage1", "voltage2", "motor_voltage",
+            "pwm", "direction", "state", "current_avg", "power",
+            "current_ripple", "voltage_ripple", "peak_power", "peak_current",
+            "peak_voltage", "peak_pwm", "brush_peak_current", "raw_magnetic",
+            "magnetic_level", "motor_temperature",
+        )
+        missing = [name for name in required if raw.get(name) is None]
+        if missing:
+            return "missing DATA fields: " + ",".join(missing)
+        if str(raw.get("state", "")).strip().upper() not in ("RUN", "RUNNING"):
+            return f"DATA state not running: {raw.get('state')!r}"
+        if raw.get("device_model") != "MOTOR_BREAKIN_V3":
+            return f"unexpected device_model: {raw.get('device_model')!r}"
+        if raw.get("direction") not in ("FWD", "REV"):
+            return f"invalid direction: {raw.get('direction')!r}"
+        for name in (
+            "elapsed_time", "raw_acs1", "raw_acs2", "current1", "current2",
+            "voltage1", "voltage2", "motor_voltage", "pwm", "current_avg",
+            "power", "current_ripple", "voltage_ripple", "peak_power",
+            "peak_current", "peak_voltage", "peak_pwm", "brush_peak_current",
+            "raw_magnetic", "magnetic_level", "motor_temperature",
+        ):
+            try:
+                if not math.isfinite(float(raw.get(name))):
+                    return f"non-finite numeric field: {name}={raw.get(name)!r}"
+            except (TypeError, ValueError, OverflowError):
+                return f"non-numeric field: {name}={raw.get(name)!r}"
+        return "DATA rejected by remaining validation (integer/range/identity fields)"
 
     @staticmethod
     def _to_int(value, default=0):
@@ -143,6 +227,14 @@ class MeasurementManager:
         elif not isinstance(instance_id, int) or isinstance(instance_id, bool) or instance_id < 0:
             return None
         if raw["device_model"] != "MOTOR_BREAKIN_V3" or raw["direction"] not in ("FWD", "REV"):
+            return None
+
+        # Only telemetry emitted while the firmware is actively running may
+        # drive voltage-control decisions. READY frames commonly contain 0 V
+        # before the first RUN sample and must not be interpreted as failed
+        # input-voltage feedback. Preserve every original frame in RawLog;
+        # this filter applies only to the control/measurement path.
+        if str(raw["state"]).strip().upper() not in ("RUN", "RUNNING"):
             return None
 
         numeric_fields = (

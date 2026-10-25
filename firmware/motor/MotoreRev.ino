@@ -51,9 +51,9 @@
  * SECTION 03 : System Configuration
  ********************************************************************/
 
-constexpr char FW_VERSION[]   = "3.01";
-// Unique identifier for the firmware build used in hardware verification logs.
-constexpr char FW_BUILD_ID[]  = "STOP-SAFETY-20261021-01";
+constexpr char FW_VERSION[]   = "3.03";
+// Unique identifier for command-correlated emergency-stop acknowledgements.
+constexpr char FW_BUILD_ID[]  = "ARM-STOP-ACK-ACS712-RAIL-20261023-01";
 constexpr char DEVICE_TYPE[]  = "MOTOR";
 constexpr char DEVICE_MODEL[] = "MOTOR_BREAKIN_V3";
 
@@ -334,6 +334,10 @@ struct CommunicationData
 
 RuntimeData runtime;
 
+// Explicit ARM gate: every energizing command must carry the active per-run token.
+bool driveArmed = false;
+char activeArmToken[9] = {0};
+
 SensorData sensor;
 
 float peakPower = 0.0;
@@ -360,7 +364,8 @@ void initializePins();
 void initializeVariables();
 
 // FUNC_104
-void calibrateACS712();
+void calibrateACS712(bool emitRecord);
+void sendCalibration();
 
 // FUNC-151
 void setState(DeviceState newState);
@@ -383,6 +388,7 @@ void sendStatus();
 
 // FUNC-205
 void sendOK();
+void sendCommandAck(const char *command);
 
 // FUNC-206
 void sendError(const char *message);
@@ -499,15 +505,8 @@ void loop()
     {
         runtime.elapsedTime = now - runtime.startTime;
     }
-    if(
-    (now - voltageControl.controlTimer)
-    >= VOLTAGE_CONTROL_INTERVAL_MS
-    )
-    {
-        voltageControl.controlTimer = now;
-            
-        voltageControlUpdate();
-    }
+    // Normal voltage feedback is owned by Python/UI. Firmware only executes
+    // explicit direction/PWM commands and must not run a competing loop.
 
 }
 
@@ -672,7 +671,7 @@ void initializeSystem()
 
     initializePins();
 
-    calibrateACS712();
+    calibrateACS712(true);
 
     stopMotor();
 
@@ -772,8 +771,10 @@ void initializeVariables()
 calibrateACS712()
 ********************************************************************/
 
-void calibrateACS712()
+void calibrateACS712(bool emitRecord)
 {
+    // Recalibrate only while the motor is not being driven. This is called
+    // at boot and again on ARM after STOP/READY, before the next run.
     delay(300);
 
     long sum1 = 0;
@@ -789,7 +790,18 @@ void calibrateACS712()
     ACS1_ZERO = (float)sum1 / 200.0f;
     ACS2_ZERO = (float)sum2 / 200.0f;
 
-    // Report the final zero offsets actually used for current conversion.
+    if (emitRecord)
+    {
+        // Boot-time calibration record. Per-run snapshots are emitted by
+        // sendCalibration immediately before each drive-start command.
+        sendCalibration();
+    }
+}
+
+void sendCalibration()
+{
+    // Snapshot the offsets actually used by current conversion immediately
+    // before motor drive. CAL is an auxiliary RawLog line, never DATA column 27.
     Serial.print(F("CAL,ACS1_ZERO="));
     Serial.print(ACS1_ZERO, 2);
     Serial.print(F(",ACS2_ZERO="));
@@ -887,155 +899,188 @@ void processSerial()
 
 void processCommand(const char *cmd)
 {
-    if (strcmp(cmd, "INFO") == 0)
+    if (strcmp(cmd, "INFO") == 0) { sendInfo(); return; }
+    if (strcmp(cmd, "STATUS") == 0) { sendStatus(); return; }
+    if (strcmp(cmd, "PING") == 0) { Serial.println(F("PONG")); return; }
+
+    // Correlated non-driving safety commands. The caller supplies a fresh
+    // nonce so a delayed acknowledgement from an older command cannot satisfy
+    // the current emergency-stop handshake.
+    if (strncmp(cmd, "STOP#", 5) == 0 && strlen(cmd) > 5)
     {
-        sendInfo();
+        stopMotor();
+        driveArmed = false;
+        activeArmToken[0] = '\0';
+        setState(STATE_STOP);
+        sendLog();
+        sendCommandAck(cmd);
+        return;
+    }
+    if (strncmp(cmd, "PWM=0#", 6) == 0 && strlen(cmd) > 6)
+    {
+        runtime.pwm = 0;
+        analogWrite(PIN_PWM, 0);
+        sendCommandAck(cmd);
         return;
     }
 
-    if (strcmp(cmd, "STATUS") == 0)
+    // ARM is a non-driving, explicit authorization boundary. It is accepted
+    // only while stopped, and the token is required on every later drive command.
+    if (strncmp(cmd, "ARM=", 4) == 0)
     {
-        sendStatus();
-        return;
-    }
-
-    if (strcmp(cmd, "PING") == 0)
-    {
-        Serial.println(F("PONG"));
-        return;
-    }
-
-    if (strcmp(cmd, "START") == 0)
-    {
-        runtime.paused = false;
-
-       if (runtime.direction == DIR_FORWARD)
+        const char *token = cmd + 4;
+        bool valid = strlen(token) == 8;
+        for (uint8_t i = 0; valid && i < 8; ++i)
         {
-          startForward();
+            const char ch = token[i];
+            valid = (ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'F') || (ch >= 'a' && ch <= 'f');
         }
-       else
+        if (!valid || runtime.running || runtime.pwm != 0 ||
+            !(runtime.state == STATE_READY || runtime.state == STATE_STOP ||
+              runtime.state == STATE_PAUSE || runtime.state == STATE_COMPLETE))
         {
-          startReverse();
+            driveArmed = false;
+            activeArmToken[0] = '\0';
+            sendError("ARM_REFUSED");
+            return;
+        }
+        // Refresh zero offsets after STOP/READY while outputs are inactive.
+        // PAUSE is excluded because the motor may still be coasting.
+        if (runtime.state == STATE_STOP || runtime.state == STATE_READY ||
+            runtime.state == STATE_COMPLETE)
+        {
+            calibrateACS712(false);
         }
 
-    sendOK();
+        // Each energizing command carries this token. Stale commands from
+        // previous runs carry a different token and are rejected independently.
+        comm.rxIndex = 0;
+        for (uint8_t i = 0; i < 8; ++i) activeArmToken[i] = token[i];
+        activeArmToken[8] = '\0';
+        driveArmed = true;
+        Serial.print(F("ARMED,"));
+        Serial.println(activeArmToken);
+        return;
+    }
 
-    return;
-}
+    if (strcmp(cmd, "STOP") == 0)
+    {
+        stopMotor();
+        driveArmed = false;
+        activeArmToken[0] = '\0';
+        setState(STATE_STOP);
+        sendLog();
+        sendOK();
+        return;
+    }
 
-   if (strcmp(cmd, "STOP") == 0)
-{
-    stopMotor();
-
-    setState(STATE_STOP);
-
-    // 停止時の最終評価を1回だけ送信
-    sendLog();
-
-    sendOK();
-
-    return;
-}
-
-
-    
+    if (strcmp(cmd, "PWM=0") == 0)
+    {
+        runtime.pwm = 0;
+        analogWrite(PIN_PWM, 0);
+        sendOK();
+        return;
+    }
 
     if (strcmp(cmd, "PAUSE") == 0)
     {
-     runtime.paused = true;
-     // Issue #35: PAUSE clears the internal PWM command as well as the pin.
-     runtime.pwm = 0;
-     analogWrite(PIN_PWM, 0);
-
-     setState(STATE_PAUSE);
-
-     sendOK();
-
-     return;
-    }
-
-
-    
-
-    if (strcmp(cmd, "RESUME") == 0)
-    {
-        runtime.paused = false;
-
-        setState(STATE_RUN);
-
+        runtime.paused = true;
+        runtime.pwm = 0;
+        analogWrite(PIN_PWM, 0);
+        setState(STATE_PAUSE);
         sendOK();
-
         return;
     }
 
-    if (strcmp(cmd, "FWD") == 0)
+    // All energizing/direction/restart commands must be tagged with the
+    // current per-run token: FWD@XXXXXXXX, REV@XXXXXXXX, START@XXXXXXXX,
+    // RESUME@XXXXXXXX, or PWM=nn@XXXXXXXX. Untagged/stale commands fail closed.
+    char command[RX_BUFFER_SIZE];
+    strncpy(command, cmd, RX_BUFFER_SIZE - 1);
+    command[RX_BUFFER_SIZE - 1] = '\0';
+    char *separator = strchr(command, '@');
+    bool tagged = separator != NULL;
+    if (tagged) *separator++ = '\0';
+    const bool driveCommand =
+        strcmp(command, "START") == 0 || strcmp(command, "FWD") == 0 ||
+        strcmp(command, "REV") == 0 || strcmp(command, "RESUME") == 0 ||
+        strncmp(command, "PWM=", 4) == 0;
+    if (driveCommand)
     {
-        startForward();
-
-        sendOK();
-
-        return;
-    }
-
-    if (strcmp(cmd, "REV") == 0)
-    {
-        startReverse();
-
-        sendOK();
-
-        return;
-    }
-
-    /* PWM=128 */
-
-    if (strncmp(cmd, "PWM=", 4) == 0)
-    {
-        int value = atoi(cmd + 4);
-
-        if (value < 0)
+        if (!driveArmed || !tagged || separator == NULL ||
+            strcmp(separator, activeArmToken) != 0)
         {
-            value = 0;
+            sendError("ARM_REQUIRED");
+            return;
         }
-
-        if (value > 255)
+        if (strcmp(command, "PWM=0") == 0)
         {
-            value = 255;
+            runtime.pwm = 0;
+            analogWrite(PIN_PWM, 0);
+            sendOK();
+            return;
         }
-
-        setPWM((uint8_t)value);
-
-        sendOK();
-
-        return;
+        if (strcmp(command, "START") == 0)
+        {
+            runtime.paused = false;
+            sendCalibration();
+            if (runtime.direction == DIR_FORWARD) startForward();
+            else startReverse();
+            sendOK();
+            return;
+        }
+        if (strcmp(command, "FWD") == 0)
+        {
+            sendCalibration();
+            startForward();
+            sendOK();
+            return;
+        }
+        if (strcmp(command, "REV") == 0)
+        {
+            sendCalibration();
+            startReverse();
+            sendOK();
+            return;
+        }
+        if (strcmp(command, "RESUME") == 0)
+        {
+            if (!runtime.running || runtime.state != STATE_PAUSE)
+            {
+                sendError("RESUME_REFUSED");
+                return;
+            }
+            sendCalibration();
+            runtime.paused = false;
+            setState(STATE_RUN);
+            sendOK();
+            return;
+        }
+        if (strncmp(command, "PWM=", 4) == 0)
+        {
+            const char *valueText = command + 4;
+            if (*valueText == '\0') { sendError("INVALID_PWM"); return; }
+            for (const char *p = valueText; *p; ++p)
+                if (*p < '0' || *p > '9') { sendError("INVALID_PWM"); return; }
+            int value = atoi(valueText);
+            if (value < 0 || value > 255) { sendError("INVALID_PWM"); return; }
+            setPWM((uint8_t)value);
+            sendOK();
+            return;
+        }
     }
 
-    
-
-    // Normal voltage feedback belongs to the host controller (Issue #35).
-    // Reject legacy target/enable commands instead of silently accepting them.
-    if (strncmp(cmd, "TARGET=", 7) == 0)
+    if (strncmp(cmd, "TARGET=", 7) == 0 || strcmp(cmd, "VCTRL=ON") == 0)
     {
         sendError("UNSUPPORTED_COMMAND");
         return;
     }
-
-    if (strcmp(cmd, "VCTRL=ON") == 0)
-    {
-        sendError("UNSUPPORTED_COMMAND");
-        return;
-    }
-
     if (strcmp(cmd, "VCTRL=OFF") == 0)
     {
-        // Idempotent safety-compatibility command; it must not change PWM.
         voltageControl.enabled = false;
         sendOK();
         return;
     }
-
-
-
-
     sendError("UNKNOWN_COMMAND");
 }
 
@@ -1190,6 +1235,12 @@ void sendOK()
     Serial.println(F("OK"));
 }
 
+void sendCommandAck(const char *command)
+{
+    Serial.print(F("OK,"));
+    Serial.println(command);
+}
+
 /********************************************************************
  * FUNC-206 : sendError()
  ********************************************************************/
@@ -1318,6 +1369,25 @@ void updateSensors()
  sensor.rawACS1 = readACS1();
 
  sensor.rawACS2 = readACS2();
+
+ // ACS712 5A sensors are expected to sit near their calibrated midpoint.
+ // ADC rail readings are not trustworthy current measurements. While RUN is
+ // active, latch a firmware-side fault and stop drive immediately. Keep the
+ // fixed DATA CSV schema unchanged; ERROR carries the explicit diagnosis and
+ // subsequent DATA records preserve both raw ADC samples for analysis.
+ const bool acs1Rail = (sensor.rawACS1 <= 2 || sensor.rawACS1 >= 1021);
+ const bool acs2Rail = (sensor.rawACS2 <= 2 || sensor.rawACS2 >= 1021);
+ if (runtime.state == STATE_RUN && (acs1Rail || acs2Rail))
+ {
+     stopMotor();
+     driveArmed = false;
+     activeArmToken[0] = '\\0';
+     setState(STATE_ERROR);
+     Serial.print(F("ERROR,ACS712_ADC_RAIL,"));
+     Serial.print(acs1Rail ? F("ACS1,") : F("ACS2,"));
+     Serial.println(acs1Rail ? sensor.rawACS1 : sensor.rawACS2);
+     return;
+ }
 
 //======================================================
 // AUTO ZERO

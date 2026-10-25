@@ -1,10 +1,10 @@
 # Main UI 外部設計正本
 
 - 文書ID: MAIN-UI-EXT-DESIGN
-- 版: 1.0
-- 作成日: 2026-10-18
+- 版: 1.2
+- 作成日: 2026-10-23
 - 対象: `hamtech86/mini4wd-ai-system` の Main UI
-- 関連: [Issue #35 — 最新仕様・正本](https://github.com/hamtech86/mini4wd-ai-system/issues/35)、[Issue #80 — Main UI改修](https://github.com/hamtech86/mini4wd-ai-system/issues/80)、[PR #92 — Draft Main UI改修](https://github.com/hamtech86/mini4wd-ai-system/pull/92)、[Issue #93 — 統合ゲート](https://github.com/hamtech86/mini4wd-ai-system/issues/93)
+- 関連: [Issue #35 — 最新仕様・正本](https://github.com/hamtech86/mini4wd-ai-system/issues/35)、[Issue #80 — Main UI改修](https://github.com/hamtech86/mini4wd-ai-system/issues/80)、[Issue #93 — 統合ゲート](https://github.com/hamtech86/mini4wd-ai-system/issues/93)、[PR #119 — Benchmark preset scope](https://github.com/hamtech86/mini4wd-ai-system/pull/119)、[PR #120 — TuneBasic INPUT ramps](https://github.com/hamtech86/mini4wd-ai-system/pull/120)
 
 ## 1. 文書の位置付けと優先順位
 
@@ -107,20 +107,27 @@ DATA の列順・RawLog 本文・センサー値を表示都合で変更しな�
 
 ## 4. Recipe 選択
 
-既存 Recipe dropdown から以下の 4 プリセットを選択でき、Recipe 名と Benchmark Type / Voltage Control Mode の対応を UI 上で明示する。
+プロジェクトオーナーの決定（2026-10-23）により、Benchmark の対象プリセットは **STD-I と Full-I のみ** とする。TERMINAL 方式（STD-T / Full-T）は電圧挙動が不安定になりやすく、高抵抗モーターが起動しない場合があるため、Benchmark の対象外とし、受入条件にも含めない。TuneBasic は Benchmark と独立した Recipe とする。
 
 | Recipe | Benchmark Type | Voltage Control Mode |
 |---|---|---|
-| STD-T | STANDARD | TERMINAL |
-| Full-T | FULL_PACKAGE | TERMINAL |
 | STD-I | STANDARD | INPUT |
 | Full-I | FULL_PACKAGE | INPUT |
 
+- UI の Recipe dropdown は STD-I、Full-I、独立した TUNE_BASIC_INPUT_3V_CHECK のみを表示する。
 - 「3.00 V / 30 s」のような条件表示だけで制御方式を識別させない。
 - 選択された Type と Mode は Backend の実行コンテキストへ明示的に渡す。
-- INPUT の選択時に INPUT 対応 Backend がない場合、実行をブロックして原因を表示する。TERMINAL へ暗黙にフォールバックしない。
-- 通常 Recipe の開始時に、前回 Benchmark の制御モードを誤って引き継がない。
+- INPUT 対応 Backend がない場合、実行をブロックして原因を表示する。別モードへ暗黙にフォールバックしない。
+- Benchmark の既定モードも INPUT とし、既定ラベルは STD-I / Full-I とする。
 - Benchmark の実行手順・制御アルゴリズムそのものは本 UI 設計の対象外であり、変更しない。
+
+### 4.1 TuneBasic の INPUT 制御と実機ゲート
+
+- TuneBasic は Benchmark とは独立した Recipe とする。Main の Recipe dropdown で公開するのは、限定試験用の `TUNE_BASIC_INPUT_3V_CHECK` のみとする。全 TuneBasic / 9 V シーケンスを UI から開始可能にする変更は、Issue #98 の実機安全性レビューと司令塔の判断が済むまで行わない。
+- レシピカタログ内の全 TuneBasic 電圧制御フェーズは INPUT モードを使用する。FWD は `voltage1` / V4、REV は `voltage2` / V5 をフィードバックに使う。
+- INPUT モードは 3 V 開始だけでなく、3→9 V ランプ、9 V 保持、フェードアウト、最終 3 V ベンチマークまで引き継ぐ。ランプ制御が内部制御フェーズを生成する場合も、元フェーズの `voltage_control_mode` を保持する。
+- `motor_voltage = V4 - V5` は符号付き端子間測定値として表示・保存する。INPUT 制御値の代用にしない。REV で負の `motor_voltage` が得られても、REV の INPUT フィードバックは V5 / `voltage2` を使う。
+- 自動テスト・ログ・シリアル ACK は物理停止の証明ではない。Issue #98 の実機ゲートは別管理とし、CI 成功だけで全 TuneBasic や反復運転を許可しない。
 
 ## 5. LOG / ERROR LOG
 
@@ -171,7 +178,7 @@ Instance History は新しい History テーブルを作らず、既存の Insta
 
 ### 自動テストで確認する項目
 
-- 4 Recipe の名称・Benchmark Type・Voltage Control Mode の対応
+- STD-I / Full-I の名称・Benchmark Type・Voltage Control Mode の対応、および STD-T / Full-T が非対応であること
 - 選択した制御モードが実行コンテキストへ伝播し、暗黙フォールバックしないこと
 - Input Voltage / Motor Voltage / Driver Input Current の取得元と欠損値の扱い
 - Elapsed Time / Remaining Time が Controller / SequenceExecutor の値を表示し、UI で再計算されないこと
@@ -193,7 +200,7 @@ CI 成功は自動テストの成功を意味するだけで、画面目視・�
 
 ## 10. 現時点の実装追跡
 
-2026-10-18 時点の PR #92 は Draft・未マージであり、本書は PR のマージや Draft 解除を許可するものではない。PR #92 の HEAD や CI 状態は変動するため、本書に固定値として埋め込まず、PR と Issue #93 で追跡する。
+2026-10-23 時点で PR #92 の Main UI統合と PR #119 の Benchmark preset scope、PR #120 の TuneBasic INPUT ramp propagation は main に統合済み。PR #119 と #120 の CI は成功している。ただし、GUIの目視確認と Issue #98 が管理する実機安全性判断は自動テストとは別であり、本書はそれらの完了を宣言しない。今後の実装状態は main と Issue #93 / #98 の最新コメントで追跡し、古い Draft PR の本文を現行仕様として参照しない。
 
 実装報告は以下を分けて記載する。
 

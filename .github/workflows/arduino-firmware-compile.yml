@@ -1,0 +1,94 @@
+name: Arduino Uno Firmware Compile
+
+on:
+  workflow_dispatch: {}
+  pull_request:
+    paths:
+      - "firmware/motor/**"
+      - ".github/workflows/arduino-firmware-compile.yml"
+  push:
+    branches:
+      - "integration/firmware-contract-main-20261017"
+    paths:
+      - "firmware/motor/**"
+      - ".github/workflows/arduino-firmware-compile.yml"
+
+jobs:
+  compile-arduino-uno:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Set up Arduino CLI
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Install Arduino AVR core
+        run: |
+          arduino-cli core update-index
+          arduino-cli core install arduino:avr@1.8.8
+
+      - name: Compile MOTOR_BREAKIN_V3 for Arduino Uno
+        shell: bash
+        run: |
+          set -euo pipefail
+          sketch_dir="${RUNNER_TEMP}/MotoreRev"
+          mkdir -p "$sketch_dir"
+          cp firmware/motor/MotoreRev.ino "$sketch_dir/MotoreRev.ino"
+          arduino-cli version
+          arduino-cli core list
+          arduino-cli compile --export-binaries --fqbn arduino:avr:uno "$sketch_dir"
+          artifact_dir="${RUNNER_TEMP}/firmware-artifact"
+          mkdir -p "$artifact_dir"
+          hex_file="$(find "$sketch_dir" -type f -name '*.hex' -print -quit)"
+          if [[ -z "$hex_file" ]]; then
+            echo "ERROR: Arduino compile succeeded but no HEX file was found under $sketch_dir"
+            find "$sketch_dir" -maxdepth 5 -type f -print
+            exit 1
+          fi
+          cp "$hex_file" "$artifact_dir/MotoreRev.ino.hex"
+          {
+            echo "github_sha=$GITHUB_SHA"
+            echo "checked_out_sha=$(git rev-parse HEAD)"
+            echo "fqbn=arduino:avr:uno"
+            echo "arduino_avr_core=1.8.8"
+            grep -E 'FW_BUILD_ID|FW_VERSION' firmware/motor/MotoreRev.ino || true
+            sha256sum "$artifact_dir/MotoreRev.ino.hex"
+          } > "$artifact_dir/build-manifest.txt"
+          echo "HEX artifact staged at $artifact_dir/MotoreRev.ino.hex"
+          cat "$artifact_dir/build-manifest.txt"
+
+      - name: Verify firmware CAL and host-owned control contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          source = Path("firmware/motor/MotoreRev.ino").read_text()
+          loop = source[source.index("void loop()"):source.index("* FUNC-151 : setState()")]
+          command = source[source.index("void processCommand(const char *cmd)"):source.index("SECTION 19 : Response Functions")]
+          assert "voltageControlUpdate();" not in loop, "host owns normal voltage feedback"
+          assert 'Serial.print(F("CAL,ACS1_ZERO="))' in source, "CAL output missing"
+          assert "calibrateACS712(false);" in command, "ARM must refresh offsets after STOP/READY"
+          for direction, starter in (("START", None), ("FWD", "startForward"), ("REV", "startReverse")):
+              pos = command.index('if (strcmp(command, "' + direction + '") == 0)')
+              block = command[pos:pos + 220]
+              assert "sendCalibration();" in block, f"missing CAL snapshot on {direction}"
+              if starter:
+                  assert block.index("sendCalibration();") < block.index(starter + "();"), f"CAL must precede {direction}"
+          resume_pos = command.index('if (strcmp(command, "RESUME") == 0)')
+          resume_block = command[resume_pos:resume_pos + 800]
+          assert "sendCalibration();" in resume_block and resume_block.index("sendCalibration();") < resume_block.index("setState(STATE_RUN);")
+          assert "sendLog(" not in source[source.index("void sendCalibration()"):source.index("void sendInfo()")], "CAL must not enter DATA serialization"
+          print("Firmware CAL/host-control source contract checks passed")
+          PY
+
+      - name: Upload compiled Uno firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: motor-arduino-uno-firmware
+          path: ${{ runner.temp }}/firmware-artifact/*
+          if-no-files-found: error
+          retention-days: 14

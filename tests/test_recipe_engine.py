@@ -34,6 +34,9 @@ def test_tune_basic_shape():
     assert recipe.phases[1].control == "VOLTAGE_RAMP"
     assert recipe.phases[1].start_voltage == 3.0
     assert recipe.phases[1].end_voltage == 9.0
+    # All TuneBasic voltage-controlled phases use the direction-specific INPUT sensor.
+    for index in (0, 1, 2, 3, 5, 6, 7, 8, 10):
+        assert recipe.phases[index].metadata["voltage_control_mode"] == "INPUT"
     assert recipe.phases[2].target_voltage == 9.0
     assert recipe.phases[4].pwm == 0
     assert recipe.phases[5].direction == "REV"
@@ -63,3 +66,26 @@ def test_recipe_targets_and_brushes():
     assert dash.brush == "CARBON"
     assert atomic.phases[-1].control == "VOLTAGE"
     assert atomic.phases[-1].target_voltage == 3.0
+
+
+def test_reverse_input_mode_is_preserved_through_voltage_ramp():
+    from controllers.breakin_controller import BreakinController
+
+    engine = RecipeEngine()
+    phase = engine.get("TUNE_BASIC").phases[6]  # REV 3-to-9 V ramp
+    controller = BreakinController.__new__(BreakinController)
+    controller.current_pwm = 80
+    controller.phase_started_at = __import__("time").time()
+    controller.phase_elapsed_before_pause = 0.0
+    controller.paused = False
+    controller.measurements = [{
+        "voltage1": 0.5,
+        "voltage2": 2.0,
+        "motor_voltage": -2.5,
+    }]
+    controller.serial = type("Serial", (), {"set_pwm": lambda self, pwm: None})()
+
+    controller._voltage_ramp_control(phase)
+
+    # Near ramp start, target is ~3 V. INPUT must use V5=2.0 V, not |motor_voltage|=2.5 V.
+    assert controller.current_pwm >= 89

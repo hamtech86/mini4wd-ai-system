@@ -23,7 +23,7 @@ class StopTransport:
         self.pwm.append(value)
 
 
-def test_three_consecutive_missing_samples_trigger_emergency_stop():
+def test_missing_data_does_not_abort_timed_phase():
     transport = StopTransport()
     controller = BreakinController(serial_controller=transport,
                                    measurement_manager=EmptyMeasurementManager())
@@ -32,11 +32,10 @@ def test_three_consecutive_missing_samples_trigger_emergency_stop():
 
     assert controller._collect_measurement(phase) is None
     assert controller._collect_measurement(phase) is None
-    with pytest.raises(RuntimeError, match="3 consecutive invalid control samples"):
-        controller._collect_measurement(phase)
+    assert controller._collect_measurement(phase) is None
 
-    assert controller.running is False
-    assert transport.stop_calls == 1
+    assert controller.running is True
+    assert transport.stop_calls == 0
 
 
 def test_three_consecutive_invalid_input_feedback_samples_trigger_stop():
@@ -66,3 +65,51 @@ def test_physical_current1_spike_cannot_be_masked_by_current_avg():
 
     assert controller._current_from_measurement(measurement) == 5.2
     assert controller._safety_violation(measurement).startswith("SAFETY: current 5.20A")
+
+
+
+@pytest.mark.parametrize("field,value", [
+    ("raw_acs1", 0),
+    ("raw_acs1", 2),
+    ("raw_acs2", 1021),
+    ("raw_acs2", 1023),
+])
+def test_acs712_adc_rail_fault_triggers_immediate_emergency_stop(field, value):
+    transport = StopTransport()
+    controller = BreakinController(serial_controller=transport)
+    controller.running = True
+    controller.current_pwm = 100
+    phase = BreakinPhase("TEST", duration_sec=10, pwm=100, direction="FWD", control="PWM")
+    measurement = {
+        "record_type": "DATA",
+        "raw_acs1": 512,
+        "raw_acs2": 512,
+        "current1": 0.2,
+        "current2": 0.2,
+        "current_avg": 0.2,
+        "motor_temperature": 25.0,
+    }
+    measurement[field] = value
+
+    class Manager:
+        last_measurement = measurement
+        def collect(self):
+            return dict(measurement)
+
+    controller.measurement_manager = Manager()
+    with pytest.raises(RuntimeError, match="ACS712 sensor fault"):
+        controller._collect_measurement(phase)
+
+    assert controller.running is False
+    assert transport.stop_calls == 1
+
+
+def test_acs712_normal_adc_values_are_not_classified_as_rail_fault():
+    measurement = {"raw_acs1": 512, "raw_acs2": 510}
+    assert BreakinController._acs_adc_rail_fault(measurement) is None
+
+
+@pytest.mark.parametrize("raw", [-1, 1024, float("nan"), 512.5, "bad"])
+def test_acs712_invalid_adc_sample_is_classified_as_sensor_fault(raw):
+    measurement = {"raw_acs1": raw, "raw_acs2": 512}
+    assert BreakinController._acs_adc_rail_fault(measurement) is not None

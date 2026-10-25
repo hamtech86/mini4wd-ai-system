@@ -13,6 +13,7 @@ from pathlib import Path
 
 from .phase_manager import PhaseManager
 from .recipe import BreakinPhase, BreakinRecipe
+from .timed_voltage_phase import run_timed_voltage_phase
 
 
 class BreakinController:
@@ -24,6 +25,8 @@ class BreakinController:
         "max_pwm": 245,
     }
     CHECKPOINT_PATH = Path("data/breakin_resume.json")
+    # Issue #98 safety gate: full TuneBasic remains unavailable until explicit clearance.
+    FULL_TUNEBASIC_ENABLED = False
 
     def __init__(self, serial_controller, measurement_manager=None,
                  analysis_engine=None, database=None, session_manager=None,
@@ -145,6 +148,12 @@ class BreakinController:
         return self.start(recipe, instance_id=actual_instance, resume=True)
 
     def start(self, recipe, instance_id=None, resume=False):
+        recipe_name = str(getattr(recipe, "name", "")).upper()
+        if recipe_name == "TUNE_BASIC" and not self.FULL_TUNEBASIC_ENABLED:
+            raise RuntimeError(
+                "Full TuneBasic execution is blocked until Issue #98 is explicitly cleared; "
+                "selection is available for sequence/resume planning only."
+            )
         if getattr(self, "emergency_stop_latched", False):
             raise RuntimeError("Emergency STOP latch is active; restart requires a new application session and fresh INFO identity.")
         instance_id = instance_id if instance_id is not None else self.selected_instance_id
@@ -184,6 +193,11 @@ class BreakinController:
             if benchmark_type:
                 self.session.benchmark_type = str(benchmark_type)
                 self.session.purpose = "MOTOR_BENCHMARK"
+        arm_method = getattr(self.serial, "arm", None)
+        if callable(arm_method) and arm_method() is False:
+            self.running = False
+            raise RuntimeError("Break-in start rejected because explicit ARM was not accepted.")
+
         try:
             while self.running and self.phase_manager.has_next():
                 self.execute_phase(
@@ -196,6 +210,11 @@ class BreakinController:
                 self.clear_checkpoint()
                 self.phase_manager.next_phase()
                 self.current_phase_index = self.phase_manager.current_index()
+            # A user emergency STOP can end execute_phase() without setting
+            # abort_reason. Never report/analyze that interrupted recipe as a
+            # normal completion merely because the phase loop has ended.
+            if self.emergency_stop_latched:
+                raise RuntimeError("Emergency STOP interrupted the active recipe; result is incomplete.")
             if self.abort_reason:
                 raise RuntimeError(self.abort_reason)
             if self.running:
@@ -326,6 +345,13 @@ class BreakinController:
         return max(0.0, duration - elapsed)
 
     def _execute_standard_phase(self, phase, resume_elapsed=0.0):
+        # TuneBasic fixed-voltage phases use the exact same feedback iteration
+        # as STD-I. Recipe timing/phase transitions remain controller-owned.
+        if phase.control == "VOLTAGE":
+            return run_timed_voltage_phase(
+                self, phase, phase.duration_sec,
+                save_checkpoint=True, initial_elapsed=resume_elapsed,
+            )
         while self.running and self._effective_elapsed() < phase.duration_sec:
             if self.paused:
                 time.sleep(self.CONTROL_INTERVAL_SEC)
@@ -347,13 +373,18 @@ class BreakinController:
             time.sleep(self.CONTROL_INTERVAL_SEC)
 
     def _execute_brush_peak_approach(self, phase, resume_elapsed=0.0):
-        # Do not interpret an absent/INVALID sample as zero current. Wait for
-        # the next VALID sample before establishing the brush-peak reference.
+        # DATA is optional for phase timing. If no valid telemetry arrives,
+        # do not wait forever for a brush-peak reference; let this timed phase
+        # expire and allow the remaining TuneBasic recipe to proceed.
+        max_duration = phase.max_duration_sec or phase.duration_sec or 1800
         measurement = None
-        while self.running and measurement is None:
+        while self.running and measurement is None and self._effective_elapsed() < max_duration:
             measurement = self._collect_measurement(phase)
             if measurement is None:
                 time.sleep(self.CONTROL_INTERVAL_SEC)
+        if measurement is None:
+            self.serial.set_pwm(0)
+            return
         peak = self._estimate_brush_peak_current()
         if peak < phase.peak_min_current:
             self.abort_reason = f"BRUSH PEAK APPROACH requires benchmark peak >= {phase.peak_min_current:.3f} A; measured {peak:.3f} A"
@@ -361,12 +392,17 @@ class BreakinController:
             return
         target = peak * (1.0 - phase.peak_margin_ratio)
         self.brush_peak_target_current = target
-        max_duration = phase.max_duration_sec or phase.duration_sec or 1800
         while self.running and self._effective_elapsed() < max_duration:
             if self.paused:
                 time.sleep(self.CONTROL_INTERVAL_SEC)
                 continue
             measurement = self._collect_measurement(phase)
+            if measurement is None:
+                # Missing telemetry must not be reclassified as zero current
+                # or fed into voltage validation. Keep the timed phase running
+                # at its current PWM until a valid sample returns.
+                time.sleep(self.CONTROL_INTERVAL_SEC)
+                continue
             current = self._current_from_measurement(measurement)
             if current > self.last_brush_peak_current:
                 self.last_brush_peak_current = current
@@ -409,7 +445,7 @@ class BreakinController:
         target = start + (end - start) * ratio
         error_target = BreakinPhase(name=phase.name, duration_sec=phase.duration_sec,
             pwm=self.current_pwm, direction=phase.direction, control="VOLTAGE",
-            target_voltage=target, pwm_min=phase.pwm_min, pwm_max=phase.pwm_max)
+            target_voltage=target, pwm_min=phase.pwm_min, pwm_max=phase.pwm_max, metadata=dict(phase.metadata))
         measurement = self.measurements[-1] if self.measurements else None
         self._voltage_control(error_target, measurement)
 
@@ -440,6 +476,30 @@ class BreakinController:
     @staticmethod
     def _value(measurement, name, default=0.0):
         return BreakinController._measurement_value(measurement, name, default)
+
+    @classmethod
+    def _acs_adc_rail_fault(cls, measurement):
+        """Return a fault description when a raw ACS712 sample is near ADC rails.
+
+        The Uno ADC is 10-bit (0..1023). Values <=2 or >=1021 are treated as
+        rail faults: these readings cannot reliably distinguish current from a
+        sensor/wiring/ADC saturation condition. Missing raw fields are handled
+        by MeasurementManager's DATA validation; legacy unit-test doubles that
+        do not expose raw fields remain compatible with this helper.
+        """
+        for name in ("raw_acs1", "raw_acs2"):
+            raw = cls._measurement_value(measurement, name, None)
+            if raw is None:
+                continue
+            try:
+                value = float(raw)
+            except (TypeError, ValueError, OverflowError):
+                return f"ACS712 sensor fault: invalid {name}"
+            if not math.isfinite(value) or not value.is_integer() or not 0 <= value <= 1023:
+                return f"ACS712 sensor fault: invalid {name} ADC sample"
+            if value <= 2 or value >= 1021:
+                return f"ACS712 sensor fault: {name} ADC rail sample ({int(value)}/1023)"
+        return None
 
     def _record_invalid_measurement(self, reason):
         self.invalid_measurement_streak = int(getattr(self, "invalid_measurement_streak", 0)) + 1
@@ -524,9 +584,49 @@ class BreakinController:
                 self.measurement_manager.last_measurement = None
             self._record_invalid_measurement(f"measurement acquisition error: {type(exc).__name__}")
             return None
+        serial_rebooted = bool(getattr(self.serial, "device_reboot_detected", False))
+        if serial_rebooted:
+            reason = getattr(self.serial, "device_reboot_reason", "") or "Unexpected firmware INFO during active run."
+            raw_line = getattr(self.serial, "device_reboot_raw_line", None)
+            if raw_line:
+                reason += "; captured INFO line: " + str(raw_line)
+            self.abort_reason = "SAFETY: firmware reboot detected during active run; " + reason
+            self.emergency_stop()
+            raise RuntimeError(self.abort_reason)
+
         if measurement is None:
-            self._record_invalid_measurement("missing or rejected DATA")
+            control = str(getattr(phase, "control", "PWM") or "PWM").upper()
+            target = getattr(phase, "target_voltage", None)
+            ramp_start = getattr(phase, "start_voltage", None)
+            ramp_end = getattr(phase, "end_voltage", None)
+            needs_feedback = control in ("VOLTAGE", "VOLTAGE_RAMP", "BRUSH_PEAK_APPROACH") and (
+                control == "BRUSH_PEAK_APPROACH"
+                or (target is not None and float(target) > 0)
+                or (ramp_start is not None and float(ramp_start) > 0)
+                or (ramp_end is not None and float(ramp_end) > 0)
+            )
+            if needs_feedback:
+                # Use MeasurementManager's structured rejection diagnosis when
+                # available, instead of collapsing every failure into "no DATA".
+                rejection = getattr(self.measurement_manager, "last_rejection_reason", None)
+                rejection = rejection or "no DATA frame received"
+                # Missing/rejected control DATA counts toward the existing
+                # three-consecutive-sample fail-safe; do not let phase time
+                # advance indefinitely with stale PWM and no feedback.
+                self._record_invalid_measurement(rejection)
             return None
+
+        # The fixed 26-column DATA contract already carries both raw ACS712 ADC
+        # readings. A reading at either ADC rail is a sensor/path fault, not a
+        # trustworthy current value. Fail closed immediately, before appending
+        # the derived current to the measurement series or applying voltage control.
+        # Keep this separate from the valid-sample 5 A over-current guard.
+        rail_fault = self._acs_adc_rail_fault(measurement)
+        if rail_fault:
+            self.abort_reason = f"SAFETY: {rail_fault}"
+            self.emergency_stop()
+            raise RuntimeError(self.abort_reason)
+
         control = str(getattr(phase, "control", "PWM") or "PWM").upper()
         target = getattr(phase, "target_voltage", None)
         ramp_start = getattr(phase, "start_voltage", None)
@@ -561,11 +661,25 @@ class BreakinController:
             print("SERIAL STOP WARNING:", exc)
 
     def emergency_stop(self):
-        """Request serial stop even if checkpoint persistence fails.
+        """Request serial stop before checkpoint persistence or cleanup.
 
         Returned details describe software/serial attempts, not physical motor
         state. Physical stop must remain unconfirmed until independently checked.
+        Repeated calls preserve the first attempt result: the serial controller
+        disconnects after its initial emergency-stop attempt, so a second call
+        cannot retry over that closed port and must not overwrite the evidence.
         """
+        if getattr(self, "emergency_stop_latched", False):
+            previous = getattr(self, "last_emergency_stop_result", None)
+            if isinstance(previous, dict):
+                return previous
+            return {
+                "checkpoint_saved": False,
+                "serial_stop_attempted": False,
+                "serial_result": None,
+                "errors": ["Emergency STOP already latched; prior attempt result is unavailable."],
+            }
+
         self.emergency_stop_latched = True
         self.running = False
         self.paused = False
@@ -573,15 +687,9 @@ class BreakinController:
                    "serial_result": None, "errors": []}
         if self.measurement_manager is not None:
             self.measurement_manager.last_measurement = None
-        try:
-            self._save_checkpoint()
-            outcome["checkpoint_saved"] = True
-        except Exception as exc:
-            outcome["errors"].append(f"checkpoint: {type(exc).__name__}: {exc}")
-        try:
-            self.clear_checkpoint()
-        except Exception as exc:
-            outcome["errors"].append(f"checkpoint clear: {type(exc).__name__}: {exc}")
+
+        # STOP is time-critical. Never let checkpoint I/O or cleanup delay the
+        # first serial emergency-stop attempt.
         try:
             outcome["serial_stop_attempted"] = True
             if hasattr(self.serial, "emergency_stop"):
@@ -591,5 +699,35 @@ class BreakinController:
                 outcome["serial_result"] = "fallback stop attempted"
         except Exception as exc:
             outcome["errors"].append(f"serial stop: {type(exc).__name__}: {exc}")
+
+        # Capture the interrupted phase's raw serial evidence only AFTER the
+        # time-critical STOP attempt. Aborted phases do not reach
+        # execute_phase()'s normal freeze boundary, so without this they vanish
+        # from measurement_raw_log even though the transport collector saw them.
+        try:
+            freeze = getattr(self.serial, "freeze_raw_log", None)
+            if callable(freeze):
+                raw_body = freeze()
+            else:
+                raw_body = getattr(self.serial, "raw_log", "") or ""
+                reset = getattr(self.serial, "reset_raw_log", None)
+                if callable(reset):
+                    reset()
+            if raw_body:
+                self._measurement_raw_log_parts.append(raw_body)
+        except Exception as exc:
+            outcome["errors"].append(f"raw log capture: {type(exc).__name__}: {exc}")
+
+        # Persistence is secondary to issuing STOP. Preserve best-effort
+        # checkpoint diagnostics/cleanup after the stop path has been attempted.
+        try:
+            self._save_checkpoint()
+            outcome["checkpoint_saved"] = True
+        except Exception as exc:
+            outcome["errors"].append(f"checkpoint: {type(exc).__name__}: {exc}")
+        try:
+            self.clear_checkpoint()
+        except Exception as exc:
+            outcome["errors"].append(f"checkpoint clear: {type(exc).__name__}: {exc}")
         self.last_emergency_stop_result = outcome
         return outcome

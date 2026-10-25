@@ -7,6 +7,7 @@ from __future__ import annotations
 import time
 from .recipe import BreakinPhase
 from .breakin_controller import BreakinController
+from .timed_voltage_phase import run_timed_voltage_phase
 
 STANDARD_3V30S = "STANDARD_3V30S"
 FULL_PACKAGE = "FULL_PACKAGE"
@@ -50,20 +51,8 @@ def _prepare_3v(self, phase, duration=2.0):
 
 
 def _timed_voltage(self, phase, duration):
-    self.phase_started_at = time.time()
-    self.phase_elapsed_before_pause = 0.0
-    started = time.monotonic()
-    while self.running and time.monotonic() - started < duration:
-        if self.paused:
-            time.sleep(self.CONTROL_INTERVAL_SEC)
-            continue
-        measurement = _collect(self, phase)
-        if _safety(self, measurement):
-            return False
-        self._voltage_control(phase, measurement)
-        time.sleep(self.CONTROL_INTERVAL_SEC)
-    return self.running
-
+    """STD-I timed INPUT-voltage execution; shared with TuneBasic phases."""
+    return run_timed_voltage_phase(self, phase, duration)
 
 def _timed_pwm(self, phase, duration):
     self.phase_started_at = time.time()
@@ -146,6 +135,9 @@ def run_benchmark(self, benchmark_type=STANDARD_3V30S, instance_id=None, purpose
     self.current_phase = prepare_phase
     self.current_phase_index = 0
     self.current_pwm = self._initial_pwm_for_voltage(3.00, prepare_phase)
+    arm = getattr(self.serial, "arm", None)
+    if callable(arm) and arm() is False:
+        raise RuntimeError("Benchmark blocked: explicit ARM failed; verify MOTOR_BREAKIN_V3 identity and STOP state.")
     self.serial.forward()
     self.serial.set_pwm(self.current_pwm)
 
@@ -223,7 +215,7 @@ def run_benchmark(self, benchmark_type=STANDARD_3V30S, instance_id=None, purpose
         self.current_pwm = 0
         self.running = False
         if self.session is not None:
-            if self.abort_reason:
+            if self.abort_reason or getattr(self, "emergency_stop_latched", False):
                 self.session.error()
             else:
                 self.session.cancel()
@@ -235,6 +227,12 @@ def run_benchmark(self, benchmark_type=STANDARD_3V30S, instance_id=None, purpose
         self.benchmark_voltage_control_mode = "TERMINAL"
 
 def _finish_benchmark(self, phases):
+    # A STOP can race with the final phase returning success. Recheck before
+    # entering the success/finalization path so an interrupted run cannot be
+    # recorded as a completed benchmark.
+    if getattr(self, "emergency_stop_latched", False) or not self.running:
+        raise RuntimeError("Emergency STOP interrupted benchmark; result is incomplete.")
+
     # Freeze exactly at the benchmark boundary. Serial data arriving after
     # this point (including STOP/finalization lag) is not part of the log.
     freeze = getattr(self, "_freeze_measurement_raw_log", None)
@@ -244,6 +242,8 @@ def _finish_benchmark(self, phases):
         self.serial.stop_breakin()
     else:
         self.serial.set_pwm(0)
+    if getattr(self, "emergency_stop_latched", False):
+        raise RuntimeError("Emergency STOP interrupted benchmark; result is incomplete.")
     self.current_pwm = 0
     self.running = False
     phase_names = ",".join(phase.name for phase in phases)

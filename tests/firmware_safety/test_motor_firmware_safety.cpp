@@ -30,6 +30,66 @@ int main() {
     assert(mock_digital_write[PIN_IN3] == LOW);
     assert(mock_digital_write[PIN_IN4] == LOW);
 
+    // Every drive/restart command is rejected after STOP until explicit ARM,
+    // and untagged/stale commands remain rejected even after a new ARM.
+    processCommand("START");
+    processCommand("FWD");
+    processCommand("REV");
+    processCommand("RESUME");
+    processCommand("PWM=80");
+    assert(!runtime.running);
+    assert(runtime.pwm == 0);
+    assert(mock_analog_write[PIN_PWM] == 0);
+
+    processCommand("ARM=AB12CD34");
+    assert(driveArmed);
+    processCommand("FWD");
+    assert(!runtime.running);
+    assert(runtime.pwm == 0);
+    processCommand("FWD@DEADBEEF");
+    assert(!runtime.running);
+    processCommand("FWD@AB12CD34");
+    assert(runtime.running);
+    assert(runtime.direction == DIR_FORWARD);
+
+    // STOP revokes the token. Old-token commands cannot restart the motor.
+    processCommand("STOP");
+    assert(!driveArmed);
+    assert(!runtime.running);
+    assert(runtime.pwm == 0);
+    processCommand("PWM=100@AB12CD34");
+    assert(!runtime.running);
+    assert(runtime.pwm == 0);
+
+    // A fresh ARM permits the next intentionally authorized run.
+    processCommand("ARM=1122AABB");
+    assert(driveArmed);
+    processCommand("REV@1122AABB");
+    assert(runtime.running);
+    assert(runtime.direction == DIR_REVERSE);
+    processCommand("STOP");
+    assert(!driveArmed);
+    assert(!runtime.running);
+
+    // Nonce-correlated safety commands are accepted without an ARM token.
+    // PWM=0 preserves RUN state but forces the output low; correlated STOP
+    // then stops the runtime and revokes the arm token.
+    processCommand("ARM=ABCDEF12");
+    processCommand("FWD@ABCDEF12");
+    assert(runtime.running);
+    runtime.pwm = 80;
+    mock_analog_write[PIN_PWM] = 80;
+    processCommand("PWM=0#TESTNONCE");
+    assert(runtime.running);
+    assert(runtime.pwm == 0);
+    assert(mock_analog_write[PIN_PWM] == 0);
+    processCommand("STOP#TESTNONCE");
+    assert(runtime.state == STATE_STOP);
+    assert(!runtime.running);
+    assert(!driveArmed);
+    assert(runtime.pwm == 0);
+    assert(mock_analog_write[PIN_PWM] == 0);
+
     // A periodic legacy update must not restore PWM after STOP.
     runtime.state = STATE_STOP;
     runtime.running = false;
