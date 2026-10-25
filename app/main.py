@@ -21,6 +21,7 @@ from communication.serial_controller import SerialController
 from battery_system.serial import BatterySerial
 from app.application_builder import ApplicationBuilder
 from app.raw_log_paste import install_raw_log_paste_ui
+from ui.physical_verification_report import PhysicalVerificationReport
 from ui.battery_tab_ui import BatteryTab
 from workers.breakin_worker import BreakinWorker
 from analysis.analysis_engine import AnalysisEngine
@@ -117,6 +118,10 @@ class MainWindow(BaseMainWindow):
         self.ui_log=QPlainTextEdit(); self.ui_log.setReadOnly(True); self.ui_log.setMaximumBlockCount(500); self.ui_log.setPlaceholderText("Controller / UI / Sequence events will appear here."); layout.addWidget(self.ui_log)
         self.error_code_label=QLabel("Error Code: --"); self.error_message_label=QLabel("Error Message: --"); self.error_message_label.setWordWrap(True); layout.addWidget(self.error_code_label); layout.addWidget(self.error_message_label)
         actions=QHBoxLayout(); self.copy_error_button=QPushButton("COPY ERROR DETAILS"); self.copy_error_button.setEnabled(False); self.copy_error_button.clicked.connect(self.copy_error_details); actions.addWidget(self.copy_error_button)
+        self.send_verification_button=QPushButton("SEND VERIFICATION REPORT")
+        self.send_verification_button.setToolTip("Send UI history, current error details, and explicitly selected RawLogs to the raw-log library repository.")
+        self.send_verification_button.clicked.connect(self.send_verification_report)
+        actions.addWidget(self.send_verification_button)
         clear=QPushButton("CLEAR LOG"); clear.clicked.connect(self.ui_log.clear); actions.addWidget(clear); actions.addStretch(); layout.addLayout(actions); parent_layout.addWidget(box)
         self._ui_error_code=None; self._ui_error_message=None; self._log_event("UI ready; hardware identity has not been verified."); self._log_event("Driver input current uses ACS712 #1/A0 current1 from the documented wiring; this is not motor winding current.")
 
@@ -136,6 +141,14 @@ class MainWindow(BaseMainWindow):
         if self._ui_error_code: parts.append(f"Error Code: {self._ui_error_code}")
         if self._ui_error_message: parts.append(f"Error Message: {self._ui_error_message}")
         QApplication.clipboard().setText("\n".join(parts)); self.copy_error_button.setText("COPIED ERROR DETAILS")
+
+    def send_verification_report(self):
+        """Create a recoverable local verification bundle and offer GitHub upload."""
+        try:
+            PhysicalVerificationReport(self).send()
+        except Exception as exc:
+            self._log_event(f"Verification report preparation failed: {exc}")
+            QMessageBox.critical(self, "Verification report", f"レポート準備に失敗しました。\n{exc}")
 
     def _identity_verified(self, controller=None):
         controller=controller or self._motor_controller()
