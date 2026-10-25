@@ -7,11 +7,33 @@ def test_limited_tunebasic_input_check_is_short_and_bidirectional():
     recipe = engine.get("TUNE_BASIC_INPUT_3V_CHECK")
 
     assert recipe is not None
-    assert [phase.direction for phase in recipe.phases] == ["FWD", "REV"]
-    assert [phase.duration_sec for phase in recipe.phases] == [10, 10]
-    assert all(phase.target_voltage == 3.0 for phase in recipe.phases)
-    assert all(phase.metadata.get("voltage_control_mode") == "INPUT" for phase in recipe.phases)
-    assert all(35 <= phase.pwm_min <= phase.pwm_max <= 120 for phase in recipe.phases)
+    measurement_phases = [phase for phase in recipe.phases if phase.target_voltage is not None]
+    assert [phase.direction for phase in measurement_phases] == ["FWD", "REV"]
+    assert [phase.duration_sec for phase in measurement_phases] == [10, 10]
+    assert all(phase.target_voltage == 3.0 for phase in measurement_phases)
+    assert all(phase.metadata.get("voltage_control_mode") == "INPUT" for phase in measurement_phases)
+    assert all(35 <= phase.pwm_min <= phase.pwm_max <= 120 for phase in measurement_phases)
+
+
+def test_limited_tunebasic_check_has_a_real_rest_phase_between_directions():
+    engine = RecipeEngine("config/breakin_recipes.yaml")
+    recipe = engine.get("TUNE_BASIC_INPUT_3V_CHECK")
+
+    assert recipe is not None
+    assert [phase.name for phase in recipe.phases] == [
+        "CHECK_FWD_INPUT_3V",
+        "CHECK_REST_AFTER_FWD",
+        "CHECK_REV_INPUT_3V",
+    ]
+    rest = recipe.phases[1]
+    assert rest.control == "PWM"
+    assert rest.pwm == 0
+    assert rest.duration_sec == 60
+    assert rest.direction == "FWD"
+    assert recipe.phases[0].duration_sec == 10
+    assert recipe.phases[2].duration_sec == 10
+    assert recipe.phases[0].direction == "FWD"
+    assert recipe.phases[2].direction == "REV"
 
 
 def test_full_tunebasic_3v_stages_use_input_feedback_without_changing_9v_stages():
