@@ -17,8 +17,8 @@ from uuid import uuid4
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
-    QCheckBox, QDialog, QDialogButtonBox, QLabel, QListWidget,
-    QListWidgetItem, QMessageBox, QVBoxLayout,
+    QDialog, QDialogButtonBox, QLabel, QListWidget,
+    QListWidgetItem, QMessageBox, QVBoxLayout, QInputDialog, QLineEdit,
 )
 
 from raw_log_library import RawLogLibrary
@@ -125,8 +125,26 @@ class PhysicalVerificationReport:
             QMessageBox.information(self.window, "Verification report saved", f"送信せずローカル保存しました。\n{local_dir}")
             return
 
+        token = getattr(self.window, "_physical_verification_token", None) or os.getenv(TOKEN_ENV)
+        if not token:
+            token, accepted = QInputDialog.getText(
+                self.window,
+                "GitHub Token",
+                "RawLogリポジトリへの書き込み権限を持つGitHubトークンを入力してください。\n"
+                "入力内容は画面上で伏せ字になり、このアプリの実行中だけ保持されます。",
+                QLineEdit.Password,
+            )
+            if not accepted or not token.strip():
+                QMessageBox.information(
+                    self.window, "Verification report saved",
+                    f"トークンが入力されなかったため送信しませんでした。ローカル保存は残っています。\n{local_dir}",
+                )
+                return
+            token = token.strip()
+            self.window._physical_verification_token = token
+
         try:
-            self._upload_directory(local_dir, run_id)
+            self._upload_directory(local_dir, run_id, token=token)
         except Exception as exc:
             QMessageBox.critical(
                 self.window, "Verification upload failed",
@@ -166,10 +184,10 @@ class PhysicalVerificationReport:
         ids = {listing.item(i).data(Qt.UserRole) for i in range(listing.count()) if listing.item(i).checkState() == Qt.Checked}
         return [r for r in records if r.log_id in ids]
 
-    def _upload_directory(self, local_dir, run_id):
-        token = os.getenv(TOKEN_ENV)
+    def _upload_directory(self, local_dir, run_id, token=None):
+        token = token or getattr(self.window, "_physical_verification_token", None) or os.getenv(TOKEN_ENV)
         if not token:
-            raise RuntimeError(f"GitHub token is not configured. Set {TOKEN_ENV}; local report is preserved.")
+            raise RuntimeError(f"GitHub token is not configured. Enter it in the UI or set {TOKEN_ENV}; local report is preserved.")
         remote_root = f"verification/runs/{run_id}"
         for path in sorted(p for p in local_dir.rglob("*") if p.is_file()):
             rel = path.relative_to(local_dir).as_posix()
