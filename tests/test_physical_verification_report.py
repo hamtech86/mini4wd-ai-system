@@ -44,6 +44,25 @@ def test_upload_directory_sends_every_local_file_without_changing_local_bundle(t
     assert (bundle / "raw-logs" / "MOTOR-000001.log").read_bytes() == b"DATA,1,2\r\n"
 
 
+def test_upload_accepts_token_entered_in_ui_without_environment_variable(tmp_path, monkeypatch):
+    monkeypatch.delenv("MINI4WD_GITHUB_TOKEN", raising=False)
+    bundle = tmp_path / "VERIFY-UI-TOKEN"
+    bundle.mkdir()
+    (bundle / "report.json").write_text("local evidence", encoding="utf-8")
+    requests = []
+
+    def fake_urlopen(request, timeout):
+        requests.append(request)
+        return _Response()
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    _reporter()._upload_directory(bundle, "VERIFY-UI-TOKEN", token="token-entered-in-ui")
+
+    assert len(requests) == 1
+    assert requests[0].get_header("Authorization") == "Bearer token-entered-in-ui"
+    assert (bundle / "report.json").read_text(encoding="utf-8") == "local evidence"
+
+
 def test_upload_failure_leaves_local_bundle_intact(tmp_path, monkeypatch):
     monkeypatch.setenv("MINI4WD_GITHUB_TOKEN", "test-token")
     bundle = tmp_path / "VERIFY-FAILED"
