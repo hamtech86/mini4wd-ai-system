@@ -185,7 +185,7 @@ class PhysicalVerificationReport:
         return [r for r in records if r.log_id in ids]
 
     def _upload_directory(self, local_dir, run_id, token=None):
-        token = token or getattr(self.window, "_physical_verification_token", None) or os.getenv(TOKEN_ENV)
+        token = token or getattr(getattr(self, "window", None), "_physical_verification_token", None) or os.getenv(TOKEN_ENV)
         if not token:
             raise RuntimeError(f"GitHub token is not configured. Enter it in the UI or set {TOKEN_ENV}; local report is preserved.")
         remote_root = f"verification/runs/{run_id}"
