@@ -52,7 +52,7 @@ def _physical_stop_record(observation, recorded_at):
 def _record_observation_in_ui_history(window, timestamped_lines):
     """Mirror the recorded observation in the visible UI history."""
     if hasattr(window, "ui_log"):
-        window.ui_log.appendPlainText("\\n".join(timestamped_lines))
+        window.ui_log.appendPlainText(chr(10).join(timestamped_lines))
 
 
 def _identity_snapshot(controller, history):
