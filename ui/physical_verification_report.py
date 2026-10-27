@@ -95,7 +95,9 @@ def _identity_snapshot(controller, history):
         "identity_evidence": evidence,
         "verification_state": verification_state,
     }
-    if controller is not None:
+    # Do not carry controller fields into an unverified snapshot: controller
+    # objects may retain device_info from an earlier connection interval.
+    if controller is not None and verified:
         for key in ("firmware_version", "device_model", "device_id", "build"):
             value = getattr(controller, key, None)
             if value is not None:
