@@ -83,6 +83,7 @@ def test_worker_boundary_requires_new_ui_arm_after_normal_completion(
         "serial_controller": motor,
         "battery_serial_controller": None,
     })
+    window.serial_controller = motor
     try:
         # Model a successful prior UI ARM followed by normal STOP/token revoke.
         assert motor.arm() is True
