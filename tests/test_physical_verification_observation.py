@@ -31,6 +31,7 @@ def test_identity_does_not_claim_success_when_state_and_history_are_unverified()
 
     assert result["identity_verified"] is False
     assert result["identity_evidence"] == "unverified_or_unavailable"
+    assert result["verification_state"] == "unverified"
 
 
 def test_identity_uses_controller_state_when_verified():
@@ -83,3 +84,10 @@ def test_physical_observation_is_mirrored_to_visible_ui_history():
 
 def test_physical_observation_history_helper_tolerates_missing_ui_log():
     _record_observation_in_ui_history(SimpleNamespace(), ["observation"])
+
+
+
+def test_missing_controller_is_reported_as_unavailable_not_unverified():
+    result = _identity_snapshot(None, "UI ready; hardware identity has not been verified.")
+    assert result["identity_verified"] is False
+    assert result["verification_state"] == "unavailable"
