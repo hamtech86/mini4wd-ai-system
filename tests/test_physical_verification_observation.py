@@ -98,3 +98,29 @@ def test_missing_controller_is_reported_as_unavailable_not_unverified():
     result = _identity_snapshot(None, "UI ready; hardware identity has not been verified.")
     assert result["identity_verified"] is False
     assert result["verification_state"] == "unavailable"
+
+
+
+def test_successful_info_history_before_disconnect_is_not_current_identity():
+    controller = SimpleNamespace(identity_verified=False, device_info={})
+    history = (
+        "[2026-10-27 09:02:20 JST] Motor INFO identity verified: "
+        "{'TYPE': 'MOTOR', 'MODEL': 'MOTOR_BREAKIN_V3', 'FW': '3.03'}\n"
+        "[2026-10-27 09:04:00 JST] Motor serial disconnected. "
+        "Software STOP is not physical-stop confirmation.\n"
+    )
+    result = _identity_snapshot(controller, history)
+    assert result["identity_verified"] is False
+    assert result["verification_state"] == "unverified"
+
+
+def test_successful_info_history_after_disconnect_is_current_identity():
+    controller = SimpleNamespace(identity_verified=False, device_info={})
+    history = (
+        "[2026-10-27 09:04:00 JST] Motor serial disconnected.\n"
+        "[2026-10-27 09:05:00 JST] Motor INFO identity verified: "
+        "{'TYPE': 'MOTOR', 'MODEL': 'MOTOR_BREAKIN_V3', 'FW': '3.03'}\n"
+    )
+    result = _identity_snapshot(controller, history)
+    assert result["identity_verified"] is True
+    assert result["identity_evidence"] == "ui_history"
