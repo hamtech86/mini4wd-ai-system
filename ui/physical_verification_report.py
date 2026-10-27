@@ -68,7 +68,16 @@ def _identity_snapshot(controller, history):
         else "ui_history" if history_verified
         else "unverified_or_unavailable"
     )
-    identity = {"identity_verified": verified, "identity_evidence": evidence}
+    verification_state = (
+        "verified" if verified
+        else "unavailable" if controller is None
+        else "unverified"
+    )
+    identity = {
+        "identity_verified": verified,
+        "identity_evidence": evidence,
+        "verification_state": verification_state,
+    }
     if controller is not None:
         for key in ("firmware_version", "device_model", "device_id", "build"):
             value = getattr(controller, key, None)
