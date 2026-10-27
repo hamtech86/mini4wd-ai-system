@@ -38,6 +38,23 @@ def _safe(value):
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value or "unknown")).strip("._") or "unknown"
 
 
+def _physical_stop_record(observation, recorded_at):
+    """Serialize the operator's physical observation without inferring a result."""
+    return {
+        "status": observation["status"],
+        "status_label": observation["status_label"],
+        "details": observation.get("details", ""),
+        "recorded_at_utc": recorded_at.isoformat(),
+        "source": "operator_input_before_upload",
+    }
+
+
+def _record_observation_in_ui_history(window, timestamped_lines):
+    """Mirror the recorded observation in the visible UI history."""
+    if hasattr(window, "ui_log"):
+        window.ui_log.appendPlainText("\\n".join(timestamped_lines))
+
+
 def _identity_snapshot(controller, history):
     """Represent current identity state and preserve a successful INFO event in this session."""
     controller_verified = (
@@ -131,13 +148,7 @@ class PhysicalVerificationReport:
             "motor_instance_id": str(instance_id),
             "recipe": recipe,
             "device_identity": identity,
-            "physical_stop_observation": {
-                "status": observation_status,
-                "status_label": observation_label,
-                "details": observation_details,
-                "recorded_at_utc": now.isoformat(),
-                "source": "operator_input_before_upload",
-            },
+            "physical_stop_observation": _physical_stop_record(physical_observation, now),
             "error": {"code": error_code, "message": error_message},
             "included_raw_log_ids": [r.log_id for r in selected],
             "notes": "Physical stop status is the operator's explicit observation. INFO identity evidence may come from the current controller state or a successful INFO event in this UI session. CI/source status is not physical verification.",
