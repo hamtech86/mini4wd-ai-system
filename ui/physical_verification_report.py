@@ -161,8 +161,7 @@ class PhysicalVerificationReport:
         ) + "\n"
         # Keep the visible in-session UI history consistent with report.json and
         # ui-history.log. This records the operator's observation, not a STOP ACK.
-        if hasattr(self.window, "ui_log"):
-            self.window.ui_log.appendPlainText("\n".join(timestamped_observation_lines))
+        _record_observation_in_ui_history(self.window, timestamped_observation_lines)
 
         identity = _identity_snapshot(controller, history)
         error_code = getattr(self.window, "_ui_error_code", None)
