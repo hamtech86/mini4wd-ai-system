@@ -109,10 +109,17 @@ class PhysicalVerificationReport:
         ]
         if observation_details:
             history_lines.append(f"Physical observation details: {observation_details}")
-        history = (history.rstrip() + "\n" if history.strip() else "") + "\n".join(
+        timestamped_observation_lines = [
             f"[{now.astimezone().strftime('%Y-%m-%d %H:%M:%S %Z')}] {line}"
             for line in history_lines
+        ]
+        history = (history.rstrip() + "\n" if history.strip() else "") + "\n".join(
+            timestamped_observation_lines
         ) + "\n"
+        # Keep the visible in-session UI history consistent with report.json and
+        # ui-history.log. This records the operator's observation, not a STOP ACK.
+        if hasattr(self.window, "ui_log"):
+            self.window.ui_log.appendPlainText("\n".join(timestamped_observation_lines))
 
         identity = _identity_snapshot(controller, history)
         error_code = getattr(self.window, "_ui_error_code", None)
