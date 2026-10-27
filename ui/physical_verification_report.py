@@ -5,6 +5,7 @@ never destroys the evidence. Original RawLog bodies are copied verbatim.
 """
 from __future__ import annotations
 
+import ast
 import base64
 import json
 import os
@@ -56,7 +57,7 @@ def _record_observation_in_ui_history(window, timestamped_lines):
 
 
 def _identity_snapshot(controller, history):
-    """Represent current identity state and preserve a successful INFO event in this session."""
+    """Represent current identity from verified controller state or current-session INFO evidence."""
     controller_verified = (
         controller is not None
         and getattr(controller, "identity_verified", False) is True
@@ -76,9 +77,11 @@ def _identity_snapshot(controller, history):
         default=-1,
     )
     current_connection_history = history_text[last_invalidation + 1:]
-    history_verified = bool(
-        re.search(r"Motor INFO identity verified:", current_connection_history)
-    )
+    info_matches = list(re.finditer(
+        r"Motor INFO identity verified:\\s*(\\{[^\\n]*\\})",
+        current_connection_history,
+    ))
+    history_verified = bool(info_matches)
     verified = controller_verified or history_verified
     evidence = (
         "controller_state" if controller_verified
@@ -95,9 +98,19 @@ def _identity_snapshot(controller, history):
         "identity_evidence": evidence,
         "verification_state": verification_state,
     }
-    # Do not carry controller fields into an unverified snapshot: controller
-    # objects may retain device_info from an earlier connection interval.
-    if controller is not None and verified:
+    # If verification comes from the UI history, extract identity values from
+    # that exact successful INFO event. Do not mix it with possibly stale
+    # fields retained by a controller object from an earlier connection.
+    if history_verified and not controller_verified:
+        try:
+            info = ast.literal_eval(info_matches[-1].group(1))
+        except (ValueError, SyntaxError):
+            info = {}
+        for source, target in (("FW", "firmware_version"), ("MODEL", "device_model"),
+                               ("ID", "device_id"), ("BUILD", "build")):
+            if info.get(source) is not None:
+                identity[target] = info[source]
+    elif controller is not None and controller_verified:
         for key in ("firmware_version", "device_model", "device_id", "build"):
             value = getattr(controller, key, None)
             if value is not None:
