@@ -451,7 +451,11 @@ def test_normal_completion_requires_explicit_rearm_before_next_run(monkeypatch, 
             "BUILD": "EXPLICIT-ARM-STOP-ACK-20261023-01", "ID": "000001",
         }
 
+        def __init__(self):
+            self.arm_calls = 0
+
         def arm(self):
+            self.arm_calls += 1
             return True
 
     database_path = str(tmp_path / "ui-normal-completion-rearm.db")
@@ -474,6 +478,9 @@ def test_normal_completion_requires_explicit_rearm_before_next_run(monkeypatch, 
         window._start_benchmark()
         assert window.error_code_label.text() == "Error Code: MOTOR_NOT_ARMED"
         assert window.breakin_worker is None
+        # The blocked second run must not reach SerialController.arm() via
+        # the worker/controller path; only an explicit UI ARM click may do so.
+        assert motor.arm_calls == 0
     finally:
         window.close()
 
