@@ -78,7 +78,7 @@ def _identity_snapshot(controller, history):
     )
     current_connection_history = history_text[last_invalidation + 1:]
     info_matches = list(re.finditer(
-        r"Motor INFO identity verified:\\s*(\\{[^\\n]*\\})",
+        r"Motor INFO identity verified:\s*(\{[^\n]*\})",
         current_connection_history,
     ))
     history_verified = bool(info_matches)
