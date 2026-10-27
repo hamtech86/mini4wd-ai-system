@@ -637,8 +637,9 @@ class MainWindow(BaseMainWindow):
         return True
 
     def failed(self, message):
-        # Any worker exception is treated as unsafe termination; do not let the
-        # base callback re-enable START or RESUME after a failed run.
+        # Preserve the operator's earlier STOP state if a queued worker failure
+        # arrives afterward. Any worker exception is still fail-closed.
+        stop_was_already_latched = self._stop_latched
         self._stop_latched = True
         self._arm_accepted = False
         try:
@@ -662,8 +663,12 @@ class MainWindow(BaseMainWindow):
             self.pause_button.setEnabled(False)
         if hasattr(self, "resume_button"):
             self.resume_button.setEnabled(False)
-        self.run_state.setText("WORKER ERROR / STOP LATCHED")
-        self.result["STATUS"].setText("ERROR / STOP LATCHED")
+        if stop_was_already_latched:
+            self.run_state.setText("STOP REQUESTED / PHYSICAL STOP UNCONFIRMED")
+            self.result["STATUS"].setText("STOP REQUESTED / UNCONFIRMED")
+        else:
+            self.run_state.setText("WORKER ERROR / STOP LATCHED")
+            self.result["STATUS"].setText("ERROR / STOP LATCHED")
 
     def stop_run(self):
         self._stop_latched = True
