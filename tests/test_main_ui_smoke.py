@@ -510,3 +510,39 @@ def test_emergency_stop_latch_survives_finished_after_normal_completion_race(mon
         assert "STOP REQUESTED" in window.run_state.text()
     finally:
         window.close()
+
+
+
+def test_late_worker_failure_does_not_overwrite_existing_stop_state(monkeypatch, tmp_path):
+    import ui.main_window as base_ui
+    import app.main as main_app
+
+    class FakeBatteryTab(QWidget):
+        def __init__(self, *args, **kwargs):
+            super().__init__(kwargs.get("parent"))
+
+        def set_connected(self, connected):
+            self.connected = connected
+
+    database_path = str(tmp_path / "ui-stop-failure-race.db")
+    monkeypatch.setattr(base_ui, "resolve_database_path", lambda **kwargs: database_path)
+    monkeypatch.setattr(main_app, "BatteryTab", FakeBatteryTab)
+    app = QApplication.instance() or QApplication([])
+    window = main_app.MainWindow({
+        "breakin_controller": None,
+        "serial_controller": None,
+        "battery_serial_controller": None,
+    })
+    try:
+        window._stop_latched = True
+        window._arm_accepted = False
+        window.run_state.setText("STOP REQUESTED / PHYSICAL STOP UNCONFIRMED")
+        window.result["STATUS"].setText("STOP REQUESTED / UNCONFIRMED")
+        window.failed("late worker exception")
+        assert window._stop_latched is True
+        assert not window.start.isEnabled()
+        assert not window.motor_arm.isEnabled()
+        assert "STOP REQUESTED" in window.run_state.text()
+        assert "UNCONFIRMED" in window.result["STATUS"].text()
+    finally:
+        window.close()
