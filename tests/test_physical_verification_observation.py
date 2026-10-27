@@ -31,6 +31,30 @@ def test_identity_uses_successful_info_event_even_if_current_controller_flag_is_
     assert result["firmware_version"] == "3.03"
 
 
+def test_history_identity_values_do_not_reuse_stale_controller_fields():
+    controller = SimpleNamespace(
+        identity_verified=False,
+        firmware_version="9.99",
+        device_model="STALE_MODEL",
+        device_id="STALE_ID",
+        build="STALE_BUILD",
+        device_info={"FW": "9.99", "MODEL": "STALE_MODEL"},
+    )
+    history = (
+        "[2026-10-27 09:05:00 JST] Motor INFO identity verified: "
+        "{'TYPE': 'MOTOR', 'MODEL': 'MOTOR_BREAKIN_V3', 'FW': '3.03', 'ID': '000123'}"
+    )
+
+    result = _identity_snapshot(controller, history)
+
+    assert result["identity_verified"] is True
+    assert result["identity_evidence"] == "ui_history"
+    assert result["firmware_version"] == "3.03"
+    assert result["device_model"] == "MOTOR_BREAKIN_V3"
+    assert result["device_id"] == "000123"
+    assert "build" not in result
+
+
 def test_identity_does_not_claim_success_when_state_and_history_are_unverified():
     controller = SimpleNamespace(identity_verified=False, device_info={})
 
