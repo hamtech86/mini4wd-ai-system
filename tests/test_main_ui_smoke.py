@@ -430,3 +430,126 @@ def test_benchmark_requires_explicit_arm_after_identity_verification(monkeypatch
         assert window.breakin_worker is None
     finally:
         window.close()
+
+
+def test_normal_completion_requires_explicit_rearm_before_next_run(monkeypatch, tmp_path):
+    import ui.main_window as base_ui
+    import app.main as main_app
+
+    class FakeBatteryTab(QWidget):
+        def __init__(self, *args, **kwargs):
+            super().__init__(kwargs.get("parent"))
+
+        def set_connected(self, connected):
+            self.connected = connected
+
+    class FakeMotorController:
+        connected = True
+        identity_verified = True
+        device_info = {
+            "MODEL": "MOTOR_BREAKIN_V3", "FW": "3.03",
+            "BUILD": "EXPLICIT-ARM-STOP-ACK-20261023-01", "ID": "000001",
+        }
+
+        def __init__(self):
+            self.arm_calls = 0
+
+        def arm(self):
+            self.arm_calls += 1
+            return True
+
+    database_path = str(tmp_path / "ui-normal-completion-rearm.db")
+    monkeypatch.setattr(base_ui, "resolve_database_path", lambda **kwargs: database_path)
+    monkeypatch.setattr(main_app, "BatteryTab", FakeBatteryTab)
+    app = QApplication.instance() or QApplication([])
+    motor = FakeMotorController()
+    window = main_app.MainWindow({
+        "breakin_controller": None,
+        "serial_controller": motor,
+        "battery_serial_controller": None,
+    })
+    window.serial_controller = motor
+    try:
+        window._arm_accepted = True
+        window._run_completed_normally = True
+        window.finished()
+        assert window._arm_accepted is False
+        assert window.motor_arm.isEnabled()
+        window._start_benchmark()
+        assert window.error_code_label.text() == "Error Code: MOTOR_NOT_ARMED"
+        assert window.breakin_worker is None
+        # The blocked second run must not reach SerialController.arm() via
+        # the worker/controller path; only an explicit UI ARM click may do so.
+        assert motor.arm_calls == 0
+    finally:
+        window.close()
+
+
+def test_emergency_stop_latch_survives_finished_after_normal_completion_race(monkeypatch, tmp_path):
+    import ui.main_window as base_ui
+    import app.main as main_app
+
+    class FakeBatteryTab(QWidget):
+        def __init__(self, *args, **kwargs):
+            super().__init__(kwargs.get("parent"))
+
+        def set_connected(self, connected):
+            self.connected = connected
+
+    database_path = str(tmp_path / "ui-stop-completion-race.db")
+    monkeypatch.setattr(base_ui, "resolve_database_path", lambda **kwargs: database_path)
+    monkeypatch.setattr(main_app, "BatteryTab", FakeBatteryTab)
+    app = QApplication.instance() or QApplication([])
+    window = main_app.MainWindow({
+        "breakin_controller": None,
+        "serial_controller": None,
+        "battery_serial_controller": None,
+    })
+    try:
+        window._arm_accepted = True
+        window._run_completed_normally = True
+        window._stop_latched = True
+        window.finished()
+        assert window._stop_latched is True
+        assert window._arm_accepted is False
+        assert not window.start.isEnabled()
+        assert not window.motor_arm.isEnabled()
+        assert "STOP REQUESTED" in window.run_state.text()
+    finally:
+        window.close()
+
+
+
+def test_late_worker_failure_does_not_overwrite_existing_stop_state(monkeypatch, tmp_path):
+    import ui.main_window as base_ui
+    import app.main as main_app
+
+    class FakeBatteryTab(QWidget):
+        def __init__(self, *args, **kwargs):
+            super().__init__(kwargs.get("parent"))
+
+        def set_connected(self, connected):
+            self.connected = connected
+
+    database_path = str(tmp_path / "ui-stop-failure-race.db")
+    monkeypatch.setattr(base_ui, "resolve_database_path", lambda **kwargs: database_path)
+    monkeypatch.setattr(main_app, "BatteryTab", FakeBatteryTab)
+    app = QApplication.instance() or QApplication([])
+    window = main_app.MainWindow({
+        "breakin_controller": None,
+        "serial_controller": None,
+        "battery_serial_controller": None,
+    })
+    try:
+        window._stop_latched = True
+        window._arm_accepted = False
+        window.run_state.setText("STOP REQUESTED / PHYSICAL STOP UNCONFIRMED")
+        window.result["STATUS"].setText("STOP REQUESTED / UNCONFIRMED")
+        window.failed("late worker exception")
+        assert window._stop_latched is True
+        assert not window.start.isEnabled()
+        assert not window.motor_arm.isEnabled()
+        assert "STOP REQUESTED" in window.run_state.text()
+        assert "UNCONFIRMED" in window.result["STATUS"].text()
+    finally:
+        window.close()

@@ -36,6 +36,7 @@ class MainWindow(BaseMainWindow):
         super().__init__(context)
         self._stop_latched = False
         self._arm_accepted = False
+        self._run_completed_normally = False
         self.analysis_engine=AnalysisEngine(str(PROJECT_ROOT / "config"))
         self.recipe_engine=RecipeEngine(str(PROJECT_ROOT / "config" / "breakin_recipes.yaml"))
         self._extract_motor_page(); self._build_estimated_result_panel()
@@ -555,6 +556,7 @@ class MainWindow(BaseMainWindow):
         self.database_updated = False
         self.last_result_data = None
         self.last_result_benchmark = False
+        self._run_completed_normally = False
         self.database_status.setText("DATABASE: NOT UPDATED")
         self.update_db.setEnabled(False)
         self.copy.setEnabled(False)
@@ -581,6 +583,7 @@ class MainWindow(BaseMainWindow):
             return
         # Preserve the raw measurement log, but do not save this validation
         # run as a benchmark or update the motor database.
+        self._run_completed_normally = True
         self.result["STATUS"].setText("LIMITED INPUT 3V CHECK COMPLETE")
         self.run_state.setText("LIMITED INPUT 3V CHECK COMPLETE")
         self.result["SUMMARY"].setText("Review FWD/REV RawLog and sensor feedback before authorizing full TuneBasic.")
@@ -596,6 +599,7 @@ class MainWindow(BaseMainWindow):
             QMessageBox.warning(self,"Controller","BreakinController is not available.");return
         controller=self._motor_controller()
         if controller is None or not getattr(controller,"connected",False):QMessageBox.warning(self,"Benchmark","先にMOTOR CONNECTを実行してください。");return
+        self._run_completed_normally = False
         self.breakin_controller.selected_benchmark_type=benchmark_type
         self.breakin_controller.selected_benchmark_voltage_mode=voltage_control_mode
         self.database_updated=False;self.last_result_data=None;self.last_result_benchmark=True;self.database_status.setText("DATABASE: NOT UPDATED");self.update_db.setEnabled(False);self.copy.setEnabled(False);self.start.setEnabled(False);self.manager.setEnabled(False);self.instance.setEnabled(False);self.recipe.setEnabled(False);self.stop.setEnabled(True);self.emergency_stop_fixed.setEnabled(True);self.result["STATUS"].setText("RUNNING");self.run_state.setText("STARTING...")
@@ -611,6 +615,7 @@ class MainWindow(BaseMainWindow):
         if self._reject_completion_after_stop():
             return
         super().complete(data,benchmark)
+        self._run_completed_normally = True
         self._log_event("Measurement run completed. This status does not certify physical stop unless separately observed.")
         self._update_estimated_result()
 
@@ -632,8 +637,9 @@ class MainWindow(BaseMainWindow):
         return True
 
     def failed(self, message):
-        # Any worker exception is treated as unsafe termination; do not let the
-        # base callback re-enable START or RESUME after a failed run.
+        # Preserve the operator's earlier STOP state if a queued worker failure
+        # arrives afterward. Any worker exception is still fail-closed.
+        stop_was_already_latched = self._stop_latched
         self._stop_latched = True
         self._arm_accepted = False
         try:
@@ -657,8 +663,12 @@ class MainWindow(BaseMainWindow):
             self.pause_button.setEnabled(False)
         if hasattr(self, "resume_button"):
             self.resume_button.setEnabled(False)
-        self.run_state.setText("WORKER ERROR / STOP LATCHED")
-        self.result["STATUS"].setText("ERROR / STOP LATCHED")
+        if stop_was_already_latched:
+            self.run_state.setText("STOP REQUESTED / PHYSICAL STOP UNCONFIRMED")
+            self.result["STATUS"].setText("STOP REQUESTED / UNCONFIRMED")
+        else:
+            self.run_state.setText("WORKER ERROR / STOP LATCHED")
+            self.result["STATUS"].setText("ERROR / STOP LATCHED")
 
     def stop_run(self):
         self._stop_latched = True
@@ -743,6 +753,7 @@ class MainWindow(BaseMainWindow):
         # the emergency-stop latch across asynchronous worker completion.
         super().finished()
         if self._stop_latched:
+            self._arm_accepted = False
             self.start.setEnabled(False)
             self.manager.setEnabled(False)
             self.instance.setEnabled(False)
@@ -754,6 +765,17 @@ class MainWindow(BaseMainWindow):
                 self.resume_button.setEnabled(False)
             self.run_state.setText("STOP REQUESTED / PHYSICAL STOP UNCONFIRMED")
             self.result["STATUS"].setText("STOP REQUESTED / UNCONFIRMED")
+            return
+        # Normal STOP revokes the serial ARM token. Require a fresh explicit
+        # operator ARM before another run; this does not certify physical stop.
+        if self._run_completed_normally:
+            self._arm_accepted = False
+            controller = self._motor_controller()
+            can_arm = bool(self._identity_verified(controller) and getattr(controller, "connected", False))
+            self.motor_arm.setEnabled(can_arm)
+            if can_arm:
+                self.motor_serial_status.setText("MOTOR: IDENTITY VERIFIED / ARM REQUIRED FOR NEXT RUN")
+            self._run_completed_normally = False
 
 
 
