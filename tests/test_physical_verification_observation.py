@@ -1,6 +1,13 @@
 from types import SimpleNamespace
 
-from datetime import datetime, timezone\n\nfrom ui.physical_verification_report import (\n    PHYSICAL_STOP_CHOICES,\n    _identity_snapshot,\n    _physical_stop_record,\n    _record_observation_in_ui_history,\n)
+from datetime import datetime, timezone
+
+from ui.physical_verification_report import (
+    PHYSICAL_STOP_CHOICES,
+    _identity_snapshot,
+    _physical_stop_record,
+    _record_observation_in_ui_history,
+)
 
 
 def test_identity_uses_successful_info_event_even_if_current_controller_flag_is_false():
