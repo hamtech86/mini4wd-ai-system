@@ -59,6 +59,7 @@ class FakeWorker:
 def test_worker_boundary_requires_new_ui_arm_after_normal_completion(
     monkeypatch, tmp_path
 ):
+    from types import SimpleNamespace
     import ui.main_window as base_ui
     import app.main as main_app
 
@@ -104,6 +105,9 @@ def test_worker_boundary_requires_new_ui_arm_after_normal_completion(
         assert FakeWorker.instances == []
         assert motor.arm_calls == 1
         assert motor._active_arm_token is None
+
+        # Supply a non-hardware controller stub only after the blocked attempt.
+        window.breakin_controller = SimpleNamespace()
 
         # A fresh operator click is the only path that re-authorizes a run.
         window.motor_arm.click()
