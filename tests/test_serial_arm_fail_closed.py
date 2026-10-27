@@ -70,6 +70,9 @@ def assert_no_drive_writes(fake):
 def test_exact_fresh_arm_ack_authorizes_tagged_drive_only_after_ack(monkeypatch):
     controller, fake = make_controller(monkeypatch, arm_responses=lambda f, token: f.lines.append(f"ARMED,{token}\n".encode()))
     assert controller.forward() is False
+    assert controller.reverse() is False
+    assert controller.set_pwm(35) is False
+    assert fake.writes == []
     assert controller.arm() is True
     assert fake.writes[0] == "ARM=A1B2C3D4"
     assert controller._active_arm_token == "A1B2C3D4"
