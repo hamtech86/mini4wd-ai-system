@@ -76,3 +76,36 @@ def test_stop_command_revokes_token_even_without_successful_followup_drive():
     assert controller._active_arm_token is None
     assert controller.reverse() is False
     assert not any(command.startswith("REV@") for command in controller.serial.writes)
+
+
+
+def test_normal_benchmark_finish_revokes_old_arm_token():
+    from types import SimpleNamespace
+    from controllers.motor_benchmark import _finish_benchmark
+
+    serial_controller = make_armed_controller()
+    assert serial_controller.arm() is True
+    old_token = serial_controller._active_arm_token
+    assert old_token
+
+    benchmark = SimpleNamespace(
+        serial=serial_controller,
+        running=True,
+        emergency_stop_latched=False,
+        current_pwm=87,
+        benchmark_baseline_pwm=42,
+        session=None,
+        measurement_manager=None,
+        _freeze_measurement_raw_log=lambda: None,
+        _finalize_benchmark_raw_log=lambda raw_body=None: None,
+    )
+    _finish_benchmark(benchmark, [SimpleNamespace(name="TEST_PHASE")])
+
+    assert benchmark.running is False
+    assert benchmark.current_pwm == 0
+    assert serial_controller._active_arm_token is None
+    # The previously authorized drive path is blocked after the real normal
+    # benchmark-finalization function has sent STOP.
+    assert serial_controller.forward() is False
+    assert serial_controller._active_arm_token is None
+    assert f"FWD@{old_token}" not in serial_controller.serial.writes
