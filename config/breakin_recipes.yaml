@@ -61,6 +61,18 @@ recipes:
       - {name: CHECK_REST_60S, control: PWM, pwm: 0, pwm_min: 0, pwm_max: 0, duration_sec: 60, direction: FWD}
       - {name: CHECK_REV_INPUT_3V, control: VOLTAGE, target_voltage: 3.00, voltage_control_mode: INPUT, pwm: 60, pwm_min: 35, pwm_max: 120, duration_sec: 10, direction: REV}
 
+  STOP_PROOF_3V_INPUT:
+    description: "Supervised stop verification only. Operator must press STOP while FWD is actively rotating; independent RPM measurement and synchronized evidence are mandatory. Never let the 10 s phase finish as a substitute for STOP verification."
+    brush: UNKNOWN
+    family: SAFETY_VERIFICATION
+    objective: MEASUREMENT
+    benchmark: BENCHMARK_3V
+    target:
+      rpm: null
+      torque_priority: 0.50
+    stages:
+      - {name: STOP_PROOF_FWD_INPUT_3V, control: VOLTAGE, target_voltage: 3.00, voltage_control_mode: INPUT, pwm: 60, pwm_min: 35, pwm_max: 120, duration_sec: 10, direction: FWD, operator_action: "Press the physical/UI STOP while the motor is visibly rotating, preferably 2–3 s after rotation is confirmed; do not wait for phase completion.", external_rpm_observation_required: true, synchronized_stop_evidence_required: true}
+ 
   FINISH_BRUSH_PEAK_2V:
     description: "Finish recipe: hold approximately 2 V and continue until the measured brush current approaches the benchmark brush-peak level without crossing it."
     brush: COPPER
