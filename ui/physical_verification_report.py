@@ -61,7 +61,24 @@ def _identity_snapshot(controller, history):
         controller is not None
         and getattr(controller, "identity_verified", False) is True
     )
-    history_verified = bool(re.search(r"Motor INFO identity verified:", history or ""))
+    history_text = history or ""
+    # A success event is usable only if it belongs to the latest uninterrupted
+    # controller connection interval. Disconnect/reconnect-failure events
+    # invalidate earlier INFO history, preventing stale-session attribution.
+    invalidation_markers = (
+        "Motor serial disconnected.",
+        "Motor serial connection failed",
+        "MOTOR_SERIAL_CONNECT_FAILED",
+        "MOTOR_IDENTITY_UNVERIFIED",
+    )
+    last_invalidation = max(
+        (history_text.rfind(marker) for marker in invalidation_markers),
+        default=-1,
+    )
+    current_connection_history = history_text[last_invalidation + 1:]
+    history_verified = bool(
+        re.search(r"Motor INFO identity verified:", current_connection_history)
+    )
     verified = controller_verified or history_verified
     evidence = (
         "controller_state" if controller_verified
