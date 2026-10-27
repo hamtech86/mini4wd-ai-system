@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from ui.physical_verification_report import _identity_snapshot
+from datetime import datetime, timezone\n\nfrom ui.physical_verification_report import (\n    PHYSICAL_STOP_CHOICES,\n    _identity_snapshot,\n    _physical_stop_record,\n    _record_observation_in_ui_history,\n)
 
 
 def test_identity_uses_successful_info_event_even_if_current_controller_flag_is_false():
@@ -44,3 +44,42 @@ def test_identity_uses_controller_state_when_verified():
 
     assert result["identity_verified"] is True
     assert result["identity_evidence"] == "controller_state"
+
+
+
+def test_all_physical_stop_choices_serialize_without_inference():
+    recorded_at = datetime(2026, 10, 27, 0, 7, 56, tzinfo=timezone.utc)
+    for label, status in PHYSICAL_STOP_CHOICES:
+        result = _physical_stop_record(
+            {"status": status, "status_label": label, "details": "operator note"},
+            recorded_at,
+        )
+        assert result == {
+            "status": status,
+            "status_label": label,
+            "details": "operator note",
+            "recorded_at_utc": recorded_at.isoformat(),
+            "source": "operator_input_before_upload",
+        }
+    assert _physical_stop_record(
+        {"status": "unconfirmed", "status_label": "未確認", "details": ""},
+        recorded_at,
+    )["status"] == "unconfirmed"
+
+
+def test_physical_observation_is_mirrored_to_visible_ui_history():
+    class FakeLog:
+        def __init__(self):
+            self.lines = []
+
+        def appendPlainText(self, value):
+            self.lines.append(value)
+
+    window = SimpleNamespace(ui_log=FakeLog())
+    lines = ["[2026-10-27 09:07:56 JST] Physical stop observation: 未確認"]
+    _record_observation_in_ui_history(window, lines)
+    assert window.ui_log.lines == [lines[0]]
+
+
+def test_physical_observation_history_helper_tolerates_missing_ui_log():
+    _record_observation_in_ui_history(SimpleNamespace(), ["observation"])
