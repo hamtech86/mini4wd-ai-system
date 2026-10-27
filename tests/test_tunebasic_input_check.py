@@ -116,3 +116,24 @@ def test_unknown_feedback_mode_fails_closed_instead_of_using_terminal_voltage():
         controller._voltage_control(phase, measurement)
     assert serial.stop_calls == 1
     assert serial.pwm_commands == []
+
+
+
+def test_supervised_stop_proof_recipe_requires_active_fwd_input_and_external_evidence():
+    engine = RecipeEngine("config/breakin_recipes.yaml")
+    recipe = engine.get("STOP_PROOF_3V_INPUT")
+
+    assert recipe is not None
+    assert recipe.family == "SAFETY_VERIFICATION"
+    assert len(recipe.phases) == 1
+    phase = recipe.phases[0]
+    assert phase.name == "STOP_PROOF_FWD_INPUT_3V"
+    assert phase.direction == "FWD"
+    assert phase.control == "VOLTAGE"
+    assert phase.target_voltage == 3.0
+    assert phase.metadata.get("voltage_control_mode") == "INPUT"
+    assert 35 <= phase.pwm_min <= phase.pwm <= phase.pwm_max <= 120
+    assert phase.duration_sec == 10
+    assert phase.metadata.get("external_rpm_observation_required") is True
+    assert phase.metadata.get("synchronized_stop_evidence_required") is True
+    assert "Press the physical/UI STOP while the motor is visibly rotating" in phase.metadata.get("operator_action", "")
