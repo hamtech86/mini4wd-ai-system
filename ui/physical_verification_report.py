@@ -17,18 +17,52 @@ from uuid import uuid4
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
-    QDialog, QDialogButtonBox, QLabel, QListWidget,
+    QComboBox, QDialog, QDialogButtonBox, QLabel, QListWidget,
     QListWidgetItem, QMessageBox, QVBoxLayout, QInputDialog, QLineEdit,
+    QFormLayout, QPlainTextEdit,
 )
 
 from raw_log_library import RawLogLibrary
 
 REPOSITORY = "hamtech86/mini4wd-raw-logs"
 TOKEN_ENV = "MINI4WD_GITHUB_TOKEN"
+PHYSICAL_STOP_CHOICES = (
+    ("未確認", "unconfirmed"),
+    ("測定終了後に停止を確認", "confirmed_after_measurement"),
+    ("Stop押下時に停止を確認", "confirmed_after_stop_button"),
+    ("その他の方法で停止を確認", "confirmed_other"),
+)
 
 
 def _safe(value):
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value or "unknown")).strip("._") or "unknown"
+
+
+def _identity_snapshot(controller, history):
+    """Represent current identity state and preserve a successful INFO event in this session."""
+    controller_verified = (
+        controller is not None
+        and getattr(controller, "identity_verified", False) is True
+    )
+    history_verified = bool(re.search(r"Motor INFO identity verified:", history or ""))
+    verified = controller_verified or history_verified
+    evidence = (
+        "controller_state" if controller_verified
+        else "ui_history" if history_verified
+        else "unverified_or_unavailable"
+    )
+    identity = {"identity_verified": verified, "identity_evidence": evidence}
+    if controller is not None:
+        for key in ("firmware_version", "device_model", "device_id", "build"):
+            value = getattr(controller, key, None)
+            if value is not None:
+                identity[key] = value
+        info = getattr(controller, "device_info", {}) or {}
+        for source, target in (("FW", "firmware_version"), ("MODEL", "device_model"),
+                               ("ID", "device_id"), ("BUILD", "build")):
+            if target not in identity and info.get(source) is not None:
+                identity[target] = info[source]
+    return identity
 
 
 class PhysicalVerificationReport:
@@ -51,6 +85,10 @@ class PhysicalVerificationReport:
         if selected is None:
             return
 
+        physical_observation = self._collect_physical_observation()
+        if physical_observation is None:
+            return
+
         now = datetime.now(timezone.utc)
         run_id = f"VERIFY-{now.strftime('%Y%m%dT%H%M%SZ')}-{uuid4().hex[:8].upper()}"
         recipe = ""
@@ -61,14 +99,22 @@ class PhysicalVerificationReport:
             controller = self.window._motor_controller()
         except Exception:
             pass
-        identity = {}
-        if controller is not None:
-            for key in ("identity_verified", "firmware_version", "device_model", "device_id", "build"):
-                value = getattr(controller, key, None)
-                if value is not None:
-                    identity[key] = value
 
         history = self.window.ui_log.toPlainText() if hasattr(self.window, "ui_log") else ""
+        observation_status = physical_observation["status"]
+        observation_label = physical_observation["status_label"]
+        observation_details = physical_observation["details"]
+        history_lines = [
+            f"Physical stop observation recorded before report upload: {observation_label}.",
+        ]
+        if observation_details:
+            history_lines.append(f"Physical observation details: {observation_details}")
+        history = (history.rstrip() + "\n" if history.strip() else "") + "\n".join(
+            f"[{now.astimezone().strftime('%Y-%m-%d %H:%M:%S %Z')}] {line}"
+            for line in history_lines
+        ) + "\n"
+
+        identity = _identity_snapshot(controller, history)
         error_code = getattr(self.window, "_ui_error_code", None)
         error_message = getattr(self.window, "_ui_error_message", None)
         report = {
@@ -78,9 +124,16 @@ class PhysicalVerificationReport:
             "motor_instance_id": str(instance_id),
             "recipe": recipe,
             "device_identity": identity,
+            "physical_stop_observation": {
+                "status": observation_status,
+                "status_label": observation_label,
+                "details": observation_details,
+                "recorded_at_utc": now.isoformat(),
+                "source": "operator_input_before_upload",
+            },
             "error": {"code": error_code, "message": error_message},
             "included_raw_log_ids": [r.log_id for r in selected],
-            "notes": "Physical observations must be entered in the UI history before sending; CI/source status is not physical verification.",
+            "notes": "Physical stop status is the operator's explicit observation. INFO identity evidence may come from the current controller state or a successful INFO event in this UI session. CI/source status is not physical verification.",
         }
 
         local_dir = self.root / "data" / "verification_reports" / run_id
@@ -115,6 +168,7 @@ class PhysicalVerificationReport:
 
         preview = (
             f"Verification run: {run_id}\nInstance: {instance_id}\nRecipe: {recipe or '--'}\n"
+            f"Physical stop: {observation_label}\nDetails: {observation_details or '--'}\n"
             f"RawLogs: {', '.join(r.log_id for r in selected) if selected else '(none selected)'}\n"
             f"Local recovery copy: {local_dir}\n\nGitHubへ送信しますか？"
         )
@@ -155,6 +209,42 @@ class PhysicalVerificationReport:
             self.window, "Verification report uploaded",
             f"送信しました。\nRun: {run_id}\nRepository: {REPOSITORY}\nLocal copy: {local_dir}",
         )
+
+    def _collect_physical_observation(self):
+        dialog = QDialog(self.window)
+        dialog.setWindowTitle("実機停止の確認記録")
+        dialog.resize(560, 260)
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel(
+            "実機を目視等で確認した結果を記録してください。ソフトウェアのSTOP要求だけでは"
+            "「停止を確認」とは扱いません。未確認の場合もそのまま記録できます。"
+        ))
+        form = QFormLayout()
+        status = QComboBox()
+        for label, value in PHYSICAL_STOP_CHOICES:
+            status.addItem(label, value)
+        details = QPlainTextEdit()
+        details.setPlaceholderText("任意：対象モーター、確認時刻、操作など")
+        details.setMaximumHeight(90)
+        form.addRow("実機停止結果", status)
+        form.addRow("補足", details)
+        layout.addLayout(form)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        if dialog.exec_() != QDialog.Accepted:
+            return None
+        value = status.currentData()
+        label = status.currentText()
+        note = details.toPlainText().strip()
+        if value != "unconfirmed" and not note:
+            QMessageBox.warning(
+                self.window, "実機停止の確認記録",
+                "停止を確認した場合は、対象モーターと確認内容を補足欄に記入してください。",
+            )
+            return None
+        return {"status": value, "status_label": label, "details": note}
 
     def _choose_logs(self, records, instance_id):
         dialog = QDialog(self.window)
