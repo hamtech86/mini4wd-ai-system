@@ -27,6 +27,7 @@ from communication.csv_parser import CSVParser
 
 
 class SerialController:
+    ARM_ACK_TIMEOUT_SEC = 2.0
 
     def __init__(self, serial_port="/dev/ttyACM0", baudrate=57600):
         self.serial_port = serial_port
@@ -277,37 +278,68 @@ class SerialController:
                 self.identity_error = "Disconnected; identity verification reset."
 
     def arm(self):
-        """Explicitly authorize one run with a fresh token; this command never drives."""
+        """Authorize one run only after a fresh, exact token-matched firmware ACK."""
         with self._ensure_command_lock():
             stop_generation = getattr(self, "_emergency_stop_generation", 0)
-            if not (self.connected and self.serial and self.identity_verified):
-                self.identity_error = "ARM blocked: connected, verified MOTOR_BREAKIN_V3 identity required."
+            # A latched STOP is never cleared by a delayed or new ARM response.
+            # Recovery requires a new application/controller session and identity check.
+            if self._stop_requested():
+                self._active_arm_token = None
+                self.identity_error = "ARM blocked: emergency STOP latch is active; restart the application session."
                 return False
-            if getattr(self, "_active_arm_token", None) and not self._stop_requested():
+            if not (self.connected and self.serial):
+                self._active_arm_token = None
+                self.identity_error = "ARM blocked: serial connection is unavailable."
+                return False
+            if not self.identity_verified:
+                self._active_arm_token = None
+                self.identity_error = "ARM blocked: verified MOTOR_BREAKIN_V3 identity required."
+                self.emergency_stop()
+                self.identity_error = "ARM blocked: verified MOTOR_BREAKIN_V3 identity required; STOP attempted."
+                return False
+            if getattr(self, "_active_arm_token", None):
+                # This token exists only because an earlier explicit ARM ACK
+                # succeeded and has not been revoked by STOP/disconnect.
                 return True
             self.device_reboot_detected = False
             self.device_reboot_reason = ""
             self.device_reboot_raw_line = None
             token = secrets.token_hex(4).upper()
             result = self.send_command("ARM=" + token)
-            # Firmware samples 200 ACS712 readings before ARMED; allow that bounded calibration time.
-            if result is False or not self._wait_for_command_ack(expected='ARMED,' + token, timeout=2.0):
+            if result is False:
                 self._active_arm_token = None
-                self.identity_error = "ARM was not acknowledged by firmware; drive remains blocked."
+                self.identity_error = "ARM request was blocked; drive remains blocked."
+                if self.connected and self.serial and not self._stop_requested():
+                    self.emergency_stop()
+                    self.identity_error = "ARM request was blocked; emergency STOP attempted."
                 return False
-            # A STOP request is published before it waits for this lock. If one
-            # arrived during the acknowledgement wait, never erase it here.
-            if getattr(self, "_emergency_stop_generation", 0) != stop_generation:
+            # Firmware samples 200 ACS712 readings before ARMED; use the bounded
+            # timeout, but accept only the exact token generated for this attempt.
+            if not self._wait_for_command_ack(
+                expected="ARMED," + token,
+                timeout=self.ARM_ACK_TIMEOUT_SEC,
+            ):
                 self._active_arm_token = None
-                self.identity_error = "ARM cancelled: emergency STOP arrived during ARM handshake."
+                reason = self.identity_error or "missing, malformed, stale, or rejected ARM acknowledgement"
+                if self.connected and self.serial and not self._stop_requested():
+                    self.emergency_stop()
+                    self.identity_error = "ARM failed (" + reason + "); emergency STOP attempted."
+                else:
+                    self.identity_error = "ARM failed (" + reason + "); drive remains blocked."
+                return False
+            # emergency_stop publishes its generation/event before waiting for
+            # this lock. A late ACK must not install a token or clear STOP.
+            if (getattr(self, "_emergency_stop_generation", 0) != stop_generation
+                    or self._stop_requested()
+                    or not self.connected
+                    or not self.serial
+                    or not self.identity_verified):
+                self._active_arm_token = None
+                self.identity_error = "ARM cancelled: STOP, disconnect, or identity loss raced with acknowledgement."
                 return False
             self._active_arm_token = token
-            # Measurement capture starts after ARM, immediately before the first
-            # tagged drive command; discard idle DATA collected during handshake.
+            # Discard idle DATA received during calibration before the run begins.
             self.raw_log_collector.reset()
-            # Only this explicit user/workflow call may clear the host-side STOP latch.
-            self._emergency_stop_latched = False
-            self._ensure_stop_event().clear()
             self.identity_error = ""
             return True
 
@@ -357,6 +389,10 @@ class SerialController:
                 normalized.startswith("PWM=") and normalized != "PWM=0"
             )
             is_arm = normalized.startswith("ARM=")
+            if is_arm and self._stop_requested():
+                self.identity_error = "ARM blocked: emergency STOP latch is active."
+                print("SERIAL TX BLOCKED:", command, self.identity_error)
+                return False
             if drive_command and (self._stop_requested() or not getattr(self, '_active_arm_token', None)):
                 self.identity_error = "Drive command blocked: explicit ARM is required after STOP and before each run."
                 print("SERIAL TX BLOCKED:", command, self.identity_error)
@@ -392,6 +428,13 @@ class SerialController:
             if not line:
                 continue
             print("SERIAL RX:", line)
+            if line == "ERROR,ARM_REQUIRED" or line.startswith("ERROR,ARM_REQUIRED,"):
+                self.identity_error = line
+                self._active_arm_token = None
+                # Firmware explicitly rejected a drive authorization. Attempt
+                # PWM=0/STOP and latch the host path before any further drive TX.
+                self.emergency_stop()
+                break
             if line.startswith("INFO"):
                 # INFO is expected at connect/ARM, but during an armed run it
                 # indicates that firmware restarted and lost its ARM state.

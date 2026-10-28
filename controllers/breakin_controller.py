@@ -147,8 +147,37 @@ class BreakinController:
             raise RuntimeError("Resume rejected: motor instance mismatch")
         return self.start(recipe, instance_id=actual_instance, resume=True)
 
+    @staticmethod
+    def _validate_limited_tunebasic_recipe(recipe):
+        """Reject any limited-check definition that can omit INPUT or the safe rest."""
+        phases = list(getattr(recipe, "phases", []) or [])
+        expected = [
+            ("CHECK_FWD_INPUT_3V", "FWD", "VOLTAGE", 10),
+            ("CHECK_REST_60S", "FWD", "PWM", 60),
+            ("CHECK_REV_INPUT_3V", "REV", "VOLTAGE", 10),
+        ]
+        if len(phases) != len(expected):
+            raise RuntimeError("Limited TuneBasic recipe rejected: expected FWD 10 s, PWM=0 rest 60 s, REV 10 s.")
+        for phase, (name, direction, control, duration) in zip(phases, expected):
+            if (phase.name != name or str(phase.direction).upper() != direction
+                    or str(phase.control).upper() != control
+                    or int(phase.duration_sec) != duration):
+                raise RuntimeError("Limited TuneBasic recipe rejected: unsafe phase order/timing.")
+        for phase in (phases[0], phases[2]):
+            mode = str((getattr(phase, "metadata", {}) or {}).get("voltage_control_mode", "")).upper()
+            if (mode != "INPUT" or phase.target_voltage is None
+                    or not math.isclose(float(phase.target_voltage), 3.0, abs_tol=1e-9)
+                    or not (35 <= int(phase.pwm_min) <= int(phase.pwm) <= int(phase.pwm_max) <= 120)):
+                raise RuntimeError("Limited TuneBasic recipe rejected: both directions require 3.00 V INPUT and PWM 35–120.")
+        rest = phases[1]
+        if int(rest.pwm) != 0 or int(rest.pwm_min) != 0 or int(rest.pwm_max) != 0:
+            raise RuntimeError("Limited TuneBasic recipe rejected: rest must hold PWM=0.")
+        return True
+
     def start(self, recipe, instance_id=None, resume=False):
         recipe_name = str(getattr(recipe, "name", "")).upper()
+        if recipe_name == "TUNE_BASIC_INPUT_3V_CHECK":
+            self._validate_limited_tunebasic_recipe(recipe)
         if recipe_name == "TUNE_BASIC" and not self.FULL_TUNEBASIC_ENABLED:
             raise RuntimeError(
                 "Full TuneBasic execution is blocked until Issue #98 is explicitly cleared; "
@@ -515,10 +544,19 @@ class BreakinController:
         target_voltage = float(phase.target_voltage)
         direction = str(getattr(phase, "direction", "FWD") or "FWD").upper()
         metadata = getattr(phase, "metadata", {}) or {}
+        configured_mode = metadata.get("voltage_control_mode")
+        if configured_mode is not None and str(configured_mode).upper() not in ("INPUT", "TERMINAL"):
+            self._record_invalid_measurement(
+                f"unsupported voltage control mode {configured_mode}"
+            )
+            return
         mode = str(metadata.get(
             "voltage_control_mode",
             getattr(self, "benchmark_voltage_control_mode", "TERMINAL"),
         ) or "TERMINAL").upper()
+        if mode not in ("INPUT", "TERMINAL"):
+            self._record_invalid_measurement(f"unsupported voltage control mode {mode}")
+            return
         if mode == "INPUT":
             field = "voltage1" if direction == "FWD" else "voltage2"
             raw_voltage = self._value(measurement, field, None)
