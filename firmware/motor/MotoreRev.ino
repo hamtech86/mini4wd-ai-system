@@ -417,89 +417,18 @@ void sendError(const char *message);
 /* Sensor */
 
 // FUNC-300
-void updateFastMagnetic()
-{
-    const uint16_t raw = analogRead(A2);
-    sensor.rawMagnetic = raw;
-    sensor.magneticLevel = (raw * ADC_REFERENCE_VOLTAGE) / ADC_MAX_COUNT;
-    sensor.magneticSensorValid = (raw > 5 && raw < 1018);
+void updateSensors();
+void updateFastMagnetic();
+void updateFastCurrent();
 
-    if (raw < magneticWindowMin) magneticWindowMin = raw;
-    if (raw > magneticWindowMax) magneticWindowMax = raw;
+// FUNC-301
+uint16_t readACS1();
 
-    if (!magneticSampleInitialized)
-    {
-        previousMagneticRaw = raw;
-        magneticSampleInitialized = true;
-        magneticWindowStartMs = millis();
-        lastAuxReportMs = magneticWindowStartMs;
-        return;
-    }
+// FUNC-302
+uint16_t readACS2();
 
-    // Adaptive threshold and hysteresis reduce false edges from ADC noise.
-    // This is sensor waveform frequency, not RPM; pulses/revolution must be
-    // calibrated separately before converting frequency to motor RPM.
-    const uint16_t threshold = (uint16_t)(magneticWindowMin +
-        ((uint16_t)(magneticWindowMax - magneticWindowMin) / 2));
-    const uint16_t lowThreshold = (threshold > 8) ? threshold - 8 : 0;
-    const uint16_t highThreshold = (threshold < 1015) ? threshold + 8 : 1023;
-    if (previousMagneticRaw <= lowThreshold && raw >= highThreshold &&
-        magneticRisingEdges < 65535)
-    {
-        magneticRisingEdges++;
-    }
-    previousMagneticRaw = raw;
-
-    const uint32_t nowMs = millis();
-    if ((uint32_t)(nowMs - lastAuxReportMs) >= AUX_SAMPLE_REPORT_MS)
-    {
-        const uint32_t elapsed = nowMs - magneticWindowStartMs;
-        magneticFrequencyHz = (elapsed > 0)
-            ? ((float)magneticRisingEdges * 1000.0f / (float)elapsed)
-            : 0.0f;
-
-        // Auxiliary telemetry only; DATA remains exactly 26 columns.
-        Serial.print(F("FREQ,"));
-        Serial.print(magneticFrequencyHz, 1);
-        Serial.print(',');
-        Serial.print(magneticWindowMin);
-        Serial.print(',');
-        Serial.println(magneticWindowMax);
-
-        // Magnitude is reported separately from signed channel values. This
-        // does not redefine the legacy currentAvg/DATA contract.
-        Serial.print(F("WINDING,"));
-        if (windingCurrentSampleCount > 0)
-        {
-            const float meanI1 = windingCurrentSum1 / windingCurrentSampleCount;
-            const float meanI2 = windingCurrentSum2 / windingCurrentSampleCount;
-            const float meanMagnitude = windingCurrentAbsSum / windingCurrentSampleCount;
-            Serial.print(meanI1, 3);
-            Serial.print(',');
-            Serial.print(meanI2, 3);
-            Serial.print(',');
-            Serial.println(meanMagnitude, 3);
-        }
-        else
-        {
-            Serial.println(F("INVALID,0,0"));
-        }
-        windingCurrentSum1 = 0.0f;
-        windingCurrentSum2 = 0.0f;
-        windingCurrentAbsSum = 0.0f;
-        windingCurrentSampleCount = 0;
-
-        magneticRisingEdges = 0;
-        magneticWindowMin = 1023;
-        magneticWindowMax = 0;
-        magneticWindowStartMs = nowMs;
-        lastAuxReportMs = nowMs;
-    }
-}
-
-void updateFastCurrent()
-{
-    readMotorVoltage();
+// FUNC-303
+float readMotorVoltage();
 
 
 
@@ -1419,6 +1348,127 @@ float readMotorVoltage()
 * FUNC-300 : updateSensors()
 ********************************************************************/
 
+void updateFastMagnetic()
+{
+    const uint16_t raw = analogRead(A2);
+    sensor.rawMagnetic = raw;
+    sensor.magneticLevel = (raw * ADC_REFERENCE_VOLTAGE) / ADC_MAX_COUNT;
+    sensor.magneticSensorValid = (raw > 5 && raw < 1018);
+
+    if (raw < magneticWindowMin) magneticWindowMin = raw;
+    if (raw > magneticWindowMax) magneticWindowMax = raw;
+
+    if (!magneticSampleInitialized)
+    {
+        previousMagneticRaw = raw;
+        magneticSampleInitialized = true;
+        magneticWindowStartMs = millis();
+        lastAuxReportMs = magneticWindowStartMs;
+        return;
+    }
+
+    // Adaptive threshold and hysteresis reduce false edges from ADC noise.
+    // This is sensor waveform frequency, not RPM; pulses/revolution must be
+    // calibrated separately before converting frequency to motor RPM.
+    const uint16_t threshold = (uint16_t)(magneticWindowMin +
+        ((uint16_t)(magneticWindowMax - magneticWindowMin) / 2));
+    const uint16_t lowThreshold = (threshold > 8) ? threshold - 8 : 0;
+    const uint16_t highThreshold = (threshold < 1015) ? threshold + 8 : 1023;
+    if (previousMagneticRaw <= lowThreshold && raw >= highThreshold &&
+        magneticRisingEdges < 65535)
+    {
+        magneticRisingEdges++;
+    }
+    previousMagneticRaw = raw;
+
+    const uint32_t nowMs = millis();
+    if ((uint32_t)(nowMs - lastAuxReportMs) >= AUX_SAMPLE_REPORT_MS)
+    {
+        const uint32_t elapsed = nowMs - magneticWindowStartMs;
+        magneticFrequencyHz = (elapsed > 0)
+            ? ((float)magneticRisingEdges * 1000.0f / (float)elapsed)
+            : 0.0f;
+
+        // Auxiliary telemetry only; DATA remains exactly 26 columns.
+        Serial.print(F("FREQ,"));
+        Serial.print(magneticFrequencyHz, 1);
+        Serial.print(',');
+        Serial.print(magneticWindowMin);
+        Serial.print(',');
+        Serial.println(magneticWindowMax);
+
+        Serial.print(F("WINDING,"));
+        if (windingCurrentSampleCount > 0)
+        {
+            const float meanI1 = windingCurrentSum1 / windingCurrentSampleCount;
+            const float meanI2 = windingCurrentSum2 / windingCurrentSampleCount;
+            const float meanMagnitude = windingCurrentAbsSum / windingCurrentSampleCount;
+            Serial.print(meanI1, 3);
+            Serial.print(',');
+            Serial.print(meanI2, 3);
+            Serial.print(',');
+            Serial.println(meanMagnitude, 3);
+        }
+        else
+        {
+            Serial.println(F("INVALID,0,0"));
+        }
+        windingCurrentSum1 = 0.0f;
+        windingCurrentSum2 = 0.0f;
+        windingCurrentAbsSum = 0.0f;
+        windingCurrentSampleCount = 0;
+
+        magneticRisingEdges = 0;
+        magneticWindowMin = 1023;
+        magneticWindowMax = 0;
+        magneticWindowStartMs = nowMs;
+        lastAuxReportMs = nowMs;
+    }
+}
+
+void updateFastCurrent()
+{
+    sensor.rawACS1 = readACS1();
+    sensor.rawACS2 = readACS2();
+
+    const bool acs1Rail = (sensor.rawACS1 <= 2 || sensor.rawACS1 >= 1021);
+    const bool acs2Rail = (sensor.rawACS2 <= 2 || sensor.rawACS2 >= 1021);
+    if (runtime.state == STATE_RUN && (acs1Rail || acs2Rail))
+    {
+        stopMotor();
+        driveArmed = false;
+        activeArmToken[0] = '\0';
+        setState(STATE_ERROR);
+        Serial.print(F("ERROR,ACS712_ADC_RAIL,"));
+        Serial.print(acs1Rail ? F("ACS1,") : F("ACS2,"));
+        Serial.println(acs1Rail ? sensor.rawACS1 : sensor.rawACS2);
+        return;
+    }
+
+    if (runtime.state == STATE_READY && runtime.pwm == 0)
+    {
+        ACS1_ZERO = ACS1_ZERO * 0.999f + sensor.rawACS1 * 0.001f;
+        ACS2_ZERO = ACS2_ZERO * 0.999f + sensor.rawACS2 * 0.001f;
+    }
+
+    const float sensorVoltage1 =
+        -(sensor.rawACS1 - ACS1_ZERO) * ADC_REFERENCE_VOLTAGE / ADC_MAX_COUNT;
+    const float sensorVoltage2 =
+        -(sensor.rawACS2 - ACS2_ZERO) * ADC_REFERENCE_VOLTAGE / ADC_MAX_COUNT;
+
+    sensor.current1 = sensorVoltage1 / ACS_SENSITIVITY;
+    sensor.current2 = sensorVoltage2 / ACS_SENSITIVITY;
+
+    const float filteredCurrent1 = (fabs(sensor.current1) < 0.05f) ? 0.0f : sensor.current1;
+    const float filteredCurrent2 = (fabs(sensor.current2) < 0.05f) ? 0.0f : sensor.current2;
+    sensor.currentAvg = (filteredCurrent1 + filteredCurrent2) / 2.0f;
+
+    windingCurrentSum1 += sensor.current1;
+    windingCurrentSum2 += sensor.current2;
+    windingCurrentAbsSum += (fabs(sensor.current1) + fabs(sensor.current2)) / 2.0f;
+    if (windingCurrentSampleCount < 65535) windingCurrentSampleCount++;
+}
+
 void updateSensors()
 {
 
@@ -1461,46 +1511,6 @@ void updateSensors()
      steinhart - 273.15f;
  }
 
-
-
- sensor.rawACS1 = readACS1();
-
- sensor.rawACS2 = readACS2();
-
- // ACS712 5A sensors are expected to sit near their calibrated midpoint.
- // ADC rail readings are not trustworthy current measurements. While RUN is
- // active, latch a firmware-side fault and stop drive immediately. Keep the
- // fixed DATA CSV schema unchanged; ERROR carries the explicit diagnosis and
- // subsequent DATA records preserve both raw ADC samples for analysis.
- const bool acs1Rail = (sensor.rawACS1 <= 2 || sensor.rawACS1 >= 1021);
- const bool acs2Rail = (sensor.rawACS2 <= 2 || sensor.rawACS2 >= 1021);
- if (runtime.state == STATE_RUN && (acs1Rail || acs2Rail))
- {
-     stopMotor();
-     driveArmed = false;
-     activeArmToken[0] = '\\0';
-     setState(STATE_ERROR);
-     Serial.print(F("ERROR,ACS712_ADC_RAIL,"));
-     Serial.print(acs1Rail ? F("ACS1,") : F("ACS2,"));
-     Serial.println(acs1Rail ? sensor.rawACS1 : sensor.rawACS2);
-     return;
- }
-
-//======================================================
-// AUTO ZERO
-// READY状態のみオフセット更新
-//======================================================
-    if(runtime.state == STATE_READY &&
-     runtime.pwm == 0)
-    {
-        ACS1_ZERO =
-            ACS1_ZERO * 0.999f +
-            sensor.rawACS1 * 0.001f;
-
-        ACS2_ZERO =
-            ACS2_ZERO * 0.999f +
-            sensor.rawACS2 * 0.001f;
-    }
 
 
  readMotorVoltage();
