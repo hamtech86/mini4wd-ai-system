@@ -462,6 +462,15 @@ void updateFastMagnetic()
         Serial.print(',');
         Serial.println(magneticWindowMax);
 
+        // Magnitude is reported separately from signed channel values. This
+        // does not redefine the legacy currentAvg/DATA contract.
+        Serial.print(F("WINDING,"));
+        Serial.print(sensor.current1, 3);
+        Serial.print(',');
+        Serial.print(sensor.current2, 3);
+        Serial.print(',');
+        Serial.println((fabs(sensor.current1) + fabs(sensor.current2)) / 2.0f, 3);
+
         magneticRisingEdges = 0;
         magneticWindowMin = 1023;
         magneticWindowMax = 0;
