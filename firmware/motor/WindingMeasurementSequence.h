@@ -3,42 +3,25 @@
 
 #include <stdint.h>
 
-// Pure state-machine policy only: this module never writes hardware pins.
-// The firmware adapter must execute every action and independently force all
-// outputs off on STOP/fault. Current injection and movement remain disabled
-// unless a hardware current-limit guarantee is explicitly confirmed.
+// Pure policy state machine: no hardware writes occur here.
+// The firmware adapter must force outputs off on STOP/fault. The adapter must
+// not enable pulse actions until an independent hardware current limit exists.
 namespace WindingMeasurement {
 
 enum State : uint8_t {
-    IDLE = 0,
-    SETTLE,
-    INJECT,
-    SAMPLE,
-    OFF,
-    MOVE,
-    AGGREGATE,
-    COMPLETE,
-    ABORTED
+    IDLE = 0, SETTLE, INJECT, SAMPLE, OFF, MOVE, AGGREGATE, COMPLETE, ABORTED
 };
 
 enum Reason : uint8_t {
-    NO_REASON = 0,
-    REASON_STOP,
-    REASON_NOT_ARMED,
-    REASON_DRIVE_ACTIVE,
-    REASON_MOTOR_NOT_SETTLED,
-    REASON_CURRENT_LIMIT_UNCONFIRMED,
-    REASON_SAMPLE_INVALID,
-    REASON_TIMEOUT
+    NO_REASON = 0, REASON_STOP, REASON_NOT_ARMED, REASON_DRIVE_ACTIVE,
+    REASON_MOTOR_NOT_SETTLED, REASON_CURRENT_LIMIT_UNCONFIRMED,
+    REASON_SAMPLE_INVALID, REASON_TIMEOUT
 };
 
 enum Action : uint8_t {
-    ACTION_NONE = 0,
-    ACTION_FORCE_OUTPUTS_OFF = 1,
-    ACTION_REQUEST_INJECTION = 2,
-    ACTION_REQUEST_SAMPLE = 4,
-    ACTION_REQUEST_MOVE = 8,
-    ACTION_REPORT_RESULT = 16,
+    ACTION_NONE = 0, ACTION_FORCE_OUTPUTS_OFF = 1,
+    ACTION_REQUEST_INJECTION = 2, ACTION_REQUEST_SAMPLE = 4,
+    ACTION_REQUEST_MOVE = 8, ACTION_REPORT_RESULT = 16,
     ACTION_REPORT_INVALID = 32
 };
 
@@ -51,6 +34,7 @@ struct Inputs {
     bool hardwareCurrentLimitConfirmed;
     bool sampleReady;
     bool sampleValid;
+    bool morePositionsRequired;
     bool moveComplete;
     bool timedOut;
 };
@@ -79,7 +63,7 @@ inline Output result(const Controller &c, uint8_t actions) {
 }
 
 inline Output tick(Controller &c, const Inputs &in) {
-    // STOP and timeout dominate every other transition.
+    // STOP and timeout dominate all normal transitions.
     if (in.stopRequested) {
         c.state = ABORTED;
         c.reason = REASON_STOP;
@@ -120,8 +104,6 @@ inline Output tick(Controller &c, const Inputs &in) {
             c.reason = REASON_MOTOR_NOT_SETTLED;
             return result(c, ACTION_FORCE_OUTPUTS_OFF);
         }
-        // No output request is allowed until the independent hardware limit
-        // has been confirmed. This gate is checked again at every pulse.
         if (!in.hardwareCurrentLimitConfirmed) {
             c.state = ABORTED;
             c.reason = REASON_CURRENT_LIMIT_UNCONFIRMED;
@@ -155,7 +137,12 @@ inline Output tick(Controller &c, const Inputs &in) {
                          (in.sampleValid ? ACTION_NONE : ACTION_REPORT_INVALID));
 
     case OFF:
-        c.state = MOVE;
+        // An invalid sample never advances to a position-changing pulse.
+        if (!c.measurementValid) {
+            c.state = ABORTED;
+            return result(c, ACTION_FORCE_OUTPUTS_OFF | ACTION_REPORT_INVALID);
+        }
+        c.state = in.morePositionsRequired ? MOVE : AGGREGATE;
         return result(c, ACTION_FORCE_OUTPUTS_OFF);
 
     case MOVE:
