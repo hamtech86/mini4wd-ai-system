@@ -1,0 +1,21 @@
+name: Winding resistance calculation tests
+
+on:
+  pull_request:
+    paths:
+      - "firmware/motor/WindingResistance.h"
+      - "tests/firmware_safety/test_winding_resistance_calculation.cpp"
+      - ".github/workflows/winding-resistance-tests.yml"
+  push:
+    branches:
+      - "feature/winding-resistance-calculation"
+
+jobs:
+  host-unit-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile calculation tests
+        run: g++ -std=c++11 -Wall -Wextra -Werror tests/firmware_safety/test_winding_resistance_calculation.cpp -o /tmp/winding-resistance-test
+      - name: Run calculation tests
+        run: /tmp/winding-resistance-test
