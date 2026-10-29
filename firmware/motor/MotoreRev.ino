@@ -88,6 +88,11 @@ bool rippleFilled = false;
 constexpr uint16_t SENSOR_INTERVAL_MS = 20;
 constexpr uint16_t LOG_INTERVAL_MS    = 100;
 
+// High-rate acquisition is independent of the slower thermistor/voltage work.
+constexpr uint16_t MAGNETIC_SAMPLE_INTERVAL_US = 300; // target ~3.33 ksample/s
+constexpr uint16_t CURRENT_SAMPLE_INTERVAL_US  = 800; // target ~1.25 ksample/s/channel
+constexpr uint16_t AUX_SAMPLE_REPORT_MS = 100;
+
 //Reserved
 //STATUS command only
 constexpr uint16_t STATUS_INTERVAL_MS = 500;
@@ -340,6 +345,18 @@ char activeArmToken[9] = {0};
 
 SensorData sensor;
 
+// High-rate sampling scheduler and magnetic waveform frequency estimator.
+uint32_t lastMagneticSampleUs = 0;
+uint32_t lastCurrentSampleUs = 0;
+uint32_t lastAuxReportMs = 0;
+uint32_t magneticWindowStartMs = 0;
+uint16_t magneticWindowMin = 1023;
+uint16_t magneticWindowMax = 0;
+uint16_t magneticRisingEdges = 0;
+uint16_t previousMagneticRaw = 0;
+bool magneticSampleInitialized = false;
+float magneticFrequencyHz = 0.0f;
+
 float peakPower = 0.0;
 unsigned long peakTime = 0;
 
@@ -396,16 +413,66 @@ void sendError(const char *message);
 /* Sensor */
 
 // FUNC-300
-void updateSensors();
+void updateFastMagnetic()
+{
+    const uint16_t raw = analogRead(A2);
+    sensor.rawMagnetic = raw;
+    sensor.magneticLevel = (raw * ADC_REFERENCE_VOLTAGE) / ADC_MAX_COUNT;
+    sensor.magneticSensorValid = (raw > 5 && raw < 1018);
 
-// FUNC-301
-uint16_t readACS1();
+    if (raw < magneticWindowMin) magneticWindowMin = raw;
+    if (raw > magneticWindowMax) magneticWindowMax = raw;
 
-// FUNC-302
-uint16_t readACS2();
+    if (!magneticSampleInitialized)
+    {
+        previousMagneticRaw = raw;
+        magneticSampleInitialized = true;
+        magneticWindowStartMs = millis();
+        lastAuxReportMs = magneticWindowStartMs;
+        return;
+    }
 
-// FUNC-303
-float readMotorVoltage();
+    // Adaptive threshold and hysteresis reduce false edges from ADC noise.
+    // This is sensor waveform frequency, not RPM; pulses/revolution must be
+    // calibrated separately before converting frequency to motor RPM.
+    const uint16_t threshold = (uint16_t)(magneticWindowMin +
+        ((uint16_t)(magneticWindowMax - magneticWindowMin) / 2));
+    const uint16_t lowThreshold = (threshold > 8) ? threshold - 8 : 0;
+    const uint16_t highThreshold = (threshold < 1015) ? threshold + 8 : 1023;
+    if (previousMagneticRaw <= lowThreshold && raw >= highThreshold &&
+        magneticRisingEdges < 65535)
+    {
+        magneticRisingEdges++;
+    }
+    previousMagneticRaw = raw;
+
+    const uint32_t nowMs = millis();
+    if ((uint32_t)(nowMs - lastAuxReportMs) >= AUX_SAMPLE_REPORT_MS)
+    {
+        const uint32_t elapsed = nowMs - magneticWindowStartMs;
+        magneticFrequencyHz = (elapsed > 0)
+            ? ((float)magneticRisingEdges * 1000.0f / (float)elapsed)
+            : 0.0f;
+
+        // Auxiliary telemetry only; DATA remains exactly 26 columns.
+        Serial.print(F("FREQ,"));
+        Serial.print(magneticFrequencyHz, 1);
+        Serial.print(',');
+        Serial.print(magneticWindowMin);
+        Serial.print(',');
+        Serial.println(magneticWindowMax);
+
+        magneticRisingEdges = 0;
+        magneticWindowMin = 1023;
+        magneticWindowMax = 0;
+        magneticWindowStartMs = nowMs;
+        lastAuxReportMs = nowMs;
+    }
+}
+
+void updateFastCurrent()
+{
+    readMotorVoltage();
 
 
 
@@ -468,12 +535,24 @@ void loop()
 
     processSerial();
 
-    /* ---------- Sensor Update ---------- */
+    // High-rate acquisition: keep A2 waveform sampling separate from the
+    // 20 ms thermistor/voltage/statistics pass.
+    const uint32_t nowUs = micros();
+    if ((uint32_t)(nowUs - lastMagneticSampleUs) >= MAGNETIC_SAMPLE_INTERVAL_US)
+    {
+        lastMagneticSampleUs = nowUs;
+        updateFastMagnetic();
+    }
+    if ((uint32_t)(nowUs - lastCurrentSampleUs) >= CURRENT_SAMPLE_INTERVAL_US)
+    {
+        lastCurrentSampleUs = nowUs;
+        updateFastCurrent();
+    }
 
+    /* ---------- Slow Sensor Update ---------- */
     if ((now - timerData.sensorTimer) >= SENSOR_INTERVAL_MS)
     {
         timerData.sensorTimer = now;
-
         updateSensors();
     }
 
@@ -1320,15 +1399,6 @@ void updateSensors()
  /*
   * ADC Read
   */
- sensor.rawMagnetic = analogRead(A2);
- sensor.magneticLevel =
- (sensor.rawMagnetic * 5.0f) / 1023.0f;
- 
- sensor.magneticSensorValid =
- (sensor.rawMagnetic > 5 &&
-  sensor.rawMagnetic < 1018);
-
-
  sensor.rawThermistor =
  analogRead(A3);
 
@@ -1410,62 +1480,7 @@ void updateSensors()
 
 
 
- /*
-  * Current conversion
-  * ACS712 5A
-  */
-
-
- float sensorVoltage1 =
- -(sensor.rawACS1 - ACS1_ZERO)
- * ADC_REFERENCE_VOLTAGE
- / ADC_MAX_COUNT;
-
-
- sensor.current1 =
- sensorVoltage1
- / ACS_SENSITIVITY;
-
-
-
-
- float sensorVoltage2 =
- -(sensor.rawACS2 - ACS2_ZERO)
- * ADC_REFERENCE_VOLTAGE
- / ADC_MAX_COUNT;
-
-
- sensor.current2 =
- sensorVoltage2
- / ACS_SENSITIVITY;
-
-//======================================================
-// DEAD BAND
-//======================================================
-    if(fabs(sensor.current1) < 0.05f)
-    {
-     sensor.current1 = 0.0f;
-    }
-
-    if(fabs(sensor.current2) < 0.05f)
-    {
-    sensor.current2 = 0.0f;
-}
-
-
- /*
-  * Average
-  */
-
-
- sensor.currentAvg =
- (
-    sensor.current1
-    +
-    sensor.current2
- )
- /
- 2.0f;
+ /* current1/current2/currentAvg are updated by updateFastCurrent(). */
 
 /*
  * Brush Peak Detection
