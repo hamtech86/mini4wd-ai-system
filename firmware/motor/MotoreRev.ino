@@ -356,6 +356,10 @@ uint16_t magneticRisingEdges = 0;
 uint16_t previousMagneticRaw = 0;
 bool magneticSampleInitialized = false;
 float magneticFrequencyHz = 0.0f;
+float windingCurrentSum1 = 0.0f;
+float windingCurrentSum2 = 0.0f;
+float windingCurrentAbsSum = 0.0f;
+uint16_t windingCurrentSampleCount = 0;
 
 float peakPower = 0.0;
 unsigned long peakTime = 0;
@@ -465,11 +469,25 @@ void updateFastMagnetic()
         // Magnitude is reported separately from signed channel values. This
         // does not redefine the legacy currentAvg/DATA contract.
         Serial.print(F("WINDING,"));
-        Serial.print(sensor.current1, 3);
-        Serial.print(',');
-        Serial.print(sensor.current2, 3);
-        Serial.print(',');
-        Serial.println((fabs(sensor.current1) + fabs(sensor.current2)) / 2.0f, 3);
+        if (windingCurrentSampleCount > 0)
+        {
+            const float meanI1 = windingCurrentSum1 / windingCurrentSampleCount;
+            const float meanI2 = windingCurrentSum2 / windingCurrentSampleCount;
+            const float meanMagnitude = windingCurrentAbsSum / windingCurrentSampleCount;
+            Serial.print(meanI1, 3);
+            Serial.print(',');
+            Serial.print(meanI2, 3);
+            Serial.print(',');
+            Serial.println(meanMagnitude, 3);
+        }
+        else
+        {
+            Serial.println(F("INVALID,0,0"));
+        }
+        windingCurrentSum1 = 0.0f;
+        windingCurrentSum2 = 0.0f;
+        windingCurrentAbsSum = 0.0f;
+        windingCurrentSampleCount = 0;
 
         magneticRisingEdges = 0;
         magneticWindowMin = 1023;
