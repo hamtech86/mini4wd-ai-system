@@ -78,6 +78,16 @@ inline Output tick(Controller &c, const Inputs &in) {
         return result(c, ACTION_FORCE_OUTPUTS_OFF | ACTION_REPORT_INVALID);
     }
 
+    // DRIVE can become active after the start gate; reject it in every
+    // measurement phase as well, not merely at IDLE entry.
+    if (in.normalDriveActive && c.state != IDLE && c.state != COMPLETE &&
+        c.state != ABORTED) {
+        c.state = ABORTED;
+        c.reason = REASON_DRIVE_ACTIVE;
+        c.measurementValid = false;
+        return result(c, ACTION_FORCE_OUTPUTS_OFF | ACTION_REPORT_INVALID);
+    }
+
     switch (c.state) {
     case IDLE:
         if (!in.startRequested) return result(c, ACTION_NONE);
