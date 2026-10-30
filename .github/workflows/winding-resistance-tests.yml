@@ -8,11 +8,13 @@ on:
       - "firmware/motor/WindingSampleAggregator.h"
       - "firmware/motor/WindingPulseAuthorizationGuard.h"
       - "firmware/motor/WindingHardwareAdapter.h"
+      - "firmware/motor/WindingMeasurementHandshake.h"
       - "tests/firmware_safety/test_winding_resistance_calculation.cpp"
       - "tests/firmware_safety/test_winding_measurement_sequence.cpp"
       - "tests/firmware_safety/test_winding_sample_aggregator.cpp"
       - "tests/firmware_safety/test_winding_pulse_authorization_guard.cpp"
       - "tests/firmware_safety/test_winding_hardware_adapter.cpp"
+      - "tests/firmware_safety/test_winding_measurement_handshake.cpp"
       - ".github/workflows/winding-resistance-tests.yml"
   push:
     branches:
@@ -21,6 +23,7 @@ on:
       - "feature/winding-resistance-sample-aggregator"
       - "feature/winding-pulse-authorization-guard"
       - "feature/winding-hardware-adapter-fail-closed"
+      - "feature/winding-measurement-handshake"
 
 jobs:
   host-unit-test:
@@ -47,3 +50,7 @@ jobs:
         run: g++ -std=c++11 -Wall -Wextra -Werror tests/firmware_safety/test_winding_hardware_adapter.cpp -o /tmp/winding-hardware-adapter-test
       - name: Run disabled hardware adapter tests
         run: /tmp/winding-hardware-adapter-test
+      - name: Compile measurement handshake tests
+        run: g++ -std=c++11 -Wall -Wextra -Werror tests/firmware_safety/test_winding_measurement_handshake.cpp -o /tmp/winding-handshake-test
+      - name: Run measurement handshake tests
+        run: /tmp/winding-handshake-test
