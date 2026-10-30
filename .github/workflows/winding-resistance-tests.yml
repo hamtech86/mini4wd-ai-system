@@ -5,13 +5,16 @@ on:
     paths:
       - "firmware/motor/WindingResistance.h"
       - "firmware/motor/WindingMeasurementSequence.h"
+      - "firmware/motor/WindingSampleAggregator.h"
       - "tests/firmware_safety/test_winding_resistance_calculation.cpp"
       - "tests/firmware_safety/test_winding_measurement_sequence.cpp"
+      - "tests/firmware_safety/test_winding_sample_aggregator.cpp"
       - ".github/workflows/winding-resistance-tests.yml"
   push:
     branches:
       - "feature/winding-resistance-calculation"
       - "feature/winding-resistance-state-machine"
+      - "feature/winding-resistance-sample-aggregator"
 
 jobs:
   host-unit-test:
@@ -26,3 +29,7 @@ jobs:
         run: g++ -std=c++11 -Wall -Wextra -Werror tests/firmware_safety/test_winding_measurement_sequence.cpp -o /tmp/winding-sequence-test
       - name: Run sequence state-machine tests
         run: /tmp/winding-sequence-test
+      - name: Compile sample aggregator tests
+        run: g++ -std=c++11 -Wall -Wextra -Werror tests/firmware_safety/test_winding_sample_aggregator.cpp -o /tmp/winding-aggregator-test
+      - name: Run sample aggregator tests
+        run: /tmp/winding-aggregator-test
