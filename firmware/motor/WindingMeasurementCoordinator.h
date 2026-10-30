@@ -51,7 +51,7 @@ inline Output tick(Controller &c, const Inputs &in) {
     if (seq.state == WindingMeasurement::ABORTED) return abortSequence(c, REASON_POLICY_ABORT);
 
     WindingHandshake::Inputs hi = in.handshake;
-    hi.startRequested = (c.sequence.state != WindingMeasurement::IDLE);
+    hi.startRequested = in.sequence.startRequested;
     hi.injectionRequested = ((seq.actions & WindingMeasurement::ACTION_REQUEST_INJECTION) != 0);
     hi.sampleReady = si.sampleReady; hi.sampleValid = in.sequence.sampleValid;
     hi.moveRequested = ((seq.actions & WindingMeasurement::ACTION_REQUEST_MOVE) != 0);
