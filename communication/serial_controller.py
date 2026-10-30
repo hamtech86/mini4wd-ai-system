@@ -24,6 +24,7 @@ import secrets
 
 from communication.raw_log_collector import RawLogCollector
 from communication.csv_parser import CSVParser
+from communication.rawlog_v2_aux import AuxParseError, parse_aux_line
 
 
 class SerialController:
@@ -40,6 +41,8 @@ class SerialController:
         self.last_raw_data = None
         self.raw_log_collector = RawLogCollector()
         self.parser = CSVParser()
+        self.aux_records = []
+        self.aux_parse_errors = []
         self.identity_verified = False
         self.device_info = None
         self.identity_error = "INFO identity has not been verified."
@@ -66,6 +69,20 @@ class SerialController:
     def reset_raw_log(self):
         """Start a new raw-log capture for the next measurement."""
         self.raw_log_collector.reset()
+        self.aux_records.clear()
+        self.aux_parse_errors.clear()
+
+    def drain_aux_records(self):
+        """Return validated AUX samples collected since the previous drain."""
+        records = list(self.aux_records)
+        self.aux_records.clear()
+        return records
+
+    def drain_aux_parse_errors(self):
+        """Return malformed AUX lines and their parse errors without data coercion."""
+        errors = list(self.aux_parse_errors)
+        self.aux_parse_errors.clear()
+        return errors
 
     def freeze_raw_log(self):
         """Return the current measurement capture and discard the live buffer."""
@@ -455,6 +472,17 @@ class SerialController:
                     self.identity_verified = False
                     self.device_info = None
                     self.identity_error = "Invalid INFO identity."
+                continue
+            if line == "AUX" or line.startswith("AUX,"):
+                try:
+                    self.aux_records.append(parse_aux_line(line))
+                except AuxParseError as exc:
+                    # Keep the exact original line in RawLogCollector and
+                    # retain a separate diagnostic; never pass AUX to DATA.
+                    self.aux_parse_errors.append({
+                        "raw_line": decoded.rstrip("\\r\\n"),
+                        "error": str(exc),
+                    })
                 continue
             if line.startswith("DATA,"):
                 latest_data = line
