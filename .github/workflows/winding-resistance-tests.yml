@@ -7,6 +7,7 @@ on:
       - "firmware/motor/WindingMeasurementSequence.h"
       - "firmware/motor/WindingSampleAggregator.h"
       - "firmware/motor/WindingTimestampedPairer.h"
+      - "firmware/motor/WindingAdcTimestampCapture.h"
       - "firmware/motor/WindingPulseAuthorizationGuard.h"
       - "firmware/motor/WindingHardwareAdapter.h"
       - "firmware/motor/WindingMeasurementHandshake.h"
@@ -15,6 +16,7 @@ on:
       - "tests/firmware_safety/test_winding_measurement_sequence.cpp"
       - "tests/firmware_safety/test_winding_sample_aggregator.cpp"
       - "tests/firmware_safety/test_winding_timestamped_pairer.cpp"
+      - "tests/firmware_safety/test_winding_adc_timestamp_capture.cpp"
       - "tests/firmware_safety/test_winding_pulse_authorization_guard.cpp"
       - "tests/firmware_safety/test_winding_hardware_adapter.cpp"
       - "tests/firmware_safety/test_winding_measurement_handshake.cpp"
@@ -30,6 +32,7 @@ on:
       - "feature/winding-measurement-handshake"
       - "feature/winding-measurement-coordinator"
       - "feature/winding-timestamped-sample-pairing"
+      - "feature/winding-adc-timestamp-capture"
 
 jobs:
   host-unit-test:
@@ -52,6 +55,10 @@ jobs:
         run: g++ -std=c++11 -Wall -Wextra -Werror tests/firmware_safety/test_winding_timestamped_pairer.cpp -o /tmp/winding-pairer-test
       - name: Run timestamped V/I pairer tests
         run: /tmp/winding-pairer-test
+      - name: Compile timestamped ADC capture tests
+        run: g++ -std=c++11 -Wall -Wextra -Werror tests/firmware_safety/test_winding_adc_timestamp_capture.cpp -o /tmp/winding-adc-capture-test
+      - name: Run timestamped ADC capture tests
+        run: /tmp/winding-adc-capture-test
       - name: Compile pulse authorization guard tests
         run: g++ -std=c++11 -Wall -Wextra -Werror tests/firmware_safety/test_winding_pulse_authorization_guard.cpp -o /tmp/winding-pulse-guard-test
       - name: Run pulse authorization guard tests
