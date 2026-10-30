@@ -38,6 +38,17 @@ int main() {
     assert(out.requestWasRefused && out.forceOutputsOff);
     assert(!out.physicalOutputsOffConfirmed && !out.injectionPermitted);
 
+    // A rejected start must not leave the coordinator falsely RUNNING.
+    {
+        Controller rejected; initialize(rejected);
+        Inputs x = safeStart();
+        x.sequence.armed = false;
+        x.handshake.armed = false;
+        Output y = tick(rejected, x);
+        assert(y.state == COORDINATOR_ABORTED);
+        assert(y.sequenceState == WindingMeasurement::ABORTED);
+        assert(y.forceOutputsOff && !y.injectionPermitted);
+    }
     // Terminal state cannot be restarted by stale/repeated requests.
     in.sequence.startRequested = true;
     out = tick(c, in);
