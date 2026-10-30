@@ -34,12 +34,14 @@ from app.constants import (
 
 from communication.csv_parser import CSVParser
 from communication.raw_log_collector import RawLogCollector
+from communication.rawlog_v2_aux import AuxParseError, parse_aux_line
 
 
 class SerialReader(QThread):
     """シリアル受信スレッド"""
 
     received = pyqtSignal(dict)
+    aux_received = pyqtSignal(object)
     error = pyqtSignal(str)
 
     def __init__(self, serial_port, raw_log_collector=None):
@@ -75,10 +77,20 @@ class SerialReader(QThread):
                 if self.raw_log_collector is not None and not line.startswith("INFO"):
                     self.raw_log_collector.append(raw_line)
 
-                # CSVParser keeps DATA at its fixed 26-field contract.
+                # AUX is an additive telemetry plane. Never send it through
+                # CSVParser or the existing DATA/Measurement signal.
                 if not line:
                     continue
+                if line == "AUX" or line.startswith("AUX,"):
+                    try:
+                        self.aux_received.emit(parse_aux_line(line))
+                    except AuxParseError as exc:
+                        # The original line was already retained by the raw
+                        # collector above; report the parse failure separately.
+                        self.error.emit("Invalid AUX record: " + str(exc))
+                    continue
 
+                # CSVParser keeps DATA at its fixed 26-field contract.
                 data = self.parser.parse(line)
                 self.received.emit(data)
 
