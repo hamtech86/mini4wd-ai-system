@@ -480,7 +480,7 @@ class SerialController:
                     # Keep the exact original line in RawLogCollector and
                     # retain a separate diagnostic; never pass AUX to DATA.
                     self.aux_parse_errors.append({
-                        "raw_line": decoded.rstrip("\\r\\n"),
+                        "raw_line": decoded.rstrip("\r\n"),
                         "error": str(exc),
                     })
                 continue
