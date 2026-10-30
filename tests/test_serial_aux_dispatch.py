@@ -29,8 +29,8 @@ class FakePort:
 
 
 def test_aux_is_dispatched_separately_and_data_contract_is_unchanged():
-    aux_line = "AUX,2,sess_1,7,WINDING,FWD,0,MEASURE,A0,514,123456\\r\\n"
-    data_line = ",".join(["DATA"] + ["0"] * 25) + "\\r\\n"
+    aux_line = "AUX,2,sess_1,7,WINDING,FWD,0,MEASURE,A0,514,123456\r\n"
+    data_line = ",".join(["DATA"] + ["0"] * 25) + "\r\n"
     collector = FakeCollector()
     port = FakePort([aux_line, data_line])
     reader = SerialReader(port, collector)
@@ -56,8 +56,8 @@ def test_aux_is_dispatched_separately_and_data_contract_is_unchanged():
 
 
 def test_invalid_aux_is_preserved_and_reported_without_becoming_data():
-    invalid = "AUX,2,sess_1,7,WINDING,FWD,0,MEASURE,A2,514,123456\\r\\n"
-    data_line = ",".join(["DATA"] + ["0"] * 25) + "\\r\\n"
+    invalid = "AUX,2,sess_1,7,WINDING,FWD,0,MEASURE,A2,514,123456\r\n"
+    data_line = ",".join(["DATA"] + ["0"] * 25) + "\r\n"
     collector = FakeCollector()
     port = FakePort([invalid, data_line])
     reader = SerialReader(port, collector)
