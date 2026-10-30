@@ -40,6 +40,29 @@ int main() {
     assert(out.actions & ACTION_FORCE_OUTPUTS_OFF);
     assert(!(out.actions & ACTION_REQUEST_INJECTION));
 
+    // DRIVE activation after starting must abort from SETTLE.
+    initialize(c);
+    in = idleInputs();
+    in.startRequested = true;
+    tick(c, in);
+    in.startRequested = false;
+    in.normalDriveActive = true;
+    out = tick(c, in);
+    assert(out.state == ABORTED);
+    assert(out.reason == REASON_DRIVE_ACTIVE);
+    assert(out.actions & ACTION_FORCE_OUTPUTS_OFF);
+    assert(!(out.actions & ACTION_REQUEST_INJECTION));
+
+    // DRIVE activation while sampling must also abort synchronously.
+    initialize(c);
+    in = idleInputs();
+    enterSample(c, in);
+    in.normalDriveActive = true;
+    out = tick(c, in);
+    assert(out.state == ABORTED);
+    assert(out.reason == REASON_DRIVE_ACTIVE);
+    assert(out.actions & ACTION_FORCE_OUTPUTS_OFF);
+
     // Normal policy path; this test does not drive physical hardware.
     initialize(c);
     in = idleInputs();
