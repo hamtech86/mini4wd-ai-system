@@ -22,7 +22,7 @@ int main() {
     assert(out.state == ABORTED && out.forceOutputsOff);
     assert(out.reason == REASON_OUTPUTS_NOT_OFF);
 
-    // Normal handshake: request -> active pulse/sample -> finished + OFF -> sample.
+    // Normal handshake: request -> active pulse/sample -> confirmed OFF -> sample.
     initialize(c);
     in = safeInputs();
     in.startRequested = true;
@@ -37,11 +37,18 @@ int main() {
     in.outputsOffConfirmed = false;
     out = tick(c, in);
     assert(out.state == INJECTION_ACTIVE && out.allowSample);
+
+    // Pulse-active status may fall before OFF readback and completion arrive.
     in.injectionActive = false;
+    out = tick(c, in);
+    assert(out.state == INJECTION_ACTIVE && !out.allowSample && out.forceOutputsOff);
     in.injectionFinished = true;
+    out = tick(c, in);
+    assert(out.state == INJECTION_ACTIVE && !out.allowSample && out.forceOutputsOff);
     in.outputsOffConfirmed = true;
     out = tick(c, in);
     assert(out.state == READY_SAMPLE && out.allowSample && out.forceOutputsOff);
+
     in.injectionFinished = false;
     in.sampleReady = true;
     in.sampleValid = true;
