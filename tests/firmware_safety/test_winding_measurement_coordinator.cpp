@@ -97,5 +97,44 @@ int main() {
         assert(y.reason == REASON_ADAPTER_REFUSED);
         assert(y.forceOutputsOff && !y.injectionPermitted);
     }
+    // Early sampleReady must not advance the sequence while the pulse is
+    // still active. It is accepted only after injectionFinished and physical
+    // outputs-OFF readback have moved the handshake to READY_SAMPLE.
+    {
+        Controller sampling; initialize(sampling);
+        sampling.state = COORDINATOR_RUNNING;
+        sampling.sequence.state = WindingMeasurement::SAMPLE;
+        sampling.handshake.state = WindingHandshake::INJECTION_ACTIVE;
+        sampling.handshake.injectionRequestIssued = true;
+        sampling.handshake.injectionRequestAtMs = 10;
+        Inputs x = {};
+        x.sequence.armed = true;
+        x.sequence.hardwareCurrentLimitConfirmed = true;
+        x.sequence.sampleReady = true;
+        x.sequence.sampleValid = true;
+        x.handshake.armed = true;
+        x.handshake.hardwareCurrentLimitConfirmed = true;
+        x.handshake.injectionActive = true;
+        x.handshake.outputsOffConfirmed = false;
+        x.handshake.nowMs = 15;
+        Output y = tick(sampling, x);
+        assert(y.state == COORDINATOR_RUNNING);
+        assert(y.sequenceState == WindingMeasurement::SAMPLE);
+        assert(!y.physicalOutputsOffConfirmed);
+
+        x.handshake.injectionActive = false;
+        x.handshake.injectionFinished = true;
+        x.handshake.outputsOffConfirmed = true;
+        x.handshake.nowMs = 20;
+        y = tick(sampling, x);
+        assert(y.sequenceState == WindingMeasurement::SAMPLE);
+        assert(sampling.handshake.state == WindingHandshake::READY_SAMPLE);
+
+        y = tick(sampling, x);
+        assert(y.state == COORDINATOR_RUNNING);
+        assert(y.sequenceState == WindingMeasurement::OFF);
+        assert(sampling.handshake.state == WindingHandshake::READY_MOVE);
+        assert(!y.injectionPermitted);
+    }
     return 0;
 }
