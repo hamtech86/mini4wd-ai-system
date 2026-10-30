@@ -10,7 +10,6 @@ static uint8_t readIndex = 0;
 
 static uint32_t fakeMicros() {
     const uint32_t value = fakeTime;
-    fakeTime += 2;
     return value;
 }
 
