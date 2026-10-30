@@ -40,11 +40,14 @@ inline Output tick(Controller &c, const Inputs &in) {
         c.state = READY_INJECTION;
         return makeOutput(c, false, false, false, true);
     case READY_INJECTION:
-        if (!in.outputsOffConfirmed) return abort(c, REASON_OUTPUTS_NOT_OFF);
+        // A just-started pulse necessarily makes the OFF readback false.
+        // Recognize active confirmation before checking the idle OFF condition.
         if (in.injectionActive) {
+            if (in.outputsOffConfirmed) return abort(c, REASON_BAD_SEQUENCE);
             c.state = INJECTION_ACTIVE;
             return makeOutput(c, false, true, false, false);
         }
+        if (!in.outputsOffConfirmed) return abort(c, REASON_OUTPUTS_NOT_OFF);
         if (in.injectionRequested) return makeOutput(c, true, false, false, false);
         return makeOutput(c, false, false, false, true);
     case INJECTION_ACTIVE:
@@ -52,7 +55,7 @@ inline Output tick(Controller &c, const Inputs &in) {
             if (in.outputsOffConfirmed) return abort(c, REASON_BAD_SEQUENCE);
             return makeOutput(c, false, true, false, false);
         }
-        // Pulse completion and physical OFF readback can arrive on separate cycles.
+        // Pulse completion and physical OFF readback may arrive on separate cycles.
         // Keep outputs inhibited until both are confirmed.
         if (!in.injectionFinished || !in.outputsOffConfirmed)
             return makeOutput(c, false, false, false, true);
