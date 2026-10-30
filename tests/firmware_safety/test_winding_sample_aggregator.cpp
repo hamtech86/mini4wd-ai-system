@@ -1,6 +1,6 @@
 #include <assert.h>
 #include <math.h>
-#include "../firmware/motor/WindingSampleAggregator.h"
+#include "../../firmware/motor/WindingSampleAggregator.h"
 
 using namespace WindingSampleAggregator;
 using namespace WindingResistance;
