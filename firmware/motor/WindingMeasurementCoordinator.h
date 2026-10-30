@@ -39,13 +39,21 @@ inline Output tick(Controller &c, const Inputs &in) {
 
     // Logical step order comes from Sequence; physical interlocks/readback
     // remain exclusively controlled by the independent Handshake.
-    WindingMeasurement::Output seq = WindingMeasurement::tick(c.sequence, in.sequence);
+    // A completed sample may advance Sequence only after the handshake has
+    // reached READY_SAMPLE, which itself requires injection finished and a
+    // positive physical outputs-OFF readback. Early/stale sampleReady signals
+    // are deliberately withheld from the logical sequence.
+    WindingMeasurement::Inputs si = in.sequence;
+    si.sampleReady = in.sequence.sampleReady &&
+                     c.handshake.state == WindingHandshake::READY_SAMPLE &&
+                     in.handshake.outputsOffConfirmed;
+    WindingMeasurement::Output seq = WindingMeasurement::tick(c.sequence, si);
     if (seq.state == WindingMeasurement::ABORTED) return abortSequence(c, REASON_POLICY_ABORT);
 
     WindingHandshake::Inputs hi = in.handshake;
     hi.startRequested = (c.sequence.state != WindingMeasurement::IDLE);
     hi.injectionRequested = ((seq.actions & WindingMeasurement::ACTION_REQUEST_INJECTION) != 0);
-    hi.sampleReady = in.sequence.sampleReady; hi.sampleValid = in.sequence.sampleValid;
+    hi.sampleReady = si.sampleReady; hi.sampleValid = in.sequence.sampleValid;
     hi.moveRequested = ((seq.actions & WindingMeasurement::ACTION_REQUEST_MOVE) != 0);
     hi.moveComplete = in.sequence.moveComplete;
     WindingHandshake::Output ho = WindingHandshake::tick(c.handshake, hi);
