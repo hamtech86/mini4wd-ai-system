@@ -6,15 +6,18 @@ on:
       - "firmware/motor/WindingResistance.h"
       - "firmware/motor/WindingMeasurementSequence.h"
       - "firmware/motor/WindingSampleAggregator.h"
+      - "firmware/motor/WindingPulseAuthorizationGuard.h"
       - "tests/firmware_safety/test_winding_resistance_calculation.cpp"
       - "tests/firmware_safety/test_winding_measurement_sequence.cpp"
       - "tests/firmware_safety/test_winding_sample_aggregator.cpp"
+      - "tests/firmware_safety/test_winding_pulse_authorization_guard.cpp"
       - ".github/workflows/winding-resistance-tests.yml"
   push:
     branches:
       - "feature/winding-resistance-calculation"
       - "feature/winding-resistance-state-machine"
       - "feature/winding-resistance-sample-aggregator"
+      - "feature/winding-pulse-authorization-guard"
 
 jobs:
   host-unit-test:
@@ -33,3 +36,7 @@ jobs:
         run: g++ -std=c++11 -Wall -Wextra -Werror tests/firmware_safety/test_winding_sample_aggregator.cpp -o /tmp/winding-aggregator-test
       - name: Run sample aggregator tests
         run: /tmp/winding-aggregator-test
+      - name: Compile pulse authorization guard tests
+        run: g++ -std=c++11 -Wall -Wextra -Werror tests/firmware_safety/test_winding_pulse_authorization_guard.cpp -o /tmp/winding-pulse-guard-test
+      - name: Run pulse authorization guard tests
+        run: /tmp/winding-pulse-guard-test
