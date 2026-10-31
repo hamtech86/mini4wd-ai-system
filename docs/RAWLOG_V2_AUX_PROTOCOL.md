@@ -1,4 +1,4 @@
-# RawLog v2 AUX protocol contract (draft 1)
+# RawLog v2 AUX protocol contract (draft 2)
 
 Status: implementation contract for host-side parser; firmware adoption is a separate change.
 Compatibility authority: Issue #35. The existing `DATA` record remains exactly 26 fields and is not extended or reinterpreted.
@@ -75,7 +75,19 @@ RawLog v2 stores AUX as an additive record collection (JSONL is the proposed rep
 - validity status,
 - rejection/invalid reason.
 
-The exact enclosing RawLog v2 manifest/session layout is not finalized by this document. Do not silently change the existing RawLog v1 26-column DATA record or convert old v1 logs to v2.
+### Implemented local sidecar layout (draft 2)
+
+For a registered local RawLog body such as `MOTOR-000123.log`, the host may add:
+
+- `MOTOR-000123.aux.jsonl`: one JSON object per validated AUX record. Each object contains `record_type=AUX`, all typed wire fields, and `raw_line`.
+- `MOTOR-000123.derived.jsonl`: one JSON object per derived result, separate from raw AUX.
+- `MOTOR-000123.manifest.json`: `schema=mini4wd.rawlog.v2`, `log_id`, immutable `raw_body` reference, AUX sidecar name/count, parse diagnostics, Derived sidecar name/count, and Derived status.
+
+A manifest is created only when AUX or explicitly supplied Derived records exist. Existing v1 logs without sidecars remain v1 and are not backfilled or reclassified. The original raw body, including its received line endings, is never rewritten by sidecar registration.
+
+Each Derived record requires `metric`, `algorithm_id`, `algorithm_version`, `input_sample_ids`, `value`, `unit`, `valid`, and `invalid_reason`. A valid result must contain a finite numeric value and no invalid reason. An invalid result must carry a non-empty reason; its value may be null. This storage API does not select or execute any analysis formula.
+
+This is the local filesystem persistence contract only. Remote GitHub synchronization and UI presentation of sidecars remain separate work. Do not silently change the existing RawLog v1 26-column DATA record or convert old v1 logs to v2.
 
 ## 6. Error handling
 
@@ -95,8 +107,9 @@ These are three distinct conversions in one acquisition cycle. They are raw ADC 
 
 ## 8. Implementation sequence
 
-1. Host-side strict parser and unit tests (this branch).
-2. Add a serial dispatch path that recognizes AUX without changing DATA parsing/control behavior.
-3. Define and test RawLog v2 persistence/manifest with v1 regression fixtures.
-4. Implement firmware emission against this contract; Arduino-side changes remain acquisition/timestamp/output only.
-5. Integration tests, then compile and physical-device validation as separate gates.
+1. Host-side strict parser and unit tests (implemented).
+2. Serial dispatch in the active SerialController (implemented; CI pending).
+3. Local AUX/Derived sidecars and manifest with v1 non-reclassification tests (implemented; CI pending).
+4. Add explicit session-ID consistency checks and define timestamp unwrap/pairing outputs without inventing a skew threshold.
+5. Implement firmware emission against the approved contract; Arduino-side changes remain acquisition/timestamp/output only.
+6. Integration tests, then compile and physical-device validation as separate gates.
