@@ -267,10 +267,12 @@ class RawLogLibrary:
             manifest = {
                 "schema": "mini4wd.rawlog.v2",
                 "log_id": log_id,
+                "measurement_session_id": None,
                 "raw_body": raw_path.name,
                 "raw_body_format": "legacy_serial_text_immutable",
                 "aux_records": None,
                 "aux_record_count": 0,
+                "aux_session_ids": [],
                 "aux_parse_errors": [],
             }
 
