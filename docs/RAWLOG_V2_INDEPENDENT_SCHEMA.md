@@ -27,14 +27,17 @@
   records.jsonl
 ```
 
-- `manifest.json`: 測定全体の識別、条件、開始/終了、機器・FW識別、記録件数、完了状態。
-- `records.jsonl`: 1行1JSONオブジェクト。測定イベント、PWM段階、ADC取得、校正スナップショット、任意注釈、任意Derivedを時系列で記録する。
-- JSONLの各行は独立してパース可能なUTF-8 JSONとする。空行は禁止。
-- `record_seq` はPythonが付与するパッケージ内の単調増加整数。各レコードの書込み順を示すものであり、ADC取得時刻の代用ではない。
-- `record_id` はパッケージ内で一意な文字列。UUID等を使用する。
-- `log_id` と `measurement_session_id` は全レコードで同一の測定を指す。別概念として保持する。
-- 保存後の原本レコードは変更しない。訂正が必要な場合は新規訂正イベントまたは新規ログを作り、既存レコードを上書きしない。
-- `manifest.json` は測定終了時に確定する。中断・異常終了時も、得られた範囲を `aborted` / `incomplete` として保存する。
+- manifest.json: 測定全体の識別、条件、開始/終了、機器・FW識別、レコード件数、最終状態。
+- records.jsonl: 1行1JSONオブジェクト。全レコードは追記専用で、保存済み行を更新・削除・置換しない。
+- record_seqはPythonが付与するパッケージ内の単調増加整数。書込順であり、ADC取得時刻の代用ではない。
+- record_idはパッケージ内で一意。log_idとmeasurement_session_idは全レコードでmanifestと一致させる。
+- JSONLはUTF-8、空行禁止、1行1個の完全なJSONオブジェクトとする。
+- PWM_STAGEは状態更新型レコードではない。1段階につき最終状態を表すPWM_STAGEレコードを1件だけ、段階終了または中断が確定した後に追記する。runningの暫定レコードは保存しない。
+- 測定開始時に31件のPWM_STAGEを先行生成しない。到達した段階は完了/中断確定後に追記し、未到達段階は正常終了または制御された中断処理でnot_reachedと確定した後に追記する。
+- 電源断・プロセスクラッシュ等で追記できなかった段階は、存在しないPWM_STAGE行を後から推測生成しない。manifestをincompleteとし、欠落段階は「未記録・状態不明」とする。存在しないレコードをnot_reachedと読み替えてはならない。
+- manifestは測定終了時に一度確定する。測定中の暫定manifestは正本として扱わない。確定後に訂正が必要なら既存ファイルを上書きせず、訂正履歴を持つ新規ログを作成する。
+- record_countsは確定したrecords.jsonlの全行を種別ごとに数えた値であり、抜粋数や予定数ではない。
+
 
 ## 3. manifest.json
 
@@ -108,27 +111,37 @@ INFO応答に含まれる識別値を記録する。INFO行そのものはRawLog
 
 ### 5.2 PWM_STAGE
 
-PWM 0～30の各段階について、段階ごとに1レコードを作る。予定31段階すべてを表現し、未到達段階も `not_started` として表現可能にする。
+PWM 0～30の各段階について、段階ごとに最終状態のレコードを1件だけ追記する。暫定runningレコードを作成・更新する方式は禁止する。
 
 追加必須:
-- `stage_id`: 一意な文字列（例 `PWM-00` ～ `PWM-30`）
-- `stage_index`: 0～30
-- `pwm_command`: 0～30
-- `planned_duration_ms`: 10000
-- `stage_status`: `not_started` / `running` / `completed` / `aborted` / `not_reached`
-- `started_at_utc`, `ended_at_utc`: UTC時刻またはnull
-- `start_host_monotonic_ns`, `end_host_monotonic_ns`: Python単調時計値またはnull
-- `actual_duration_ms`: 実測経過時間。未開始ならnull
-- `pwm_command_sent_at_utc`: コマンド送信時刻またはnull
-- `pwm_acknowledged_at_utc`: Arduino応答を受信した時刻またはnull
-- `output_state`: `reported_on` / `reported_off` / `unknown`
-- `stage_context_id`: Pythonが発行する不透明な相関ID
+- stage_id: 一意。規則PWM-00～PWM-30
+- stage_index: 整数0～30
+- pwm_command: 整数0～30。stage_indexと同値
+- planned_duration_ms: 固定値10000
+- stage_status: completed / aborted / not_reached のいずれか。保存されるPWM_STAGEにrunning / not_startedは存在しない
+- started_at_utc, ended_at_utc: Pythonが段階の実行開始/終了を認識したUTC時刻。未到達段階は両方null
+- start_host_monotonic_ns, end_host_monotonic_ns: 同じPython単調時計ドメインの値。未到達段階は両方null
+- actual_duration_ms: 実行段階の実経過時間。未到達段階はnull。abortedでは中断までの実経過時間
+- pwm_command_sent_at_utc: 指令送信時刻。未到達段階はnull
+- pwm_applied_ack_received_at_utc: Arduinoから当該PWMとcontextの適用ACKをPythonが受信した時刻。ACKなしならnull
+- output_state: reported_on / reported_off / unknown。コマンドACKだけから物理出力状態を推定しない
+- stage_context_id: Pythonが段階ごとに生成する一意な不透明ID
+- termination_reason: duration_elapsed / user_stop / safety_stop / communication_lost / process_interrupted / not_started_after_abort / other。実行段階の理由。completedではduration_elapsed、not_reachedではnot_started_after_abort
 
-段階開始・終了時刻はPythonの実際の遷移時刻を記録する。予定値を実測時刻として書かない。310秒は予定合計であり、実測が310000msと一致することを保証しない。遅延、欠落、中断があれば実際の値を残す。
+**段階レコードの確定・追記手順**
+1. Pythonは段階開始前に一意なstage_context_idを生成し、そのPWM指令と一緒にArduinoへ送る。
+2. ArduinoがPWM指令とstage_context_idを適用したことをACKし、PythonがACKを受信した時点をPython側の段階開始認識時刻とする。ACKが得られない場合、段階開始・出力適用を確定扱いせず、測定を中断側へ倒す。コマンド送信時刻とACK受信時刻は別々に保持する。
+3. PythonはACK受信時刻を基準に予定10,000msを計時し、段階終了指令または停止要求を発行する。次段階へ移るときも新しいcontext IDを発行する。実測時間はPythonの単調時計で実際に計測した値を記録し、10,000msに丸めない。
+4. 段階の終了/中断が確定した後、PythonがPWM_STAGE最終レコードを1件だけJSONL末尾へ追記する。保存後に同じstage_idの状態を更新する行は追加しない。
+5. 正常完了時は31段階すべてをcompletedとして記録する。制御された中断時は実行中段階をaborted、以降の未開始段階をそれぞれnot_reachedとして追記する。既に完了した段階は変更しない。
+6. クラッシュ等で中断処理・未到達段階の追記ができなかった場合は、manifest.status=incompleteとし、存在しないstageレコードを補作しない。検証側は31件不足を検出し「未記録・状態不明」と報告する。
 
-Arduinoは `stage_context_id` をPWM指令に付随する不透明な識別子として保持し、当該指令後のサンプルにエコーする。ArduinoはIDを解釈せず、310秒の段階進行・時間管理を行わない。これによりUSB受信遅延が段階境界を跨いでも、サンプルの取得時点に対応する段階を識別できる。エコーがないサンプルは段階を推測せず `stage_id: null` とし、`stage_assignment: "unresolved"` とする。
+段階時刻の意味:
+- started_at_utc / start_host_monotonic_nsは、適用ACKをPythonが受信した時刻であり、Arduino内部のPWM更新時刻そのものではない。
+- pwm_applied_ack_received_at_utcはArduinoがPWM指令とcontext IDを適用した旨を返したACKのホスト受信時刻。ACKの意味は「FW内部の指令・context更新完了」であり、負荷端子の物理出力を計測・証明した意味ではない。
+- ended_at_utc / end_host_monotonic_nsはPythonが次段階への切替または停止を認識した時刻。実際の電気的な出力変化時刻と同一と断定しない。
+- 予定310,000msはスケジュール値であり、実測合計が310,000msと一致する保証はない。遅延・ACK待ち・中断を実値で残す。
 
-PWM指令値は設定要求であり、実際の出力状態の証明ではない。ACK受信、出力状態報告、物理停止確認は別々に記録する。
 
 ### 5.3 ADC_SAMPLE
 
@@ -149,7 +162,7 @@ PWM指令値は設定要求であり、実際の出力状態の証明ではな�
 - `device_sample_sequence`: Arduinoが付与する単調増加サンプル連番。FWが提供しない場合はnull
 - `host_received_at_utc`: Pythonが当該データを受信したUTC時刻
 - `host_received_monotonic_ns`: Python単調時計での受信時刻
-- `stage_context_id`: Arduinoがエコーした相関ID。取得できなければnull
+- `stage_context_id`: ADC変換開始直前にArduinoがactive contextからローカルへスナップショットした相関ID。取得できなければnull。後続送信時に現在IDで上書き禁止
 - `stage_id`: 対応するPWM_STAGEのID。解決できなければnull
 - `stage_assignment`: `confirmed` / `unresolved`
 - `calibration_id`: 適用可能な校正スナップショットID。なければnull
@@ -180,37 +193,81 @@ PWM指令値は設定要求であり、実際の出力状態の証明ではな�
 
 ### 5.4 CALIBRATION
 
-校正値の取得・適用区間を記録する。CAL受信行がある場合は、受信した原文を `raw_line` に一字一句そのまま保持する。CALを単なる外部メタデータへ移し、RawLog本文から消してはならない。
+CALIBRATIONは校正・基準情報の取得記録であり、未確認のCAL行フォーマットを独自に解析・命名しない。FWからCAL行を受信した場合は、受信原文をraw_lineに一字一句そのまま保存する。
 
-追加必須:
-- `calibration_id`
-- `source`: `firmware_CAL_line` / `host_calibration` / `manual_calibration`
-- `raw_line`: CAL行原文。該当しないsourceではnull可
-- `captured_at_utc`
-- `effective_from_event_id` / `effective_until_event_id`: 適用区間を示すIDまたはnull
-- `channels`: チャンネルごとの校正情報オブジェクト
+必須フィールド:
+- calibration_id: パッケージ内一意ID
+- source: firmware_CAL_line / host_calibration / manual_calibration
+- raw_line: FW CAL行の原文。firmware_CAL_lineでは必須。その他sourceではnull可
+- captured_at_utc: Pythonが当該校正情報を受信/取得したUTC時刻
+- captured_host_monotonic_ns: 同時点のPython単調時計値
+- effective_from_event_id: 適用開始を示すイベントID。未確定ならnull
+- effective_until_event_id: 適用終了を示すイベントID。未確定ならnull
+- channels: 固定キーA0/A1/A4/A5を持つobject。値が不明でもキーは省略せず、状態を明示する
 
-A0とA1の校正情報は別々のchannel keyで保持する。A0のゼロオフセット・換算係数だけをA0電流換算に使用する。A1の基準値はA1独立観測用であり、A0の補正・換算に使用しない。A1の電流換算係数を作らない。A4/A5も別々の校正情報を持つ。
+channelsのv2構造（現時点でraw-only）:
 
-校正値が欠落・不明の場合、推定値で補完しない。該当する換算値を出さずraw ADCを保存する。駆動中に校正値が更新されたと仮定しない。測定中の適用校正が不明なら `calibration_id=null` とし、その旨を品質情報に残す。
+```json
+{
+  "A0": {
+    "signal_role": "winding_current",
+    "calibration_role": "winding_current_zero_reference",
+    "parameter_status": "raw_only_unparsed",
+    "parameters": null
+  },
+  "A1": {
+    "signal_role": "brush_stability_observation",
+    "calibration_role": "brush_observation_reference",
+    "parameter_status": "raw_only_unparsed",
+    "parameters": null
+  },
+  "A4": {
+    "signal_role": "voltage_v4",
+    "calibration_role": "voltage_input_reference",
+    "parameter_status": "raw_only_unparsed",
+    "parameters": null
+  },
+  "A5": {
+    "signal_role": "voltage_v5",
+    "calibration_role": "voltage_input_reference",
+    "parameter_status": "raw_only_unparsed",
+    "parameters": null
+  }
+}
+```
+
+- parameter_statusは現行CAL原文の実フィールド構造と単位を確認できていないため、310-1では固定値raw_only_unparsedとする。parametersはnull。数値・係数・単位を推測して入れてはならない。
+- A0は巻線電流のゼロ基準情報の対象であることだけを示す。実際のゼロオフセット値・換算係数・算出式は、現行FWのCAL出力仕様を照合して司令塔が確定するまで構造化しない。
+- A1はブラシ安定性の独立観測基準だけを示す。A1に電流換算係数、A単位の値、A0補正値を持たせない。A1基準値をA0に適用しない。
+- A4/A5は個別の電圧入力参照情報として区別する。未確認の分圧比・係数・オフセットは記録しない。
+- CAL行がチャンネル別か複数チャンネルを含むかを確定できない場合、raw_lineはCAL行全体を保持し、個別チャンネルへの原文割当は推測しない。4チャンネルのparameter_statusはraw_only_unparsedのままとする。
+- 将来CAL構造を解析可能になった場合はschema_versionを変更するか、後方互換性を検証した上で明示的なschema改訂を行う。既存raw_lineを消去・上書きしない。
+- 校正情報が欠落・不明の場合、推定値で補完しない。ADC_SAMPLEのcalibration_idはnullとし、raw ADCだけを保存する。校正未確認を理由にraw取得値を削除しない。
+
 
 ### 5.5 EVENT
 
-ユーザー注釈、目視観測、測定上の事象を任意に記録する。自動判定結果とユーザー目視報告は別のrecord_type/actorで識別する。
+EVENTはユーザー注釈・目視観測・測定上の事象を記録する。自動判定と人による観測を別のevent値・methodで識別する。
 
-回転目視イベントの追加項目:
-- `event`: `ROTATION_OBSERVED`
-- `observation_method`: 固定値 `human_visual`
-- `actor`: `user` または入力者識別子
-- `observed_at_utc`: 目視確認を記録した時刻
-- `host_monotonic_ns`
-- `stage_id`: 対応段階。対応不能ならnull
-- `pwm_value`: 回転開始と判断したPWM値（0～30）。回転開始の目視確認があった場合に必須
-- `observation_label`: `ROTATION` / `NO_ROTATION` / `UNKNOWN`
-- `note`: 任意のユーザー注記
-- `external_rpm`: 任意の参考値。単位rpm、取得元・方法を併記する
+**回転開始を目視確認したイベント**
+- event: 固定値ROTATION_START_CONFIRMED
+- observation_method: 固定値human_visual
+- actor: userまたは入力者識別子
+- observed_at_utc: 人が回転を確認したと判断した時刻
+- reported_at_utc: Python UI等へ報告を入力した時刻
+- host_monotonic_ns: reported_atに対応するPython単調時計値
+- stage_id: 回転開始と判断したPWM段階ID
+- stage_index: 0～30
+- pwm_value: 回転開始と判断したPWM値。対応するPWM_STAGEのpwm_commandと一致必須
+- note: 任意注記
+- external_rpm: 任意の参考RPM object。値・単位rpm・取得方法・取得元を含む。推定や自動回転判定の根拠にはしない
 
-回転開始PWMはユーザーの目視報告を正とする。自動センサー判定と混同しない。A2の磁気値やA3温度から回転イベントを生成しない。目視ラベルはIssue #170の2026-10-31合意に従い、必要な検証測定でのみ任意記録する。常設必須項目にはしない。回転ありログも削除・棄却しない。
+このイベントは「回転開始を確認した」という肯定イベントであり、NO_ROTATION / UNKNOWNラベルを持たない。回転開始を確認できていない観測を記録する場合は別event ROTATION_NOT_OBSERVED_AT_STAGEとし、observed_at_utc、reported_at_utc、stage_id、stage_index、pwm_value（観測時点の段階PWM）、actor、observation_method=human_visual、任意noteを記録する。この否定観測は回転開始PWMを意味せず、後から肯定イベントへ読み替えない。
+
+ROTATION_START_CONFIRMED.pwm_valueは「報告入力時の現在PWM」ではなく、ユーザーが回転開始と判断したPWM段階の指令値である。stage_idとstage_indexは同一のPWM_STAGEを指し、pwm_valueはそのpwm_commandと一致しなければならない。観測時刻と報告時刻が異なる場合も両方を保持し、報告時刻からstageを逆算しない。stageを確定できない場合はstage_id/stage_index/pwm_valueをnullとし、回転開始PWMが未確定であることを保持する。
+
+目視ラベルは任意記録であり、測定の必須条件ではない。A2/A3からEVENTを自動生成しない。外部RPMは参考値で、正式なRPM入力・回転自動判定には使用しない。
+
 
 ### 5.6 DERIVED（任意・将来用）
 
@@ -227,14 +284,26 @@ A0とA1の校正情報は別々のchannel keyで保持する。A0のゼロオフ
 | … | … | … | … |
 | 30 | 30 | 10 s | 300–310 s |
 
-- Pythonがstage_index 0から30を順に管理する。
-- 各段階の予定時間は10,000ms。実際の開始・終了はPython単調時計で記録する。
-- 段階境界は実際のPython遷移時刻を基準とする。予定経過時間だけから実測段階を推定しない。
-- Pythonは各段階のPWM指令に一意の `stage_context_id` を付ける。Arduinoは現在の指令コンテキストをサンプルにエコーするだけで、段階のタイマーや進行ロジックを持たない。
-- サンプルの `stage_context_id` がPWM_STAGEの `stage_context_id` と一致した場合のみ `stage_assignment="confirmed"` とする。
-- コンテキストが欠落・不一致の場合は段階未解決とし、受信時刻だけで強制割当しない。
-- 段階0（PWM 0）も10秒間の段階として記録する。
-- 途中停止時は未到達段階を `not_reached`、実行中段階を `aborted` とし、存在しないサンプルを生成しない。
+### 6.1 context IDの発行・有効化境界
+
+1. Pythonが段階ごとに新しい一意のstage_context_idを発行し、PWM指令と同じコマンド単位でArduinoへ送る。IDは段階開始後に再利用しない。
+2. Arduinoは指令を受理しただけではactive contextを変更しない。指令の検証後、PWM出力レジスタ/指令値を更新する処理とactive stage_context_idの更新を、同一のコマンド処理境界で連続して実行し、その処理完了後にACKする。ACKは「FW内部でPWM指令値とIDを適用した」ことを示す。
+3. ここでいう出力更新はFW内部のPWM指令値の更新を指す。負荷端子で物理的に所定電圧・電流が成立したことの証明ではない。物理出力状態は別の測定・状態報告として扱う。
+4. Arduinoは各ADC変換の直前、analogRead開始前にactive stage_context_idをローカル変数へコピーする。その後にADC変換を行い、raw値・ADC timestamp・コピー済みIDを1つのsample recordとして確定する。
+5. sample recordのIDはADC変換開始時にスナップショットし、変換終了後・送信キュー投入後・シリアル送信時にグローバルactive IDを再参照してはならない。送信待ちバッファ内のサンプルは、後続段階のPWM指令・ID更新によって変更されない。
+6. PWM/context更新とADC開始が同一処理境界で競合しないよう、FW内で直列化する。ADC変換開始が更新処理より前なら旧ID、更新処理完了後なら新IDを固定する。中間状態やPWMとIDの不一致状態をサンプルに付与しない。
+7. PWM 0の段階も同じ規則で新しいcontext IDを適用する。起動時/段階前など、段階に属さないサンプルはcontext ID=null、stage_id=null、stage_assignment=unresolvedとする。
+8. Pythonは受信サンプルのIDとPWM_STAGEのIDを照合する。一致時のみstage_assignment=confirmed。未知ID、欠落、不一致はunresolvedとし、受信時刻や予定elapsedから段階を推測しない。
+
+### 6.2 310秒段階進行と時間
+
+- Pythonだけがstage_index 0～30を順番に進める。Arduinoに310秒タイマーや自動段階進行を実装しない。
+- 各段階の予定時間は10,000ms。Pythonは適用ACKを受信した時刻を段階開始認識時刻として計時する。
+- Pythonが10,000ms経過後に次段階の指令を発行する。実際の段階時間はACK待ち・ホスト遅延・停止処理等により予定値と異なり得るため、実測値をそのまま保存する。
+- 段階の境界はcontext IDで識別する。ホスト受信時刻だけでADC_SAMPLEの所属段階を決定しない。
+- 正常完了時はPWM_STAGE 31件すべてcompleted。制御された中断時は完了済み段階を保持し、実行中段階をaborted、後続をnot_reachedとして各1件追記する。
+- プロセスクラッシュ等で最終状態レコードを追記できなかった段階は状態不明として欠落のまま残し、manifest.status=incompleteとする。not_reachedは実際にPythonが未開始を確定して追記できた段階に限る。
+
 
 ## 7. 回転前後の比較
 
