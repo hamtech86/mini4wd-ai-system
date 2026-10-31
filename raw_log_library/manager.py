@@ -162,7 +162,8 @@ class RawLogLibrary:
                 "timestamp_us": value.get("timestamp_us"),
                 "raw_line": value.get("raw_line"),
             }, ensure_ascii=False, separators=(",", ":")))
-        atomic_write(aux_path, "".join(line + "\n" for line in aux_lines))
+        if normalized:
+            atomic_write(aux_path, "".join(line + "\n" for line in aux_lines))
 
         manifest = {
             "schema": "mini4wd.rawlog.v2",
