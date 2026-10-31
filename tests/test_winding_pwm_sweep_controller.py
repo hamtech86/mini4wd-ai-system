@@ -210,3 +210,18 @@ def test_user_stop_marks_package_stopped_not_complete(tmp_path):
     manifest = json.loads((tmp_path / "MOTOR-000123" / "manifest.json").read_text())
     assert manifest["status"] == "STOPPED"
     assert manifest["final_reason"] == "operator_requested"
+
+
+def test_firmware_calibration_snapshot_is_saved_as_calibration_records(tmp_path):
+    controller, store, device, clock = _make_controller(tmp_path)
+    _start(controller)
+    raw_line = "CAL,ACS1_ZERO=512.34,ACS2_ZERO=511.25"
+    device.push_line(raw_line)
+    controller.tick()
+
+    records = store.read_records("MOTOR-000123")
+    calibrations = [record for record in records if record["record_type"] == "CALIBRATION"]
+    assert [record["sensor"] for record in calibrations] == ["ACS1", "ACS2"]
+    assert calibrations[0]["offset"] == 512.34
+    assert calibrations[1]["offset"] == 511.25
+    assert all(record["raw_wire_line"] == raw_line for record in calibrations)
