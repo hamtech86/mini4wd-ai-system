@@ -257,24 +257,24 @@ class RawLogLibrary:
 
         manifest_path = raw_path.with_suffix(".manifest.json")
         derived_path = raw_path.with_suffix(".derived.jsonl")
+        if not manifest_path.is_file():
+            raise ValueError(
+                "Derived records require an existing RawLog v2 manifest; "
+                "legacy v1 logs are never reclassified by analysis output"
+            )
+        manifest = self.read_v2_manifest(log_id)
         if derived_path.exists():
             raise FileExistsError(f"Derived sidecar already exists for {log_id}")
-        if manifest_path.exists():
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            if manifest.get("schema") != "mini4wd.rawlog.v2" or manifest.get("log_id") != log_id:
-                raise ValueError(f"invalid RawLog v2 manifest: {manifest_path}")
-        else:
-            manifest = {
-                "schema": "mini4wd.rawlog.v2",
-                "log_id": log_id,
-                "measurement_session_id": None,
-                "raw_body": raw_path.name,
-                "raw_body_format": "legacy_serial_text_immutable",
-                "aux_records": None,
-                "aux_record_count": 0,
-                "aux_session_ids": [],
-                "aux_parse_errors": [],
-            }
+        known_sample_ids = {
+            item.get("sample_id") for item in self.read_v2_aux(log_id)
+            if isinstance(item, dict)
+        }
+        for item in normalized:
+            unknown = set(item["input_sample_ids"]) - known_sample_ids
+            if unknown:
+                raise ValueError(
+                    f"derived input_sample_ids reference unknown AUX samples: {sorted(unknown)}"
+                )
 
         def atomic_write(path: Path, content: str) -> None:
             temporary = path.with_name(path.name + ".tmp")
@@ -301,7 +301,9 @@ class RawLogLibrary:
         if manifest is None or not manifest.get("derived_records"):
             return []
         _, raw_path, _ = self.get(log_id)
-        derived_path = raw_path.parent / str(manifest["derived_records"])
+        derived_path = raw_path.with_suffix(".derived.jsonl")
+        if not derived_path.is_file():
+            raise FileNotFoundError(f"RawLog v2 Derived sidecar is missing: {derived_path}")
         with derived_path.open("r", encoding="utf-8", newline="") as fh:
             return [json.loads(line) for line in fh if line.strip()]
 
@@ -312,8 +314,24 @@ class RawLogLibrary:
         if not manifest_path.exists():
             return None
         value = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if not isinstance(value, dict):
+            raise ValueError(f"invalid RawLog v2 manifest: {manifest_path}")
         if value.get("schema") != "mini4wd.rawlog.v2" or value.get("log_id") != log_id:
             raise ValueError(f"invalid RawLog v2 manifest: {manifest_path}")
+        # Manifest references are data, not trusted paths. Restrict each
+        # sidecar to its exact log-scoped filename before any filesystem read.
+        expected = {
+            "raw_body": raw_path.name,
+            "aux_records": raw_path.with_suffix(".aux.jsonl").name,
+            "derived_records": raw_path.with_suffix(".derived.jsonl").name,
+        }
+        for key, filename in expected.items():
+            referenced = value.get(key)
+            if key == "raw_body":
+                if referenced != filename:
+                    raise ValueError(f"invalid RawLog v2 {key} reference: {referenced!r}")
+            elif referenced is not None and referenced != filename:
+                raise ValueError(f"invalid RawLog v2 {key} reference: {referenced!r}")
         return value
 
     def read_v2_aux(self, log_id: str) -> List[Dict[str, object]]:
@@ -321,7 +339,9 @@ class RawLogLibrary:
         if manifest is None or not manifest.get("aux_records"):
             return []
         _, raw_path, _ = self.get(log_id)
-        aux_path = raw_path.parent / str(manifest["aux_records"])
+        aux_path = raw_path.with_suffix(".aux.jsonl")
+        if not aux_path.is_file():
+            raise FileNotFoundError(f"RawLog v2 AUX sidecar is missing: {aux_path}")
         with aux_path.open("r", encoding="utf-8", newline="") as fh:
             return [json.loads(line) for line in fh if line.strip()]
 
