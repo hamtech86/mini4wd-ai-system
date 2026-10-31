@@ -475,7 +475,7 @@ class SerialController:
                 continue
             if line == "AUX" or line.startswith("AUX,"):
                 try:
-                    self.aux_records.append(parse_aux_line(line))
+                    self.aux_records.append(parse_aux_line(decoded.rstrip("\r\n")))
                 except AuxParseError as exc:
                     # Keep the exact original line in RawLogCollector and
                     # retain a separate diagnostic; never pass AUX to DATA.
