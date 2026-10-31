@@ -321,7 +321,7 @@ Arduino microsは約71.6分でwrapする。Pythonは同一デバイス起動区�
 {"schema_version":"2.0.0","record_type":"EVENT","record_id":"rec-rotation-01","record_seq":100,"log_id":"MOTOR-310-000001","measurement_session_id":"310S-20261101-0001","recorded_at_utc":"2026-11-01T01:05:42.500Z","event":"ROTATION_OBSERVED","observation_method":"human_visual","actor":"user","observed_at_utc":"2026-11-01T01:05:42.500Z","host_monotonic_ns":47500000000,"stage_id":"PWM-04","pwm_value":4,"observation_label":"ROTATION","note":"目視で回転開始を確認","external_rpm":null}
 ```
 
-上記は構造例であり、raw ADC値・時刻・motor instance・FW識別値は実測結果を表さない。record_seq 1のSESSION_EVENT、CALIBRATION本体、残り段階・サンプルは説明簡略化のため省略している。
+上記は構造例であり、raw ADC値・時刻・motor instance・FW識別値は実測結果を表さない。manifestのrecord_countsも構造説明用の例示値であり、サンプリング周期・実際の取得件数を規定しない。record_seq 1のSESSION_EVENT、CALIBRATION本体、残り段階・サンプルは説明簡略化のため省略している。
 
 ## 11. 旧RawLog v1との互換性境界
 
