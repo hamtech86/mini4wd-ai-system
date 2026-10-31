@@ -114,7 +114,7 @@ class RawLogLibrary:
         self._append_index(self._index_row(record, raw_path))
         return raw_path
 
-    def register_v2_aux(self, log_id: str, records, parse_errors=None) -> Optional[Dict[str, str]]:
+    def register_v2_aux(\n        self, log_id: str, records, parse_errors=None, measurement_session_id=None\n    ) -> Optional[Dict[str, str]]:
         """Persist AUX v2 beside an existing immutable RawLog body.
 
         Legacy DATA bodies and index/metadata schemas are deliberately untouched.
@@ -194,10 +194,12 @@ class RawLogLibrary:
         manifest = {
             "schema": "mini4wd.rawlog.v2",
             "log_id": log_id,
+            "measurement_session_id": measurement_session_id,
             "raw_body": raw_path.name,
             "raw_body_format": "legacy_serial_text_immutable",
             "aux_records": aux_path.name if normalized else None,
             "aux_record_count": len(normalized),
+            "aux_session_ids": sorted({item["session_id"] for item in normalized}),
             "aux_parse_errors": parse_errors,
             "derived_records": None,
             "derived_status": "NOT_GENERATED",
