@@ -129,6 +129,9 @@ class WindingPwmSweepController:
         if self.device.set_pwm(0) is False:
             self._fault("PWM_ZERO_COMMAND_FAILED")
             return False
+        # The 10-second baseline dwell begins only after the PWM=0 command
+        # succeeds, not while ARM is still waiting for its acknowledgement.
+        self._stage_started_monotonic = self.monotonic()
 
         self._append_event("SWEEP_STARTED", {
             "stage_count": len(self.STAGES),
@@ -149,6 +152,9 @@ class WindingPwmSweepController:
             self.device.read_measurement()
             if getattr(self.device, "device_reboot_detected", False):
                 self._fault("FIRMWARE_REBOOT_DETECTED")
+                return self._snapshot()
+            if not getattr(self.device, "identity_verified", False):
+                self._fault("FIRMWARE_IDENTITY_LOST")
                 return self._snapshot()
             self._consume_new_lines()
             if not self.active:
