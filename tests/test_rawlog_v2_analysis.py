@@ -8,12 +8,12 @@ from communication.rawlog_v2_analysis import (
 from communication.rawlog_v2_aux import parse_aux_line
 
 
-def cycle(direction="FWD", run_state="MEASURE", a0=100, a4=110, a5=120):
+def cycle(direction="FWD", run_state="MEASURE", a0=100, a4=110, a5=120, a1=125):
     rows = [
         parse_aux_line(f"AUX,2,s1,1,WINDING,{direction},0,{run_state},A0,510,{a0}"),
         parse_aux_line(f"AUX,2,s1,1,WINDING,{direction},0,{run_state},A4,600,{a4}"),
         parse_aux_line(f"AUX,2,s1,1,WINDING,{direction},0,{run_state},A5,500,{a5}"),
-        parse_aux_line(f"AUX,2,s1,1,WINDING,{direction},0,{run_state},A1,900,125"),
+        parse_aux_line(f"AUX,2,s1,1,WINDING,{direction},0,{run_state},A1,900,{a1}"),
     ]
     return align_aux_records(rows)[0]
 
