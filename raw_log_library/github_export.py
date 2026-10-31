@@ -60,13 +60,13 @@ class GitHubRawLogExporter:
                 remote_manifest["derived_records"] = remote_files.get("derived_records")
                 manifest_rel = raw_rel.rsplit("/", 1)[0] + "/" + f"{log_id}.manifest.json"
                 manifest_result = self._put_file(
-                    manifest_rel, json.dumps(remote_manifest, ensure_ascii=False, indent=2)+"\\n",
+                    manifest_rel, json.dumps(remote_manifest, ensure_ascii=False, indent=2)+"\n",
                     f"Register Raw Log v2 manifest {log_id}", allow_update=False,
                 )
                 sidecar_results.append(manifest_result)
                 metadata["rawlog_v2_manifest"] = manifest_rel
                 metadata["rawlog_v2_schema"] = manifest.get("schema")
-            metadata_result=self._put_file(metadata_rel,json.dumps(metadata,ensure_ascii=False,indent=2)+"\\n",
+            metadata_result=self._put_file(metadata_rel,json.dumps(metadata,ensure_ascii=False,indent=2)+"\n",
                                            f"Register Metadata {log_id}",allow_update=False)
         except Exception as exc:
             self.library.set_github_status(log_id,status="FAILED",error=str(exc))
