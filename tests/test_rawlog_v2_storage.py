@@ -43,6 +43,9 @@ def test_v1_raw_body_is_immutable_and_v2_aux_is_additive(tmp_path):
     assert manifest["aux_record_count"] == 2
     stored = library.read_v2_aux(record.log_id)
     assert [item["channel"] for item in stored] == ["A0", "A4"]
+    assert [item["sample_id"] for item in stored] == [
+        "session-1:1:A0", "session-1:2:A4"
+    ]
     assert stored[0]["raw_line"].startswith("AUX,2,session-1,1")
     assert result["aux_path"].endswith(".aux.jsonl")
 
@@ -143,3 +146,21 @@ def test_invalid_derived_record_requires_reason_and_does_not_write(tmp_path):
 
     assert library.read_v2_manifest(record.log_id) is None
     assert library.read_v2_derived(record.log_id) == []
+
+
+
+def test_duplicate_aux_sample_identity_is_rejected(tmp_path):
+    import pytest
+
+    library = RawLogLibrary(tmp_path)
+    record = RawLog(device_type="MOTOR", motor_id="12")
+    library.register(record, "raw body\\n")
+    duplicate_samples = [
+        parse_aux_line("AUX,2,session-1,1,WINDING,FWD,0,MEASURE,A0,512,1000"),
+        parse_aux_line("AUX,2,session-1,1,WINDING,FWD,0,MEASURE,A0,513,1010"),
+    ]
+
+    with pytest.raises(ValueError, match="duplicate AUX sample_id"):
+        library.register_v2_aux(record.log_id, duplicate_samples, [])
+
+    assert library.read_v2_manifest(record.log_id) is None
