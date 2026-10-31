@@ -31,7 +31,7 @@ jobs:
       - name: Hash HEX and record build identity
         run: |
           test -n "$(find build/microcurrent -maxdepth 1 -name '*.hex' -print -quit)"
-          sha256sum build/microcurrent/*.hex | tee build/microcurrent/SHA256SUMS.txt
+          (cd build/microcurrent && sha256sum *.hex > SHA256SUMS.txt)
           printf 'SOURCE_COMMIT=%s\n' "$(git rev-parse HEAD)" | tee build/microcurrent/BUILD-METADATA.txt
           printf 'BOARD_FQBN=arduino:avr:uno\n' >> build/microcurrent/BUILD-METADATA.txt
           printf 'FW_VERSION=3.04-MICROCURRENT-DEV\n' >> build/microcurrent/BUILD-METADATA.txt
