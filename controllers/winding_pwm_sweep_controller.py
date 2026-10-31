@@ -335,6 +335,9 @@ class WindingPwmSweepController:
         if line.startswith("AUX,"):
             self._append_adc_sample(line)
             return
+        if line.startswith("CAL,"):
+            self._append_calibration(line)
+            return
         if line.startswith("ERROR,"):
             self._append_event("DEVICE_ERROR", {"raw_line": line})
             raise WindingSweepError("firmware reported " + line)
@@ -405,6 +408,47 @@ class WindingPwmSweepController:
             self._append_record(payload)
         except Exception as exc:
             self._append_event("INVALID_MEASUREMENT_LINE", {
+                "raw_line": raw_line,
+                "reason": f"{type(exc).__name__}: {exc}",
+            })
+
+    def _append_calibration(self, raw_line: str) -> None:
+        """Preserve firmware ACS zero-offset snapshots as calibration records."""
+        try:
+            fields = raw_line.split(",")
+            if len(fields) != 3 or fields[0] != "CAL":
+                raise ValueError("CAL record requires ACS1_ZERO and ACS2_ZERO")
+            values = {}
+            for token in fields[1:]:
+                key, separator, raw_value = token.partition("=")
+                if not separator or key not in {"ACS1_ZERO", "ACS2_ZERO"} or key in values:
+                    raise ValueError("invalid or duplicate CAL field")
+                value = float(raw_value)
+                if not math.isfinite(value):
+                    raise ValueError("CAL offset must be finite")
+                values[key] = value
+            if set(values) != {"ACS1_ZERO", "ACS2_ZERO"}:
+                raise ValueError("CAL record is missing an ACS zero offset")
+
+            firmware = getattr(self.device, "device_info", None) or {}
+            calibration_version = str(firmware.get("BUILD") or firmware.get("FW") or "unknown")
+            for sensor, key in (("ACS1", "ACS1_ZERO"), ("ACS2", "ACS2_ZERO")):
+                self._append_record({
+                    "record_type": "CALIBRATION",
+                    "sensor": sensor,
+                    "calibration_id": f"{self._measurement_session_id}-{sensor}-{self._record_sequence:08d}",
+                    "calibration_version": calibration_version,
+                    "unit": "ADC_COUNT",
+                    "status": "ZERO_OFFSET_SNAPSHOT",
+                    "offset": values[key],
+                    "scale": None,
+                    "source": "FIRMWARE_CAL_RECORD",
+                    "raw_wire_line": raw_line,
+                    "sweep_stage_index": self.stage_index,
+                    "sweep_stage_pwm": self.stage_pwm,
+                })
+        except Exception as exc:
+            self._append_event("INVALID_CALIBRATION_LINE", {
                 "raw_line": raw_line,
                 "reason": f"{type(exc).__name__}: {exc}",
             })
