@@ -143,8 +143,10 @@ PWM指令値は設定要求であり、実際の出力状態の証明ではな�
 - `adc_resolution_bits`: ADC分解能
 - `raw_unit`: 固定値 `count`
 - `device_timestamp_us_u32`: 当該analogRead変換の個別時刻（uint32、Arduino micros基準）。取得失敗時はnull
-- `device_timestamp_point`: `conversion_midpoint`。時刻取得ヘルパーが変換前後を記録する場合の中点
-- `device_elapsed_us`: Pythonが同一デバイス起動区間内でunwrapした単調時刻（uint64相当）。算出不能ならnull
+- `device_timestamp_point`: `conversion_midpoint`。analogRead開始直前と終了直後のmicros値から中点を求める。取得実装が中点を保証できない場合は実際のtimestamp_pointを明示する
+- `device_epoch_id`: デバイス起動区間ID。再起動・時刻リセット時に新しいIDとする
+- `device_elapsed_us`: Pythonが同一device_epoch内でunwrapした単調時刻（uint64相当）。算出不能ならnull
+- `device_sample_sequence`: Arduinoが付与する単調増加サンプル連番。FWが提供しない場合はnull
 - `host_received_at_utc`: Pythonが当該データを受信したUTC時刻
 - `host_received_monotonic_ns`: Python単調時計での受信時刻
 - `stage_context_id`: Arduinoがエコーした相関ID。取得できなければnull
@@ -259,7 +261,7 @@ A0とA1の校正情報は別々のchannel keyで保持する。A0のゼロオフ
 
 3つの時計を区別する。
 
-1. Arduino `device_timestamp_us_u32`: analogReadごとの取得時刻。32bit microsカウンタ値を保持。
+1. Arduino `device_timestamp_us_u32`: analogReadごとの取得時刻。32bit microsカウンタ値を保持し、`device_epoch_id` で起動区間を識別する。
 2. Python `host_received_monotonic_ns`: USB受信時刻。段階開始/終了と同じPython単調時計ドメイン。
 3. Python `*_at_utc`: 外部表示・監査用のUTC壁時計。
 
