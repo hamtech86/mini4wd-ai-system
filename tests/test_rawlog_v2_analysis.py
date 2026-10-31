@@ -69,7 +69,7 @@ def test_skew_policy_is_mandatory_and_excess_skew_invalidates_result():
     with pytest.raises(TypeError):
         analyze_winding_resistance_cycle(cycle(), calibrations())
     result = analyze_winding_resistance_cycle(
-        cycle(a0=100, a4=110, a5=140), calibrations(),
+        cycle(a0=100, a4=110, a5=140, a1=150), calibrations(),
         max_skew_us=20, required_run_state="MEASURE"
     )
     assert result.valid is False
