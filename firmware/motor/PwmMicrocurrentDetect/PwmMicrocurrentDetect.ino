@@ -1,13 +1,12 @@
 /*
- * PWM micro-current detection firmware (development build).
- * Arduino Uno / L298N / ACS712 x2.
- *
- * SAFETY: motor output is OFF on boot. A run requires ARM,<token> then
- * START,<token>. Serial loss (>2 s) aborts and sets PWM=0.
- * This is a diagnostic acquisition build, not the winding-resistance result
- * calculator. Do not use post-rotation samples as pre-rotation data.
+ * PWM micro-current diagnostic firmware, standalone candidate.
+ * Uno pin mapping matches MotoreRev.ino (PWM5, IN3=7, IN4=8).
+ * Output is OFF on boot; ARM token + START required.
+ * A serial command/heartbeat gap over 2 seconds aborts to output OFF.
+ * Raw ADC and timestamps only; no calibrated winding-current result yet.
  */
 #include <Arduino.h>
+#include <string.h>
 #include "PwmDetectSequence.h"
 #include "MicrocurrentCapture.h"
 
@@ -17,8 +16,9 @@ static const uint8_t PIN_PWM = 5;
 static const uint8_t PIN_IN3 = 7;
 static const uint8_t PIN_IN4 = 8;
 static const uint8_t CHANNELS[4] = {A0, A1, A4, A5};
-static const uint32_t SERIAL_BAUD = 57600UL;
+static const uint32_t SERIAL_BAUD = 115200UL;
 static const uint32_t LINK_TIMEOUT_MS = 2000UL;
+static const uint32_t CAPTURE_INTERVAL_MS = 50UL;
 
 PwmDetectSequence::Sequence sequence;
 MicrocurrentCapture::Frame frame;
@@ -29,7 +29,6 @@ bool running = false;
 bool directionForward = true;
 char token[9] = {0};
 uint32_t lastCommandMs = 0;
-uint32_t runStartedMs = 0;
 uint32_t sessionId = 0;
 uint32_t sequenceNo = 0;
 uint32_t lastCaptureMs = 0;
@@ -54,8 +53,8 @@ static bool tokenMatches(const char *value) {
   return token[0] != '\0' && strcmp(token, value) == 0;
 }
 
-static void emitAux(uint8_t stage, uint8_t pwm, uint8_t channel,
-                    uint16_t raw, uint32_t timestampUs) {
+static void emitAux(uint8_t pwm, uint8_t channel, uint16_t raw,
+                    uint32_t timestampUs) {
   Serial.print(F("AUX,2,"));
   Serial.print(sessionId);
   Serial.print(',');
@@ -72,14 +71,11 @@ static void emitAux(uint8_t stage, uint8_t pwm, uint8_t channel,
   Serial.println(timestampUs);
 }
 
-static void captureAndLog(uint8_t stage, uint8_t pwm) {
-  if (!WindingAdcTimestampCapture::captureFour(
-          frame, CHANNELS, analogRead, micros)) {
-    return;
-  }
+static void captureAndLog(uint8_t pwm) {
+  if (!MicrocurrentCapture::capture(frame, CHANNELS)) return;
   for (uint8_t i = 0; i < frame.count; ++i) {
-    emitAux(stage, pwm, frame.readings[i].channel,
-            frame.readings[i].rawAdc, frame.readings[i].timestampUs);
+    const MicrocurrentCapture::Reading &reading = frame.reading[i];
+    emitAux(pwm, reading.channel, reading.raw, reading.timestampUs);
   }
 }
 
@@ -94,7 +90,11 @@ static void stopRun(const __FlashStringHelper *reason) {
 
 static void handleLine(char *line) {
   lastCommandMs = millis();
-  if (strcmp(line, "PING") == 0) {\n    Serial.println(F("PONG"));\n    return;\n  }\n  if (strcmp(line, "INFO") == 0) {
+  if (strcmp(line, "PING") == 0) {
+    Serial.println(F("PONG"));
+    return;
+  }
+  if (strcmp(line, "INFO") == 0) {
     Serial.print(F("INFO,"));
     Serial.print(FW_VERSION);
     Serial.print(',');
@@ -127,7 +127,6 @@ static void handleLine(char *line) {
     running = true;
     sessionId = millis();
     sequenceNo = 0;
-    runStartedMs = millis();
     lastCaptureMs = 0;
     Serial.print(F("STARTED,"));
     Serial.println(sessionId);
@@ -154,6 +153,8 @@ static void pollSerial() {
       rxIndex = 0;
       outputOff();
       armed = false;
+      running = false;
+      sequence.stop();
       Serial.println(F("ERROR,RX_OVERFLOW"));
     }
   }
@@ -188,9 +189,9 @@ void loop() {
 
   const PwmDetectSequence::Snapshot snapshot = sequence.snapshot(now);
   driveStage(snapshot.pwm);
-  // PWM 0 is baseline/output-off. Capture once per 20 ms loop cadence.
-  if (lastCaptureMs == 0 || (uint32_t)(now - lastCaptureMs) >= 20UL) {
-    captureAndLog(snapshot.stage_index, snapshot.pwm);
+  if (lastCaptureMs == 0 ||
+      (uint32_t)(now - lastCaptureMs) >= CAPTURE_INTERVAL_MS) {
+    captureAndLog(snapshot.pwm);
     lastCaptureMs = now;
   }
 }
