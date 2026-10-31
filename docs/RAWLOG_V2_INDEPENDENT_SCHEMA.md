@@ -61,12 +61,13 @@
 | `device` | object | Arduino機器識別 |
 | `measurement_conditions` | object | 方向、電圧制御モード等 |
 | `record_counts` | object | レコード種別ごとの実件数 |
+| `metadata_warnings` | array of string | 任意。device等のメタデータが取得不能・不整合の場合の理由。該当なしは空配列 `[]`。省略時も警告なしを意味する |
 
 ### 3.2 device
 
 必須: `type`、`model`、`firmware_version`、`firmware_build`、`firmware_id`、`adc_resolution_bits`。
 
-INFO応答に含まれる識別値を記録する。INFO行そのものはRawLog本文へ混入させない。値が取得できない場合は推測せずnullとし、manifestの `metadata_warnings` に理由を記録する。ADC raw値の上限は `adc_resolution_bits` から求める。
+INFO応答に含まれる識別値を記録する。INFO行そのものはRawLog本文へ混入させない。値が取得できない場合は推測せずnullとし、manifestの `metadata_warnings` に理由を記録する。`metadata_warnings` は任意の文字列配列で、警告がなければ `[]`、キー省略も警告なしとして扱う。警告がある場合は対象フィールドと理由を1要素ずつ記述する。ADC raw値の上限は `adc_resolution_bits` から求める。
 
 ### 3.3 measurement_conditions
 
@@ -193,7 +194,9 @@ PWM 0～30の各段階について、段階ごとに最終状態のレコード�
 
 ### 5.4 CALIBRATION
 
-CALIBRATIONは校正・基準情報の取得記録であり、未確認のCAL行フォーマットを独自に解析・命名しない。FWからCAL行を受信した場合は、受信原文をraw_lineに一字一句そのまま保存する。
+CALIBRATIONは校正・基準情報の取得記録であり、未確認のCAL行フォーマットを独自に解析・命名しない。FWからCAL行を受信した場合は、受信原文をraw_lineに一字一句そのまま保存する。raw_lineを保存したこと自体は、校正値が解釈・適用可能であることを意味しない。
+
+`effective_from_event_id` / `effective_until_event_id` のnullは、それぞれ開始/終了境界を特定できていないことを意味し、測定全体への適用や無期限適用を意味しない。両方nullの場合は適用範囲不明である。`application_status="raw_capture_only"` または `application_scope_unresolved` のCALIBRATIONをADC_SAMPLEが参照してはならず、ADC_SAMPLE.calibration_idはnullとする。ADC_SAMPLEから参照できるのは、対象チャンネルのパラメータが解釈済みで、適用範囲がイベントIDで明示され、当該サンプルがその範囲内にある `application_status="scoped_for_application"` のCALIBRATIONに限る。
 
 必須フィールド:
 - calibration_id: パッケージ内一意ID
@@ -201,8 +204,9 @@ CALIBRATIONは校正・基準情報の取得記録であり、未確認のCAL行
 - raw_line: FW CAL行の原文。firmware_CAL_lineでは必須。その他sourceではnull可
 - captured_at_utc: Pythonが当該校正情報を受信/取得したUTC時刻
 - captured_host_monotonic_ns: 同時点のPython単調時計値
-- effective_from_event_id: 適用開始を示すイベントID。未確定ならnull
-- effective_until_event_id: 適用終了を示すイベントID。未確定ならnull
+- effective_from_event_id: 適用開始を示すイベントID。適用開始境界を特定できない場合はnull
+- effective_until_event_id: 適用終了を示すイベントID。適用終了境界を特定できない場合はnull
+- application_status: `raw_capture_only` / `scoped_for_application` / `application_scope_unresolved`。raw_lineの保存と校正適用可否を分離する
 - channels: 固定キーA0/A1/A4/A5を持つobject。値が不明でもキーは省略せず、状態を明示する
 
 channelsのv2構造（現時点でraw-only）:
@@ -299,7 +303,10 @@ ROTATION_START_CONFIRMED.pwm_valueは「報告入力時の現在PWM」ではな�
 
 - Pythonだけがstage_index 0～30を順番に進める。Arduinoに310秒タイマーや自動段階進行を実装しない。
 - 各段階の予定時間は10,000ms。Pythonは適用ACKを受信した時刻を段階開始認識時刻として計時する。
-- Pythonが10,000ms経過後に次段階の指令を発行する。実際の段階時間はACK待ち・ホスト遅延・停止処理等により予定値と異なり得るため、実測値をそのまま保存する。
+- Pythonは当該段階の適用ACK受信から10,000ms経過した時点以降に、次段階のPWM指令を送信する。前段階の `ended_at_utc` / `end_host_monotonic_ns` は、その次段階指令をPythonが送信した時刻とする。したがって前段階の `actual_duration_ms` は前段階ACK受信から次段階指令送信までのホスト観測区間であり、予定10,000msと同じ値に丸めず実測する。
+- 次段階の `started_at_utc` / `start_host_monotonic_ns` は、その次段階の適用ACKをPythonが受信した時刻とする。次段階指令送信からACK受信までの区間は前段階にも次段階にも含めず、指令/ACK時刻として個別に保持する。物理出力の切替時刻を意味しない。
+- 最終段階の終了境界は、ユーザー停止・安全停止等の停止指令をPythonが送信した時刻とする。中断段階の `actual_duration_ms` はその段階の適用ACK受信から停止指令送信までのホスト観測区間とする。
+- 段階の最終PWM_STAGEレコードは、終了境界が確定した後に追記する。`recorded_at_utc` は必ず `ended_at_utc` 以降とし、記録処理が次段階ACK後に行われてもよい。
 - 段階の境界はcontext IDで識別する。ホスト受信時刻だけでADC_SAMPLEの所属段階を決定しない。
 - 正常完了時はPWM_STAGE 31件すべてcompleted。制御された中断時は完了済み段階を保持し、実行中段階をaborted、後続をnot_reachedとして各1件追記する。
 - プロセスクラッシュ等で最終状態レコードを追記できなかった段階は状態不明として欠落のまま残し、manifest.status=incompleteとする。not_reachedは実際にPythonが未開始を確定して追記できた段階に限る。
@@ -373,6 +380,7 @@ Arduino microsは約71.6分でwrapする。Pythonは同一デバイス起動区�
     "stage_duration_ms": 10000,
     "schedule_owner": "PYTHON"
   },
+  "metadata_warnings": [],
   "record_counts": {
     "SESSION_EVENT": 2,
     "PWM_STAGE": 31,
@@ -389,14 +397,14 @@ Arduino microsは約71.6分でwrapする。Pythonは同一デバイス起動区�
 
 ```jsonl
 {"schema_version":"2.0.0","record_type":"SESSION_EVENT","record_id":"evt-start","record_seq":1,"log_id":"MOTOR-310-000001","measurement_session_id":"310S-20261101-0001","recorded_at_utc":"2026-11-01T01:05:00.000Z","event":"SESSION_STARTED","host_monotonic_ns":5000000000,"details":{"measurement_type":"PWM_START_SWEEP_310S"}}
-{"schema_version":"2.0.0","record_type":"CALIBRATION","record_id":"cal-raw-01","record_seq":2,"log_id":"MOTOR-310-000001","measurement_session_id":"310S-20261101-0001","recorded_at_utc":"2026-11-01T01:05:00.005Z","calibration_id":"cal-raw-01","source":"firmware_CAL_line","raw_line":"CAL,<firmware-emitted-original-line>","captured_at_utc":"2026-11-01T01:05:00.005Z","captured_host_monotonic_ns":5005000000,"effective_from_event_id":null,"effective_until_event_id":null,"channels":{"A0":{"signal_role":"winding_current","calibration_role":"winding_current_zero_reference","parameter_status":"raw_only_unparsed","parameters":null},"A1":{"signal_role":"brush_stability_observation","calibration_role":"brush_observation_reference","parameter_status":"raw_only_unparsed","parameters":null},"A4":{"signal_role":"voltage_v4","calibration_role":"voltage_input_reference","parameter_status":"raw_only_unparsed","parameters":null},"A5":{"signal_role":"voltage_v5","calibration_role":"voltage_input_reference","parameter_status":"raw_only_unparsed","parameters":null}}}
-{"schema_version":"2.0.0","record_type":"ADC_SAMPLE","record_id":"sample-a0-001","record_seq":3,"log_id":"MOTOR-310-000001","measurement_session_id":"310S-20261101-0001","recorded_at_utc":"2026-11-01T01:05:00.025Z","sample_id":"sample-a0-001","channel":"A0","sensor":"ACS712 #1","signal_role":"winding_current","adc_raw":512,"adc_resolution_bits":10,"raw_unit":"count","device_timestamp_us_u32":12345678,"device_timestamp_point":"conversion_midpoint","device_epoch_id":"boot-epoch-01","device_elapsed_us":12345678,"device_sample_sequence":1,"host_received_at_utc":"2026-11-01T01:05:00.025Z","host_received_monotonic_ns":5025000000,"stage_context_id":"ctx-000","stage_id":"PWM-00","stage_assignment":"confirmed","calibration_id":"cal-raw-01","validity":"valid","invalid_reason":null}
+{"schema_version":"2.0.0","record_type":"CALIBRATION","record_id":"cal-raw-01","record_seq":2,"log_id":"MOTOR-310-000001","measurement_session_id":"310S-20261101-0001","recorded_at_utc":"2026-11-01T01:05:00.005Z","calibration_id":"cal-raw-01","source":"firmware_CAL_line","raw_line":"CAL,<firmware-emitted-original-line>","captured_at_utc":"2026-11-01T01:05:00.005Z","captured_host_monotonic_ns":5005000000,"effective_from_event_id":null,"effective_until_event_id":null,"application_status":"raw_capture_only","channels":{"A0":{"signal_role":"winding_current","calibration_role":"winding_current_zero_reference","parameter_status":"raw_only_unparsed","parameters":null},"A1":{"signal_role":"brush_stability_observation","calibration_role":"brush_observation_reference","parameter_status":"raw_only_unparsed","parameters":null},"A4":{"signal_role":"voltage_v4","calibration_role":"voltage_input_reference","parameter_status":"raw_only_unparsed","parameters":null},"A5":{"signal_role":"voltage_v5","calibration_role":"voltage_input_reference","parameter_status":"raw_only_unparsed","parameters":null}}}
+{"schema_version":"2.0.0","record_type":"ADC_SAMPLE","record_id":"sample-a0-001","record_seq":3,"log_id":"MOTOR-310-000001","measurement_session_id":"310S-20261101-0001","recorded_at_utc":"2026-11-01T01:05:00.025Z","sample_id":"sample-a0-001","channel":"A0","sensor":"ACS712 #1","signal_role":"winding_current","adc_raw":512,"adc_resolution_bits":10,"raw_unit":"count","device_timestamp_us_u32":12345678,"device_timestamp_point":"conversion_midpoint","device_epoch_id":"boot-epoch-01","device_elapsed_us":12345678,"device_sample_sequence":1,"host_received_at_utc":"2026-11-01T01:05:00.025Z","host_received_monotonic_ns":5025000000,"stage_context_id":"ctx-000","stage_id":"PWM-00","stage_assignment":"confirmed","calibration_id":null,"validity":"valid","invalid_reason":null}
 {"schema_version":"2.0.0","record_type":"ADC_SAMPLE","record_id":"sample-a1-001","record_seq":4,"log_id":"MOTOR-310-000001","measurement_session_id":"310S-20261101-0001","recorded_at_utc":"2026-11-01T01:05:00.026Z","sample_id":"sample-a1-001","channel":"A1","sensor":"ACS712 #2","signal_role":"brush_stability_observation","adc_raw":509,"adc_resolution_bits":10,"raw_unit":"count","device_timestamp_us_u32":12346700,"device_timestamp_point":"conversion_midpoint","device_epoch_id":"boot-epoch-01","device_elapsed_us":12346700,"device_sample_sequence":2,"host_received_at_utc":"2026-11-01T01:05:00.026Z","host_received_monotonic_ns":5026000000,"stage_context_id":"ctx-000","stage_id":"PWM-00","stage_assignment":"confirmed","calibration_id":"cal-raw-01","validity":"valid","invalid_reason":null}
 {"schema_version":"2.0.0","record_type":"ADC_SAMPLE","record_id":"sample-a4-001","record_seq":5,"log_id":"MOTOR-310-000001","measurement_session_id":"310S-20261101-0001","recorded_at_utc":"2026-11-01T01:05:00.027Z","sample_id":"sample-a4-001","channel":"A4","sensor":"voltage_input_v4","signal_role":"voltage_v4","adc_raw":620,"adc_resolution_bits":10,"raw_unit":"count","device_timestamp_us_u32":12347800,"device_timestamp_point":"conversion_midpoint","device_epoch_id":"boot-epoch-01","device_elapsed_us":12347800,"device_sample_sequence":3,"host_received_at_utc":"2026-11-01T01:05:00.027Z","host_received_monotonic_ns":5027000000,"stage_context_id":"ctx-000","stage_id":"PWM-00","stage_assignment":"confirmed","calibration_id":"cal-raw-01","validity":"valid","invalid_reason":null}
 {"schema_version":"2.0.0","record_type":"ADC_SAMPLE","record_id":"sample-a5-001","record_seq":6,"log_id":"MOTOR-310-000001","measurement_session_id":"310S-20261101-0001","recorded_at_utc":"2026-11-01T01:05:00.028Z","sample_id":"sample-a5-001","channel":"A5","sensor":"voltage_input_v5","signal_role":"voltage_v5","adc_raw":101,"adc_resolution_bits":10,"raw_unit":"count","device_timestamp_us_u32":12348900,"device_timestamp_point":"conversion_midpoint","device_epoch_id":"boot-epoch-01","device_elapsed_us":12348900,"device_sample_sequence":4,"host_received_at_utc":"2026-11-01T01:05:00.028Z","host_received_monotonic_ns":5028000000,"stage_context_id":"ctx-000","stage_id":"PWM-00","stage_assignment":"confirmed","calibration_id":"cal-raw-01","validity":"valid","invalid_reason":null}
-{"schema_version":"2.0.0","record_type":"PWM_STAGE","record_id":"stage-00","record_seq":7,"log_id":"MOTOR-310-000001","measurement_session_id":"310S-20261101-0001","recorded_at_utc":"2026-11-01T01:05:10.000Z","stage_id":"PWM-00","stage_index":0,"pwm_command":0,"planned_duration_ms":10000,"stage_status":"completed","started_at_utc":"2026-11-01T01:05:00.010Z","ended_at_utc":"2026-11-01T01:05:10.010Z","start_host_monotonic_ns":5010000000,"end_host_monotonic_ns":15010000000,"actual_duration_ms":10000,"pwm_command_sent_at_utc":"2026-11-01T01:05:00.000Z","pwm_applied_ack_received_at_utc":"2026-11-01T01:05:00.010Z","output_state":"unknown","stage_context_id":"ctx-000","termination_reason":"duration_elapsed"}
+{"schema_version":"2.0.0","record_type":"PWM_STAGE","record_id":"stage-00","record_seq":7,"log_id":"MOTOR-310-000001","measurement_session_id":"310S-20261101-0001","recorded_at_utc":"2026-11-01T01:05:10.031Z","stage_id":"PWM-00","stage_index":0,"pwm_command":0,"planned_duration_ms":10000,"stage_status":"completed","started_at_utc":"2026-11-01T01:05:00.010Z","ended_at_utc":"2026-11-01T01:05:10.010Z","start_host_monotonic_ns":5010000000,"end_host_monotonic_ns":15010000000,"actual_duration_ms":10000,"pwm_command_sent_at_utc":"2026-11-01T01:05:00.000Z","pwm_applied_ack_received_at_utc":"2026-11-01T01:05:00.010Z","output_state":"unknown","stage_context_id":"ctx-000","termination_reason":"duration_elapsed"}
 {"schema_version":"2.0.0","record_type":"EVENT","record_id":"evt-rotation-start","record_seq":8,"log_id":"MOTOR-310-000001","measurement_session_id":"310S-20261101-0001","recorded_at_utc":"2026-11-01T01:05:13.400Z","event":"ROTATION_START_CONFIRMED","observation_method":"human_visual","actor":"user","observed_at_utc":"2026-11-01T01:05:13.350Z","reported_at_utc":"2026-11-01T01:05:13.400Z","host_monotonic_ns":18390000000,"stage_id":"PWM-01","stage_index":1,"pwm_value":1,"note":"目視で回転開始を確認","external_rpm":null}
-{"schema_version":"2.0.0","record_type":"PWM_STAGE","record_id":"stage-01","record_seq":9,"log_id":"MOTOR-310-000001","measurement_session_id":"310S-20261101-0001","recorded_at_utc":"2026-11-01T01:05:13.500Z","stage_id":"PWM-01","stage_index":1,"pwm_command":1,"planned_duration_ms":10000,"stage_status":"aborted","started_at_utc":"2026-11-01T01:05:10.020Z","ended_at_utc":"2026-11-01T01:05:13.500Z","start_host_monotonic_ns":15020000000,"end_host_monotonic_ns":18500000000,"actual_duration_ms":3480,"pwm_command_sent_at_utc":"2026-11-01T01:05:10.000Z","pwm_applied_ack_received_at_utc":"2026-11-01T01:05:10.020Z","output_state":"unknown","stage_context_id":"ctx-001","termination_reason":"user_stop"}
+{"schema_version":"2.0.0","record_type":"PWM_STAGE","record_id":"stage-01","record_seq":9,"log_id":"MOTOR-310-000001","measurement_session_id":"310S-20261101-0001","recorded_at_utc":"2026-11-01T01:05:13.500Z","stage_id":"PWM-01","stage_index":1,"pwm_command":1,"planned_duration_ms":10000,"stage_status":"aborted","started_at_utc":"2026-11-01T01:05:10.030Z","ended_at_utc":"2026-11-01T01:05:13.500Z","start_host_monotonic_ns":15030000000,"end_host_monotonic_ns":18500000000,"actual_duration_ms":3470,"pwm_command_sent_at_utc":"2026-11-01T01:05:10.010Z","pwm_applied_ack_received_at_utc":"2026-11-01T01:05:10.030Z","output_state":"unknown","stage_context_id":"ctx-001","termination_reason":"user_stop"}
 {"schema_version":"2.0.0","record_type":"PWM_STAGE","record_id":"stage-02","record_seq":10,"log_id":"MOTOR-310-000001","measurement_session_id":"310S-20261101-0001","recorded_at_utc":"2026-11-01T01:05:13.600Z","stage_id":"PWM-02","stage_index":2,"pwm_command":2,"planned_duration_ms":10000,"stage_status":"not_reached","started_at_utc":null,"ended_at_utc":null,"start_host_monotonic_ns":null,"end_host_monotonic_ns":null,"actual_duration_ms":null,"pwm_command_sent_at_utc":null,"pwm_applied_ack_received_at_utc":null,"output_state":"unknown","stage_context_id":null,"termination_reason":"not_started_after_abort"}
 {"schema_version":"2.0.0","record_type":"PWM_STAGE","record_id":"stage-03","record_seq":11,"log_id":"MOTOR-310-000001","measurement_session_id":"310S-20261101-0001","recorded_at_utc":"2026-11-01T01:05:13.600Z","stage_id":"PWM-03","stage_index":3,"pwm_command":3,"planned_duration_ms":10000,"stage_status":"not_reached","started_at_utc":null,"ended_at_utc":null,"start_host_monotonic_ns":null,"end_host_monotonic_ns":null,"actual_duration_ms":null,"pwm_command_sent_at_utc":null,"pwm_applied_ack_received_at_utc":null,"output_state":"unknown","stage_context_id":null,"termination_reason":"not_started_after_abort"}
 {"schema_version":"2.0.0","record_type":"PWM_STAGE","record_id":"stage-04","record_seq":12,"log_id":"MOTOR-310-000001","measurement_session_id":"310S-20261101-0001","recorded_at_utc":"2026-11-01T01:05:13.600Z","stage_id":"PWM-04","stage_index":4,"pwm_command":4,"planned_duration_ms":10000,"stage_status":"not_reached","started_at_utc":null,"ended_at_utc":null,"start_host_monotonic_ns":null,"end_host_monotonic_ns":null,"actual_duration_ms":null,"pwm_command_sent_at_utc":null,"pwm_applied_ack_received_at_utc":null,"output_state":"unknown","stage_context_id":null,"termination_reason":"not_started_after_abort"}
@@ -429,7 +437,7 @@ Arduino microsは約71.6分でwrapする。Pythonは同一デバイス起動区�
 {"schema_version":"2.0.0","record_type":"SESSION_EVENT","record_id":"evt-aborted","record_seq":39,"log_id":"MOTOR-310-000001","measurement_session_id":"310S-20261101-0001","recorded_at_utc":"2026-11-01T01:05:13.600Z","event":"SESSION_ABORTED","host_monotonic_ns":18600000000,"details":{"reason":"user_stop","last_completed_stage_index":0,"aborted_stage_index":1}}
 ```
 
-この例ではPWM-00が完了、PWM-01がユーザー停止により中断、PWM-02～PWM-30が中断処理時に未到達として確定している。各PWM_STAGEは最終状態の1行のみであり、running行や後続の状態更新行は存在しない。SESSION_EVENT、CALIBRATION、ADC_SAMPLE、EVENTの各例も共通エンベロープと必須フィールドを満たす。
+この例ではPWM-00のACK受信（01:05:00.010Z）から10,000ms経過した01:05:10.010ZにPWM-01指令を送信し、同時刻をPWM-00の終了境界とする。PWM-01の適用ACKは01:05:10.030Zであり、同時刻をPWM-01の開始認識時刻とする。PWM-00の最終レコードは次段階ACK後の01:05:10.031Zに記録され、ended_atより前にrecorded_atが来ることはない。PWM-01は01:05:13.500Zの停止指令送信で中断し、実経過時間はACKから停止指令までの3,470msである。PWM-02～PWM-30は中断処理時に未到達として確定している。各PWM_STAGEは最終状態の1行のみであり、running行や後続の状態更新行は存在しない。CALIBRATIONはraw_capture_onlyであるため、サンプルのcalibration_idはnullであり、raw_line保存を校正適用と誤認しない。SESSION_EVENT、CALIBRATION、ADC_SAMPLE、EVENTの各例も共通エンベロープと必須フィールドを満たす。
 
 
 ## 11. 旧RawLog v1との互換性境界
