@@ -67,7 +67,15 @@ The host parser returns:
 - the exact original line (without line terminator) for traceability,
 - protocol version and record type.
 
-RawLog v2 stores AUX as an additive record collection (JSONL is the proposed representation), retaining the original wire line and typed fields. Derived records are stored separately and include at minimum:
+RawLog v2 stores AUX as an additive record collection (JSONL is the proposed representation), retaining the original wire line and typed fields.
+
+The wire format's stable sample identity is derived by Python as
+`<session_id>:<sequence>:<channel>`. It is not added to the serial wire
+record and does not replace the raw sequence or timestamp. The host storage
+layer rejects duplicate sample identities within one RawLog rather than
+silently overwriting or merging them. Derived records reference these IDs.
+
+Derived records are stored separately and include at minimum:
 - derived metric name,
 - formula/algorithm identifier and version,
 - input sample IDs,
