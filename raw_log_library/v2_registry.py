@@ -15,7 +15,7 @@ from contextlib import contextmanager
 from typing import Mapping
 
 
-_ID_RE = re.compile(r"^MOTOR-(\\d{6})$")
+_ID_RE = re.compile(r"^MOTOR-(\d{6})$")
 _MUTABLE_FIELDS = {
     "motor_instance_id",
     "instance_visible",
@@ -73,7 +73,7 @@ class RawLogV2Registry:
 
     def _write_index(self, data: dict) -> None:
         temporary = self.index_path.with_suffix(".json.tmp")
-        encoded = json.dumps(data, ensure_ascii=False, indent=2, allow_nan=False) + "\\n"
+        encoded = json.dumps(data, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
         with temporary.open("w", encoding="utf-8", newline="") as stream:
             stream.write(encoded)
             stream.flush()
