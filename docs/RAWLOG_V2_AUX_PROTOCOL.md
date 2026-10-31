@@ -89,7 +89,7 @@ For a registered local RawLog body such as `MOTOR-000123.log`, the host may add:
 
 - `MOTOR-000123.aux.jsonl`: one JSON object per validated AUX record. Each object contains `record_type=AUX`, all typed wire fields, and `raw_line`.
 - `MOTOR-000123.derived.jsonl`: one JSON object per derived result, separate from raw AUX.
-- `MOTOR-000123.manifest.json`: `schema=mini4wd.rawlog.v2`, `log_id`, immutable `raw_body` reference, AUX sidecar name/count, parse diagnostics, Derived sidecar name/count, and Derived status.
+- `MOTOR-000123.manifest.json`: `schema=mini4wd.rawlog.v2`, `log_id`, the application `measurement_session_id`, unique firmware `aux_session_ids`, immutable `raw_body` reference, AUX sidecar name/count, parse diagnostics, Derived sidecar name/count, and Derived status.
 
 A manifest is created only when AUX or explicitly supplied Derived records exist. Existing v1 logs without sidecars remain v1 and are not backfilled or reclassified. The original raw body, including its received line endings, is never rewritten by sidecar registration.
 
