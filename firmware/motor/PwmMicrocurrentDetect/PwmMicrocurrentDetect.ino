@@ -9,7 +9,7 @@
  */
 #include <Arduino.h>
 #include "PwmDetectSequence.h"
-#include "WindingAdcTimestampCapture.h"
+#include "MicrocurrentCapture.h"
 
 static const char FW_VERSION[] = "3.04-MICROCURRENT-DEV";
 static const char FW_BUILD_ID[] = "PWM0-30-10S-AUX2-20261031";
@@ -21,7 +21,7 @@ static const uint32_t SERIAL_BAUD = 57600UL;
 static const uint32_t LINK_TIMEOUT_MS = 2000UL;
 
 PwmDetectSequence::Sequence sequence;
-WindingAdcTimestampCapture::Frame frame;
+MicrocurrentCapture::Frame frame;
 char rx[48];
 uint8_t rxIndex = 0;
 bool armed = false;
@@ -94,7 +94,7 @@ static void stopRun(const __FlashStringHelper *reason) {
 
 static void handleLine(char *line) {
   lastCommandMs = millis();
-  if (strcmp(line, "INFO") == 0) {
+  if (strcmp(line, "PING") == 0) {\n    Serial.println(F("PONG"));\n    return;\n  }\n  if (strcmp(line, "INFO") == 0) {
     Serial.print(F("INFO,"));
     Serial.print(FW_VERSION);
     Serial.print(',');
