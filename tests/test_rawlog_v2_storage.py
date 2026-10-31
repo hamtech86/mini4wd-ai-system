@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from communication.rawlog_v2_aux import parse_aux_line
 from controllers.local_raw_log_breakin_controller import LocalRawLogBreakinController
 from raw_log_library import RawLog, RawLogLibrary
@@ -79,6 +81,7 @@ def test_local_raw_log_controller_attaches_aux_sidecar(tmp_path):
     )
     controller.active_instance_id = "7"
     controller.active_recipe_name = "A0_TEST"
+    controller.session = SimpleNamespace(session_id="session-1", firmware_version="3.03")
 
     record = controller._register_raw_log(serial.raw_log)
 
