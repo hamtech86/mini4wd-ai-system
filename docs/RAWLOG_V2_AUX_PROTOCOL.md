@@ -97,13 +97,39 @@ Each Derived record requires `metric`, `algorithm_id`, `algorithm_version`, `inp
 
 This is the local filesystem persistence contract only. Remote GitHub synchronization and UI presentation of sidecars remain separate work. Do not silently change the existing RawLog v1 26-column DATA record or convert old v1 logs to v2.
 
-## 6. Error handling
+## 6. Python timestamp alignment behavior
+
+The host-side alignment helper preserves serial arrival order within each
+session and creates an unwrapped timestamp as a separate derived field:
+
+- The raw `timestamp_us` remains the original uint32 value.
+- A decrease larger than half the uint32 range is treated as the normal
+  `micros()` rollover and adds 2^32 to the unwrapped timeline.
+- A smaller backwards movement is rejected as an ordering error; the host
+  does not silently sort or guess the intended order.
+- Timeline state is independent for each session ID.
+- Samples are grouped by `(session_id, sequence)`. Duplicate channels in one
+  acquisition cycle are rejected.
+- A4/A5 skew is recorded as signed `A5 timestamp - A4 timestamp` in
+  microseconds. No maximum skew threshold is imposed by this helper.
+- A missing A4 or A5 produces an invalid/incomplete pair with an explicit
+  reason; no ADC value is substituted.
+- Phase, direction, PWM, and run-state disagreement within one cycle makes
+  that cycle's A4/A5 pair invalid.
+- A0 and A1 remain separate channel samples. Their values are not averaged or
+  substituted for each other.
+
+The helper performs alignment only. It does not convert ADC counts to volts or
+amperes, calculate resistance, infer brush stability, or decide whether a
+measured skew is physically acceptable.
+
+## 7. Error handling
 
 Reject malformed AUX records: wrong field count/type/version, empty tokens, unknown channel/direction, non-integer values, out-of-range ADC/PWM/sequence/timestamp. Preserve rejected original text in the transport capture/error stream with a parse error; do not silently discard it and do not turn it into a DATA frame.
 
 No invalid sample is replaced with zero or a previous sample.
 
-## 7. Example
+## 8. Example
 
 ```
 AUX,2,sess_20261031_0001,42,WINDING,FWD,0,MEASURE,A0,514,123456
@@ -113,11 +139,11 @@ AUX,2,sess_20261031_0001,42,WINDING,FWD,0,MEASURE,A5,498,123471
 
 These are three distinct conversions in one acquisition cycle. They are raw ADC counts, not amperes or volts.
 
-## 8. Implementation sequence
+## 9. Implementation sequence
 
 1. Host-side strict parser and unit tests (implemented).
 2. Serial dispatch in the active SerialController (implemented; CI pending).
 3. Local AUX/Derived sidecars and manifest with v1 non-reclassification tests (implemented; CI pending).
-4. Add explicit session-ID consistency checks and define timestamp unwrap/pairing outputs without inventing a skew threshold.
+4. Implemented host-side stable sample IDs, per-session timestamp unwrapping, cycle grouping, and signed A4/A5 skew reporting without inventing a skew threshold.
 5. Implement firmware emission against the approved contract; Arduino-side changes remain acquisition/timestamp/output only.
 6. Integration tests, then compile and physical-device validation as separate gates.
