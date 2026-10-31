@@ -41,6 +41,7 @@ def test_v1_raw_body_is_immutable_and_v2_aux_is_additive(tmp_path):
     assert manifest["schema"] == "mini4wd.rawlog.v2"
     assert manifest["raw_body"] == raw_path.name
     assert manifest["aux_record_count"] == 2
+    assert manifest["aux_session_ids"] == ["session-1"]
     stored = library.read_v2_aux(record.log_id)
     assert [item["channel"] for item in stored] == ["A0", "A4"]
     assert [item["sample_id"] for item in stored] == [
@@ -91,6 +92,8 @@ def test_local_raw_log_controller_attaches_aux_sidecar(tmp_path):
     assert record.log_id == "MOTOR-000001"
     manifest = library.read_v2_manifest(record.log_id)
     assert manifest["aux_record_count"] == 2
+    assert manifest["measurement_session_id"] == "session-1"
+    assert manifest["aux_session_ids"] == ["session-1"]
     assert [row["channel"] for row in library.read_v2_aux(record.log_id)] == ["A0", "A4"]
     assert serial.records == []
     assert serial.errors == []
