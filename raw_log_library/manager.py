@@ -162,7 +162,7 @@ class RawLogLibrary:
                 "timestamp_us": value.get("timestamp_us"),
                 "raw_line": value.get("raw_line"),
             }, ensure_ascii=False, separators=(",", ":")))
-        atomic_write(aux_path, "".join(line + "\\n" for line in aux_lines))
+        atomic_write(aux_path, "".join(line + "\n" for line in aux_lines))
 
         manifest = {
             "schema": "mini4wd.rawlog.v2",
@@ -175,7 +175,7 @@ class RawLogLibrary:
             "derived_records": None,
             "derived_status": "NOT_GENERATED",
         }
-        atomic_write(manifest_path, json.dumps(manifest, ensure_ascii=False, indent=2) + "\\n")
+        atomic_write(manifest_path, json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
         return {
             "manifest_path": str(manifest_path),
             "aux_path": str(aux_path) if normalized else "",
