@@ -24,6 +24,8 @@ def test_all_confirmed_channels_are_accepted_independently():
 
 @pytest.mark.parametrize("line", [
     "",
+    " " + VALID,
+    VALID + " ",
     "DATA," + ",".join(["0"] * 25),
     VALID + ",extra",
     "AUX,1,sess,1,WINDING,FWD,0,MEASURE,A0,500,100",
