@@ -38,13 +38,14 @@ int main() {
     assert(!sequence.stop());
 
     // Unsigned millis() subtraction handles wraparound.
-    assert(sequence.begin(0xfffffff0UL));
-    assert(!sequence.update(0xfffffff0UL + 9999UL));
-    assert(sequence.update((uint32_t)(0xfffffff0UL + 10000UL)));
-    assert(sequence.snapshot((uint32_t)(0xfffffff0UL + 10000UL)).pwm == 1);
+    const uint32_t wrap_start = 0xfffffff0UL;
+    assert(sequence.begin(wrap_start));
+    assert(!sequence.update((uint32_t)(wrap_start + 9999UL)));
+    assert(sequence.update((uint32_t)(wrap_start + 10000UL)));
+    assert(sequence.snapshot((uint32_t)(wrap_start + 10000UL)).pwm == 1);
 
     // A delayed loop advances only one stage, never skipping PWM values.
-    assert(sequence.update((uint32_t)(0xfffffff0UL + 30000UL)));
-    assert(sequence.snapshot((uint32_t)(0xfffffff0UL + 30000UL)).pwm == 2);
+    assert(sequence.update((uint32_t)(wrap_start + 30000UL)));
+    assert(sequence.snapshot((uint32_t)(wrap_start + 30000UL)).pwm == 2);
     return 0;
 }
