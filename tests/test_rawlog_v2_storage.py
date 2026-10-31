@@ -103,7 +103,10 @@ def test_derived_records_keep_formula_version_inputs_and_validity(tmp_path):
     library = RawLogLibrary(tmp_path)
     record = RawLog(device_type="MOTOR", motor_id="10")
     library.register(record, "DATA," + ",".join(["0"] * 25) + "\n")
-    aux = [parse_aux_line("AUX,2,session-1,1,WINDING,FWD,0,MEASURE,A0,512,1000")]
+    aux = [
+        parse_aux_line("AUX,2,session-1,1,WINDING,FWD,0,MEASURE,A0,512,1000"),
+        parse_aux_line("AUX,2,session-1,2,WINDING,FWD,0,MEASURE,A4,600,1010"),
+    ]
     library.register_v2_aux(record.log_id, aux, [])
     derived = [{
         "metric": "winding_resistance",
@@ -167,3 +170,62 @@ def test_duplicate_aux_sample_identity_is_rejected(tmp_path):
         library.register_v2_aux(record.log_id, duplicate_samples, [])
 
     assert library.read_v2_manifest(record.log_id) is None
+
+def test_derived_records_cannot_reclassify_legacy_v1_log(tmp_path):
+    import pytest
+
+    library = RawLogLibrary(tmp_path)
+    record = RawLog(device_type="MOTOR", motor_id="13")
+    library.register(record, "DATA," + ",".join(["0"] * 25) + "\\n")
+    derived = [{
+        "metric": "example", "algorithm_id": "example", "algorithm_version": "1",
+        "input_sample_ids": ["old:1:A0"], "value": 1.0, "unit": "unit",
+        "valid": True, "invalid_reason": None,
+    }]
+
+    with pytest.raises(ValueError, match="legacy v1 logs are never reclassified"):
+        library.register_v2_derived(record.log_id, derived)
+    assert library.read_v2_manifest(record.log_id) is None
+
+
+def test_derived_records_reject_unknown_input_sample_ids(tmp_path):
+    import pytest
+
+    library = RawLogLibrary(tmp_path)
+    record = RawLog(device_type="MOTOR", motor_id="14")
+    library.register(record, "DATA," + ",".join(["0"] * 25) + "\\n")
+    library.register_v2_aux(
+        record.log_id,
+        [parse_aux_line("AUX,2,session-1,1,WINDING,FWD,0,MEASURE,A0,512,1000")],
+        [],
+    )
+    derived = [{
+        "metric": "example", "algorithm_id": "example", "algorithm_version": "1",
+        "input_sample_ids": ["session-1:999:A0"], "value": 1.0, "unit": "unit",
+        "valid": True, "invalid_reason": None,
+    }]
+
+    with pytest.raises(ValueError, match="unknown AUX samples"):
+        library.register_v2_derived(record.log_id, derived)
+    assert library.read_v2_derived(record.log_id) == []
+
+
+def test_manifest_rejects_path_traversal_sidecar_reference(tmp_path):
+    import json
+    import pytest
+
+    library = RawLogLibrary(tmp_path)
+    record = RawLog(device_type="MOTOR", motor_id="15")
+    library.register(record, "DATA," + ",".join(["0"] * 25) + "\\n")
+    library.register_v2_aux(
+        record.log_id,
+        [parse_aux_line("AUX,2,session-1,1,WINDING,FWD,0,MEASURE,A0,512,1000")],
+        [],
+    )
+    manifest_path = library.get(record.log_id)[1].with_suffix(".manifest.json")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["aux_records"] = "../../outside.jsonl"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="invalid RawLog v2 aux_records reference"):
+        library.read_v2_aux(record.log_id)
