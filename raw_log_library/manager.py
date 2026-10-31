@@ -182,6 +182,97 @@ class RawLogLibrary:
             "aux_path": str(aux_path) if normalized else "",
         }
 
+    def register_v2_derived(self, log_id: str, records) -> Optional[str]:
+        """Persist reproducible derived outputs without performing analysis."""
+        import math
+        import os
+
+        _, raw_path, _ = self.get(log_id)
+        normalized = []
+        required = {
+            "metric", "algorithm_id", "algorithm_version",
+            "input_sample_ids", "value", "unit", "valid", "invalid_reason",
+        }
+        for item in records or []:
+            value = dict(item)
+            missing = required - set(value)
+            if missing:
+                raise ValueError(f"derived record missing fields: {sorted(missing)}")
+            if not isinstance(value["metric"], str) or not value["metric"].strip():
+                raise ValueError("derived metric must be a non-empty string")
+            if not isinstance(value["algorithm_id"], str) or not value["algorithm_id"].strip():
+                raise ValueError("derived algorithm_id must be a non-empty string")
+            if not isinstance(value["algorithm_version"], str) or not value["algorithm_version"].strip():
+                raise ValueError("derived algorithm_version must be a non-empty string")
+            ids = value["input_sample_ids"]
+            if not isinstance(ids, list) or not ids or any(not isinstance(x, str) or not x for x in ids):
+                raise ValueError("input_sample_ids must be a non-empty list of sample IDs")
+            if type(value["valid"]) is not bool:
+                raise ValueError("derived valid must be boolean")
+            if value["valid"]:
+                if value["value"] is None or value["invalid_reason"] not in (None, ""):
+                    raise ValueError("valid derived records require a value and no invalid_reason")
+                if isinstance(value["value"], bool) or not isinstance(value["value"], (int, float)):
+                    raise ValueError("valid derived value must be numeric")
+                if not math.isfinite(float(value["value"])):
+                    raise ValueError("valid derived value must be finite")
+            elif not isinstance(value["invalid_reason"], str) or not value["invalid_reason"].strip():
+                raise ValueError("invalid derived records require an invalid_reason")
+            normalized.append({
+                "record_type": "DERIVED",
+                **{key: value[key] for key in sorted(required)},
+            })
+        if not normalized:
+            return None
+
+        manifest_path = raw_path.with_suffix(".manifest.json")
+        derived_path = raw_path.with_suffix(".derived.jsonl")
+        if derived_path.exists():
+            raise FileExistsError(f"Derived sidecar already exists for {log_id}")
+        if manifest_path.exists():
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if manifest.get("schema") != "mini4wd.rawlog.v2" or manifest.get("log_id") != log_id:
+                raise ValueError(f"invalid RawLog v2 manifest: {manifest_path}")
+        else:
+            manifest = {
+                "schema": "mini4wd.rawlog.v2",
+                "log_id": log_id,
+                "raw_body": raw_path.name,
+                "raw_body_format": "legacy_serial_text_immutable",
+                "aux_records": None,
+                "aux_record_count": 0,
+                "aux_parse_errors": [],
+            }
+
+        def atomic_write(path: Path, content: str) -> None:
+            temporary = path.with_name(path.name + ".tmp")
+            try:
+                temporary.write_text(content, encoding="utf-8", newline="")
+                os.replace(temporary, path)
+            finally:
+                if temporary.exists():
+                    temporary.unlink()
+
+        payload = "".join(
+            json.dumps(item, ensure_ascii=False, separators=(",", ":")) + "\\n"
+            for item in normalized
+        )
+        atomic_write(derived_path, payload)
+        manifest["derived_records"] = derived_path.name
+        manifest["derived_record_count"] = len(normalized)
+        manifest["derived_status"] = "AVAILABLE"
+        atomic_write(manifest_path, json.dumps(manifest, ensure_ascii=False, indent=2) + "\\n")
+        return str(derived_path)
+
+    def read_v2_derived(self, log_id: str) -> List[Dict[str, object]]:
+        manifest = self.read_v2_manifest(log_id)
+        if manifest is None or not manifest.get("derived_records"):
+            return []
+        _, raw_path, _ = self.get(log_id)
+        derived_path = raw_path.parent / str(manifest["derived_records"])
+        with derived_path.open("r", encoding="utf-8", newline="") as fh:
+            return [json.loads(line) for line in fh if line.strip()]
+
     def read_v2_manifest(self, log_id: str) -> Optional[Dict[str, object]]:
         """Read an explicitly registered v2 manifest; v1 logs return None."""
         _, raw_path, _ = self.get(log_id)
