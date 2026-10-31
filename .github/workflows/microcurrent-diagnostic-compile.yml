@@ -35,6 +35,7 @@ jobs:
           printf 'SOURCE_COMMIT=%s\n' "$(git rev-parse HEAD)" | tee build/microcurrent/BUILD-METADATA.txt
           printf 'BOARD_FQBN=arduino:avr:uno\n' >> build/microcurrent/BUILD-METADATA.txt
           printf 'FW_VERSION=3.04-MICROCURRENT-DEV\n' >> build/microcurrent/BUILD-METADATA.txt
+          printf 'FW_BUILD_ID=PWM0-30-10S-AUX2-20261031\n' >> build/microcurrent/BUILD-METADATA.txt
       - uses: actions/upload-artifact@v4
         with:
           name: microcurrent-diagnostic-uno-${{ github.event.pull_request.head.sha || github.sha }}
