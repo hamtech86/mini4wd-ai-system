@@ -125,7 +125,7 @@ PWM 0～30の各段階について、段階ごとに最終状態のレコード�
 - pwm_command_sent_at_utc: 指令送信時刻。未到達段階はnull
 - pwm_applied_ack_received_at_utc: Arduinoから当該PWMとcontextの適用ACKをPythonが受信した時刻。ACKなしならnull
 - output_state: reported_on / reported_off / unknown。コマンドACKだけから物理出力状態を推定しない
-- stage_context_id: Pythonが段階ごとに生成する一意な不透明ID
+- stage_context_id: Pythonが段階ごとに生成する一意な不透明ID。段階が未到達でIDを発行していない場合のみnull
 - termination_reason: duration_elapsed / user_stop / safety_stop / communication_lost / process_interrupted / not_started_after_abort / other。実行段階の理由。completedではduration_elapsed、not_reachedではnot_started_after_abort
 
 **段階レコードの確定・追記手順**
