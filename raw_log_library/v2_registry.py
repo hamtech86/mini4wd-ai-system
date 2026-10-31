@@ -91,6 +91,8 @@ class RawLogV2Registry:
         """Allocate an ID exactly once and create its v2 package under one lock."""
         if not isinstance(motor_instance_id, str) or not motor_instance_id.strip():
             raise RawLogV2RegistryError("motor_instance_id must be selected before measurement")
+        if Path(store.root).resolve() != self.root.resolve():
+            raise RawLogV2RegistryError("registry root and store root must match")
         with self._locked():
             index = self._read_index()
             used = self._used_ids(index["entries"])
@@ -157,7 +159,29 @@ class RawLogV2Registry:
         with self._locked():
             index = self._read_index()
             if log_id not in index["entries"]:
-                raise RawLogV2RegistryError(f"unknown v2 log_id: {log_id}")
+                if not isinstance(log_id, str) or not _ID_RE.fullmatch(log_id):
+                    raise RawLogV2RegistryError(f"unknown v2 log_id: {log_id}")
+                package_dir = self.root / log_id
+                manifest_path = package_dir / "manifest.json"
+                if not manifest_path.is_file() or not (package_dir / "records.jsonl").is_file():
+                    raise RawLogV2RegistryError(f"unknown v2 log_id: {log_id}")
+                try:
+                    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError) as exc:
+                    raise RawLogV2RegistryError(f"cannot recover package metadata: {exc}") from exc
+                if manifest.get("log_id") != log_id:
+                    raise RawLogV2RegistryError("package manifest log_id mismatch")
+                index["entries"][log_id] = {
+                    "log_id": log_id,
+                    "motor_instance_id": manifest.get("motor_instance_id"),
+                    "instance_visible": True,
+                    "note": "",
+                    "history_registered": False,
+                    "github_status": "UNREGISTERED",
+                    "github_repository": None,
+                    "github_path": None,
+                    "github_registered_at": None,
+                }
             entry = index["entries"][log_id]
             for key, value in changes.items():
                 if key == "motor_instance_id" and value is not None and (
