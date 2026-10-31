@@ -114,6 +114,93 @@ class RawLogLibrary:
         self._append_index(self._index_row(record, raw_path))
         return raw_path
 
+    def register_v2_aux(self, log_id: str, records, parse_errors=None) -> Optional[Dict[str, str]]:
+        """Persist AUX v2 beside an existing immutable RawLog body.
+
+        Legacy DATA bodies and index/metadata schemas are deliberately untouched.
+        A v2 manifest is created only when this log actually has AUX content.
+        """
+        import os
+        from dataclasses import is_dataclass
+
+        _, raw_path, _ = self.get(log_id)
+        parse_errors = list(parse_errors or [])
+        normalized = []
+        for record in records or []:
+            value = asdict(record) if is_dataclass(record) else dict(record)
+            normalized.append(value)
+        if not normalized and not parse_errors:
+            return None
+
+        aux_path = raw_path.with_suffix(".aux.jsonl")
+        manifest_path = raw_path.with_suffix(".manifest.json")
+        if aux_path.exists() or manifest_path.exists():
+            raise FileExistsError(f"RawLog v2 sidecar already exists for {log_id}")
+
+        def atomic_write(path: Path, content: str) -> None:
+            temporary = path.with_name(path.name + ".tmp")
+            try:
+                temporary.write_text(content, encoding="utf-8", newline="")
+                os.replace(temporary, path)
+            finally:
+                if temporary.exists():
+                    temporary.unlink()
+
+        aux_lines = []
+        for value in normalized:
+            aux_lines.append(json.dumps({
+                "record_type": "AUX",
+                "protocol_version": value.get("protocol_version"),
+                "session_id": value.get("session_id"),
+                "sequence": value.get("sequence"),
+                "phase": value.get("phase"),
+                "direction": value.get("direction"),
+                "pwm": value.get("pwm"),
+                "run_state": value.get("run_state"),
+                "channel": value.get("channel"),
+                "adc_raw": value.get("adc_raw"),
+                "timestamp_us": value.get("timestamp_us"),
+                "raw_line": value.get("raw_line"),
+            }, ensure_ascii=False, separators=(",", ":")))
+        atomic_write(aux_path, "".join(line + "\\n" for line in aux_lines))
+
+        manifest = {
+            "schema": "mini4wd.rawlog.v2",
+            "log_id": log_id,
+            "raw_body": raw_path.name,
+            "raw_body_format": "legacy_serial_text_immutable",
+            "aux_records": aux_path.name if normalized else None,
+            "aux_record_count": len(normalized),
+            "aux_parse_errors": parse_errors,
+            "derived_records": None,
+            "derived_status": "NOT_GENERATED",
+        }
+        atomic_write(manifest_path, json.dumps(manifest, ensure_ascii=False, indent=2) + "\\n")
+        return {
+            "manifest_path": str(manifest_path),
+            "aux_path": str(aux_path) if normalized else "",
+        }
+
+    def read_v2_manifest(self, log_id: str) -> Optional[Dict[str, object]]:
+        """Read an explicitly registered v2 manifest; v1 logs return None."""
+        _, raw_path, _ = self.get(log_id)
+        manifest_path = raw_path.with_suffix(".manifest.json")
+        if not manifest_path.exists():
+            return None
+        value = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if value.get("schema") != "mini4wd.rawlog.v2" or value.get("log_id") != log_id:
+            raise ValueError(f"invalid RawLog v2 manifest: {manifest_path}")
+        return value
+
+    def read_v2_aux(self, log_id: str) -> List[Dict[str, object]]:
+        manifest = self.read_v2_manifest(log_id)
+        if manifest is None or not manifest.get("aux_records"):
+            return []
+        _, raw_path, _ = self.get(log_id)
+        aux_path = raw_path.parent / str(manifest["aux_records"])
+        with aux_path.open("r", encoding="utf-8", newline="") as fh:
+            return [json.loads(line) for line in fh if line.strip()]
+
     def update_metadata(self, *args: str, **changes: str) -> RawLog:
         # Keep log_id positional-only so attempts to mutate it via keyword
         # reach the immutability check instead of Python's duplicate-arg error.
