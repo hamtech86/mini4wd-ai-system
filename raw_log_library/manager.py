@@ -114,7 +114,9 @@ class RawLogLibrary:
         self._append_index(self._index_row(record, raw_path))
         return raw_path
 
-    def register_v2_aux(\n        self, log_id: str, records, parse_errors=None, measurement_session_id=None\n    ) -> Optional[Dict[str, str]]:
+    def register_v2_aux(
+        self, log_id: str, records, parse_errors=None, measurement_session_id=None
+    ) -> Optional[Dict[str, str]]:
         """Persist AUX v2 beside an existing immutable RawLog body.
 
         Legacy DATA bodies and index/metadata schemas are deliberately untouched.
