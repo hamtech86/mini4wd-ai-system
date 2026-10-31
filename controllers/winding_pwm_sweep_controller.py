@@ -7,6 +7,7 @@ module; start() requires an already identified, connected SerialController.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import math
 import time
 from typing import Callable
 
