@@ -120,9 +120,9 @@ PWM 0～30の各段階について、段階ごとに最終状態のレコード�
 - pwm_command: 整数0～30。stage_indexと同値
 - planned_duration_ms: 固定値10000
 - stage_status: completed / aborted / not_reached のいずれか。保存されるPWM_STAGEにrunning / not_startedは存在しない
-- started_at_utc, ended_at_utc: Pythonが段階の実行開始/終了を認識したUTC時刻。未到達段階は両方null
-- start_host_monotonic_ns, end_host_monotonic_ns: 同じPython単調時計ドメインの値。未到達段階は両方null
-- actual_duration_ms: 実行段階の実経過時間。未到達段階はnull。abortedでは中断までの実経過時間
+- started_at_utc: 当該段階の適用ACKをPythonが受信したUTC時刻。ended_at_utc: 次段階指令または停止指令をPythonが送信したUTC時刻。未到達段階は両方null
+- start_host_monotonic_ns, end_host_monotonic_ns: それぞれstarted_at_utc / ended_at_utcに対応する同一Python単調時計ドメインの値。未到達段階は両方null
+- actual_duration_ms: 適用ACK受信から次段階指令/停止指令送信までのホスト観測区間（end_host_monotonic_ns − start_host_monotonic_ns）。物理出力の継続時間ではない。未到達段階はnull
 - pwm_command_sent_at_utc: 指令送信時刻。未到達段階はnull
 - pwm_applied_ack_received_at_utc: Arduinoから当該PWMとcontextの適用ACKをPythonが受信した時刻。ACKなしならnull
 - output_state: reported_on / reported_off / unknown。コマンドACKだけから物理出力状態を推定しない
@@ -140,7 +140,7 @@ PWM 0～30の各段階について、段階ごとに最終状態のレコード�
 段階時刻の意味:
 - started_at_utc / start_host_monotonic_nsは、適用ACKをPythonが受信した時刻であり、Arduino内部のPWM更新時刻そのものではない。
 - pwm_applied_ack_received_at_utcはArduinoがPWM指令とcontext IDを適用した旨を返したACKのホスト受信時刻。ACKの意味は「FW内部の指令・context更新完了」であり、負荷端子の物理出力を計測・証明した意味ではない。
-- ended_at_utc / end_host_monotonic_nsはPythonが次段階への切替または停止を認識した時刻。実際の電気的な出力変化時刻と同一と断定しない。
+- ended_at_utc / end_host_monotonic_nsはPythonが次段階のPWM指令または停止指令を送信した時刻。次段階ACK受信時刻ではない。前段階の境界を指令送信時刻に固定し、指令送信から次段階ACKまでの待ち時間は前後いずれのactual_duration_msにも含めない。実際の電気的な出力変化時刻・物理出力継続時間と同一と断定しない。
 - 予定310,000msはスケジュール値であり、実測合計が310,000msと一致する保証はない。遅延・ACK待ち・中断を実値で残す。
 
 
