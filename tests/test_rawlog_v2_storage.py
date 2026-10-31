@@ -91,3 +91,55 @@ def test_local_raw_log_controller_attaches_aux_sidecar(tmp_path):
     assert [row["channel"] for row in library.read_v2_aux(record.log_id)] == ["A0", "A4"]
     assert serial.records == []
     assert serial.errors == []
+
+
+def test_derived_records_keep_formula_version_inputs_and_validity(tmp_path):
+    library = RawLogLibrary(tmp_path)
+    record = RawLog(device_type="MOTOR", motor_id="10")
+    library.register(record, "DATA," + ",".join(["0"] * 25) + "\n")
+    aux = [parse_aux_line("AUX,2,session-1,1,WINDING,FWD,0,MEASURE,A0,512,1000")]
+    library.register_v2_aux(record.log_id, aux, [])
+    derived = [{
+        "metric": "winding_resistance",
+        "algorithm_id": "winding_resistance_pairing",
+        "algorithm_version": "0.1.0",
+        "input_sample_ids": ["session-1:1:A0", "session-1:2:A4"],
+        "value": 0.42,
+        "unit": "ohm",
+        "valid": True,
+        "invalid_reason": None,
+    }]
+
+    path = library.register_v2_derived(record.log_id, derived)
+
+    assert path.endswith(".derived.jsonl")
+    saved = library.read_v2_derived(record.log_id)
+    assert saved[0]["metric"] == "winding_resistance"
+    assert saved[0]["algorithm_version"] == "0.1.0"
+    assert saved[0]["input_sample_ids"] == derived[0]["input_sample_ids"]
+    manifest = library.read_v2_manifest(record.log_id)
+    assert manifest["derived_status"] == "AVAILABLE"
+    assert manifest["derived_record_count"] == 1
+
+
+def test_invalid_derived_record_requires_reason_and_does_not_write(tmp_path):
+    library = RawLogLibrary(tmp_path)
+    record = RawLog(device_type="MOTOR", motor_id="11")
+    library.register(record, "DATA," + ",".join(["0"] * 25) + "\n")
+    invalid = [{
+        "metric": "brush_stability",
+        "algorithm_id": "brush_eval",
+        "algorithm_version": "0.1.0",
+        "input_sample_ids": ["session-1:5:A1"],
+        "value": None,
+        "unit": "ratio",
+        "valid": False,
+        "invalid_reason": "",
+    }]
+
+    import pytest
+    with pytest.raises(ValueError, match="invalid_reason"):
+        library.register_v2_derived(record.log_id, invalid)
+
+    assert library.read_v2_manifest(record.log_id) is None
+    assert library.read_v2_derived(record.log_id) == []
