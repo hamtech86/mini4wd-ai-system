@@ -172,7 +172,7 @@ class WindingPwmSweepController:
                     return self._snapshot()
                 self.stage_index = next_index
                 self.stage_pwm = next_pwm
-                self._stage_started_monotonic = now
+                self._stage_started_monotonic = self.monotonic()
                 self._append_stage_started()
                 return self._snapshot()
 
@@ -209,6 +209,8 @@ class WindingPwmSweepController:
                 if result is False:
                     self._fault("STOP_COMMAND_FAILED", detail=reason)
                     return False
+                self.device.read_measurement()
+                self._consume_new_lines()
             else:
                 self._fault("SERIAL_CONNECTION_LOST", detail=reason)
                 return False
@@ -231,6 +233,10 @@ class WindingPwmSweepController:
         result = self.device.stop_breakin()
         if result is False:
             self._fault("FINAL_STOP_COMMAND_FAILED")
+            return
+        self.device.read_measurement()
+        self._consume_new_lines()
+        if not self.active:
             return
         self._append_event("SWEEP_COMPLETED", {
             "stage_count": len(self.STAGES),
@@ -390,6 +396,8 @@ class WindingPwmSweepController:
             "record_type": "MEASUREMENT",
             **mapping,
             "unavailable_fields": unavailable,
+            "sweep_stage_index": self.stage_index,
+            "sweep_stage_pwm": self.stage_pwm,
             "firmware_elapsed_time_ms": parsed.get("elapsed_time"),
             "raw_wire_line": raw_line,
         }
