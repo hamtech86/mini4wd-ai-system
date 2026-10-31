@@ -254,14 +254,14 @@ class RawLogLibrary:
                     temporary.unlink()
 
         payload = "".join(
-            json.dumps(item, ensure_ascii=False, separators=(",", ":")) + "\\n"
+            json.dumps(item, ensure_ascii=False, separators=(",", ":")) + "\n"
             for item in normalized
         )
         atomic_write(derived_path, payload)
         manifest["derived_records"] = derived_path.name
         manifest["derived_record_count"] = len(normalized)
         manifest["derived_status"] = "AVAILABLE"
-        atomic_write(manifest_path, json.dumps(manifest, ensure_ascii=False, indent=2) + "\\n")
+        atomic_write(manifest_path, json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
         return str(derived_path)
 
     def read_v2_derived(self, log_id: str) -> List[Dict[str, object]]:
