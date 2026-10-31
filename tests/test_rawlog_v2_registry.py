@@ -25,7 +25,7 @@ def test_v2_registry_allocates_ids_and_creates_v2_packages_only(tmp_path):
 
     first = registry.create_package(store, _manifest(), motor_instance_id="000007")
     second = registry.create_package(
-        store, _manifest("session-002"), motor_instance_id="000008"
+        RawLogV2Store(tmp_path), _manifest("session-002"), motor_instance_id="000008"
     )
 
     assert first.name == "MOTOR-000001"
@@ -70,7 +70,7 @@ def test_only_management_fields_can_be_changed(tmp_path):
     assert item["note"] == "inspection note"
 
     with pytest.raises(RawLogV2RegistryError, match="immutable"):
-        registry.update_management("MOTOR-000001", log_id="MOTOR-000099")
+        registry.update_management("MOTOR-000001", schema="tampered")
 
 
 def test_existing_v2_package_id_is_never_reused(tmp_path):
@@ -86,3 +86,22 @@ def test_registry_rejects_unknown_log_for_management_update(tmp_path):
     registry = RawLogV2Registry(tmp_path)
     with pytest.raises(RawLogV2RegistryError, match="unknown"):
         registry.update_management("MOTOR-000001", note="x")
+
+
+def test_registry_recovers_management_entry_for_orphaned_v2_package(tmp_path):
+    registry = RawLogV2Registry(tmp_path)
+    store = RawLogV2Store(tmp_path)
+    package = store.create({**_manifest(), "log_id": "MOTOR-000001", "motor_instance_id": "000007"})
+    (package / "records.jsonl").touch(exist_ok=True)
+
+    registry.update_management("MOTOR-000001", note="recovered")
+    recovered = registry.get("MOTOR-000001")
+    assert recovered["motor_instance_id"] == "000007"
+    assert recovered["note"] == "recovered"
+
+
+def test_registry_rejects_store_with_different_root(tmp_path):
+    registry = RawLogV2Registry(tmp_path / "registry")
+    store = RawLogV2Store(tmp_path / "other")
+    with pytest.raises(RawLogV2RegistryError, match="root must match"):
+        registry.create_package(store, _manifest(), motor_instance_id="000007")
