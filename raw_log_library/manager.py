@@ -126,8 +126,33 @@ class RawLogLibrary:
         _, raw_path, _ = self.get(log_id)
         parse_errors = list(parse_errors or [])
         normalized = []
+        sample_ids = set()
         for record in records or []:
             value = asdict(record) if is_dataclass(record) else dict(record)
+            required_aux = {
+                "protocol_version", "session_id", "sequence", "phase",
+                "direction", "pwm", "run_state", "channel", "adc_raw",
+                "timestamp_us", "raw_line",
+            }
+            missing_aux = required_aux - set(value)
+            if missing_aux:
+                raise ValueError(f"AUX record missing fields: {sorted(missing_aux)}")
+            if value["protocol_version"] != 2:
+                raise ValueError("unsupported AUX protocol_version")
+            session_id = value["session_id"]
+            sequence = value["sequence"]
+            channel = value["channel"]
+            if not isinstance(session_id, str) or not session_id:
+                raise ValueError("AUX session_id must be a non-empty string")
+            if type(sequence) is not int or not 0 <= sequence <= 0xFFFFFFFF:
+                raise ValueError("AUX sequence must be an unsigned 32-bit integer")
+            if channel not in {"A0", "A1", "A4", "A5"}:
+                raise ValueError("AUX channel is invalid")
+            sample_id = f"{session_id}:{sequence}:{channel}"
+            if sample_id in sample_ids:
+                raise ValueError(f"duplicate AUX sample_id: {sample_id}")
+            sample_ids.add(sample_id)
+            value["sample_id"] = sample_id
             normalized.append(value)
         if not normalized and not parse_errors:
             return None
@@ -150,6 +175,7 @@ class RawLogLibrary:
         for value in normalized:
             aux_lines.append(json.dumps({
                 "record_type": "AUX",
+                "sample_id": value.get("sample_id"),
                 "protocol_version": value.get("protocol_version"),
                 "session_id": value.get("session_id"),
                 "sequence": value.get("sequence"),
