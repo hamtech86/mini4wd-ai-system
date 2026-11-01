@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -29,6 +30,10 @@ CAL_CHANNELS = {
 
 def _is_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
 def _utc(value: Any) -> bool:
@@ -129,7 +134,8 @@ def validate_manifest(manifest: Any) -> List[str]:
             errors.append("measurement_conditions.voltage_control_mode is invalid")
         fixed = {"sweep_pwm_min": 0, "sweep_pwm_max": 30, "stage_duration_ms": 10000, "schedule_owner": "PYTHON"}
         for key, expected in fixed.items():
-            if conditions.get(key) != expected:
+            value = conditions.get(key)
+            if value != expected or (key != "schedule_owner" and not _is_int(value)):
                 errors.append(f"measurement_conditions.{key} must be {expected}")
     warnings = manifest.get("metadata_warnings", [])
     if not isinstance(warnings, list) or any(not isinstance(item, str) for item in warnings):
@@ -196,9 +202,9 @@ def validate_record(record: Any, manifest: Dict[str, Any], index: int = 0) -> Li
         if not _is_int(idx) or not 0 <= idx <= 30:
             errors.append(f"{prefix}.stage_index must be integer 0..30")
         else:
-            if record.get("stage_id") != f"PWM-{idx:02d}" or record.get("pwm_command") != idx:
+            if record.get("stage_id") != f"PWM-{idx:02d}" or not _is_int(record.get("pwm_command")) or record.get("pwm_command") != idx:
                 errors.append(f"{prefix} stage_id/pwm_command must match stage_index")
-        if record.get("planned_duration_ms") != 10000:
+        if not _is_int(record.get("planned_duration_ms")) or record.get("planned_duration_ms") != 10000:
             errors.append(f"{prefix}.planned_duration_ms must be 10000")
         if not isinstance(record.get("stage_status"), str) or record.get("stage_status") not in {"completed", "aborted", "not_reached"}:
             errors.append(f"{prefix}.stage_status is invalid")
@@ -210,10 +216,13 @@ def validate_record(record: Any, manifest: Dict[str, Any], index: int = 0) -> Li
         for key in ("started_at_utc", "ended_at_utc", "pwm_command_sent_at_utc", "pwm_applied_ack_received_at_utc"):
             if record.get(key) is not None and not _utc(record[key]):
                 errors.append(f"{prefix}.{key} must be null or UTC ISO-8601")
-        for key in ("start_host_monotonic_ns", "end_host_monotonic_ns", "actual_duration_ms"):
+        for key in ("start_host_monotonic_ns", "end_host_monotonic_ns"):
             val = record.get(key)
             if val is not None and (not _is_int(val) or val < 0):
                 errors.append(f"{prefix}.{key} must be null or non-negative integer")
+        duration = record.get("actual_duration_ms")
+        if duration is not None and (not _is_number(duration) or duration < 0):
+            errors.append(f"{prefix}.actual_duration_ms must be null or non-negative number")
         if record.get("stage_context_id") is not None and not _nonempty_string(record["stage_context_id"]):
             errors.append(f"{prefix}.stage_context_id must be non-empty string or null")
         if record.get("stage_status") == "not_reached":
@@ -369,6 +378,8 @@ def validate_record(record: Any, manifest: Dict[str, Any], index: int = 0) -> Li
                     errors.append(f"{prefix}.channels.{ch} role mismatch")
                 if item.get("parameter_status") != "raw_only_unparsed" or item.get("parameters") is not None:
                     errors.append(f"{prefix}.channels.{ch} must remain raw_only_unparsed with null parameters")
+        if status == "scoped_for_application":
+            errors.append(f"{prefix}.scoped_for_application is not permitted while the current schema channels are raw-only")
 
     elif kind == "EVENT":
         _require(record, ("event", "observation_method", "actor", "observed_at_utc",
@@ -431,9 +442,10 @@ def validate_package(manifest: Any, records: Any, raise_on_error: bool = True) -
         if not isinstance(record, dict):
             continue
         rid = record.get("record_id")
-        if rid in seen_ids:
-            errors.append(f"duplicate record_id: {rid}")
-        seen_ids.add(rid)
+        if isinstance(rid, str):
+            if rid in seen_ids:
+                errors.append(f"duplicate record_id: {rid}")
+            seen_ids.add(rid)
         seq = record.get("record_seq")
         if seq != index + 1:
             errors.append(f"record_seq at row {index + 1} must be {index + 1}, got {seq}")
@@ -442,14 +454,16 @@ def validate_package(manifest: Any, records: Any, raise_on_error: bool = True) -
             actual_counts[kind] = actual_counts.get(kind, 0) + 1
         if kind == "ADC_SAMPLE":
             sid = record.get("sample_id")
-            if sid in seen_samples:
-                errors.append(f"duplicate sample_id: {sid}")
-            seen_samples.add(sid)
+            if isinstance(sid, str):
+                if sid in seen_samples:
+                    errors.append(f"duplicate sample_id: {sid}")
+                seen_samples.add(sid)
         elif kind == "CALIBRATION":
             cid = record.get("calibration_id")
-            if cid in seen_calibrations:
-                errors.append(f"duplicate calibration_id: {cid}")
-            seen_calibrations.add(cid)
+            if isinstance(cid, str):
+                if cid in seen_calibrations:
+                    errors.append(f"duplicate calibration_id: {cid}")
+                seen_calibrations.add(cid)
         elif kind == "PWM_STAGE":
             idx = record.get("stage_index")
             if _is_int(idx):
@@ -457,7 +471,7 @@ def validate_package(manifest: Any, records: Any, raise_on_error: bool = True) -
                     errors.append(f"duplicate PWM_STAGE stage_index: {idx}")
                 stages[idx] = record
                 context = record.get("stage_context_id")
-                if context is not None:
+                if isinstance(context, str):
                     if context in contexts:
                         errors.append(f"duplicate PWM_STAGE stage_context_id: {context}")
                     contexts[context] = record
@@ -472,7 +486,7 @@ def validate_package(manifest: Any, records: Any, raise_on_error: bool = True) -
         if record.get("record_type") == "ADC_SAMPLE":
             context = record.get("stage_context_id")
             assignment = record.get("stage_assignment")
-            stage = contexts.get(context) if context is not None else None
+            stage = contexts.get(context) if isinstance(context, str) else None
             if assignment == "confirmed":
                 if stage is None:
                     errors.append(f"ADC_SAMPLE {record.get('sample_id')} confirmed context has no PWM_STAGE")
@@ -486,10 +500,27 @@ def validate_package(manifest: Any, records: Any, raise_on_error: bool = True) -
                     errors.append(f"ADC_SAMPLE {record.get('sample_id')} references unknown calibration_id")
                 elif cal.get("application_status") != "scoped_for_application":
                     errors.append(f"ADC_SAMPLE {record.get('sample_id')} references non-applicable raw-only calibration")
+                elif record.get("channel") not in cal.get("channels", {}):
+                    errors.append(f"ADC_SAMPLE {record.get('sample_id')} calibration has no matching channel")
         if record.get("record_type") == "EVENT" and record.get("stage_id") is not None:
-            stage = stages.get(record.get("stage_index"))
+            stage_index = record.get("stage_index")
+            stage = stages.get(stage_index) if _is_int(stage_index) else None
             if stage is None or stage.get("stage_id") != record.get("stage_id") or stage.get("pwm_command") != record.get("pwm_value"):
                 errors.append(f"EVENT {record.get('record_id')} does not match a PWM_STAGE")
+
+    samples_by_id = {
+        r.get("sample_id"): r for r in records
+        if isinstance(r, dict) and r.get("record_type") == "ADC_SAMPLE"
+        and isinstance(r.get("sample_id"), str)
+    }
+    for record in records:
+        if isinstance(record, dict) and record.get("record_type") == "DERIVED":
+            for sample_id in record.get("input_sample_ids", []) if isinstance(record.get("input_sample_ids"), list) else []:
+                sample = samples_by_id.get(sample_id) if isinstance(sample_id, str) else None
+                if sample is None:
+                    errors.append(f"DERIVED {record.get('record_id')} references unknown input sample {sample_id}")
+                elif sample.get("channel") in {"A2", "A3"}:
+                    errors.append(f"DERIVED {record.get('record_id')} cannot use A2/A3 reference samples")
 
     status = manifest.get("status")
     if status == "completed":
