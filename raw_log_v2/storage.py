@@ -52,6 +52,9 @@ def _publish_new_file(path: Path, payload: bytes, temp_path: Path) -> None:
                 raise ExistingPackageError(f"invalid staging entry: {temp_path}")
             temp_path.unlink()
             _fsync_dir(temp_path.parent)
+        # An earlier attempt may have linked this name and crashed before
+        # syncing the parent directory. Reconfirm durability on every retry.
+        _fsync_dir(path.parent)
         return
     if temp_path.exists():
         if temp_path.is_symlink() or not temp_path.is_file():
@@ -176,11 +179,24 @@ class RawLogV2Writer:
             _, digest = _snapshot_tree(original)
             if digest != record.get("source_tree_sha256"):
                 raise RawLogV2Error("preserved recovery original hash mismatch")
+            # Reconfirm the entire preservation chain on every retry. This
+            # covers a crash after hard-link publication but before directory
+            # fsync, including the manifest-last commit point.
+            original_dirs = sorted(
+                (p for p in original.rglob("*") if p.is_dir()),
+                key=lambda p: len(p.parts), reverse=True)
+            for directory in original_dirs:
+                _fsync_dir(directory)
+            _fsync_dir(original)
+            _fsync_dir(recovery_dir)
+            _fsync_dir(parent)
+            _fsync_dir(self.recovery_root)
             final = self.root / log_id
             mp, dp = final / "manifest.json", final / "records.jsonl"
             if not (mp.is_file() and dp.is_file()): continue
             if {p.name for p in final.iterdir()} != {"manifest.json", "records.jsonl"}: continue
             if _sha256(mp.read_bytes()) == record.get("final_manifest_sha256") and _sha256(dp.read_bytes()) == record.get("final_records_sha256"):
+                _fsync_dir(final)
                 matches.append(record)
         if len(matches) == 1: return matches[0]
         if len(matches) > 1: raise RawLogV2Error("multiple recovery records match the final package")
