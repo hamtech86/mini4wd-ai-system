@@ -193,3 +193,46 @@ def test_visual_event_is_human_reported_and_not_adc_timestamp(tmp_path):
     assert event["stage_id"] == "PWM-00"
     assert event["observed_at_utc"] != event["reported_at_utc"] or event["host_monotonic_ns"] > 0
     ctl.abort("test_end")
+
+
+def test_protocol_client_uses_injected_codec_and_mock_only():
+    from measurement_310.transport import ProtocolClient
+    class Codec:
+        def encode_pwm(self, pwm):
+            return f"opaque-command-{pwm}".encode()
+        def encode_stop(self):
+            return b"opaque-stop"
+        def decode(self, payload):
+            return {"kind": "PWM_ACK", "pwm": 7}
+    mock = MockTransport()
+    client = ProtocolClient(mock, Codec())
+    client.connect()
+    sent_at = client.send_pwm(7)
+    assert sent_at.endswith("Z")
+    assert mock.sent == [b"opaque-command-7"]
+    mock.queue(b"opaque-ack")
+    ack = client.poll_ack()
+    assert ack[0] == 7
+    assert ack[1].endswith("Z")
+    client.send_stop()
+    assert mock.sent[-1] == b"opaque-stop"
+    client.disconnect()
+
+
+def test_ack_mismatch_stops_without_advancing_or_auto_restarting(tmp_path):
+    clock = FakeClock()
+    sent, stops = [], []
+    acks = [(1, clock.utc_now())]
+    ctl = SequenceController(RawLogV2Writer(tmp_path), manifest(tmp_path),
+        lambda pwm: sent.append(pwm) or clock.utc_now(), lambda: stops.append(True),
+        lambda: acks.pop(0) if acks else None, clock)
+    ctl.startup_recover()
+    ctl.start()
+    ctl.poll()
+    assert ctl.state == SequenceState.FAULT
+    assert sent == [0]
+    assert stops == [True]
+    # A later apparent communication recovery is not polled into a restart.
+    acks.append((0, clock.utc_now()))
+    assert ctl.poll() == SequenceState.FAULT
+    assert sent == [0]
