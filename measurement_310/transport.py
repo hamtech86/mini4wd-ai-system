@@ -114,16 +114,17 @@ class MockTransport:
         self.incoming.append(bytes(payload))
 
 class ProtocolClient:
-    """Protocol-neutral client. Codec owns framing and firmware grammar.
+    """Protocol-neutral client with separate ACK and unsolicited-message paths.
 
-    Codec output is normalized to a mapping such as
-    {"kind": "PWM_ACK", "pwm": 12}. Host receipt time is captured here.
-    This is an internal adapter contract, not a wire-format decision.
+    The injected codec owns framing and firmware grammar. Non-ACK messages are
+    retained in arrival order and can be consumed with poll_message(); they are
+    never mistaken for ACKs or silently discarded.
     """
     def __init__(self, transport: SerialTransport, codec: MessageCodec):
         self.transport, self.codec = transport, codec
         self.connected = False
         self._receive_buffer = bytearray()
+        self._pending_messages: list[object] = []
 
     def connect(self):
         self.transport.connect()
@@ -135,6 +136,7 @@ class ProtocolClient:
         finally:
             self.connected = False
             self._receive_buffer.clear()
+            self._pending_messages.clear()
 
     def send_pwm(self, pwm: int) -> str:
         if not self.connected:
@@ -156,41 +158,66 @@ class ProtocolClient:
         except Exception as exc:
             raise TransportError(f"STOP command send failed: {exc}") from exc
 
-    def poll_ack(self, timeout_s: float = 0.0):
+    def _decode_buffered_message(self) -> tuple[bool, object]:
+        if not self._receive_buffer:
+            return False, None
+        try:
+            decoded = self.codec.decode(bytes(self._receive_buffer))
+        except IncompleteMessage:
+            return False, None
+        if isinstance(decoded, DecodedFrame):
+            consumed = decoded.consumed_bytes
+            if (not isinstance(consumed, int) or isinstance(consumed, bool)
+                    or consumed <= 0 or consumed > len(self._receive_buffer)):
+                raise TransportError("codec returned invalid consumed byte count")
+            del self._receive_buffer[:consumed]
+            return True, decoded.message
+        # Compatibility for legacy codecs: one mapping consumes the whole buffer.
+        self._receive_buffer.clear()
+        return True, decoded
+
+    def _receive_one(self, timeout_s: float) -> tuple[bool, object]:
+        """Return one decoded message, first draining already-buffered frames."""
         if not self.connected:
             raise TransportError("device connection is unavailable")
         try:
+            available, message = self._decode_buffered_message()
+            if available:
+                return True, message
             payload = self.transport.receive(timeout_s)
             if payload is not None:
                 if not isinstance(payload, (bytes, bytearray, memoryview)):
                     raise TransportError("transport returned non-byte payload")
                 self._receive_buffer.extend(payload)
-            if not self._receive_buffer:
-                return None
-            try:
-                decoded = self.codec.decode(bytes(self._receive_buffer))
-            except IncompleteMessage:
-                return None
-            # Exact consumption preserves any coalesced following frame.
-            if isinstance(decoded, DecodedFrame):
-                consumed = decoded.consumed_bytes
-                if (not isinstance(consumed, int) or isinstance(consumed, bool)
-                        or consumed <= 0 or consumed > len(self._receive_buffer)):
-                    raise TransportError("codec returned invalid consumed byte count")
-                del self._receive_buffer[:consumed]
-                message = decoded.message
-            else:
-                self._receive_buffer.clear()
-                message = decoded
-            if not isinstance(message, dict) or message.get("kind") != "PWM_ACK":
-                raise TransportError("response type/format mismatch")
-            pwm = message.get("pwm")
-            if not isinstance(pwm, int) or isinstance(pwm, bool) or not 0 <= pwm <= 30:
-                raise TransportError("invalid ACK PWM")
-            from datetime import datetime, timezone
-            received_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-            return pwm, received_at
+            return self._decode_buffered_message()
         except TransportError:
             raise
         except Exception as exc:
             raise TransportError(f"response receive/decode failed: {exc}") from exc
+
+    def poll_message(self, timeout_s: float = 0.0):
+        """Return the next unsolicited/non-ACK message, or None when no frame is ready."""
+        if not self.connected:
+            raise TransportError("device connection is unavailable")
+        if self._pending_messages:
+            return self._pending_messages.pop(0)
+        available, message = self._receive_one(timeout_s)
+        return message if available else None
+
+    def poll_ack(self, timeout_s: float = 0.0):
+        """Find the next PWM_ACK while preserving every other decoded message."""
+        first_read = True
+        while True:
+            available, message = self._receive_one(timeout_s if first_read else 0.0)
+            first_read = False
+            if not available:
+                return None
+            if isinstance(message, dict) and message.get("kind") == "PWM_ACK":
+                pwm = message.get("pwm")
+                if not isinstance(pwm, int) or isinstance(pwm, bool) or not 0 <= pwm <= 30:
+                    raise TransportError("invalid ACK PWM")
+                from datetime import datetime, timezone
+                received_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+                return pwm, received_at
+            # Telemetry and unknown message kinds are preserved for the caller.
+            self._pending_messages.append(message)

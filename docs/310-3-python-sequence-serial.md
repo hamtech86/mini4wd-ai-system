@@ -52,3 +52,18 @@ by the execution environment's DNS failure when resolving github.com.
   complete frame is available. No delimiter or wire grammar is assumed.
 - Added fault-injection tests for observation append failure, finalization
   failure without post-finalize appends, and fragmented serial ACK reception.
+
+
+## 310-3 additional review remediation (follow-up)
+- Any RawLog append exception latches the controller into a write-disabled state.
+  Abort still attempts STOP, but it does not append an aborted-stage or session
+  event to the failed work area. This applies to ADC_SAMPLE, EVENT, ACK event,
+  PWM_STAGE, and SESSION_EVENT append failures.
+- ProtocolClient routes PWM_ACK separately from unsolicited messages. Non-ACK
+  and unknown message objects are retained in arrival order for poll_message();
+  ACK polling drains them without treating them as ACK mismatches. Framing
+  remains codec-owned and no 310-4 wire grammar is selected.
+- Integration fault-injection tests exercise the actual RawLog v2 finalize path
+  at records publication, manifest publication, and work cleanup boundaries.
+  They verify startup recovery yields an incomplete package before the manifest
+  commit point and a completed package after it, with no post-finalize appends.

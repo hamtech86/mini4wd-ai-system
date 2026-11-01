@@ -374,3 +374,247 @@ def test_protocol_client_preserves_multiple_frames_in_one_serial_read():
     assert client.poll_ack()[0] == 6
     assert client._receive_buffer == bytearray()
     client.disconnect()
+
+
+@pytest.mark.parametrize(
+    "failure_type,trigger",
+    [
+        ("ACK_EVENT", "ack"),
+        ("PWM_STAGE", "stage"),
+        ("ABORT_EVENT", "abort_event"),
+    ],
+)
+def test_control_record_append_failures_latch_write_disable_and_stop(
+    tmp_path, monkeypatch, failure_type, trigger
+):
+    clock = FakeClock()
+    stops = []
+    acks = [(0, clock.utc_now())]
+    ctl = SequenceController(
+        RawLogV2Writer(tmp_path), manifest(tmp_path),
+        lambda pwm: clock.utc_now(), lambda: stops.append("STOP"),
+        lambda: acks.pop(0) if acks else None, clock,
+    )
+    ctl.startup_recover()
+    ctl.start()
+    calls = []
+    original_append = ctl.session.append
+
+    def fail_selected(record):
+        calls.append(record["record_type"] + ":" + str(record.get("event", "")))
+        selected = (
+            (failure_type == "ACK_EVENT" and record["record_type"] == "SESSION_EVENT"
+             and record.get("event") == "OTHER")
+            or (failure_type == "PWM_STAGE" and record["record_type"] == "PWM_STAGE")
+            or (failure_type == "ABORT_EVENT" and record["record_type"] == "SESSION_EVENT"
+                and record.get("event") == "COMMUNICATION_LOST")
+        )
+        if selected:
+            raise OSError("injected " + failure_type + " append failure")
+        return original_append(record)
+
+    monkeypatch.setattr(ctl.session, "append", fail_selected)
+    if trigger == "ack":
+        ctl.poll()
+    elif trigger == "stage":
+        ctl.poll()
+        clock.advance_ms(10_000)
+        ctl.poll()
+    elif trigger == "abort_event":
+        ctl.abort("communication_lost", fault="injected communication failure")
+    assert ctl.state == SequenceState.FAULT
+    assert ctl._log_write_failed
+    assert stops == ["STOP"]
+    failed_call_count = len(calls)
+    with pytest.raises(SequenceError):
+        ctl._append("SESSION_EVENT", event="MUST_NOT_BE_WRITTEN",
+                    host_monotonic_ns=clock.monotonic_ns(), details={})
+    assert len(calls) == failed_call_count
+    assert not (tmp_path / "TEST-310").exists()
+    assert (tmp_path / ".work" / "TEST-310" / "records.jsonl").is_file()
+
+
+def test_session_started_append_failure_does_not_attempt_followup_append(tmp_path, monkeypatch):
+    clock = FakeClock()
+    stops = []
+    writer = RawLogV2Writer(tmp_path)
+    ctl = SequenceController(
+        writer, manifest(tmp_path), lambda pwm: clock.utc_now(),
+        lambda: stops.append("STOP"), lambda: None, clock,
+    )
+    ctl.startup_recover()
+    original_begin = writer.begin
+    calls = []
+
+    def begin_with_injected_append_failure(fields):
+        session = original_begin(fields)
+        original_append = session.append
+
+        def fail_started(record):
+            calls.append(record["record_type"] + ":" + str(record.get("event", "")))
+            if record["record_type"] == "SESSION_EVENT" and record.get("event") == "SESSION_STARTED":
+                raise OSError("injected SESSION_STARTED append failure")
+            return original_append(record)
+
+        monkeypatch.setattr(session, "append", fail_started)
+        return session
+
+    monkeypatch.setattr(writer, "begin", begin_with_injected_append_failure)
+    ctl.start()
+    assert ctl.state == SequenceState.FAULT
+    assert ctl._log_write_failed
+    assert stops == ["STOP"]
+    assert calls == ["SESSION_EVENT:SESSION_STARTED"]
+    assert (tmp_path / ".work" / "TEST-310" / "records.jsonl").read_bytes() == b""
+
+
+def test_ack_wait_preserves_non_ack_before_ack_and_exposes_it_separately():
+    from measurement_310.transport import DecodedFrame, IncompleteMessage, ProtocolClient
+
+    class StreamCodec:
+        def encode_pwm(self, pwm): return bytes([pwm])
+        def encode_stop(self): return b"!"
+        def decode(self, payload):
+            if len(payload) < 2:
+                raise IncompleteMessage()
+            tag, value = payload[0], payload[1]
+            kind = "PWM_ACK" if tag == ord("A") else "TELEMETRY" if tag == ord("T") else "UNKNOWN"
+            message = {"kind": kind, "value": value}
+            if kind == "PWM_ACK":
+                message["pwm"] = value
+            return DecodedFrame(message, 2)
+
+    mock = MockTransport()
+    client = ProtocolClient(mock, StreamCodec())
+    client.connect()
+    mock.queue(b"T\\x03")
+    mock.queue(b"A\\x07")
+    assert client.poll_ack()[0] == 7
+    assert client.poll_message() == {"kind": "TELEMETRY", "value": 3}
+    assert client.poll_message() is None
+    client.disconnect()
+
+
+def test_ack_then_non_ack_coalesced_and_unknown_message_are_not_discarded():
+    from measurement_310.transport import DecodedFrame, IncompleteMessage, ProtocolClient
+
+    class StreamCodec:
+        def encode_pwm(self, pwm): return bytes([pwm])
+        def encode_stop(self): return b"!"
+        def decode(self, payload):
+            if len(payload) < 2:
+                raise IncompleteMessage()
+            tag, value = payload[0], payload[1]
+            kind = {ord("A"): "PWM_ACK", ord("T"): "TELEMETRY"}.get(tag, "FUTURE_KIND")
+            message = {"kind": kind, "value": value}
+            if kind == "PWM_ACK":
+                message["pwm"] = value
+            return DecodedFrame(message, 2)
+
+    mock = MockTransport()
+    client = ProtocolClient(mock, StreamCodec())
+    client.connect()
+    mock.queue(b"A\\x08T\\x02X\\x09")
+    assert client.poll_ack()[0] == 8
+    assert client.poll_message() == {"kind": "TELEMETRY", "value": 2}
+    assert client.poll_message() == {"kind": "FUTURE_KIND", "value": 9}
+    client.disconnect()
+
+
+@pytest.mark.parametrize(
+    "failure_boundary,expected_status",
+    [
+        ("records_published", "incomplete"),
+        ("manifest_published", "completed"),
+        ("work_cleanup", "completed"),
+    ],
+)
+def test_real_rawlog_finalize_publication_faults_preserve_consistent_recovery(
+    tmp_path, monkeypatch, failure_boundary, expected_status
+):
+    import json
+    import raw_log_v2.storage as storage
+
+    clock = FakeClock()
+    stops = []
+    acks = []
+    writer = RawLogV2Writer(tmp_path)
+    ctl = SequenceController(
+        writer, manifest(tmp_path), lambda pwm: clock.utc_now(),
+        lambda: stops.append("STOP"),
+        lambda: acks.pop(0) if acks else None, clock,
+    )
+    ctl.startup_recover()
+    ctl.start()
+    post_finalize_appends = []
+    original_session_append = ctl.session.append
+
+    def track_append(record):
+        if ctl._finalization_started:
+            post_finalize_appends.append(record)
+        return original_session_append(record)
+
+    monkeypatch.setattr(ctl.session, "append", track_append)
+    work_dir = tmp_path / ".work" / "TEST-310"
+    real_publish = storage._publish_new_file
+    real_rmtree = storage.shutil.rmtree
+    injected = {"done": False}
+
+    if failure_boundary in {"records_published", "manifest_published"}:
+        def fail_after_publication(path, payload, temp_path):
+            result = real_publish(path, payload, temp_path)
+            should_fail = (
+                (failure_boundary == "records_published" and path.name == "records.jsonl")
+                or (failure_boundary == "manifest_published" and path.name == "manifest.json")
+            )
+            if should_fail and not injected["done"]:
+                injected["done"] = True
+                raise OSError("injected after " + failure_boundary)
+            return result
+        monkeypatch.setattr(storage, "_publish_new_file", fail_after_publication)
+    else:
+        def fail_work_cleanup(path, *args, **kwargs):
+            if Path(path) == work_dir and not injected["done"]:
+                injected["done"] = True
+                raise OSError("injected before work cleanup")
+            return real_rmtree(path, *args, **kwargs)
+        monkeypatch.setattr(storage.shutil, "rmtree", fail_work_cleanup)
+
+    for pwm in range(31):
+        acks.append((pwm, clock.utc_now()))
+        ctl.poll()
+        assert ctl.state == SequenceState.RUNNING
+        clock.advance_ms(10_000)
+        ctl.poll()
+        if pwm < 30:
+            assert ctl.state == SequenceState.WAITING_ACK
+    assert injected["done"]
+    assert ctl.state == SequenceState.FAULT
+    assert ctl._finalization_started
+    assert stops == ["STOP"]
+    assert post_finalize_appends == []
+    assert work_dir.is_dir()
+
+    if failure_boundary in {"records_published", "manifest_published"}:
+        monkeypatch.setattr(storage, "_publish_new_file", real_publish)
+    else:
+        monkeypatch.setattr(storage.shutil, "rmtree", real_rmtree)
+
+    recovery = writer.recover_pending()
+    assert len(recovery) == 1
+    final_dir = tmp_path / "TEST-310"
+    assert final_dir.is_dir()
+    final_manifest = json.loads((final_dir / "manifest.json").read_text())
+    final_records = [json.loads(line) for line in
+                     (final_dir / "records.jsonl").read_text().splitlines()]
+    assert final_manifest["status"] == expected_status
+    assert final_records[-1]["record_type"] == "SESSION_EVENT"
+    assert final_records[-1]["event"] == "SESSION_COMPLETED"
+    assert not work_dir.exists()
+    if expected_status == "incomplete":
+        assert recovery[0]["recovery_status"] != "already_published"
+        originals = list((tmp_path / ".recovery" / "TEST-310").glob("crash-*/original"))
+        assert len(originals) == 1
+        assert (originals[0] / "records.jsonl").is_file()
+    else:
+        assert recovery[0]["recovery_status"] == "already_published"

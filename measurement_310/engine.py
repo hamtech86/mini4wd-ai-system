@@ -80,6 +80,8 @@ class SequenceController:
         self._last_fault: Optional[str] = None
         self._recovery_complete = False
         self._finalization_started = False
+        # Once any append fails, this session is write-disabled. STOP is still attempted.
+        self._log_write_failed = False
 
     def startup_recover(self) -> list[dict[str, Any]]:
         if self.state != SequenceState.READY:
@@ -135,6 +137,8 @@ class SequenceController:
             raise SequenceError("sequence startup failed closed") from exc
 
     def _append(self, record_type: str, **payload: Any) -> None:
+        if self._log_write_failed:
+            raise SequenceError("RawLog writes are disabled after an append failure")
         if self.session is None:
             raise SequenceError("RawLog session is not open")
         record = {
@@ -145,7 +149,13 @@ class SequenceController:
             "recorded_at_utc": self.clock.utc_now(),
             **payload,
         }
-        self.session.append(record)
+        try:
+            self.session.append(record)
+        except Exception:
+            # Do not write a FAULT marker into a work area whose append path failed.
+            # Preserve the original .work bytes for RawLog v2 startup recovery.
+            self._log_write_failed = True
+            raise
 
     def _begin_stage(self, index: int) -> None:
         if self.state in {SequenceState.FAULT, SequenceState.ABORTED, SequenceState.STOPPING}:
@@ -331,7 +341,7 @@ class SequenceController:
         previous = self.state
         self.state = SequenceState.STOPPING
         self._last_fault = fault
-        if not self._finalization_started:
+        if not self._finalization_started and not self._log_write_failed:
             try:
                 self._record_aborted_stage(reason)
             except Exception as exc:
@@ -343,7 +353,8 @@ class SequenceController:
         self.state = SequenceState.FAULT if self._last_fault else SequenceState.ABORTED
         # Keep work area incomplete for crash-safe recovery; do not falsely finalize
         # a partially completed sequence or claim physical stop.
-        if self.session is not None and not self._finalization_started:
+        if (self.session is not None and not self._finalization_started
+                and not self._log_write_failed):
             try:
                 self._append("SESSION_EVENT", event="COMMUNICATION_LOST" if fault else "SESSION_ABORTED",
                              host_monotonic_ns=self.clock.monotonic_ns(),
