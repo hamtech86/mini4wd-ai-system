@@ -1,5 +1,6 @@
 import json
 import pytest
+from pathlib import Path
 from raw_log_v2 import ExistingPackageError, RawLogV2Writer, validate_package
 
 NOW = "2026-11-01T00:00:00.000Z"
