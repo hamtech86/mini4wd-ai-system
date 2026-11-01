@@ -58,7 +58,8 @@ class PySerialTransport:
             raise TransportError("serial port is not connected")
         try:
             self._serial.timeout = timeout_s
-            data = self._serial.read_until()
+            available = self._serial.in_waiting
+            data = self._serial.read(available if available > 0 else 1)
             return data or None
         except Exception as exc:
             raise TransportError(f"serial receive failed: {exc}") from exc
@@ -102,7 +103,7 @@ class ProtocolClient:
     """Protocol-neutral client. Codec owns framing and firmware grammar.
 
     Codec output is normalized to a mapping such as
-    {"kind": "PWM_ACK", "pwm": 12, "received_at_utc": "..."}.
+    {"kind": "PWM_ACK", "pwm": 12}. Host receipt time is captured here.
     This is an internal adapter contract, not a wire-format decision.
     """
     def __init__(self, transport: SerialTransport, codec: MessageCodec):
@@ -124,13 +125,12 @@ class ProtocolClient:
             raise TransportError("device connection is unavailable")
         if not isinstance(pwm, int) or isinstance(pwm, bool) or not 0 <= pwm <= 30:
             raise ValueError("PWM must be integer 0..30")
-        from datetime import datetime, timezone
-        stamp = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
         try:
             self.transport.send(self.codec.encode_pwm(pwm))
         except Exception as exc:
             raise TransportError(f"PWM command send failed: {exc}") from exc
-        return stamp
+        from datetime import datetime, timezone
+        return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
     def send_stop(self):
         if not self.connected:
@@ -150,12 +150,12 @@ class ProtocolClient:
             message = self.codec.decode(payload)
             if not isinstance(message, dict) or message.get("kind") != "PWM_ACK":
                 raise TransportError("response type/format mismatch")
-            pwm, stamp = message.get("pwm"), message.get("received_at_utc")
+            pwm = message.get("pwm")
             if not isinstance(pwm, int) or isinstance(pwm, bool) or not 0 <= pwm <= 30:
                 raise TransportError("invalid ACK PWM")
-            if not isinstance(stamp, str) or not stamp:
-                raise TransportError("ACK timestamp missing")
-            return pwm, stamp
+            from datetime import datetime, timezone
+            received_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+            return pwm, received_at
         except TransportError:
             raise
         except Exception as exc:
