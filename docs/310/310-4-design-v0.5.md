@@ -280,8 +280,8 @@ STOP is eligible in every state. `STOPPED` means software stop handling complete
 | BOOT | identity invalid/corrupt/write failure | Any identity check fails | BOOT_ID_INVALID | PWM disabled; no ARM |
 | BOOT_ID_INVALID | STOP | Always | FAULT_STOP | Request PWM=0; return STOP_ACK if transport works |
 | BOOT_ID_INVALID | PWM_SET / ARM | Always reject | BOOT_ID_INVALID | ERROR; no PWM change |
-| IDLE | ARM | Valid session, handshake, fresh token and no fault | ARMED | No drive; ARM_ACK/STATUS |
-| IDLE | PWM_SET | Reject: not armed | IDLE | ERROR; PWM remains 0 |
+| IDLE | HELLO | Valid committed boot identity, valid nonce and nonzero session tag | IDLE | Bind session; HELLO_ACK; no ARM |
+| IDLE / STOP_LATCHED / STOPPED | ARM | Verified HELLO session+epoch, fresh command_id, nonzero context token, initial_pwm=0, no fatal fault | ARMED | ARM_ACK; PWM remains 0 |\n| IDLE | PWM_SET | Reject: not armed | IDLE | ERROR; PWM remains 0 |
 | ARMED | PWM_SET(pwm=0..30) | Valid CRC/header/session/command/token; no stop latch | RUNNING if pwm>0, otherwise ARMED | Apply exact PWM; emit APPLY_ACK |
 | ARMED | invalid PWM_SET | Any validation failure | ARMED or FAULT if internal invariant fails | ERROR; no nonzero output |
 | RUNNING | PWM_SET(pwm=0..30) | Current session/token, fresh command, no stop latch | RUNNING if >0; ARMED if 0 | Apply and ACK |
@@ -290,11 +290,11 @@ STOP is eligible in every state. `STOPPED` means software stop handling complete
 | IDLE | STOP | Always | STOP_LATCHED | PWM=0; STOP_ACK |
 | STOP_LATCHED | STOP duplicate/new | Always | STOP_LATCHED | PWM=0; ACK history outcome |
 | STOP_LATCHED | PWM_SET including zero | Reject as drive/session command; STOP remains latched | STOP_LATCHED | PWM=0; ERROR or idempotent status |
-| STOP_LATCHED | ARM | Re-arm only after new host synchronization boundary and new session token | ARMED | No drive; clear latch only after accepted ARM |
+| STOP_LATCHED | ARM | Only through fresh-session procedure in §9.3 | ARMED | Clear latch only after all ARM validation passes |
 | STOP_LATCHED | stop handling completion | PWM-zero request accepted by output adapter | STOPPED | Report software completion, not physical confirmation |
 | STOPPED | STOP | Always | STOPPED | Idempotent ACK |
 | STOPPED | PWM_SET | Reject until new ARM/session | STOPPED | ERROR; PWM=0 |
-| STOPPED | new valid ARM | New synchronized session and valid boot identity | ARMED | No drive |
+
 | Any non-stop state | protocol/internal fatal fault | Defined fatal condition | FAULT | Immediately request PWM=0 and invalidate ARM |
 | FAULT | STOP | Always | FAULT_STOP | Retry PWM=0 request; STOP_ACK if possible |
 | FAULT | ARM/PWM_SET | Reject | FAULT | ERROR; no drive |
@@ -304,6 +304,24 @@ STOP is eligible in every state. `STOPPED` means software stop handling complete
 STOP acceptance has priority over queued PWM_SET. The command dispatcher must check the stop latch immediately before applying any nonzero PWM, not only when the frame is first parsed. A PWM command received before STOP but still queued when STOP is latched must be discarded.
 
 A failure to confirm PWM output state is not a transition to a claim of physical stop. It is a fault and requires external safety action under a separately approved hardware procedure.
+
+### 9.3 STOP後の再ARMと遅延フレーム排除
+
+STOP後の再ARMは同一セッションを継続して行わない。次の条件を順番どおり満たす場合だけ許可する。
+
+1. STOPをラッチした時点でARM許可を無効化し、未処理PWM_SETキューを破棄する。受信途中フレームもSTOP処理後は旧コマンドとして扱う。
+2. ホストが再開を明示決定し、新しいmeasurement_session_idと、以前と異なるnonzero measurement_session_tagを割り当てる。旧セッションのcommand_idカウンタ/tokenを引き継がない。
+3. ホストは新host_nonce64を含むHELLOを送る。デバイスは現在のboot_id64を維持したまま新セッションタグとnonceを検証してバインドする。HELLOはSTOP_LATCHED/STOPPED状態を解除しない。
+4. HELLO_ACKのnonce、session tag、完全なboot_id64、epoch tagをホストが検証する。不一致なら中止する。
+5. ホストは新セッション用token mapを永続化し、初回tokenを含むARM(initial_pwm=0)を新command_idで送る。
+6. デバイスはCRC/構文→boot epoch→session tag→command_id→状態/トークンの順に検証する。STOPラッチはARMが全検証を通過した最後の時点でのみ解除する。ARM_ACK成功を受信・検証するまでPWM_SETを送らない。
+7. 旧session tag、旧boot epoch tag、旧command_idのPWM_SET/ARMは常に拒否する。STOPだけは安全優先の例外として旧セッションからでもSTOP動作を試みる。
+
+ホストは同一boot epoch内でsession tagを再利用しない。ホスト再起動後も再利用を防ぐ永続割当て方式はPython側設計審査で別途確定するまで未解決。デバイスは現在のsession tagとboot epoch tagが一致しない駆動コマンドを適用しない。
+
+STOPとPWM_SETが同時に処理待ちの場合、STOPを先に処理しPWM_SETを破棄する。STOP後に受信バッファへ遅れて到着した旧フレームも、session/epoch不一致またはARM無効により出力へ到達しない。新HELLO/ARMは、旧セッション由来の受信フレームとコマンドキューを破棄した後にのみ処理する。
+
+この手順はソフトウェア上の遅延フレーム排除要件であり、ハードウェア独立遮断や物理停止の証明ではない。
 
 ## 10. ADC timestamps and clock rollover
 
