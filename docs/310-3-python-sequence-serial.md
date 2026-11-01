@@ -39,3 +39,16 @@ The pySerial adapter is lazy and was not instantiated against a device. All
 sequence and transport tests use injected clocks and in-memory mock transport.
 CI is required for regression evidence; local git/pytest execution was blocked
 by the execution environment's DNS failure when resolving github.com.
+
+
+## Review remediation (PR #182 follow-up)
+- ADC_SAMPLE and human EVENT append failures are caught by the controller,
+  trigger fail-closed abort/STOP attempt, and surface as SequenceError.
+- Once finalize() is entered, the controller does not append abort/stage/session
+  records to the former .work directory. RawLog v2 publication/recovery remains
+  responsible for reconciling partially published packages.
+- ProtocolClient retains received byte fragments and asks the injected codec
+  to decode the accumulated buffer. The codec raises IncompleteMessage until a
+  complete frame is available. No delimiter or wire grammar is assumed.
+- Added fault-injection tests for observation append failure, finalization
+  failure without post-finalize appends, and fragmented serial ACK reception.
