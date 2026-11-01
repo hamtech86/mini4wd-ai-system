@@ -269,12 +269,44 @@ class SequenceController:
         self.session.finalize({"record_counts": {}}, "completed", self.clock.utc_now())
         self.state = SequenceState.COMPLETED
 
+    def _record_aborted_stage(self, reason: str) -> None:
+        if self.session is None or self.stage_index < 0 or self.stage_context_id is None:
+            return
+        if self.command_sent_utc is None:
+            # The transport raised before confirming a completed host write.
+            # Do not invent a command-send timestamp or imply it was sent.
+            return
+        end_ns = self.clock.monotonic_ns()
+        end_utc = self.clock.utc_now()
+        reason_map = {
+            "user_stop": "user_stop", "safety_stop": "safety_stop",
+            "communication_lost": "communication_lost",
+            "process_interrupted": "process_interrupted",
+        }
+        termination = reason_map.get(reason, "other")
+        acknowledged = self.ack_utc is not None and self.stage_start_ns is not None
+        self._append(
+            "PWM_STAGE", stage_id=f"PWM-{self.stage_index:02d}",
+            stage_index=self.stage_index, pwm_command=self.stage_index,
+            planned_duration_ms=self.STAGE_DURATION_MS, stage_status="aborted",
+            started_at_utc=self.stage_start_utc if acknowledged else None,
+            ended_at_utc=end_utc,
+            start_host_monotonic_ns=self.stage_start_ns if acknowledged else None,
+            end_host_monotonic_ns=end_ns,
+            actual_duration_ms=((end_ns - self.stage_start_ns) / 1_000_000) if acknowledged else None,
+            pwm_command_sent_at_utc=self.command_sent_utc,
+            pwm_applied_ack_received_at_utc=self.ack_utc if acknowledged else None,
+            output_state="unknown", stage_context_id=self.stage_context_id,
+            termination_reason=termination,
+        )
+
     def abort(self, reason: str, fault: Optional[str] = None) -> None:
         if self.state in {SequenceState.ABORTED, SequenceState.COMPLETED}:
             return
         previous = self.state
         self.state = SequenceState.STOPPING
         self._last_fault = fault
+        self._record_aborted_stage(reason)
         try:
             self.send_stop()
         except Exception as exc:
