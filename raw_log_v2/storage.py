@@ -249,16 +249,26 @@ class RawLogV2Writer:
             final_dir.mkdir(); _fsync_dir(final_dir.parent)
         elif not final_dir.is_dir(): raise ExistingPackageError("final path is not a directory")
 
+        temp_name = ".manifest-" + publication_id + ".tmp"
+        allowed_names = {"manifest.json", "records.jsonl", temp_name}
+        for child in final_dir.iterdir():
+            if child.name not in allowed_names or child.is_symlink() or not child.is_file():
+                raise ExistingPackageError(f"unexpected entry in final package directory: {child.name}")
+
         records_path = final_dir / "records.jsonl"
         if records_path.exists():
             if records_path.read_bytes() != records_bytes: raise ExistingPackageError("final records differ; refusing overwrite")
         else: _write_new_file(records_path, records_bytes)
 
         manifest_path = final_dir / "manifest.json"
+        temp = final_dir / temp_name
         if manifest_path.exists():
             if manifest_path.read_bytes() != manifest_bytes: raise ExistingPackageError("final manifest differs; refusing overwrite")
+            if temp.exists():
+                if temp.read_bytes() != manifest_bytes: raise ExistingPackageError("stale manifest staging bytes differ")
+                temp.unlink()
+                _fsync_dir(final_dir)
         else:
-            temp = final_dir / (".manifest-" + publication_id + ".tmp")
             if not temp.exists(): _write_new_file(temp, manifest_bytes)
             elif temp.read_bytes() != manifest_bytes: raise ExistingPackageError("manifest staging bytes differ")
             try: os.link(temp, manifest_path)
@@ -270,6 +280,8 @@ class RawLogV2Writer:
             _fsync_dir(final_dir)
         if records_path.read_bytes() != records_bytes or manifest_path.read_bytes() != manifest_bytes:
             raise RawLogV2Error("published package verification failed")
+        if {p.name for p in final_dir.iterdir()} != {"manifest.json", "records.jsonl"}:
+            raise RawLogV2Error("final package must contain exactly manifest.json and records.jsonl")
         state["phase"] = "published"; _atomic_replace_json(state_path, state)
 
 
