@@ -431,3 +431,57 @@ def test_retry_after_recovery_original_link_fsync_failure_preserves_work_until_r
     assert original_dir in delete_observation[0]
     assert recovery_dir in delete_observation[0]
     assert recovery_dir.parent in delete_observation[0]
+
+
+def test_normal_finalize_manifest_link_fsync_failure_is_reconfirmed_before_work_delete(tmp_path, monkeypatch):
+    import raw_log_v2.storage as storage
+    writer=RawLogV2Writer(tmp_path)
+    session=writer.begin(manifest_fields())
+    for i in range(31): session.append(stage_record(i))
+    work=tmp_path/".work"/"MOTOR-310-TEST"
+    final=tmp_path/"MOTOR-310-TEST"
+    real_fsync=storage._fsync_dir
+    real_rmtree=storage.shutil.rmtree
+    failures={"remaining":2}
+    synced=[]
+    delete_observation=[]
+
+    def injected_fsync(path):
+        path=Path(path)
+        if path==final and (final/"manifest.json").is_file() and failures["remaining"]:
+            failures["remaining"]-=1
+            raise storage.DurabilityError("simulated normal-finalize manifest directory fsync failure")
+        result=real_fsync(path)
+        synced.append(path)
+        return result
+
+    def observed_rmtree(path,*args,**kwargs):
+        if Path(path)==work:
+            delete_observation.append(list(synced))
+        return real_rmtree(path,*args,**kwargs)
+
+    monkeypatch.setattr(storage,"_fsync_dir",injected_fsync)
+    monkeypatch.setattr(storage.shutil,"rmtree",observed_rmtree)
+
+    # Failure immediately after manifest hard-link in normal finalize.
+    with pytest.raises(storage.DurabilityError,match="normal-finalize manifest"):
+        session.finalize({"ended_at_utc":END},"completed",END)
+    assert work.is_dir(),".work must remain after finalize directory-fsync failure"
+    assert (final/"manifest.json").is_file()
+
+    # First startup-recovery attempt also fails its final-directory durability check.
+    with pytest.raises(storage.DurabilityError,match="normal-finalize manifest"):
+        writer.recover_incomplete("MOTOR-310-TEST",recovered_at_utc=NOW)
+    assert work.is_dir(),".work must remain when startup recovery fsync fails"
+    assert delete_observation==[]
+
+    # A later retry must fsync final_dir successfully before removing .work.
+    synced.clear()
+    result=writer.recover_pending()
+    assert result[0]["recovery_status"]=="already_published"
+    assert not work.exists()
+    assert len(delete_observation)==1
+    assert final in delete_observation[0]
+    assert failures["remaining"]==0
+    assert sorted(p.name for p in final.iterdir())==["manifest.json","records.jsonl"]
+    assert json.loads((final/"manifest.json").read_text())["status"]=="completed"
