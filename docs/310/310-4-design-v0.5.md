@@ -483,18 +483,14 @@ No physical hardware activity is authorized by this document.
 
 ## 17. Review correction matrix
 
-| # | Review finding | v0.5 re-submission response |
-|---:|---|---|
-| 1 | ADC_BATCH length and traffic mismatch | §4.2, §6.3: decoded 192 B, COBS 193 B, wire 194 B; 1,940 wire B/s |
-| 2 | stage_context_id/token mapping undefined | §5: UUID↔uint16 map, session/epoch namespace, pre-command persistence, unresolved behavior |
-| 3 | No actual state transition table | §9: explicit state/event/acceptance/next-state/action table |
-| 4 | STOP_ACK length unsupported | §6.2, §7.2: three payload bytes, enum codes and 22/23/24 B lengths |
-| 5 | Syntax/edit corruption | Full document rewritten and syntax pass required; malformed punctuation examples corrected |
-| 6 | Boot identity persistence conditional | §8: 16-slot EEPROM journal, CRC, commit marker, failure/first boot/overflow fail-closed |
-| 7 | Loss/overflow undefined | §12: counters, increments, resets, sequence mapping, detection limits and RawLog boundary |
-| 8 | 20 Hz adequacy unsupported | §4.3–4.4: candidate only; Nyquist/bandwidth/aliasing limitations and required evidence |
-| 9 | SRAM/TX implementation unproven | §14: ownership model and exact evidence gate; explicitly not claimed feasible |
+| Review finding | Response in this integrated revision |
+|---|---|
+| Previous 9 findings | Retained in §§4–14: ADC_BATCH arithmetic, context mapping, state table, STOP_ACK, document integrity, boot journal, loss semantics, cadence limitations and SRAM/TX gate |
+| Current #1: HELLO/HELLO_ACK/ARM/ARM_ACK undefined | §6.2–6.2.4: message type codes, exact payloads/lengths, nonce echo, full boot_id64 transfer, ARM rules, CRC/header validation order, retries and duplicates |
+| Current #2: RawLog mapping incomplete | §12.4 exact mapping and explicit schema ambiguities; §12.5 separate append-only companion JSONL proposal for transport-only fields; no RawLog schema additions |
+| Current #3: EEPROM endurance/power loss | §8.2: 16×16B journal, separate factory provisioning marker, one-byte commit marker, interrupted-write reasoning, conditional 100,000-cycle estimate and boot-frequency scenarios |
+| Current #4: STOP→re-ARM stale-frame risk | §9.3: new session/nonce/token map, HELLO verification, fresh ARM, strict validation order, old session/epoch/command rejection and queue flush |
 
 ## 18. Submission decision requested
 
-Review this integrated document as a draft design proposal. The exact RawLog field mapping remains subordinate to the accepted Issue #170/PR #180 schema; the sampling cadence and SRAM feasibility remain open gates. This document does not assert that those gates have passed. Do not merge, implement, compile, upload, connect serial hardware, energize the motor, perform the 310-second measurement, or advance to 310-5 based solely on this submission.
+Review this integrated document as a draft design proposal. The companion transport-evidence artifact and package/retention contract, host-side persistent session-tag allocation, RawLog device_sample_sequence rollover semantics, EEPROM lifetime target, sampling cadence and SRAM feasibility remain open approval gates. The proposed message definitions are not accepted production wire compatibility. This document does not assert that any open gate has passed. Do not merge, implement, compile, upload, connect serial hardware, energize the motor, perform the 310-second measurement, or advance to 310-5 based solely on this submission.
