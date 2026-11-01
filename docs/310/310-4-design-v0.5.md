@@ -297,15 +297,40 @@ Maintain separate uint16 `sample_sequence` and uint16 `batch_sequence`, both inc
 
 Never overwrite a batch currently owned by TX. If no free acquisition batch slot exists, increment loss_counter for every sample attempt that cannot be retained and continue sequence numbering. STATUS reports the loss counter as soon as the TX path permits. Do not fabricate replacement samples or timestamps. No stage is silently declared complete because samples were lost.
 
-### 12.4 RawLog mapping
+### 12.4 Exact RawLog v2 field mapping (PR #180 / accepted schema)
 
-Python records each received ADC sample as its own RawLog v2 sample record using the exact schema accepted under Issue #170/PR #180. Preserve raw channel code, raw ADC code, device timestamp, sample sequence, batch sequence, stage token mapping, acquisition status, session and boot identity. The serial sample token is resolved through the separately recorded context map into the UUID stage_context_id. Store loss-counter observations and sequence-gap/transport-loss events as the event record type defined by the accepted RawLog schema. If that schema has no approved event representation for a required loss event, record it in the separately approved transport/session metadata path and raise a schema gap; do not invent a RawLog field or mutate the accepted schema.
+The mapping below is constrained by `docs/RAWLOG_V2_INDEPENDENT_SCHEMA.md` at accepted 310-1 HEAD `5db3314ddf1efc2c068330ac333367662542ae5c`. It does not add fields to that schema.
+
+| Serial / host source | RawLog v2 destination | Mapping rule |
+|---|---|---|
+| Python-generated sample identity | ADC_SAMPLE.record_id and sample_id | Generate one unique ID per ADC conversion; use the same ID where the schema example uses sample_id. |
+| Python package writer order | Common record_seq | Assign monotonically in append order; never use device sample sequence as record_seq. |
+| measurement_session_id | Common measurement_session_id | Preserve the host UUID/string unchanged. |
+| Verified full boot_id64 from handshake | ADC_SAMPLE.device_epoch_id | Serialize as the accepted schema's string value, consistently for the whole boot epoch. The 32-bit header device_epoch_tag is correlation-only and MUST NOT be written as device_epoch_id. If the full boot_id64 is not received and verified, do not fabricate an epoch; acquisition/session association remains unresolved. |
+| sample_sequence (uint16) | ADC_SAMPLE.device_sample_sequence | Store the observed unsigned integer 0–65535, preserving wrap semantics in transport evidence. The accepted schema describes this as a monotonically increasing sequence but does not explicitly define uint16 rollover; this is a schema-contract ambiguity requiring commander resolution before implementation. |
+| channel_code | ADC_SAMPLE.channel | 0=A0, 1=A1, 2=A2, 3=A3, 4=A4, 5=A5. |
+| Channel lookup | ADC_SAMPLE.sensor / signal_role | A0=ACS712 #1 / winding_current; A1=ACS712 #2 / brush_stability_observation; A2=magnetic_sensor / magnetic_reference; A3=thermistor / thermistor_reference; A4=voltage_input_v4 / voltage_v4; A5=voltage_input_v5 / voltage_v5. |
+| adc_raw + acquisition_status | ADC_SAMPLE.adc_raw / validity / invalid_reason | Status 0: preserve 0–1023 raw integer, validity=valid, invalid_reason=null. Status 1/2/3: validity=unavailable, adc_raw=null, invalid_reason is the corresponding explicit status reason. Never persist 0xFFFF as a valid ADC code. |
+| timestamp_us_u32 | ADC_SAMPLE.device_timestamp_us_u32 | Preserve the uint32 value for a successful conversion. For an unavailable conversion, follow the schema's null timestamp rule. |
+| Timestamp semantics | ADC_SAMPLE.device_timestamp_point | Fixed value conversion_midpoint, as defined by the acquisition contract. |
+| Python clock unwrapping | ADC_SAMPLE.device_elapsed_us | Store the unwrapped value only when unambiguous within the verified epoch; otherwise null. Never infer across an ambiguous wrap. |
+| Python receive clocks | ADC_SAMPLE.host_received_at_utc / host_received_monotonic_ns | Capture per received sample/frame according to the host receive contract; do not substitute batch transmit time for device acquisition time. |
+| stage_context_token + context map | ADC_SAMPLE.stage_context_id / stage_id / stage_assignment | Resolve token using measurement_session_id AND verified device_epoch_id. Write the mapped UUID and stage ID only on exact match; otherwise null IDs and unresolved. The uint16 token is not stored in the UUID field. |
+| Calibration context | ADC_SAMPLE.calibration_id | Null unless an accepted CALIBRATION is scoped_for_application for this channel and sample interval. Current proposal does not establish such scope, so null is the default. |
+| ADC resolution | ADC_SAMPLE.adc_resolution_bits | 10 for the specified Uno ADC; raw_unit=count. |
+| Acquisition status | ADC_SAMPLE.validity / invalid_reason | No additional acquisition_status field is added to RawLog v2. Preserve the raw status byte in transport evidence if required for protocol forensics. |
+
+**Fields that do not exist in the accepted ADC_SAMPLE schema:** `batch_sequence`, `loss_counter_snapshot`, full `loss_counter`, `stage_context_token`, `acquisition_status`, and `sample_flags`. Do not add them to ADC_SAMPLE or overload unrelated fields. Preserve these values in a separately versioned transport-evidence artifact/metadata path only after that path is defined and approved. Until then, sequence gaps and loss-counter observations can be reported in the design/test evidence but have no approved persistent RawLog v2 field mapping. This is an explicit integration gap, not a claim of completed RawLog mapping.
+
+The proposed 32-bit `device_epoch_tag` in the common wire header is insufficient to populate the accepted full `device_epoch_id` by itself. The handshake must return the full committed boot_id64 and Python must verify it before associating samples. The HELLO/HELLO_ACK byte layout and full boot identity transfer are not yet specified in §6; this remains a protocol-definition blocker.
+
+The accepted schema requires one ADC_SAMPLE per conversion. ADC_BATCH is only a transport envelope: Python must emit 12 independent ADC_SAMPLE records for the 12 conversion units in a complete batch. A2/A3 records, if included, remain reference observations and must not affect control, acceptance, eligibility or derived estimates.
 
 ## 13. RawLog v2 contract boundary
 
-Issue #170 and the accepted RawLog v2 implementation are authoritative for field names, types, nullability, envelope, record types and storage. This document defines the serial-side source data and mapping semantics only; it does not redefine RawLog v2.
+Issue #170 and the accepted RawLog v2 schema are authoritative for field names, types, nullability, envelope, record types and storage. This document defines serial-side source data and candidate mapping only; it does not redefine RawLog v2.
 
-For each ADC conversion, Python preserves the original serial fields and adds only host/session metadata already permitted by the accepted schema. The RawLog UUID `stage_context_id` is resolved from the context map; the 16-bit serial token remains a separate transport field only if the accepted schema provides a field for it. If not, retain it in the transport evidence/metadata path, not as a fabricated schema property.
+The exact mapping above is not fully closed: the accepted schema has no fields for batch-level sequencing/loss evidence or the raw stage token, and its device_sample_sequence rollover semantics need clarification. These gaps must be resolved by the 310-4 commander / schema authority before implementation. No schema field may be invented locally. The 32-bit device_epoch_tag cannot stand in for the full device_epoch_id.
 
 Do not require legacy RawLog v1 columns or old derived values. Do not generate derived values on Arduino. Do not use A1 as winding current. Do not use A2/A3 for automatic control or eligibility. Do not fill missing data with zero or previous values.
 
