@@ -249,17 +249,17 @@ class SequenceController:
         try:
             self._append(
                 "ADC_SAMPLE", sample_id=str(uuid.uuid4()), channel=channel,
-            sensor=sensor, signal_role=role, adc_raw=adc_raw,
-            adc_resolution_bits=adc_resolution_bits, raw_unit="count",
-            device_timestamp_us_u32=device_timestamp_us_u32,
-            device_timestamp_point=device_timestamp_point,
-            device_epoch_id=device_epoch_id, device_elapsed_us=device_elapsed_us,
-            device_sample_sequence=device_sample_sequence,
-            host_received_at_utc=self.clock.utc_now(),
-            host_received_monotonic_ns=now_ns,
-            stage_context_id=self.stage_context_id if confirmed else None,
-            stage_id=f"PWM-{self.stage_index:02d}" if confirmed else None,
-            stage_assignment="confirmed" if confirmed else "unresolved",
+                sensor=sensor, signal_role=role, adc_raw=adc_raw,
+                adc_resolution_bits=adc_resolution_bits, raw_unit="count",
+                device_timestamp_us_u32=device_timestamp_us_u32,
+                device_timestamp_point=device_timestamp_point,
+                device_epoch_id=device_epoch_id, device_elapsed_us=device_elapsed_us,
+                device_sample_sequence=device_sample_sequence,
+                host_received_at_utc=self.clock.utc_now(),
+                host_received_monotonic_ns=now_ns,
+                stage_context_id=self.stage_context_id if confirmed else None,
+                stage_id=f"PWM-{self.stage_index:02d}" if confirmed else None,
+                stage_assignment="confirmed" if confirmed else "unresolved",
                 calibration_id=None, validity=validity, invalid_reason=invalid_reason,
             )
         except Exception as exc:
@@ -276,10 +276,10 @@ class SequenceController:
         try:
             self._append(
                 "EVENT", event=event, observation_method="human_visual", actor=actor,
-            observed_at_utc=observed_at_utc, reported_at_utc=self.clock.utc_now(),
-            host_monotonic_ns=self.clock.monotonic_ns(),
-            stage_id=f"PWM-{self.stage_index:02d}" if confirmed else None,
-            stage_index=self.stage_index if confirmed else None,
+                observed_at_utc=observed_at_utc, reported_at_utc=self.clock.utc_now(),
+                host_monotonic_ns=self.clock.monotonic_ns(),
+                stage_id=f"PWM-{self.stage_index:02d}" if confirmed else None,
+                stage_index=self.stage_index if confirmed else None,
                 pwm_value=self.stage_index if confirmed else None,
             )
         except Exception as exc:
