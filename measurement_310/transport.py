@@ -6,11 +6,16 @@ from typing import Optional, Protocol
 class TransportError(RuntimeError):
     pass
 
+class IncompleteMessage(Exception):
+    """Codec signal that buffered bytes do not yet contain a complete frame."""
+
 class MessageCodec(Protocol):
     """310-4 supplies the concrete wire protocol implementation."""
     def encode_pwm(self, pwm: int) -> bytes: ...
     def encode_stop(self) -> bytes: ...
-    def decode(self, payload: bytes) -> object: ...
+    def decode(self, payload: bytes) -> object:
+        """Decode one complete frame; raise IncompleteMessage for partial data."""
+        ...
 
 class SerialTransport(Protocol):
     def connect(self) -> None: ...
@@ -109,6 +114,7 @@ class ProtocolClient:
     def __init__(self, transport: SerialTransport, codec: MessageCodec):
         self.transport, self.codec = transport, codec
         self.connected = False
+        self._receive_buffer = bytearray()
 
     def connect(self):
         self.transport.connect()
@@ -119,6 +125,7 @@ class ProtocolClient:
             self.transport.disconnect()
         finally:
             self.connected = False
+            self._receive_buffer.clear()
 
     def send_pwm(self, pwm: int) -> str:
         if not self.connected:
@@ -145,9 +152,18 @@ class ProtocolClient:
             raise TransportError("device connection is unavailable")
         try:
             payload = self.transport.receive(timeout_s)
-            if payload is None:
+            if payload is not None:
+                if not isinstance(payload, (bytes, bytearray, memoryview)):
+                    raise TransportError("transport returned non-byte payload")
+                self._receive_buffer.extend(payload)
+            if not self._receive_buffer:
                 return None
-            message = self.codec.decode(payload)
+            try:
+                message = self.codec.decode(bytes(self._receive_buffer))
+            except IncompleteMessage:
+                return None
+            # The codec owns frame boundaries. Do not guess delimiters here.
+            self._receive_buffer.clear()
             if not isinstance(message, dict) or message.get("kind") != "PWM_ACK":
                 raise TransportError("response type/format mismatch")
             pwm = message.get("pwm")
