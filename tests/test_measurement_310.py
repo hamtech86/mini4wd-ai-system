@@ -236,3 +236,19 @@ def test_ack_mismatch_stops_without_advancing_or_auto_restarting(tmp_path):
     acks.append((0, clock.utc_now()))
     assert ctl.poll() == SequenceState.FAULT
     assert sent == [0]
+
+
+def test_startup_recovery_checks_every_discovered_work_item(tmp_path):
+    writer = RawLogV2Writer(tmp_path)
+    previous = manifest(tmp_path)
+    previous["log_id"] = "PENDING-OLD"
+    previous["measurement_session_id"] = "SESSION-OLD"
+    writer.begin(previous)  # Simulate an interrupted prior process.
+    clock = FakeClock()
+    ctl = SequenceController(writer, manifest(tmp_path), lambda pwm: clock.utc_now(),
+                             lambda: None, lambda: None, clock)
+    recovered = ctl.startup_recover()
+    assert [item["log_id"] for item in recovered] == ["PENDING-OLD"]
+    assert writer.list_incomplete_work() == []
+    ctl.start()
+    assert ctl.state == SequenceState.WAITING_ACK
