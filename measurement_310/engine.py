@@ -28,6 +28,7 @@ class SequenceState(str, Enum):
     WAITING_ACK = "waiting_ack"
     RUNNING = "running"
     STOPPING = "stopping"
+    FINALIZING = "finalizing"
     ABORTED = "aborted"
     COMPLETED = "completed"
     FAULT = "fault"
@@ -78,6 +79,7 @@ class SequenceController:
         self.next_deadline_ns: Optional[int] = None
         self._last_fault: Optional[str] = None
         self._recovery_complete = False
+        self._finalization_started = False
 
     def startup_recover(self) -> list[dict[str, Any]]:
         if self.state != SequenceState.READY:
@@ -244,8 +246,9 @@ class SequenceController:
         sensor, role = CHANNELS[channel]
         now_ns = self.clock.monotonic_ns()
         confirmed = self.state == SequenceState.RUNNING and self.stage_context_id is not None
-        self._append(
-            "ADC_SAMPLE", sample_id=str(uuid.uuid4()), channel=channel,
+        try:
+            self._append(
+                "ADC_SAMPLE", sample_id=str(uuid.uuid4()), channel=channel,
             sensor=sensor, signal_role=role, adc_raw=adc_raw,
             adc_resolution_bits=adc_resolution_bits, raw_unit="count",
             device_timestamp_us_u32=device_timestamp_us_u32,
@@ -257,8 +260,11 @@ class SequenceController:
             stage_context_id=self.stage_context_id if confirmed else None,
             stage_id=f"PWM-{self.stage_index:02d}" if confirmed else None,
             stage_assignment="confirmed" if confirmed else "unresolved",
-            calibration_id=None, validity=validity, invalid_reason=invalid_reason,
-        )
+                calibration_id=None, validity=validity, invalid_reason=invalid_reason,
+            )
+        except Exception as exc:
+            self.abort("storage_failure", fault=f"RawLog ADC_SAMPLE append failed: {exc}")
+            raise SequenceError("ADC sample storage failed; sequence stopped") from exc
 
     def record_visual_event(self, event: str, actor: str, observed_at_utc: str) -> None:
         """Record a human observation; never infer rotation from sensor values."""
@@ -267,18 +273,24 @@ class SequenceController:
         if not actor or not observed_at_utc:
             raise ValueError("actor and observed_at_utc are required")
         confirmed = self.state == SequenceState.RUNNING
-        self._append(
-            "EVENT", event=event, observation_method="human_visual", actor=actor,
+        try:
+            self._append(
+                "EVENT", event=event, observation_method="human_visual", actor=actor,
             observed_at_utc=observed_at_utc, reported_at_utc=self.clock.utc_now(),
             host_monotonic_ns=self.clock.monotonic_ns(),
             stage_id=f"PWM-{self.stage_index:02d}" if confirmed else None,
             stage_index=self.stage_index if confirmed else None,
-            pwm_value=self.stage_index if confirmed else None,
-        )
+                pwm_value=self.stage_index if confirmed else None,
+            )
+        except Exception as exc:
+            self.abort("storage_failure", fault=f"RawLog EVENT append failed: {exc}")
+            raise SequenceError("visual event storage failed; sequence stopped") from exc
 
     def _complete(self) -> None:
         self._append("SESSION_EVENT", event="SESSION_COMPLETED",
                      host_monotonic_ns=self.clock.monotonic_ns(), details={"stages_completed": 31})
+        self.state = SequenceState.FINALIZING
+        self._finalization_started = True
         self.session.finalize({"record_counts": {}}, "completed", self.clock.utc_now())
         self.state = SequenceState.COMPLETED
 
@@ -319,10 +331,11 @@ class SequenceController:
         previous = self.state
         self.state = SequenceState.STOPPING
         self._last_fault = fault
-        try:
-            self._record_aborted_stage(reason)
-        except Exception as exc:
-            self._last_fault = f"{self._last_fault or reason}; stage log failed: {exc}"
+        if not self._finalization_started:
+            try:
+                self._record_aborted_stage(reason)
+            except Exception as exc:
+                self._last_fault = f"{self._last_fault or reason}; stage log failed: {exc}"
         try:
             self.send_stop()
         except Exception as exc:
@@ -330,7 +343,7 @@ class SequenceController:
         self.state = SequenceState.FAULT if self._last_fault else SequenceState.ABORTED
         # Keep work area incomplete for crash-safe recovery; do not falsely finalize
         # a partially completed sequence or claim physical stop.
-        if self.session is not None:
+        if self.session is not None and not self._finalization_started:
             try:
                 self._append("SESSION_EVENT", event="COMMUNICATION_LOST" if fault else "SESSION_ABORTED",
                              host_monotonic_ns=self.clock.monotonic_ns(),
