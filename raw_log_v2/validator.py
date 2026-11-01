@@ -261,7 +261,7 @@ def validate_record(record: Any, manifest: Dict[str, Any], index: int = 0) -> Li
                 errors.append(f"{prefix} monotonic end precedes start")
             else:
                 expected_ms = (record["end_host_monotonic_ns"] - record["start_host_monotonic_ns"]) / 1_000_000
-                if record.get("actual_duration_ms") is not None and abs(record["actual_duration_ms"] - expected_ms) > 0.001:
+                if _is_number(record.get("actual_duration_ms")) and abs(record["actual_duration_ms"] - expected_ms) > 0.001:
                     errors.append(f"{prefix}.actual_duration_ms does not match monotonic interval")
         if record.get("ended_at_utc") is not None and _utc(record.get("recorded_at_utc")) and record["recorded_at_utc"] < record["ended_at_utc"]:
             errors.append(f"{prefix}.recorded_at_utc precedes stage end")
@@ -331,7 +331,9 @@ def validate_record(record: Any, manifest: Dict[str, Any], index: int = 0) -> Li
             errors.append(f"{prefix}.invalid sample requires invalid_reason")
         if channel == "A1" and ("converted_value" in record or "converted_unit" in record):
             errors.append(f"{prefix}.A1 conversion is not permitted by the current schema")
-        if channel in {"A0", "A4", "A5"} and record.get("converted_value") is not None:
+        if isinstance(channel, str) and channel in {"A0", "A4", "A5"} and record.get("converted_value") is not None:
+            if not _is_number(record.get("converted_value")):
+                errors.append(f"{prefix}.converted_value must be numeric")
             if record.get("calibration_id") is None:
                 errors.append(f"{prefix} converted value requires calibration_id")
             if not isinstance(record.get("converted_unit"), str) or not record.get("converted_unit"):
@@ -500,7 +502,7 @@ def validate_package(manifest: Any, records: Any, raise_on_error: bool = True) -
                     errors.append(f"ADC_SAMPLE {record.get('sample_id')} references unknown calibration_id")
                 elif cal.get("application_status") != "scoped_for_application":
                     errors.append(f"ADC_SAMPLE {record.get('sample_id')} references non-applicable raw-only calibration")
-                elif record.get("channel") not in cal.get("channels", {}):
+                elif not isinstance(record.get("channel"), str) or record.get("channel") not in cal.get("channels", {}):
                     errors.append(f"ADC_SAMPLE {record.get('sample_id')} calibration has no matching channel")
         if record.get("record_type") == "EVENT" and record.get("stage_id") is not None:
             stage_index = record.get("stage_index")
@@ -519,7 +521,7 @@ def validate_package(manifest: Any, records: Any, raise_on_error: bool = True) -
                 sample = samples_by_id.get(sample_id) if isinstance(sample_id, str) else None
                 if sample is None:
                     errors.append(f"DERIVED {record.get('record_id')} references unknown input sample {sample_id}")
-                elif sample.get("channel") in {"A2", "A3"}:
+                elif isinstance(sample.get("channel"), str) and sample.get("channel") in {"A2", "A3"}:
                     errors.append(f"DERIVED {record.get('record_id')} cannot use A2/A3 reference samples")
 
     status = manifest.get("status")
