@@ -321,3 +321,66 @@ def test_startup_discovery_recovers_all_pending_work_in_stable_order(tmp_path):
         manifest=json.loads((tmp_path/log_id/"manifest.json").read_text())
         assert manifest["status"]=="incomplete"
         assert manifest["record_counts"]=={}
+
+
+def test_publish_existing_identical_file_reconfirms_parent_directory_fsync(tmp_path, monkeypatch):
+    import raw_log_v2.storage as storage
+    target=tmp_path/"package"/"manifest.json"
+    target.parent.mkdir()
+    target.write_bytes(b'{"status":"incomplete"}\\n')
+    real_fsync=storage._fsync_dir
+    calls=[]
+    monkeypatch.setattr(storage,"_fsync_dir",lambda path:(calls.append(Path(path)),real_fsync(path))[1])
+    storage._publish_new_file(target,b'{"status":"incomplete"}\\n',tmp_path/"package"/".manifest.tmp")
+    assert calls==[target.parent]
+
+
+def test_retry_after_manifest_link_fsync_failure_syncs_recovery_and_final_before_work_delete(tmp_path, monkeypatch):
+    import raw_log_v2.storage as storage
+    writer=RawLogV2Writer(tmp_path)
+    session=writer.begin(manifest_fields())
+    session.append(session_event())
+    work=tmp_path/".work"/"MOTOR-310-TEST"
+    real_fsync=storage._fsync_dir
+    real_rmtree=storage.shutil.rmtree
+    synced=[]
+    fail={"once":True}
+    delete_observation=[]
+
+    def injected_fsync(path):
+        path=Path(path)
+        if (fail["once"] and path==tmp_path/"MOTOR-310-TEST"
+                and (path/"manifest.json").is_file()):
+            fail["once"]=False
+            raise storage.DurabilityError("simulated crash after manifest hard-link before parent fsync")
+        result=real_fsync(path)
+        synced.append(path)
+        return result
+
+    def observed_rmtree(path,*args,**kwargs):
+        if Path(path)==work:
+            delete_observation.append(list(synced))
+        return real_rmtree(path,*args,**kwargs)
+
+    monkeypatch.setattr(storage,"_fsync_dir",injected_fsync)
+    monkeypatch.setattr(storage.shutil,"rmtree",observed_rmtree)
+    with pytest.raises(storage.DurabilityError,match="after manifest hard-link"):
+        writer.recover_incomplete("MOTOR-310-TEST",recovered_at_utc=NOW)
+    assert work.is_dir(),".work must remain after failed manifest directory fsync"
+
+    recovery_dir=next((tmp_path/".recovery"/"MOTOR-310-TEST").glob("crash-*"))
+    original_dir=recovery_dir/"original"
+    synced.clear()
+    result=writer.recover_incomplete("MOTOR-310-TEST",recovered_at_utc=NOW)
+
+    assert result["recovery_id"]==recovery_dir.name
+    assert not work.exists()
+    assert len(delete_observation)==1
+    syncs_before_delete=delete_observation[0]
+    assert original_dir in syncs_before_delete
+    assert recovery_dir in syncs_before_delete
+    assert recovery_dir.parent in syncs_before_delete
+    assert tmp_path/".recovery" in syncs_before_delete
+    assert tmp_path/"MOTOR-310-TEST" in syncs_before_delete
+    assert syncs_before_delete.index(original_dir) < syncs_before_delete.index(tmp_path/"MOTOR-310-TEST")
+    assert json.loads((tmp_path/"MOTOR-310-TEST"/"manifest.json").read_text())["status"]=="incomplete"
