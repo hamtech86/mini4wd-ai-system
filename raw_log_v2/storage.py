@@ -228,6 +228,11 @@ class RawLogV2Writer:
                     or _sha256(records_path.read_bytes()) != intent.get("records_sha256")
                     or _sha256(manifest_path.read_bytes()) != intent.get("manifest_sha256")):
                 raise ExistingPackageError("a final manifest exists but does not match this work area's publication intent")
+            # Normal finalize may have linked manifest.json and crashed before
+            # syncing this directory. Hash agreement proves content identity,
+            # not durability of the directory entry; reconfirm it before the
+            # work area can be marked published or removed.
+            _fsync_dir(final_dir)
             state["phase"] = "published"
             _atomic_replace_json(work_dir / "work_state.json", state)
             shutil.rmtree(work_dir)
