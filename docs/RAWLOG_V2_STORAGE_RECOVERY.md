@@ -13,13 +13,13 @@ The independent raw_log_v2 package does not alter the legacy raw_log_library v1 
 - .recovery/<log_id>/<recovery_id>/publication_state.json: private resumable publication journal, separate from immutable originals.
 - <log_id>/: final two-file package only.
 
-Recovery ID is deterministic from relative file names and original bytes. Repeated recovery verifies existing files and never replaces them. Partial preservation resumes by adding only missing files; conflicting bytes fail closed.
+Recovery ID is deterministic from relative file names and original bytes. Repeated recovery verifies existing files and never replaces them. Each original file is first written and fsynced to a private staging file, then hard-linked into original/ without replacement. A crash during staging leaves no partial original file; a retry discards an incomplete staging file and resumes. Partial preservation resumes by adding only missing files; conflicting bytes fail closed. The recovery record is also published through a staged, fsynced hard link, and the publication journal uses atomic private-state replacement.
 
 ## Append and finalization
 
 Each append writes one UTF-8 JSON object plus LF using O_APPEND, handles short writes and calls fsync before returning. Work-state counts update only after records fsync. records.jsonl is never truncated or repaired.
 
-Final publication reserves the destination with exclusive directory creation. records.jsonl is created exclusively and fsynced. manifest.json is staged and published last using a same-filesystem hard link, which atomically refuses replacement. A directory without manifest.json is not a complete package. Interrupted publication resumes only when the private publication intent and existing bytes match exactly. Conflicts fail closed.
+Final publication reserves the destination with exclusive directory creation. Both records.jsonl and manifest.json are written to staging files, fsynced, then published by same-filesystem hard links that atomically refuse replacement. manifest.json is published last and is the completion marker. A crash during either staging write leaves no partial public file; retry discards an incomplete staging file and resumes. A directory without manifest.json is not a complete package. Interrupted publication resumes only when the private publication intent and existing bytes match exactly. Conflicts fail closed.
 
 ## Crash recovery
 
