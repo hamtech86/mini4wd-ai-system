@@ -320,8 +320,10 @@ def test_finalize_failure_does_not_append_to_work_after_finalize_started(tmp_pat
     assert stops == ["STOP"]
     records = [json.loads(line) for line in
         (tmp_path / ".work" / "TEST-310" / "records.jsonl").read_text().splitlines()]
-    assert [r.get("event") for r in records if r["record_type"] == "SESSION_EVENT"] == [
-        "SESSION_STARTED", "SESSION_COMPLETED"]
+    session_events = [r.get("event") for r in records if r["record_type"] == "SESSION_EVENT"]
+    assert session_events[0] == "SESSION_STARTED"
+    assert session_events[-1] == "SESSION_COMPLETED"
+    assert session_events.count("OTHER") == 31
 
 
 def test_protocol_client_retains_fragmented_ack_until_frame_complete():
