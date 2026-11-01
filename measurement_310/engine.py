@@ -164,13 +164,17 @@ class SequenceController:
         self.stage_context_id = str(uuid.uuid4())
         self._stage_recorded = False
         self.command_sent_utc = None
-        self.command_sent_ns = self.clock.monotonic_ns()
+        self.command_sent_ns = None
         self.ack_utc = None
         self.stage_start_ns = None
         self.stage_start_utc = None
         self.next_deadline_ns = None
         try:
+            # send_pwm returns UTC after transport write/flush completes.
+            # Capture monotonic time immediately afterwards so ACK timeout and
+            # send-to-ACK delay exclude time spent inside the blocking send.
             self.command_sent_utc = self.send_pwm(index)
+            self.command_sent_ns = self.clock.monotonic_ns()
         except Exception as exc:
             self.abort("communication_lost", fault=f"PWM send failed: {exc}")
             return
