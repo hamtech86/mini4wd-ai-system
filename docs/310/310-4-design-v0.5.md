@@ -148,6 +148,16 @@ device_epoch_tag is the low 32 bits of verified boot_id64; if that value is zero
 
 For non-STOP requests, validation order is: (1) frame boundary/COBS, (2) minimum and exact length, (3) CRC, (4) magic/version/flags/type/reserved enums, (5) verified boot epoch tag, (6) active session tag, (7) command_id freshness and duplicate consistency, (8) state and context-token eligibility, (9) action. No PWM or ARM change occurs before all checks pass. STOP_REQ is the safety exception: after valid frame/length/CRC/basic syntax, act even if session or epoch tags are stale; ACK reports the relation. A malformed or CRC-invalid STOP is not trusted and is not acted upon.
 
+### 6.2.1.1 Wire enum registry
+
+HELLO_ACK result: 0=OK, 1=BOOT_ID_INVALID, 2=PROTOCOL_UNSUPPORTED, 3=SESSION_BUSY, 4=INVALID_CHALLENGE. A nonzero result never authorizes ARM; boot_id64 is zero when no valid committed identity exists, and the host must reject it.
+
+ARM_ACK result values are defined in §6.2.3. ARM_ACK state and STATUS state use the same codes: 0=IDLE, 1=ARMED, 2=RUNNING, 3=STOP_LATCHED, 4=STOPPED, 5=FAULT, 6=FAULT_STOP, 7=BOOT_ID_INVALID. BOOT is initialization-only and is never reported as an ARM-success state. Unknown state codes are invalid.
+
+APPLY_ACK result: 0=APPLIED, 1=REJECTED_STATE, 2=INVALID_SESSION, 3=INVALID_EPOCH, 4=INVALID_COMMAND, 5=INVALID_CONTEXT, 6=PWM_OUT_OF_RANGE, 7=STOP_LATCHED, 8=OUTPUT_FAULT. applied_pwm echoes the actual accepted software output value; on nonzero result it MUST be zero and no nonzero PWM is applied. PWM_SET pwm is restricted to integer 0..30 inclusive.
+
+ERROR error_code: 1=BAD_FRAME, 2=BAD_CRC, 3=BAD_VERSION, 4=UNKNOWN_MESSAGE, 5=INVALID_ENUM, 6=STALE_SESSION, 7=STALE_EPOCH, 8=ID_CONFLICT, 9=COMMAND_REGRESSION, 10=NOT_ARMED, 11=INVALID_CONTEXT, 12=BOOT_ID_INVALID, 13=FAULT_ACTIVE, 14=INTERNAL_INVARIANT. detail_code is message-specific and MUST be zero when no detail is defined. All unassigned values are reserved and rejected.
+
 ### 6.2.2 HELLO / HELLO_ACK handshake
 
 Handshake is required after every device boot and before ARM. Host creates a new measurement_session_id and nonzero session tag, then sends HELLO with fresh host_nonce64 and command_id=0.
@@ -241,7 +251,7 @@ Python stores every received STOP_ACK byte-for-byte as protocol evidence. For a 
 
 ### 8.2 EEPROM journal proposal
 
-Use a 16-slot wear-levelled EEPROM journal occupying 256 bytes. Each 16-byte slot contains: magic/version (2 B), generation_counter64 (8 B), CRC16 (2 B), reserved (3 B), commit marker (1 B). CRC covers magic/version, generation and reserved bytes, not the marker. A slot is valid only when marker equals the exact committed value, magic/version match and CRC validates.
+Use a 16-slot wear-levelled EEPROM journal occupying 256 bytes. Each 16-byte slot contains: magic/version (2 B), generation_counter64 (8 B), CRC16 (2 B), reserved (3 B, all zero), commit marker (1 B; invalid=0x00, committed=0xA5). CRC-16/CCITT-FALSE is computed over the first 13 bytes, init=0xFFFF, poly=0x1021, xorout=0x0000, not including the marker. A slot is valid only when marker equals the exact committed value, magic/version match and CRC validates.
 
 **Write order and interrupted-write reasoning**
 1. Select the next ring slot; never target the current highest valid slot.
@@ -250,7 +260,7 @@ Use a 16-slot wear-levelled EEPROM journal occupying 256 bytes. Each 16-byte slo
 4. Write the one-byte committed marker last and read it back. Only after successful readback is the new generation committed.
 5. On boot, scan all slots and select highest valid generation. A power cut during payload writing leaves marker invalid. A power cut during final marker programming leaves it invalid or valid; if valid, the payload and CRC had already been fully written and verified. The prior committed slot is never overwritten in this operation.
 
-Factory-empty state is not inferred from blank journal bytes alone. Reserve EEPROM addresses 256–259 for a separate one-time provisioning record: magic bytes 0x50,0x52, version 0x01, and CRC8 over the first three bytes. This record is written and read back during controlled factory provisioning, before first boot. If all journal slots are invalid, generation 1 may be created only when this provisioning record validates AND all 256 journal bytes are erased (0xFF). Any other all-invalid condition is corruption and enters BOOT_ID_INVALID. The provisioning record is never automatically recreated or repaired by firmware.
+Factory-empty state is not inferred from blank journal bytes alone. Reserve EEPROM addresses 256–259 for a separate one-time provisioning record: magic bytes 0x50,0x52, version 0x01, and CRC-8/ATM over the first three bytes (poly=0x07, init=0x00, xorout=0x00). This record is written and read back during controlled factory provisioning, before first boot. If all journal slots are invalid, generation 1 may be created only when this provisioning record validates AND all 256 journal bytes are erased (0xFF). Any other all-invalid condition is corruption and enters BOOT_ID_INVALID. The provisioning record is never automatically recreated or repaired by firmware.
 
 - **First provisioned boot:** valid provisioning record plus fully erased journal permits generation 1; commit and verify before IDLE.
 - **Normal boot:** select highest valid committed generation and commit generation+1 before enabling session/ARM.
