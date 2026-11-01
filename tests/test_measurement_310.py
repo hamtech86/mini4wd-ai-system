@@ -612,9 +612,34 @@ def test_real_rawlog_finalize_publication_faults_preserve_consistent_recovery(
     assert final_records[-1]["event"] == "SESSION_COMPLETED"
     assert not work_dir.exists()
     if expected_status == "incomplete":
-        assert recovery[0]["recovery_status"] != "already_published"
+        assert recovery[0]["recovery_id"].startswith("crash-")
         originals = list((tmp_path / ".recovery" / "TEST-310").glob("crash-*/original"))
         assert len(originals) == 1
         assert (originals[0] / "records.jsonl").is_file()
     else:
         assert recovery[0]["recovery_status"] == "already_published"
+
+
+def test_poll_message_does_not_consume_ack_needed_by_sequence_controller():
+    from measurement_310.transport import DecodedFrame, IncompleteMessage, ProtocolClient
+
+    class StreamCodec:
+        def encode_pwm(self, pwm): return bytes([pwm])
+        def encode_stop(self): return b"!"
+        def decode(self, payload):
+            if len(payload) < 2:
+                raise IncompleteMessage()
+            tag, value = payload[0], payload[1]
+            kind = "PWM_ACK" if tag == ord("A") else "TELEMETRY"
+            message = {"kind": kind, "value": value}
+            if kind == "PWM_ACK":
+                message["pwm"] = value
+            return DecodedFrame(message, 2)
+
+    mock = MockTransport()
+    client = ProtocolClient(mock, StreamCodec())
+    client.connect()
+    mock.queue(b"A\\x09T\\x04")
+    assert client.poll_message() == {"kind": "TELEMETRY", "value": 4}
+    assert client.poll_ack()[0] == 9
+    client.disconnect()

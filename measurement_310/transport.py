@@ -125,6 +125,7 @@ class ProtocolClient:
         self.connected = False
         self._receive_buffer = bytearray()
         self._pending_messages: list[object] = []
+        self._pending_acks: list[tuple[int, str]] = []
 
     def connect(self):
         self.transport.connect()
@@ -137,6 +138,7 @@ class ProtocolClient:
             self.connected = False
             self._receive_buffer.clear()
             self._pending_messages.clear()
+            self._pending_acks.clear()
 
     def send_pwm(self, pwm: int) -> str:
         if not self.connected:
@@ -195,29 +197,52 @@ class ProtocolClient:
         except Exception as exc:
             raise TransportError(f"response receive/decode failed: {exc}") from exc
 
+    @staticmethod
+    def _ack_value(message: object) -> Optional[int]:
+        if not isinstance(message, dict) or message.get("kind") != "PWM_ACK":
+            return None
+        pwm = message.get("pwm")
+        if not isinstance(pwm, int) or isinstance(pwm, bool) or not 0 <= pwm <= 30:
+            raise TransportError("invalid ACK PWM")
+        return pwm
+
+    @staticmethod
+    def _host_received_utc() -> str:
+        from datetime import datetime, timezone
+        return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
     def poll_message(self, timeout_s: float = 0.0):
-        """Return the next unsolicited/non-ACK message, or None when no frame is ready."""
+        """Return the next non-ACK message; ACKs remain available to poll_ack()."""
         if not self.connected:
             raise TransportError("device connection is unavailable")
         if self._pending_messages:
             return self._pending_messages.pop(0)
-        available, message = self._receive_one(timeout_s)
-        return message if available else None
-
-    def poll_ack(self, timeout_s: float = 0.0):
-        """Find the next PWM_ACK while preserving every other decoded message."""
         first_read = True
         while True:
             available, message = self._receive_one(timeout_s if first_read else 0.0)
             first_read = False
             if not available:
                 return None
-            if isinstance(message, dict) and message.get("kind") == "PWM_ACK":
-                pwm = message.get("pwm")
-                if not isinstance(pwm, int) or isinstance(pwm, bool) or not 0 <= pwm <= 30:
-                    raise TransportError("invalid ACK PWM")
-                from datetime import datetime, timezone
-                received_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-                return pwm, received_at
+            pwm = self._ack_value(message)
+            if pwm is not None:
+                self._pending_acks.append((pwm, self._host_received_utc()))
+                continue
+            return message
+
+    def poll_ack(self, timeout_s: float = 0.0):
+        """Find the next PWM_ACK while preserving every other decoded message."""
+        if not self.connected:
+            raise TransportError("device connection is unavailable")
+        if self._pending_acks:
+            return self._pending_acks.pop(0)
+        first_read = True
+        while True:
+            available, message = self._receive_one(timeout_s if first_read else 0.0)
+            first_read = False
+            if not available:
+                return None
+            pwm = self._ack_value(message)
+            if pwm is not None:
+                return pwm, self._host_received_utc()
             # Telemetry and unknown message kinds are preserved for the caller.
             self._pending_messages.append(message)
