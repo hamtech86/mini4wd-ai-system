@@ -644,3 +644,63 @@ def test_poll_message_does_not_consume_ack_needed_by_sequence_controller():
     assert client.poll_message() == {"kind": "TELEMETRY", "value": 4}
     assert client.poll_ack()[0] == 9
     client.disconnect()
+
+
+def test_command_send_timestamps_and_ack_delay_start_after_send_completion(tmp_path):
+    import json
+
+    clock = FakeClock()
+    acks = []
+
+    def send_pwm(pwm):
+        # Simulate a blocking transport write/flush taking 75 ms.
+        clock.advance_ms(75)
+        return clock.utc_now()
+
+    ctl = SequenceController(
+        RawLogV2Writer(tmp_path), manifest(tmp_path), send_pwm, lambda: None,
+        lambda: acks.pop(0) if acks else None, clock, ack_timeout_ms=100,
+    )
+    ctl.startup_recover()
+    before_send_ns = clock.monotonic_ns()
+    ctl.start()
+    assert ctl.command_sent_ns == before_send_ns + 75_000_000
+    assert ctl.command_sent_utc == clock.utc_now()
+
+    clock.advance_ms(25)
+    acks.append((0, clock.utc_now()))
+    ctl.poll()
+    assert ctl.state == SequenceState.RUNNING
+    records = [json.loads(line) for line in
+               (tmp_path / ".work" / "TEST-310" / "records.jsonl").read_text().splitlines()]
+    ack_event = next(r for r in records if r.get("details", {}).get("kind") == "PWM_ACK_RECEIVED")
+    assert ack_event["details"]["command_sent_host_monotonic_ns"] == before_send_ns + 75_000_000
+    assert ack_event["details"]["ack_received_host_monotonic_ns"] == before_send_ns + 100_000_000
+    assert ack_event["details"]["command_to_ack_delay_ms"] == 25
+
+
+def test_ack_timeout_excludes_blocking_command_send_duration(tmp_path):
+    clock = FakeClock()
+    stops = []
+
+    def send_pwm(pwm):
+        clock.advance_ms(250)  # Longer than ACK timeout, but this is send time.
+        return clock.utc_now()
+
+    ctl = SequenceController(
+        RawLogV2Writer(tmp_path), manifest(tmp_path), send_pwm,
+        lambda: stops.append("STOP"), lambda: None, clock, ack_timeout_ms=100,
+    )
+    ctl.startup_recover()
+    ctl.start()
+    assert ctl.state == SequenceState.WAITING_ACK
+    assert ctl.command_sent_ns == clock.monotonic_ns()
+    ctl.poll()
+    assert ctl.state == SequenceState.WAITING_ACK
+    clock.advance_ms(99)
+    ctl.poll()
+    assert ctl.state == SequenceState.WAITING_ACK
+    clock.advance_ms(1)
+    ctl.poll()
+    assert ctl.state == SequenceState.FAULT
+    assert stops == ["STOP"]
