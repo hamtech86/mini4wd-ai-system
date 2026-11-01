@@ -251,7 +251,7 @@ Python stores every received STOP_ACK byte-for-byte as protocol evidence. For a 
 
 ### 8.2 EEPROM journal proposal
 
-Use a 16-slot wear-levelled EEPROM journal occupying 256 bytes. Each 16-byte slot contains: magic/version (2 B), generation_counter64 (8 B), CRC16 (2 B), reserved (3 B, all zero), commit marker (1 B; invalid=0x00, committed=0xA5). CRC-16/CCITT-FALSE is computed over the first 13 bytes, init=0xFFFF, poly=0x1021, xorout=0x0000, not including the marker. A slot is valid only when marker equals the exact committed value, magic/version match and CRC validates.
+Use a 16-slot wear-levelled EEPROM journal occupying 256 bytes. Each 16-byte slot contains: magic/version (2 B), generation_counter64 (8 B), reserved (3 B, all zero), CRC16 (2 B), commit marker (1 B; invalid=0x00, committed=0xA5). CRC-16/CCITT-FALSE is computed over bytes 0–12, init=0xFFFF, poly=0x1021, xorout=0x0000; CRC is stored at bytes 13–14 and marker at byte 15. A slot is valid only when marker equals the exact committed value, magic/version match and CRC validates.
 
 **Write order and interrupted-write reasoning**
 1. Select the next ring slot; never target the current highest valid slot.
