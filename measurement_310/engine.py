@@ -69,6 +69,7 @@ class SequenceController:
         self.session = None
         self.stage_index = -1
         self.stage_context_id: Optional[str] = None
+        self._stage_recorded = False
         self.command_sent_utc: Optional[str] = None
         self.command_sent_ns: Optional[int] = None
         self.ack_utc: Optional[str] = None
@@ -140,16 +141,18 @@ class SequenceController:
             return
         self.stage_index = index
         self.stage_context_id = str(uuid.uuid4())
+        self._stage_recorded = False
+        self.command_sent_utc = None
         self.command_sent_ns = self.clock.monotonic_ns()
+        self.ack_utc = None
+        self.stage_start_ns = None
+        self.stage_start_utc = None
+        self.next_deadline_ns = None
         try:
             self.command_sent_utc = self.send_pwm(index)
         except Exception as exc:
             self.abort("communication_lost", fault=f"PWM send failed: {exc}")
             return
-        self.ack_utc = None
-        self.stage_start_ns = None
-        self.stage_start_utc = None
-        self.next_deadline_ns = None
         self.state = SequenceState.WAITING_ACK
 
     def poll(self) -> SequenceState:
@@ -214,6 +217,7 @@ class SequenceController:
                      pwm_applied_ack_received_at_utc=self.ack_utc,
                      output_state="unknown", stage_context_id=self.stage_context_id,
                      termination_reason="duration_elapsed")
+        self._stage_recorded = True
 
     def record_adc_sample(
         self, channel: str, adc_raw: Optional[int], adc_resolution_bits: int,
@@ -270,7 +274,7 @@ class SequenceController:
         self.state = SequenceState.COMPLETED
 
     def _record_aborted_stage(self, reason: str) -> None:
-        if self.session is None or self.stage_index < 0 or self.stage_context_id is None:
+        if self.session is None or self.stage_index < 0 or self.stage_context_id is None or self._stage_recorded:
             return
         if self.command_sent_utc is None:
             # The transport raised before confirming a completed host write.
