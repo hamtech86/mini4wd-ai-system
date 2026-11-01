@@ -204,6 +204,54 @@ class SequenceController:
                      output_state="unknown", stage_context_id=self.stage_context_id,
                      termination_reason="duration_elapsed")
 
+    def record_adc_sample(
+        self, channel: str, adc_raw: Optional[int], adc_resolution_bits: int,
+        device_timestamp_us_u32: Optional[int], device_timestamp_point: str,
+        device_epoch_id: str, device_elapsed_us: Optional[int] = None,
+        device_sample_sequence: Optional[int] = None, validity: str = "valid",
+        invalid_reason: Optional[str] = None,
+    ) -> None:
+        """Persist one channel observation without merging or re-timing ADC samples."""
+        from raw_log_v2.validator import CHANNELS
+        if channel not in CHANNELS:
+            raise ValueError("unknown ADC channel")
+        if not isinstance(adc_resolution_bits, int) or isinstance(adc_resolution_bits, bool) or not 1 <= adc_resolution_bits <= 32:
+            raise ValueError("adc_resolution_bits must be 1..32")
+        sensor, role = CHANNELS[channel]
+        now_ns = self.clock.monotonic_ns()
+        confirmed = self.state == SequenceState.RUNNING and self.stage_context_id is not None
+        self._append(
+            "ADC_SAMPLE", sample_id=str(uuid.uuid4()), channel=channel,
+            sensor=sensor, signal_role=role, adc_raw=adc_raw,
+            adc_resolution_bits=adc_resolution_bits, raw_unit="count",
+            device_timestamp_us_u32=device_timestamp_us_u32,
+            device_timestamp_point=device_timestamp_point,
+            device_epoch_id=device_epoch_id, device_elapsed_us=device_elapsed_us,
+            device_sample_sequence=device_sample_sequence,
+            host_received_at_utc=self.clock.utc_now(),
+            host_received_monotonic_ns=now_ns,
+            stage_context_id=self.stage_context_id if confirmed else None,
+            stage_id=f"PWM-{self.stage_index:02d}" if confirmed else None,
+            stage_assignment="confirmed" if confirmed else "unresolved",
+            calibration_id=None, validity=validity, invalid_reason=invalid_reason,
+        )
+
+    def record_visual_event(self, event: str, actor: str, observed_at_utc: str) -> None:
+        """Record a human observation; never infer rotation from sensor values."""
+        if event not in {"ROTATION_START_CONFIRMED", "ROTATION_NOT_OBSERVED_AT_STAGE"}:
+            raise ValueError("unsupported visual event")
+        if not actor or not observed_at_utc:
+            raise ValueError("actor and observed_at_utc are required")
+        confirmed = self.state == SequenceState.RUNNING
+        self._append(
+            "EVENT", event=event, observation_method="human_visual", actor=actor,
+            observed_at_utc=observed_at_utc, reported_at_utc=self.clock.utc_now(),
+            host_monotonic_ns=self.clock.monotonic_ns(),
+            stage_id=f"PWM-{self.stage_index:02d}" if confirmed else None,
+            stage_index=self.stage_index if confirmed else None,
+            pwm_value=self.stage_index if confirmed else None,
+        )
+
     def _complete(self) -> None:
         self._append("SESSION_EVENT", event="SESSION_COMPLETED",
                      host_monotonic_ns=self.clock.monotonic_ns(), details={"stages_completed": 31})
