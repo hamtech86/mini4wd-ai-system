@@ -83,8 +83,17 @@ class SequenceController:
         if self.state != SequenceState.READY:
             raise SequenceError("startup recovery must precede session start")
         # Explicitly discover, then recover. No measurement is permitted on failure.
-        self.writer.list_incomplete_work()
+        pending_before = self.writer.list_incomplete_work()
         result = self.writer.recover_pending()
+        pending_after = self.writer.list_incomplete_work()
+        if pending_after:
+            raise SequenceError(f"startup recovery left pending work: {pending_after}")
+        recovered_ids = {
+            item.get("log_id") for item in result
+            if isinstance(item, dict) and isinstance(item.get("log_id"), str)
+        }
+        if recovered_ids != set(pending_before):
+            raise SequenceError("startup recovery result does not match discovered pending work")
         self._recovery_complete = True
         return result
 
