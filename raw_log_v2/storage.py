@@ -38,6 +38,40 @@ def _write_new_file(path: Path, payload: bytes) -> None:
     finally: os.close(fd)
     _fsync_dir(path.parent)
 
+def _publish_new_file(path: Path, payload: bytes, temp_path: Path) -> None:
+    """Publish a new immutable file by hard-linking a fully fsynced staging file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path.parent.mkdir(parents=True, exist_ok=True)
+    if path.is_symlink():
+        raise ExistingPackageError(f"refusing symlink destination: {path}")
+    if path.exists():
+        if not path.is_file() or path.read_bytes() != payload:
+            raise ExistingPackageError(f"existing immutable file differs: {path}")
+        if temp_path.exists():
+            if temp_path.is_symlink() or not temp_path.is_file():
+                raise ExistingPackageError(f"invalid staging entry: {temp_path}")
+            temp_path.unlink()
+            _fsync_dir(temp_path.parent)
+        return
+    if temp_path.exists():
+        if temp_path.is_symlink() or not temp_path.is_file():
+            raise ExistingPackageError(f"invalid staging entry: {temp_path}")
+        if temp_path.read_bytes() != payload:
+            temp_path.unlink()
+            _fsync_dir(temp_path.parent)
+    if not temp_path.exists():
+        _write_new_file(temp_path, payload)
+    try:
+        os.link(temp_path, path)
+    except FileExistsError:
+        if not path.is_file() or path.read_bytes() != payload:
+            raise ExistingPackageError(f"immutable destination appeared with different bytes: {path}")
+    temp_path.unlink()
+    _fsync_dir(path.parent)
+    if temp_path.parent != path.parent:
+        _fsync_dir(temp_path.parent)
+
+
 def _atomic_replace_json(path: Path, value: Any) -> None:
     fd, name = tempfile.mkstemp(prefix=".state-", suffix=".tmp", dir=str(path.parent))
     temp = Path(name)
@@ -176,9 +210,9 @@ class RawLogV2Writer:
                 raise RawLogV2Error("unexpected file in recovery originals")
         for rel, payload in entries:
             target = original_dir / rel
-            if target.exists():
-                if target.read_bytes() != payload: raise RawLogV2Error(f"recovery original differs: {rel}")
-            else: _write_new_file(target, payload)
+            staging_key = _sha256(rel.encode("utf-8") + b"\\0" + payload)
+            staging = recovery_dir / (".preserve-" + staging_key + ".tmp")
+            _publish_new_file(target, payload, staging)
         _, preserved_hash = _snapshot_tree(original_dir)
         if preserved_hash != tree_hash: raise RawLogV2Error("recovery original verification failed")
         _fsync_dir(original_dir)
@@ -222,7 +256,9 @@ class RawLogV2Writer:
                 "rejected_complete_lines":rejected,"validation_errors":validation,
                 "final_package_path":log_id,"final_records_sha256":_sha256(recovered_jsonl),
                 "final_manifest_sha256":_sha256(_json_bytes(manifest))}
-            _write_new_file(recovery_record_path, _json_bytes(recovery_record))
+            recovery_record_bytes = _json_bytes(recovery_record)
+            _publish_new_file(recovery_record_path, recovery_record_bytes,
+                recovery_dir / ".recovery-record.tmp")
         else:
             if recovery_record.get("final_records_sha256") != _sha256(recovered_jsonl):
                 raise RawLogV2Error("recovery record final records hash does not match source")
@@ -231,8 +267,8 @@ class RawLogV2Writer:
 
         publication_state = recovery_dir / "publication_state.json"
         if not publication_state.exists():
-            _write_new_file(publication_state, _json_bytes({"phase":"recording","publication":None,
-                "source_tree_sha256":tree_hash}))
+            _atomic_replace_json(publication_state, {"phase":"recording","publication":None,
+                "source_tree_sha256":tree_hash})
         self._publish_package(self.root / log_id, work_dir, recovered_jsonl, manifest,
             recovery_id, state_path=publication_state)
         shutil.rmtree(work_dir); _fsync_dir(self.work_root)
@@ -253,35 +289,18 @@ class RawLogV2Writer:
             final_dir.mkdir(); _fsync_dir(final_dir.parent)
         elif not final_dir.is_dir(): raise ExistingPackageError("final path is not a directory")
 
-        temp_name = ".manifest-" + publication_id + ".tmp"
-        allowed_names = {"manifest.json", "records.jsonl", temp_name}
+        records_temp_name = ".records-" + publication_id + ".tmp"
+        manifest_temp_name = ".manifest-" + publication_id + ".tmp"
+        allowed_names = {"manifest.json", "records.jsonl", records_temp_name, manifest_temp_name}
         for child in final_dir.iterdir():
             if child.name not in allowed_names or child.is_symlink() or not child.is_file():
                 raise ExistingPackageError(f"unexpected entry in final package directory: {child.name}")
 
         records_path = final_dir / "records.jsonl"
-        if records_path.exists():
-            if records_path.read_bytes() != records_bytes: raise ExistingPackageError("final records differ; refusing overwrite")
-        else: _write_new_file(records_path, records_bytes)
+        _publish_new_file(records_path, records_bytes, final_dir / records_temp_name)
 
         manifest_path = final_dir / "manifest.json"
-        temp = final_dir / temp_name
-        if manifest_path.exists():
-            if manifest_path.read_bytes() != manifest_bytes: raise ExistingPackageError("final manifest differs; refusing overwrite")
-            if temp.exists():
-                if temp.read_bytes() != manifest_bytes: raise ExistingPackageError("stale manifest staging bytes differ")
-                temp.unlink()
-                _fsync_dir(final_dir)
-        else:
-            if not temp.exists(): _write_new_file(temp, manifest_bytes)
-            elif temp.read_bytes() != manifest_bytes: raise ExistingPackageError("manifest staging bytes differ")
-            try: os.link(temp, manifest_path)
-            except FileExistsError:
-                if manifest_path.read_bytes() != manifest_bytes: raise ExistingPackageError("manifest appeared with different bytes")
-            finally:
-                try: temp.unlink()
-                except FileNotFoundError: pass
-            _fsync_dir(final_dir)
+        _publish_new_file(manifest_path, manifest_bytes, final_dir / manifest_temp_name)
         if records_path.read_bytes() != records_bytes or manifest_path.read_bytes() != manifest_bytes:
             raise RawLogV2Error("published package verification failed")
         if {p.name for p in final_dir.iterdir()} != {"manifest.json", "records.jsonl"}:
