@@ -177,3 +177,16 @@ def test_validator_does_not_crash_on_wrong_json_value_types():
     record["record_type"]=[]
     errors=validate_package(manifest,[record],raise_on_error=False)
     assert any("record_type" in error for error in errors)
+
+
+def test_final_package_rejects_unexpected_files_without_deleting_work(tmp_path):
+    writer=RawLogV2Writer(tmp_path)
+    session=writer.begin(manifest_fields())
+    session.append(session_event())
+    final=tmp_path/"MOTOR-310-TEST"
+    final.mkdir()
+    (final/"unexpected.bin").write_bytes(b"foreign")
+    with pytest.raises(ExistingPackageError, match="unexpected entry"):
+        writer.recover_incomplete("MOTOR-310-TEST", recovered_at_utc=NOW)
+    assert (tmp_path/".work"/"MOTOR-310-TEST"/"records.jsonl").exists()
+    assert (final/"unexpected.bin").read_bytes()==b"foreign"
