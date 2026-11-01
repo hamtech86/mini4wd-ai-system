@@ -260,3 +260,49 @@ def test_controlled_abort_has_completed_aborted_then_not_reached_stages():
         "planned_stage_count":31,"planned_stage_duration_ms":10000,
         "planned_total_duration_ms":310000,"record_counts":{"PWM_STAGE":31}})
     assert validate_package(manifest,records,raise_on_error=False) == []
+
+
+def test_recovery_resumes_after_partial_original_and_package_staging(tmp_path, monkeypatch):
+    import raw_log_v2.storage as storage
+    writer=RawLogV2Writer(tmp_path)
+    session=writer.begin(manifest_fields())
+    session.append(session_event())
+    work=tmp_path/".work"/"MOTOR-310-TEST"
+    original_records=(work/"records.jsonl").read_bytes()
+    original_state=(work/"work_state.json").read_bytes()
+    real_write=storage._write_new_file
+    failures={"preserve":0,"records":0}
+
+    def fail_once(path,payload):
+        if path.name.startswith(".preserve-") and failures["preserve"] == 0:
+            failures["preserve"] += 1
+            real_write(path,b"partial-original-copy")
+            raise OSError("simulated crash during original staging")
+        if path.name.startswith(".records-") and failures["records"] == 0:
+            failures["records"] += 1
+            real_write(path,b"partial-final-records")
+            raise OSError("simulated crash during final records staging")
+        return real_write(path,payload)
+
+    monkeypatch.setattr(storage,"_write_new_file",fail_once)
+    with pytest.raises(OSError,match="original staging"):
+        writer.recover_incomplete("MOTOR-310-TEST",recovered_at_utc=NOW)
+    assert (work/"records.jsonl").read_bytes()==original_records
+    with pytest.raises(OSError,match="final records staging"):
+        writer.recover_incomplete("MOTOR-310-TEST",recovered_at_utc=NOW)
+
+    recovery_dirs=list((tmp_path/".recovery"/"MOTOR-310-TEST").glob("crash-*"))
+    assert len(recovery_dirs)==1
+    original_dir=recovery_dirs[0]/"original"
+    assert (original_dir/"records.jsonl").read_bytes()==original_records
+    assert (original_dir/"work_state.json").read_bytes()==original_state
+    assert (work/"records.jsonl").read_bytes()==original_records
+
+    monkeypatch.setattr(storage,"_write_new_file",real_write)
+    recovery=writer.recover_incomplete("MOTOR-310-TEST",recovered_at_utc=NOW)
+    final=tmp_path/"MOTOR-310-TEST"
+    assert recovery["recovery_id"]==recovery_dirs[0].name
+    assert sorted(p.name for p in final.iterdir())==["manifest.json","records.jsonl"]
+    assert (final/"records.jsonl").read_bytes()==original_records
+    assert json.loads((final/"manifest.json").read_text())["status"]=="incomplete"
+    assert not work.exists()
