@@ -1,0 +1,127 @@
+import json
+import pytest
+from raw_log_v2 import ExistingPackageError, RawLogV2Writer, validate_package
+
+NOW = "2026-11-01T00:00:00.000Z"
+
+def manifest_fields(log_id="MOTOR-310-TEST"):
+    return {
+        "schema_name":"mini4wd.rawlog", "schema_version":"2.0.0", "log_id":log_id,
+        "measurement_session_id":"SESSION-TEST", "measurement_type":"PWM_START_SWEEP_310S",
+        "started_at_utc":NOW, "motor_instance_id":"7",
+        "device":{"type":"MOTOR","model":"MOTOR_BREAKIN_V3","firmware_version":"3.x",
+                  "firmware_build":"test-build","firmware_id":"000001","adc_resolution_bits":10},
+        "measurement_conditions":{"direction":"FWD","voltage_control_mode":"INPUT",
+            "sweep_pwm_min":0,"sweep_pwm_max":30,"stage_duration_ms":10000,"schedule_owner":"PYTHON"},
+        "metadata_warnings":[]
+    }
+
+def session_event(log_id="MOTOR-310-TEST"):
+    return {"schema_version":"2.0.0","record_type":"SESSION_EVENT","record_id":"event-start",
+        "record_seq":1,"log_id":log_id,"measurement_session_id":"SESSION-TEST",
+        "recorded_at_utc":NOW,"event":"SESSION_STARTED","host_monotonic_ns":1,
+        "details":{"measurement_type":"PWM_START_SWEEP_310S"}}
+
+def stage_record(index, log_id="MOTOR-310-TEST"):
+    t=f"2026-11-01T00:00:{index:02d}.000Z"
+    return {"schema_version":"2.0.0","record_type":"PWM_STAGE","record_id":f"stage-{index}",
+        "record_seq":index+1,"log_id":log_id,"measurement_session_id":"SESSION-TEST",
+        "recorded_at_utc":"2026-11-01T00:01:00.000Z","stage_id":f"PWM-{index:02d}",
+        "stage_index":index,"pwm_command":index,"planned_duration_ms":10000,
+        "stage_status":"completed","started_at_utc":t,
+        "ended_at_utc":f"2026-11-01T00:00:{index:02d}.500Z",
+        "start_host_monotonic_ns":index*1000000,"end_host_monotonic_ns":index*1000000+500000,
+        "actual_duration_ms":500,"pwm_command_sent_at_utc":t,
+        "pwm_applied_ack_received_at_utc":t,"output_state":"unknown",
+        "stage_context_id":f"context-{index}","termination_reason":"duration_elapsed"}
+
+def test_normal_finalize_publishes_exactly_two_files(tmp_path):
+    writer=RawLogV2Writer(tmp_path); session=writer.begin(manifest_fields())
+    for i in range(31): session.append(stage_record(i))
+    final=session.finalize({"ended_at_utc":NOW},"completed",NOW)
+    assert sorted(p.name for p in final.iterdir())==["manifest.json","records.jsonl"]
+    manifest=json.loads((final/"manifest.json").read_text())
+    assert manifest["status"]=="completed" and manifest["record_counts"]=={"PWM_STAGE":31}
+    assert not (tmp_path/".work"/"MOTOR-310-TEST").exists()
+
+def test_append_rejects_sequence_gap(tmp_path):
+    session=RawLogV2Writer(tmp_path).begin(manifest_fields())
+    bad=session_event(); bad["record_seq"]=2
+    with pytest.raises(ValueError,match="continuous"): session.append(bad)
+
+def test_crash_recovery_preserves_original_and_drops_partial_tail(tmp_path):
+    writer=RawLogV2Writer(tmp_path); session=writer.begin(manifest_fields()); session.append(session_event())
+    work=tmp_path/".work"/"MOTOR-310-TEST"; rp=work/"records.jsonl"
+    partial=b'{"schema_version":"2.0.0","record_type":"PWM_STAGE"'
+    with rp.open("ab") as f: f.write(partial); f.flush()
+    original_records=rp.read_bytes(); original_state=(work/"work_state.json").read_bytes()
+    recovery=writer.recover_incomplete("MOTOR-310-TEST",recovered_at_utc=NOW)
+    recovery_dir=tmp_path/".recovery"/"MOTOR-310-TEST"/recovery["recovery_id"]/"original"
+    assert (recovery_dir/"records.jsonl").read_bytes()==original_records
+    assert (recovery_dir/"work_state.json").read_bytes()==original_state
+    assert recovery["incomplete_tail_present"] and recovery["incomplete_tail_size_bytes"]==len(partial)
+    final=tmp_path/"MOTOR-310-TEST"
+    assert sorted(p.name for p in final.iterdir())==["manifest.json","records.jsonl"]
+    recovered=(final/"records.jsonl").read_bytes()
+    assert recovered.endswith(b"\n") and partial not in recovered and b"PWM_STAGE" not in recovered
+    manifest=json.loads((final/"manifest.json").read_text())
+    assert manifest["status"]=="incomplete" and manifest["record_counts"]=={"SESSION_EVENT":1}
+    assert not work.exists()
+
+def test_recovery_is_idempotent_and_does_not_overwrite_final_package(tmp_path):
+    writer=RawLogV2Writer(tmp_path); session=writer.begin(manifest_fields()); session.append(session_event())
+    first=writer.recover_incomplete("MOTOR-310-TEST",recovered_at_utc=NOW)
+    final=tmp_path/"MOTOR-310-TEST"; before_m=(final/"manifest.json").read_bytes(); before_r=(final/"records.jsonl").read_bytes()
+    second=writer.recover_incomplete("MOTOR-310-TEST",recovered_at_utc=NOW)
+    assert second["recovery_id"]==first["recovery_id"]
+    assert (final/"manifest.json").read_bytes()==before_m and (final/"records.jsonl").read_bytes()==before_r
+    with pytest.raises(ExistingPackageError): writer.begin(manifest_fields())
+
+def test_recovery_source_is_kept_if_final_package_conflicts(tmp_path):
+    writer=RawLogV2Writer(tmp_path); session=writer.begin(manifest_fields()); session.append(session_event())
+    final=tmp_path/"MOTOR-310-TEST"; final.mkdir(); (final/"records.jsonl").write_text("foreign\n")
+    with pytest.raises(ExistingPackageError): writer.recover_incomplete("MOTOR-310-TEST",recovered_at_utc=NOW)
+    assert (tmp_path/".work"/"MOTOR-310-TEST"/"records.jsonl").exists()
+    assert list((tmp_path/".recovery"/"MOTOR-310-TEST").glob("crash-*/original/records.jsonl"))
+
+def test_v1_payload_is_not_accepted_as_v2():
+    errors=validate_package({"schema_version":"1"},[],raise_on_error=False)
+    assert any("schema_name" in e for e in errors) and any("schema_version" in e for e in errors)
+
+def test_a1_cannot_be_relabelled_or_converted():
+    from raw_log_v2.validator import validate_record
+    manifest=manifest_fields()
+    sample={"schema_version":"2.0.0","record_type":"ADC_SAMPLE","record_id":"a1","record_seq":1,
+      "log_id":manifest["log_id"],"measurement_session_id":manifest["measurement_session_id"],
+      "recorded_at_utc":NOW,"sample_id":"sample-a1","channel":"A1","sensor":"ACS712 #2",
+      "signal_role":"winding_current","adc_raw":512,"adc_resolution_bits":10,"raw_unit":"count",
+      "device_timestamp_us_u32":1,"device_timestamp_point":"conversion_midpoint","device_epoch_id":"boot-1",
+      "device_elapsed_us":1,"device_sample_sequence":1,"host_received_at_utc":NOW,
+      "host_received_monotonic_ns":1,"stage_context_id":None,"stage_id":None,
+      "stage_assignment":"unresolved","calibration_id":None,"validity":"valid","invalid_reason":None,
+      "converted_value":0.5,"converted_unit":"A"}
+    errors=validate_record(sample,manifest)
+    assert any("sensor/signal_role" in e for e in errors) and any("A1 conversion" in e for e in errors)
+
+def test_raw_only_calibration_cannot_be_referenced():
+    manifest=manifest_fields()
+    roles={"A0":("winding_current","winding_current_zero_reference"),
+           "A1":("brush_stability_observation","brush_observation_reference"),
+           "A4":("voltage_v4","voltage_input_reference"),"A5":("voltage_v5","voltage_input_reference")}
+    channels={k:{"signal_role":v[0],"calibration_role":v[1],"parameter_status":"raw_only_unparsed","parameters":None} for k,v in roles.items()}
+    cal={"schema_version":"2.0.0","record_type":"CALIBRATION","record_id":"cal-record","record_seq":1,
+      "log_id":manifest["log_id"],"measurement_session_id":manifest["measurement_session_id"],
+      "recorded_at_utc":NOW,"calibration_id":"cal-raw","source":"firmware_CAL_line","raw_line":"CAL,raw",
+      "captured_at_utc":NOW,"captured_host_monotonic_ns":1,"effective_from_event_id":None,
+      "effective_until_event_id":None,"application_status":"raw_capture_only","channels":channels}
+    sample={"schema_version":"2.0.0","record_type":"ADC_SAMPLE","record_id":"sample-record","record_seq":2,
+      "log_id":manifest["log_id"],"measurement_session_id":manifest["measurement_session_id"],
+      "recorded_at_utc":NOW,"sample_id":"sample-a0","channel":"A0","sensor":"ACS712 #1",
+      "signal_role":"winding_current","adc_raw":512,"adc_resolution_bits":10,"raw_unit":"count",
+      "device_timestamp_us_u32":2,"device_timestamp_point":"conversion_midpoint","device_epoch_id":"boot-1",
+      "device_elapsed_us":2,"device_sample_sequence":2,"host_received_at_utc":NOW,
+      "host_received_monotonic_ns":2,"stage_context_id":None,"stage_id":None,
+      "stage_assignment":"unresolved","calibration_id":"cal-raw","validity":"valid","invalid_reason":None}
+    manifest["record_counts"]={"CALIBRATION":1,"ADC_SAMPLE":1}
+    errors=validate_package(manifest,[cal,sample],raise_on_error=False)
+    assert any("non-applicable raw-only" in e for e in errors)
