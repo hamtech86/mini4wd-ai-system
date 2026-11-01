@@ -3,6 +3,7 @@ import pytest
 from raw_log_v2 import ExistingPackageError, RawLogV2Writer, validate_package
 
 NOW = "2026-11-01T00:00:00.000Z"
+END = "2026-11-01T00:01:00.000Z"
 
 def manifest_fields(log_id="MOTOR-310-TEST"):
     return {
@@ -38,7 +39,7 @@ def stage_record(index, log_id="MOTOR-310-TEST"):
 def test_normal_finalize_publishes_exactly_two_files(tmp_path):
     writer=RawLogV2Writer(tmp_path); session=writer.begin(manifest_fields())
     for i in range(31): session.append(stage_record(i))
-    final=session.finalize({"ended_at_utc":NOW},"completed",NOW)
+    final=session.finalize({"ended_at_utc":END},"completed",END)
     assert sorted(p.name for p in final.iterdir())==["manifest.json","records.jsonl"]
     manifest=json.loads((final/"manifest.json").read_text())
     assert manifest["status"]=="completed" and manifest["record_counts"]=={"PWM_STAGE":31}
