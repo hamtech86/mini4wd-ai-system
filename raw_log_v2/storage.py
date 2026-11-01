@@ -121,6 +121,7 @@ class RawLogV2Writer:
             final = self.root / log_id
             mp, dp = final / "manifest.json", final / "records.jsonl"
             if not (mp.is_file() and dp.is_file()): continue
+            if {p.name for p in final.iterdir()} != {"manifest.json", "records.jsonl"}: continue
             if _sha256(mp.read_bytes()) == record.get("final_manifest_sha256") and _sha256(dp.read_bytes()) == record.get("final_records_sha256"):
                 matches.append(record)
         if len(matches) == 1: return matches[0]
@@ -139,6 +140,8 @@ class RawLogV2Writer:
             except FileNotFoundError:
                 prior_recovery = None
             if prior_recovery is not None:
+                if {p.name for p in final_dir.iterdir()} != {"manifest.json", "records.jsonl"}:
+                    raise ExistingPackageError("recovered package contains unexpected files")
                 shutil.rmtree(work_dir)
                 _fsync_dir(self.work_root)
                 return prior_recovery
@@ -146,7 +149,8 @@ class RawLogV2Writer:
             intent = state.get("publication")
             records_path = final_dir / "records.jsonl"
             manifest_path = final_dir / "manifest.json"
-            if (not isinstance(intent, dict) or not records_path.is_file()
+            if ({p.name for p in final_dir.iterdir()} != {"manifest.json", "records.jsonl"}
+                    or not isinstance(intent, dict) or not records_path.is_file()
                     or _sha256(records_path.read_bytes()) != intent.get("records_sha256")
                     or _sha256(manifest_path.read_bytes()) != intent.get("manifest_sha256")):
                 raise ExistingPackageError("a final manifest exists but does not match this work area's publication intent")
