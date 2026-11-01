@@ -27,7 +27,7 @@ At application startup, call list_incomplete_work() or recover_pending() before 
 
 Recovery first snapshots and fsyncs all work files into .recovery. Only newline-terminated JSON-object lines are candidates for the recovered package. An unterminated tail is retained only in the preserved original and excluded from final records.jsonl. Invalid complete lines are also retained in the original and excluded from recovered JSONL; they are listed in recovery_record.json. No missing PWM_STAGE is synthesized. The incomplete manifest counts only records actually included. Validator errors, including record_seq gaps caused by rejected lines, are recorded; recovery never rewrites record IDs, sequence numbers or record content to disguise invalid source data.
 
-The work directory is removed only after original preservation and final package are fsynced and verified. Recovery originals are not automatically deleted or overwritten.
+The work directory is removed only after original preservation and final package are fsynced and verified. For a normal-finalize package discovered after a manifest-last crash, startup recovery verifies both publication-intent hashes and explicitly fsyncs the final package directory before marking the work state published or deleting `.work`; a failed fsync leaves `.work` intact. Recovery originals are not automatically deleted or overwritten.
 
 ## Filesystem guarantees and limits
 
