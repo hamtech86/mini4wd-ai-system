@@ -176,6 +176,17 @@ class SequenceController:
                 self.stage_start_ns = self.clock.monotonic_ns()
                 self.next_deadline_ns = self.stage_start_ns + self.STAGE_DURATION_MS * 1_000_000
                 self.state = SequenceState.RUNNING
+                try:
+                    self._append("SESSION_EVENT", event="OTHER",
+                                 host_monotonic_ns=self.stage_start_ns,
+                                 details={"kind": "PWM_ACK_RECEIVED",
+                                          "stage_index": self.stage_index,
+                                          "command_sent_host_monotonic_ns": self.command_sent_ns,
+                                          "ack_received_host_monotonic_ns": self.stage_start_ns,
+                                          "command_to_ack_delay_ms":
+                                              (self.stage_start_ns - int(self.command_sent_ns)) / 1_000_000})
+                except Exception as exc:
+                    self.abort("storage_failure", fault=f"RawLog ACK record failed: {exc}")
             elif self.clock.monotonic_ns() - int(self.command_sent_ns) >= self.ack_timeout_ns:
                 self.abort("communication_lost", fault="PWM ACK timeout")
         elif self.state == SequenceState.RUNNING:
