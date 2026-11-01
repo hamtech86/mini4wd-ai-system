@@ -316,7 +316,7 @@ def test_finalize_failure_does_not_append_to_work_after_finalize_started(tmp_pat
     ctl.poll()
     assert ctl.state == SequenceState.FAULT
     assert ctl._finalization_started
-    assert appended == ["SESSION_EVENT:SESSION_COMPLETED"]
+    assert appended == ["PWM_STAGE:", "SESSION_EVENT:SESSION_COMPLETED"]
     assert stops == ["STOP"]
     records = [json.loads(line) for line in
         (tmp_path / ".work" / "TEST-310" / "records.jsonl").read_text().splitlines()]
@@ -348,5 +348,27 @@ def test_protocol_client_retains_fragmented_ack_until_frame_complete():
     assert client.poll_ack() is None
     mock.queue(b"07")
     assert client.poll_ack()[0] == 7
+    assert client._receive_buffer == bytearray()
+    client.disconnect()
+
+
+def test_protocol_client_preserves_multiple_frames_in_one_serial_read():
+    from measurement_310.transport import DecodedFrame, ProtocolClient
+    class MultiFrameCodec:
+        def encode_pwm(self, pwm): return bytes([pwm])
+        def encode_stop(self): return b"!"
+        def decode(self, payload):
+            if len(payload) < 2:
+                from measurement_310.transport import IncompleteMessage
+                raise IncompleteMessage()
+            return DecodedFrame({"kind": "PWM_ACK", "pwm": payload[1]},
+                                consumed_bytes=2)
+    mock = MockTransport()
+    client = ProtocolClient(mock, MultiFrameCodec())
+    client.connect()
+    mock.queue(b"A\\x05B\\x06")
+    assert client.poll_ack()[0] == 5
+    assert bytes(client._receive_buffer) == b"B\\x06"
+    assert client.poll_ack()[0] == 6
     assert client._receive_buffer == bytearray()
     client.disconnect()
