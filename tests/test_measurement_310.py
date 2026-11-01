@@ -342,7 +342,7 @@ def test_protocol_client_retains_fragmented_ack_until_frame_complete():
     mock = MockTransport()
     client = ProtocolClient(mock, PartialCodec())
     client.connect()
-    mock.queue(b"ACK:")
+        mock.queue(b"A\x05B\x06")
     assert client.poll_ack() is None
     assert bytes(client._receive_buffer) == b"ACK:"
     assert client.poll_ack() is None
