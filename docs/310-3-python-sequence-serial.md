@@ -33,3 +33,9 @@ energize hardware. Per-channel raw ADC record mapping and human visual EVENT
 logging use existing schema records. Calibration ingestion, concrete firmware
 codec binding, device telemetry/state parsing and firmware message semantics
 are deferred until 310-4. No unknown record_type is introduced.
+
+## Verification boundary
+The pySerial adapter is lazy and was not instantiated against a device. All
+sequence and transport tests use injected clocks and in-memory mock transport.
+CI is required for regression evidence; local git/pytest execution was blocked
+by the execution environment's DNS failure when resolving github.com.
