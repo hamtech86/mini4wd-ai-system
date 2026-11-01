@@ -146,3 +146,50 @@ def test_recovery_failure_blocks_start(tmp_path, monkeypatch):
         ctl.startup_recover()
     with pytest.raises(SequenceError):
         ctl.start()
+
+
+def test_adc_channels_are_independent_and_keep_device_timestamps(tmp_path):
+    import json
+    clock = FakeClock()
+    ctl = SequenceController(RawLogV2Writer(tmp_path), manifest(tmp_path),
+        lambda pwm: clock.utc_now(), lambda: None, lambda: None, clock)
+    ctl.startup_recover()
+    ctl.start()
+    ctl.record_adc_sample("A0", 123, 10, 1001, "adc_conversion_complete",
+                          "boot-1", device_sample_sequence=1)
+    ctl.record_adc_sample("A1", 456, 10, 1008, "adc_conversion_complete",
+                          "boot-1", device_sample_sequence=2)
+    ctl.record_adc_sample("A4", 700, 10, 1012, "adc_conversion_complete",
+                          "boot-1", device_sample_sequence=3)
+    ctl.record_adc_sample("A5", 650, 10, 1019, "adc_conversion_complete",
+                          "boot-1", device_sample_sequence=4)
+    records = [json.loads(line) for line in
+               (tmp_path / ".work" / "TEST-310" / "records.jsonl").read_text().splitlines()]
+    samples = [r for r in records if r["record_type"] == "ADC_SAMPLE"]
+    assert [(r["channel"], r["adc_raw"], r["device_timestamp_us_u32"]) for r in samples] == [
+        ("A0", 123, 1001), ("A1", 456, 1008), ("A4", 700, 1012), ("A5", 650, 1019)]
+    assert samples[0]["signal_role"] == "winding_current"
+    assert samples[1]["signal_role"] == "brush_stability_observation"
+    assert "converted_value" not in samples[1]
+    assert samples[2]["signal_role"] == "voltage_v4"
+    assert samples[3]["signal_role"] == "voltage_v5"
+    ctl.abort("test_end")
+
+
+def test_visual_event_is_human_reported_and_not_adc_timestamp(tmp_path):
+    import json
+    clock = FakeClock()
+    ctl = SequenceController(RawLogV2Writer(tmp_path), manifest(tmp_path),
+        lambda pwm: clock.utc_now(), lambda: None, lambda: (0, clock.utc_now()), clock)
+    ctl.startup_recover()
+    ctl.start()
+    ctl.poll()
+    ctl.record_visual_event("ROTATION_START_CONFIRMED", "operator",
+                            "2026-11-01T00:00:01.000Z")
+    records = [json.loads(line) for line in
+               (tmp_path / ".work" / "TEST-310" / "records.jsonl").read_text().splitlines()]
+    event = next(r for r in records if r["record_type"] == "EVENT")
+    assert event["observation_method"] == "human_visual"
+    assert event["stage_id"] == "PWM-00"
+    assert event["observed_at_utc"] != event["reported_at_utc"] or event["host_monotonic_ns"] > 0
+    ctl.abort("test_end")
