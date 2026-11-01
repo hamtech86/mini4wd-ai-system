@@ -129,7 +129,10 @@ class RawLogV2Writer:
         if not isinstance(log_id, str) or not log_id or Path(log_id).name != log_id:
             raise ValueError("log_id must be a non-empty path-safe string")
         if (self.root / log_id).exists(): raise ExistingPackageError(f"final package already exists: {log_id}")
+        self.root.mkdir(parents=True, exist_ok=True)
+        _fsync_dir(self.root.parent)
         self.work_root.mkdir(parents=True, exist_ok=True)
+        _fsync_dir(self.root)
         work_dir = self.work_root / log_id
         work_dir.mkdir(exist_ok=False); _fsync_dir(self.work_root)
         _write_new_file(work_dir / "records.jsonl", b"")
@@ -199,8 +202,12 @@ class RawLogV2Writer:
         recovery_id = "crash-" + tree_hash
         recovery_dir = self.recovery_root / log_id / recovery_id
         original_dir = recovery_dir / "original"
+        self.root.mkdir(parents=True, exist_ok=True)
         self.recovery_root.mkdir(parents=True, exist_ok=True)
-        (self.recovery_root / log_id).mkdir(parents=True, exist_ok=True)
+        _fsync_dir(self.root)
+        recovery_log_dir = self.recovery_root / log_id
+        recovery_log_dir.mkdir(parents=True, exist_ok=True)
+        _fsync_dir(self.recovery_root)
         recovery_dir.mkdir(exist_ok=True); _fsync_dir(recovery_dir.parent)
         original_dir.mkdir(exist_ok=True); _fsync_dir(recovery_dir)
         expected_paths = {rel for rel, _ in entries}
