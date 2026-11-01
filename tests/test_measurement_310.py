@@ -252,3 +252,101 @@ def test_startup_recovery_checks_every_discovered_work_item(tmp_path):
     assert writer.list_incomplete_work() == []
     ctl.start()
     assert ctl.state == SequenceState.WAITING_ACK
+
+
+@pytest.mark.parametrize("method,args", [
+    ("record_adc_sample", ("A0", 111, 10, 10, "adc_conversion_complete", "boot-fail")),
+    ("record_visual_event", ("ROTATION_START_CONFIRMED", "operator", "2026-11-01T00:00:01.000Z")),
+])
+def test_observation_append_failure_fails_closed_and_attempts_stop(
+    tmp_path, monkeypatch, method, args
+):
+    clock = FakeClock()
+    stops = []
+    ctl = SequenceController(RawLogV2Writer(tmp_path), manifest(tmp_path),
+        lambda pwm: clock.utc_now(), lambda: stops.append("STOP"),
+        lambda: (0, clock.utc_now()), clock)
+    ctl.startup_recover()
+    ctl.start()
+    ctl.poll()
+
+    def fail_append(record):
+        raise OSError("injected append failure")
+
+    monkeypatch.setattr(ctl.session, "append", fail_append)
+    with pytest.raises(SequenceError):
+        getattr(ctl, method)(*args)
+    assert ctl.state == SequenceState.FAULT
+    assert stops == ["STOP"]
+
+
+def test_finalize_failure_does_not_append_to_work_after_finalize_started(tmp_path, monkeypatch):
+    import json
+    clock = FakeClock()
+    stops, acks = [], []
+    ctl = SequenceController(RawLogV2Writer(tmp_path), manifest(tmp_path),
+        lambda pwm: clock.utc_now(), lambda: stops.append("STOP"),
+        lambda: acks.pop(0) if acks else None, clock)
+    ctl.startup_recover()
+    ctl.start()
+    for pwm in range(30):
+        acks.append((pwm, clock.utc_now()))
+        ctl.poll()
+        assert ctl.state == SequenceState.RUNNING
+        clock.advance_ms(10_000)
+        ctl.poll()
+    acks.append((30, clock.utc_now()))
+    ctl.poll()
+    assert ctl.state == SequenceState.RUNNING
+
+    appended = []
+    original_append = ctl.session.append
+
+    def track_append(record):
+        appended.append(record["record_type"] + ":" + str(record.get("event", "")))
+        return original_append(record)
+
+    monkeypatch.setattr(ctl.session, "append", track_append)
+
+    def fail_finalize(*args, **kwargs):
+        raise OSError("injected publication failure")
+
+    monkeypatch.setattr(ctl.session, "finalize", fail_finalize)
+    clock.advance_ms(10_000)
+    ctl.poll()
+    assert ctl.state == SequenceState.FAULT
+    assert ctl._finalization_started
+    assert appended == ["SESSION_EVENT:SESSION_COMPLETED"]
+    assert stops == ["STOP"]
+    records = [json.loads(line) for line in
+        (tmp_path / ".work" / "TEST-310" / "records.jsonl").read_text().splitlines()]
+    assert [r.get("event") for r in records if r["record_type"] == "SESSION_EVENT"] == [
+        "SESSION_STARTED", "SESSION_COMPLETED"]
+
+
+def test_protocol_client_retains_fragmented_ack_until_frame_complete():
+    from measurement_310.transport import IncompleteMessage, ProtocolClient
+
+    class PartialCodec:
+        def encode_pwm(self, pwm):
+            return bytes([pwm])
+
+        def encode_stop(self):
+            return b"!"
+
+        def decode(self, payload):
+            if payload != b"ACK:07":
+                raise IncompleteMessage()
+            return {"kind": "PWM_ACK", "pwm": 7}
+
+    mock = MockTransport()
+    client = ProtocolClient(mock, PartialCodec())
+    client.connect()
+    mock.queue(b"ACK:")
+    assert client.poll_ack() is None
+    assert bytes(client._receive_buffer) == b"ACK:"
+    assert client.poll_ack() is None
+    mock.queue(b"07")
+    assert client.poll_ack()[0] == 7
+    assert client._receive_buffer == bytearray()
+    client.disconnect()
