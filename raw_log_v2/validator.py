@@ -105,7 +105,7 @@ def validate_manifest(manifest: Any) -> List[str]:
         errors.append("manifest.ended_at_utc precedes started_at_utc")
     if _utc(manifest.get("created_at_utc")) and _utc(ended) and manifest["created_at_utc"] < ended:
         errors.append("manifest.created_at_utc precedes ended_at_utc")
-    if manifest.get("status") in {"completed", "aborted"} and ended is None:
+    if isinstance(manifest.get("status"), str) and manifest.get("status") in {"completed", "aborted"} and ended is None:
         errors.append("completed/aborted manifest requires ended_at_utc")
     if not isinstance(manifest.get("status"), str) or manifest.get("status") not in {"completed", "aborted", "incomplete"}:
         errors.append("manifest.status is invalid")
