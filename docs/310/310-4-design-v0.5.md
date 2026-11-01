@@ -280,8 +280,10 @@ STOP is eligible in every state. `STOPPED` means software stop handling complete
 | BOOT | identity invalid/corrupt/write failure | Any identity check fails | BOOT_ID_INVALID | PWM disabled; no ARM |
 | BOOT_ID_INVALID | STOP | Always | FAULT_STOP | Request PWM=0; return STOP_ACK if transport works |
 | BOOT_ID_INVALID | PWM_SET / ARM | Always reject | BOOT_ID_INVALID | ERROR; no PWM change |
-| IDLE | HELLO | Valid committed boot identity, valid nonce and nonzero session tag | IDLE | Bind session; HELLO_ACK; no ARM |\n| STOP_LATCHED / STOPPED | HELLO | Valid committed boot identity, new session tag and fresh nonce | same state | Bind new session; HELLO_ACK; retain STOP latch |
-| IDLE / STOP_LATCHED / STOPPED | ARM | Verified HELLO session+epoch, fresh command_id, nonzero context token, initial_pwm=0, no fatal fault | ARMED | ARM_ACK; PWM remains 0 |\n| IDLE | PWM_SET | Reject: not armed | IDLE | ERROR; PWM remains 0 |
+| IDLE | HELLO | Valid committed boot identity, valid nonce and nonzero session tag | IDLE | Bind session; HELLO_ACK; no ARM |
+| STOP_LATCHED / STOPPED | HELLO | Valid committed boot identity, new session tag and fresh nonce | same state | Bind new session; HELLO_ACK; retain STOP latch |
+| IDLE / STOP_LATCHED / STOPPED | ARM | Verified HELLO session+epoch, fresh command_id, nonzero context token, initial_pwm=0, no fatal fault | ARMED | ARM_ACK; PWM remains 0 |
+| IDLE | PWM_SET | Reject: not armed | IDLE | ERROR; PWM remains 0 |
 | ARMED | PWM_SET(pwm=0..30) | Valid CRC/header/session/command/token; no stop latch | RUNNING if pwm>0, otherwise ARMED | Apply exact PWM; emit APPLY_ACK |
 | ARMED | invalid PWM_SET | Any validation failure | ARMED or FAULT if internal invariant fails | ERROR; no nonzero output |
 | RUNNING | PWM_SET(pwm=0..30) | Current session/token, fresh command, no stop latch | RUNNING if >0; ARMED if 0 | Apply and ACK |
@@ -290,7 +292,6 @@ STOP is eligible in every state. `STOPPED` means software stop handling complete
 | IDLE | STOP | Always | STOP_LATCHED | PWM=0; STOP_ACK |
 | STOP_LATCHED | STOP duplicate/new | Always | STOP_LATCHED | PWM=0; ACK history outcome |
 | STOP_LATCHED | PWM_SET including zero | Reject as drive/session command; STOP remains latched | STOP_LATCHED | PWM=0; ERROR or idempotent status |
-| STOP_LATCHED | ARM | Only through fresh-session procedure in §9.3 | ARMED | Clear latch only after all ARM validation passes |
 | STOP_LATCHED | stop handling completion | PWM-zero request accepted by output adapter | STOPPED | Report software completion, not physical confirmation |
 | STOPPED | STOP | Always | STOPPED | Idempotent ACK |
 | STOPPED | PWM_SET | Reject until new ARM/session | STOPPED | ERROR; PWM=0 |
