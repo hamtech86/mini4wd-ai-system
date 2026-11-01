@@ -23,6 +23,8 @@ Final publication reserves the destination with exclusive directory creation. Bo
 
 ## Crash recovery
 
+At application startup, call list_incomplete_work() or recover_pending() before starting a new measurement. Discovery is deterministic and read-only; each returned work area is then recovered independently. Orphaned or malformed work areas fail closed and remain preserved for inspection.
+
 Recovery first snapshots and fsyncs all work files into .recovery. Only newline-terminated JSON-object lines are candidates for the recovered package. An unterminated tail is retained only in the preserved original and excluded from final records.jsonl. Invalid complete lines are also retained in the original and excluded from recovered JSONL; they are listed in recovery_record.json. No missing PWM_STAGE is synthesized. The incomplete manifest counts only records actually included. Validator errors, including record_seq gaps caused by rejected lines, are recorded; recovery never rewrites record IDs, sequence numbers or record content to disguise invalid source data.
 
 The work directory is removed only after original preservation and final package are fsynced and verified. Recovery originals are not automatically deleted or overwritten.
