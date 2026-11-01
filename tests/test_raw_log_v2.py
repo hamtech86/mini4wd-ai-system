@@ -30,7 +30,7 @@ def stage_record(index, log_id="MOTOR-310-TEST"):
         "stage_index":index,"pwm_command":index,"planned_duration_ms":10000,
         "stage_status":"completed","started_at_utc":t,
         "ended_at_utc":f"2026-11-01T00:00:{index:02d}.500Z",
-        "start_host_monotonic_ns":index*1000000,"end_host_monotonic_ns":index*1000000+500000,
+        "start_host_monotonic_ns":index*1000000,"end_host_monotonic_ns":index*1000000+500000000,
         "actual_duration_ms":500,"pwm_command_sent_at_utc":t,
         "pwm_applied_ack_received_at_utc":t,"output_state":"unknown",
         "stage_context_id":f"context-{index}","termination_reason":"duration_elapsed"}
@@ -125,3 +125,55 @@ def test_raw_only_calibration_cannot_be_referenced():
     manifest["record_counts"]={"CALIBRATION":1,"ADC_SAMPLE":1}
     errors=validate_package(manifest,[cal,sample],raise_on_error=False)
     assert any("non-applicable raw-only" in e for e in errors)
+
+
+def test_crash_after_manifest_commit_keeps_committed_package(tmp_path, monkeypatch):
+    import raw_log_v2.storage as storage
+    writer=RawLogV2Writer(tmp_path); session=writer.begin(manifest_fields())
+    for i in range(31): session.append(stage_record(i))
+    original=storage._atomic_replace_json
+    calls={"count":0}
+    def fail_after_manifest(path, value):
+        calls["count"] += 1
+        if calls["count"] == 2:
+            raise OSError("simulated process crash after manifest publication")
+        return original(path, value)
+    monkeypatch.setattr(storage, "_atomic_replace_json", fail_after_manifest)
+    with pytest.raises(OSError, match="simulated process crash"):
+        session.finalize({"ended_at_utc":NOW}, "completed", NOW)
+    # The manifest is the commit point; recovery must not downgrade it to incomplete.
+    recovery=writer.recover_incomplete("MOTOR-310-TEST", recovered_at_utc=NOW)
+    assert recovery["recovery_status"] == "already_published"
+    final=tmp_path/"MOTOR-310-TEST"
+    assert json.loads((final/"manifest.json").read_text())["status"] == "completed"
+    assert sorted(p.name for p in final.iterdir()) == ["manifest.json", "records.jsonl"]
+    assert not (tmp_path/".work"/"MOTOR-310-TEST").exists()
+
+
+def test_validator_reports_record_count_and_sequence_mismatch():
+    manifest=manifest_fields()
+    record=session_event()
+    manifest.update({"created_at_utc":NOW,"ended_at_utc":None,"status":"incomplete",
+        "planned_stage_count":31,"planned_stage_duration_ms":10000,"planned_total_duration_ms":310000,
+        "record_counts":{"SESSION_EVENT":2}})
+    record["record_seq"]=2
+    errors=validate_package(manifest,[record],raise_on_error=False)
+    assert any("record_counts mismatch" in error for error in errors)
+    assert any("record_seq" in error for error in errors)
+
+
+def test_incomplete_package_does_not_require_or_invent_missing_stages():
+    manifest=manifest_fields()
+    record=session_event()
+    manifest.update({"created_at_utc":NOW,"ended_at_utc":None,"status":"incomplete",
+        "planned_stage_count":31,"planned_stage_duration_ms":10000,"planned_total_duration_ms":310000,
+        "record_counts":{"SESSION_EVENT":1}})
+    assert validate_package(manifest,[record],raise_on_error=False) == []
+
+
+def test_validator_does_not_crash_on_wrong_json_value_types():
+    manifest=manifest_fields()
+    record=session_event()
+    record["record_type"]=[]
+    errors=validate_package(manifest,[record],raise_on_error=False)
+    assert any("record_type" in error for error in errors)
