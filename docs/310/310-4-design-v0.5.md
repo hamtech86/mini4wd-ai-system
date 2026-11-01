@@ -316,8 +316,8 @@ Do not require legacy RawLog v1 columns or old derived values. Do not generate d
 UART 57600 bps, 8N1 has a theoretical ceiling of 5,760 wire bytes/s. Using wire maxima:
 - ADC_BATCH: 194 B × 10/s = 1,940 B/s.
 - STATUS: 31 B × 1/s = 31 B/s (one status per second baseline; event-driven statuses add traffic).
-- APPLY_ACK: 25 B per stage × 3.1 stages/s average over a 310-second run = approximately 77.5 B/s.
-- Nominal subtotal = approximately 2,048.5 B/s, about 35.6% of theoretical UART capacity, before STOP/ERROR/handshake/event traffic.
+- APPLY_ACK: 25 B × 31 stage transitions / 310 s = 2.5 B/s.
+- Nominal subtotal = approximately 1,973.5 B/s, about 34.3% of theoretical UART capacity, before STOP/ERROR/handshake/event traffic.
 
 This average is not a latency guarantee. Worst-case bursts and serial driver backpressure must be bounded.
 
