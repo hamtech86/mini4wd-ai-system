@@ -251,19 +251,19 @@ def validate_record(record: Any, manifest: Dict[str, Any], index: int = 0) -> Li
             elif any(record.get(k) is None for k in ("start_host_monotonic_ns", "end_host_monotonic_ns", "actual_duration_ms",
                     "pwm_applied_ack_received_at_utc", "stage_context_id")):
                 errors.append(f"{prefix}.aborted after ACK requires context and measured timing")
-        if record.get("started_at_utc") is not None and record.get("ended_at_utc") is not None:
+        if _utc(record.get("started_at_utc")) and _utc(record.get("ended_at_utc")):
             if record["ended_at_utc"] < record["started_at_utc"]:
                 errors.append(f"{prefix} stage end precedes start")
         if record.get("started_at_utc") is not None and record.get("pwm_applied_ack_received_at_utc") != record.get("started_at_utc"):
             errors.append(f"{prefix}.started_at_utc must equal ACK receive time")
-        if record.get("start_host_monotonic_ns") is not None and record.get("end_host_monotonic_ns") is not None:
+        if _is_int(record.get("start_host_monotonic_ns")) and _is_int(record.get("end_host_monotonic_ns")):
             if record["end_host_monotonic_ns"] < record["start_host_monotonic_ns"]:
                 errors.append(f"{prefix} monotonic end precedes start")
             else:
                 expected_ms = (record["end_host_monotonic_ns"] - record["start_host_monotonic_ns"]) / 1_000_000
                 if _is_number(record.get("actual_duration_ms")) and abs(record["actual_duration_ms"] - expected_ms) > 0.001:
                     errors.append(f"{prefix}.actual_duration_ms does not match monotonic interval")
-        if record.get("ended_at_utc") is not None and _utc(record.get("recorded_at_utc")) and record["recorded_at_utc"] < record["ended_at_utc"]:
+        if _utc(record.get("ended_at_utc")) and _utc(record.get("recorded_at_utc")) and record["recorded_at_utc"] < record["ended_at_utc"]:
             errors.append(f"{prefix}.recorded_at_utc precedes stage end")
 
     elif kind == "ADC_SAMPLE":
@@ -288,7 +288,7 @@ def validate_record(record: Any, manifest: Dict[str, Any], index: int = 0) -> Li
         bits = record.get("adc_resolution_bits")
         if not _is_int(bits) or not 1 <= bits <= 32:
             errors.append(f"{prefix}.adc_resolution_bits must be integer 1..32")
-        elif raw is not None and raw >= (1 << bits):
+        elif _is_int(raw) and raw >= (1 << bits):
             errors.append(f"{prefix}.adc_raw exceeds ADC resolution")
         if record.get("raw_unit") != "count":
             errors.append(f"{prefix}.raw_unit must be count")
