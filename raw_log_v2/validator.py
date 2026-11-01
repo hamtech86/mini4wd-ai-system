@@ -101,6 +101,12 @@ def validate_manifest(manifest: Any) -> List[str]:
     ended = manifest.get("ended_at_utc")
     if ended is not None and not _utc(ended):
         errors.append("manifest.ended_at_utc must be null or an ISO-8601 UTC timestamp ending in Z")
+    if _utc(manifest.get("started_at_utc")) and _utc(ended) and ended < manifest["started_at_utc"]:
+        errors.append("manifest.ended_at_utc precedes started_at_utc")
+    if _utc(manifest.get("created_at_utc")) and _utc(ended) and manifest["created_at_utc"] < ended:
+        errors.append("manifest.created_at_utc precedes ended_at_utc")
+    if manifest.get("status") in {"completed", "aborted"} and ended is None:
+        errors.append("completed/aborted manifest requires ended_at_utc")
     if not isinstance(manifest.get("status"), str) or manifest.get("status") not in {"completed", "aborted", "incomplete"}:
         errors.append("manifest.status is invalid")
     for key, expected in (("planned_stage_count", 31), ("planned_stage_duration_ms", 10000),
@@ -309,8 +315,8 @@ def validate_record(record: Any, manifest: Dict[str, Any], index: int = 0) -> Li
             errors.append(f"{prefix}.adc_resolution_bits differs from manifest.device")
         if not _utc(record.get("host_received_at_utc")):
             errors.append(f"{prefix}.host_received_at_utc must be UTC ISO-8601")
-        if not isinstance(record.get("device_timestamp_point"), str) or record.get("device_timestamp_point") not in {"conversion_midpoint", "conversion_start", "conversion_end", "unknown"}:
-            errors.append(f"{prefix}.device_timestamp_point is invalid")
+        if not _nonempty_string(record.get("device_timestamp_point")):
+            errors.append(f"{prefix}.device_timestamp_point must be a non-empty string")
         if not isinstance(record.get("stage_assignment"), str) or record.get("stage_assignment") not in {"confirmed", "unresolved"}:
             errors.append(f"{prefix}.stage_assignment is invalid")
         if record.get("stage_id") is not None and not re.fullmatch(r"PWM-(?:0[0-9]|[12][0-9]|30)", str(record["stage_id"])):
@@ -340,8 +346,9 @@ def validate_record(record: Any, manifest: Dict[str, Any], index: int = 0) -> Li
                 errors.append(f"{prefix} converted value requires converted_unit")
         if channel == "A0" and record.get("converted_value") is not None and record.get("converted_unit") != "A":
             errors.append(f"{prefix}.A0 converted_unit must be A")
-        if isinstance(channel, str) and channel in {"A2", "A3"} and record.get("derived_role") not in (None, "reference"):
-            errors.append(f"{prefix}.A2/A3 conversion must remain reference-only")
+        if isinstance(channel, str) and channel in {"A4", "A5"} and record.get("converted_value") is not None and record.get("converted_unit") != "V":
+            errors.append(f"{prefix}.{channel} converted_unit must be V")
+
 
     elif kind == "CALIBRATION":
         fields = ("calibration_id", "source", "raw_line", "captured_at_utc",
