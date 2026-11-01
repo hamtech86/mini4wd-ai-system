@@ -143,6 +143,27 @@ class RawLogV2Writer:
         _write_new_file(work_dir / "work_state.json", _json_bytes(state))
         return RawLogV2Session(self, work_dir, state)
 
+    def list_incomplete_work(self) -> List[str]:
+        """Discover pending work areas at startup without modifying any data."""
+        if self.work_root.is_symlink():
+            raise RawLogV2Error(".work root must not be a symlink")
+        if not self.work_root.exists():
+            return []
+        if not self.work_root.is_dir():
+            raise RawLogV2Error(".work root is not a directory")
+        log_ids = []
+        for child in sorted(self.work_root.iterdir(), key=lambda item: item.name):
+            if child.is_symlink():
+                raise RawLogV2Error(f"symlink in .work root: {child.name}")
+            if not child.is_dir():
+                raise RawLogV2Error(f"unexpected non-directory in .work root: {child.name}")
+            log_ids.append(child.name)
+        return log_ids
+
+    def recover_pending(self) -> List[Dict[str, Any]]:
+        """Run next-startup recovery for every discovered work area, in stable order."""
+        return [self.recover_incomplete(log_id) for log_id in self.list_incomplete_work()]
+
     def _return_existing_recovery(self, log_id: str):
         parent = self.recovery_root / log_id
         if not parent.is_dir(): raise FileNotFoundError(f"no work area or recovery for {log_id}")
