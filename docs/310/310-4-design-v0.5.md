@@ -388,7 +388,23 @@ The mapping below is constrained by `docs/RAWLOG_V2_INDEPENDENT_SCHEMA.md` at ac
 
 **Fields that do not exist in the accepted ADC_SAMPLE schema:** `batch_sequence`, `loss_counter_snapshot`, full `loss_counter`, `stage_context_token`, `acquisition_status`, and `sample_flags`. Do not add them to ADC_SAMPLE or overload unrelated fields. Preserve these values in a separately versioned transport-evidence artifact/metadata path only after that path is defined and approved. Until then, sequence gaps and loss-counter observations can be reported in the design/test evidence but have no approved persistent RawLog v2 field mapping. This is an explicit integration gap, not a claim of completed RawLog mapping.
 
-The proposed 32-bit `device_epoch_tag` in the common wire header is insufficient to populate the accepted full `device_epoch_id` by itself. The handshake must return the full committed boot_id64 and Python must verify it before associating samples. The HELLO/HELLO_ACK byte layout and full boot identity transfer are not yet specified in §6; this remains a protocol-definition blocker.
+The proposed 32-bit `device_epoch_tag` in the common wire header is insufficient to populate the accepted full `device_epoch_id` by itself. The handshake must return the full committed boot_id64 and Python must verify it before associating samples. The HELLO/HELLO_ACK byte layout and full boot identity transfer are now proposed in §6.2; the byte protocol remains a candidate requiring independent test vectors and review, not accepted production compatibility.
+
+### 12.5 Companion transport-evidence artifact (separate from RawLog v2)
+
+To preserve protocol data with no accepted RawLog v2 field, propose one append-only UTF-8 JSONL companion file per measurement session, named transport-evidence-v1.jsonl, stored beside (not inside or merged into) the RawLog v2 stream. This is a separate artifact contract and does not modify RawLog v2. It must be included in the session package and reviewed before implementation.
+
+Each line is one event and contains artifact_version="transport-evidence-v1", event_id (unique UUID), event_type, measurement_session_id, device_epoch_id (full boot_id64 string only when verified, otherwise null), host_received_at_utc, host_received_monotonic_ns, and direction. Event-specific fields:
+
+- adc_batch_received: batch_sequence, sample_sequence_first, sample_sequence_last, sample_count, loss_counter_snapshot, raw_frame_base64, crc_valid.
+- status_received: full uint32 loss_counter, last_sample_sequence, raw_frame_base64, crc_valid.
+- sample_context_map: stage_context_token, stage_context_id UUID, stage_id, command_id, intended PWM, context-map creation timestamp and mapping result.
+- transport_gap: expected/observed sample and batch sequence values, observed loss-counter delta, detection source, and whether the gap is conclusive or ambiguous.
+- protocol_error: message type, error category, frame length, CRC result and raw frame bytes when safely available.
+
+raw_frame_base64 contains the exact received COBS frame and delimiter. The companion artifact is append-only; corrections are new events referencing prior event_id, never in-place edits. A missing final frame cannot be reconstructed; the artifact records observed evidence only. Python must flush after each complete received frame and before orderly session finalization; crash durability/fsync policy requires Python-side approval. Never put the serial uint16 token in RawLog's UUID field. Never invent RawLog fields for companion data.
+
+The companion file requires an explicit package manifest/hash and retention policy in the RawLog/session packaging design. Until that package-level contract is accepted, this persistence destination is proposed, not approved. If the companion artifact cannot be written, the session is evidence-incomplete and must not be represented as a complete loss-auditable measurement.
 
 The accepted schema requires one ADC_SAMPLE per conversion. ADC_BATCH is only a transport envelope: Python must emit 12 independent ADC_SAMPLE records for the 12 conversion units in a complete batch. A2/A3 records, if included, remain reference observations and must not affect control, acceptance, eligibility or derived estimates.
 
