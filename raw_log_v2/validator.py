@@ -96,7 +96,7 @@ def validate_manifest(manifest: Any) -> List[str]:
     ended = manifest.get("ended_at_utc")
     if ended is not None and not _utc(ended):
         errors.append("manifest.ended_at_utc must be null or an ISO-8601 UTC timestamp ending in Z")
-    if manifest.get("status") not in {"completed", "aborted", "incomplete"}:
+    if not isinstance(manifest.get("status"), str) or manifest.get("status") not in {"completed", "aborted", "incomplete"}:
         errors.append("manifest.status is invalid")
     for key, expected in (("planned_stage_count", 31), ("planned_stage_duration_ms", 10000),
                           ("planned_total_duration_ms", 310000)):
@@ -123,9 +123,9 @@ def validate_manifest(manifest: Any) -> List[str]:
     if not isinstance(conditions, dict):
         errors.append("manifest.measurement_conditions must be an object")
     else:
-        if conditions.get("direction") not in {"FWD", "REV", "UNKNOWN"}:
+        if not isinstance(conditions.get("direction"), str) or conditions.get("direction") not in {"FWD", "REV", "UNKNOWN"}:
             errors.append("measurement_conditions.direction is invalid")
-        if conditions.get("voltage_control_mode") not in {"INPUT", "TERMINAL", "NOT_APPLICABLE", "UNKNOWN"}:
+        if not isinstance(conditions.get("voltage_control_mode"), str) or conditions.get("voltage_control_mode") not in {"INPUT", "TERMINAL", "NOT_APPLICABLE", "UNKNOWN"}:
             errors.append("measurement_conditions.voltage_control_mode is invalid")
         fixed = {"sweep_pwm_min": 0, "sweep_pwm_max": 30, "stage_duration_ms": 10000, "schedule_owner": "PYTHON"}
         for key, expected in fixed.items():
@@ -161,7 +161,7 @@ def validate_record(record: Any, manifest: Dict[str, Any], index: int = 0) -> Li
     if record.get("schema_version") != SCHEMA_VERSION:
         errors.append(f"{prefix}.schema_version must be 2.0.0")
     kind = record.get("record_type")
-    if kind not in RECORD_TYPES:
+    if not isinstance(kind, str) or kind not in RECORD_TYPES:
         errors.append(f"{prefix}.record_type is unknown")
         return errors
     for key in ("record_id", "log_id", "measurement_session_id"):
@@ -178,7 +178,7 @@ def validate_record(record: Any, manifest: Dict[str, Any], index: int = 0) -> Li
 
     if kind == "SESSION_EVENT":
         _require(record, ("event", "host_monotonic_ns", "details"), prefix, errors)
-        if record.get("event") not in {"SESSION_STARTED", "SESSION_COMPLETED", "SESSION_ABORTED",
+        if not isinstance(record.get("event"), str) or record.get("event") not in {"SESSION_STARTED", "SESSION_COMPLETED", "SESSION_ABORTED",
             "COMMUNICATION_LOST", "STOP_REQUESTED", "DEVICE_STATE_REPORTED", "OTHER"}:
             errors.append(f"{prefix}.event is invalid")
         if not _is_int(record.get("host_monotonic_ns")) or record.get("host_monotonic_ns", -1) < 0:
@@ -200,11 +200,11 @@ def validate_record(record: Any, manifest: Dict[str, Any], index: int = 0) -> Li
                 errors.append(f"{prefix} stage_id/pwm_command must match stage_index")
         if record.get("planned_duration_ms") != 10000:
             errors.append(f"{prefix}.planned_duration_ms must be 10000")
-        if record.get("stage_status") not in {"completed", "aborted", "not_reached"}:
+        if not isinstance(record.get("stage_status"), str) or record.get("stage_status") not in {"completed", "aborted", "not_reached"}:
             errors.append(f"{prefix}.stage_status is invalid")
-        if record.get("output_state") not in {"reported_on", "reported_off", "unknown"}:
+        if not isinstance(record.get("output_state"), str) or record.get("output_state") not in {"reported_on", "reported_off", "unknown"}:
             errors.append(f"{prefix}.output_state is invalid")
-        if record.get("termination_reason") not in {"duration_elapsed", "user_stop", "safety_stop",
+        if not isinstance(record.get("termination_reason"), str) or record.get("termination_reason") not in {"duration_elapsed", "user_stop", "safety_stop",
             "communication_lost", "process_interrupted", "not_started_after_abort", "other"}:
             errors.append(f"{prefix}.termination_reason is invalid")
         for key in ("started_at_utc", "ended_at_utc", "pwm_command_sent_at_utc", "pwm_applied_ack_received_at_utc"):
@@ -226,11 +226,36 @@ def validate_record(record: Any, manifest: Dict[str, Any], index: int = 0) -> Li
                 errors.append(f"{prefix}.not_reached requires not_started_after_abort")
         if record.get("stage_status") == "completed" and record.get("termination_reason") != "duration_elapsed":
             errors.append(f"{prefix}.completed requires duration_elapsed")
-        if record.get("stage_status") in {"completed", "aborted"}:
-            if record.get("started_at_utc") is None or record.get("ended_at_utc") is None:
-                errors.append(f"{prefix} executed stage requires start and end timestamps")
-            if record.get("actual_duration_ms") is None:
-                errors.append(f"{prefix} executed stage requires actual_duration_ms")
+        status = record.get("stage_status")
+        if status == "completed":
+            if any(record.get(k) is None for k in ("started_at_utc", "ended_at_utc",
+                    "start_host_monotonic_ns", "end_host_monotonic_ns", "actual_duration_ms",
+                    "pwm_command_sent_at_utc", "pwm_applied_ack_received_at_utc", "stage_context_id")):
+                errors.append(f"{prefix}.completed requires ACK, context, start/end and duration fields")
+        elif status == "aborted":
+            if record.get("ended_at_utc") is None or record.get("pwm_command_sent_at_utc") is None:
+                errors.append(f"{prefix}.aborted requires an end boundary and command-send timestamp")
+            if record.get("started_at_utc") is None:
+                if any(record.get(k) is not None for k in ("start_host_monotonic_ns", "actual_duration_ms",
+                        "pwm_applied_ack_received_at_utc")):
+                    errors.append(f"{prefix}.aborted without ACK cannot claim start/duration")
+            elif any(record.get(k) is None for k in ("start_host_monotonic_ns", "end_host_monotonic_ns", "actual_duration_ms",
+                    "pwm_applied_ack_received_at_utc", "stage_context_id")):
+                errors.append(f"{prefix}.aborted after ACK requires context and measured timing")
+        if record.get("started_at_utc") is not None and record.get("ended_at_utc") is not None:
+            if record["ended_at_utc"] < record["started_at_utc"]:
+                errors.append(f"{prefix} stage end precedes start")
+        if record.get("started_at_utc") is not None and record.get("pwm_applied_ack_received_at_utc") != record.get("started_at_utc"):
+            errors.append(f"{prefix}.started_at_utc must equal ACK receive time")
+        if record.get("start_host_monotonic_ns") is not None and record.get("end_host_monotonic_ns") is not None:
+            if record["end_host_monotonic_ns"] < record["start_host_monotonic_ns"]:
+                errors.append(f"{prefix} monotonic end precedes start")
+            else:
+                expected_ms = (record["end_host_monotonic_ns"] - record["start_host_monotonic_ns"]) / 1_000_000
+                if record.get("actual_duration_ms") is not None and abs(record["actual_duration_ms"] - expected_ms) > 0.001:
+                    errors.append(f"{prefix}.actual_duration_ms does not match monotonic interval")
+        if record.get("ended_at_utc") is not None and _utc(record.get("recorded_at_utc")) and record["recorded_at_utc"] < record["ended_at_utc"]:
+            errors.append(f"{prefix}.recorded_at_utc precedes stage end")
 
     elif kind == "ADC_SAMPLE":
         fields = ("sample_id", "channel", "sensor", "signal_role", "adc_raw", "adc_resolution_bits",
@@ -240,7 +265,7 @@ def validate_record(record: Any, manifest: Dict[str, Any], index: int = 0) -> Li
             "calibration_id", "validity", "invalid_reason")
         _require(record, fields, prefix, errors)
         channel = record.get("channel")
-        if channel not in CHANNELS:
+        if not isinstance(channel, str) or channel not in CHANNELS:
             errors.append(f"{prefix}.channel is invalid")
         else:
             sensor, role = CHANNELS[channel]
@@ -264,15 +289,20 @@ def validate_record(record: Any, manifest: Dict[str, Any], index: int = 0) -> Li
         for key in ("device_epoch_id",):
             if not _nonempty_string(record.get(key)):
                 errors.append(f"{prefix}.{key} must be non-empty")
-        for key in ("device_elapsed_us", "device_sample_sequence", "host_received_monotonic_ns"):
+        for key in ("device_elapsed_us", "device_sample_sequence"):
             val = record.get(key)
             if val is not None and (not _is_int(val) or val < 0):
                 errors.append(f"{prefix}.{key} must be null or non-negative integer")
+        if not _is_int(record.get("host_received_monotonic_ns")) or record.get("host_received_monotonic_ns", -1) < 0:
+            errors.append(f"{prefix}.host_received_monotonic_ns must be a non-negative integer")
+        device_bits = manifest.get("device", {}).get("adc_resolution_bits") if isinstance(manifest.get("device"), dict) else None
+        if _is_int(device_bits) and _is_int(bits) and bits != device_bits:
+            errors.append(f"{prefix}.adc_resolution_bits differs from manifest.device")
         if not _utc(record.get("host_received_at_utc")):
             errors.append(f"{prefix}.host_received_at_utc must be UTC ISO-8601")
         if record.get("device_timestamp_point") not in {"conversion_midpoint", "conversion_start", "conversion_end", "unknown"}:
             errors.append(f"{prefix}.device_timestamp_point is invalid")
-        if record.get("stage_assignment") not in {"confirmed", "unresolved"}:
+        if not isinstance(record.get("stage_assignment"), str) or record.get("stage_assignment") not in {"confirmed", "unresolved"}:
             errors.append(f"{prefix}.stage_assignment is invalid")
         if record.get("stage_id") is not None and not re.fullmatch(r"PWM-(?:0[0-9]|[12][0-9]|30)", str(record["stage_id"])):
             errors.append(f"{prefix}.stage_id is invalid")
@@ -280,7 +310,7 @@ def validate_record(record: Any, manifest: Dict[str, Any], index: int = 0) -> Li
             errors.append(f"{prefix}.unresolved sample cannot claim stage_id")
         if record.get("stage_context_id") is not None and not _nonempty_string(record["stage_context_id"]):
             errors.append(f"{prefix}.stage_context_id must be non-empty string or null")
-        if record.get("validity") not in {"valid", "invalid", "unavailable"}:
+        if not isinstance(record.get("validity"), str) or record.get("validity") not in {"valid", "invalid", "unavailable"}:
             errors.append(f"{prefix}.validity is invalid")
         if record.get("validity") == "valid":
             if raw is None or stamp is None or record.get("invalid_reason") is not None:
@@ -290,9 +320,14 @@ def validate_record(record: Any, manifest: Dict[str, Any], index: int = 0) -> Li
                 errors.append(f"{prefix}.unavailable sample requires null raw/timestamp and reason")
         if record.get("validity") == "invalid" and not _nonempty_string(record.get("invalid_reason")):
             errors.append(f"{prefix}.invalid sample requires invalid_reason")
-        if channel == "A1" and "converted_value" in record:
+        if channel == "A1" and ("converted_value" in record or "converted_unit" in record):
             errors.append(f"{prefix}.A1 conversion is not permitted by the current schema")
-        if channel == "A0" and "converted_value" in record and record.get("converted_unit") not in {"A", None}:
+        if channel in {"A0", "A4", "A5"} and record.get("converted_value") is not None:
+            if record.get("calibration_id") is None:
+                errors.append(f"{prefix} converted value requires calibration_id")
+            if not isinstance(record.get("converted_unit"), str) or not record.get("converted_unit"):
+                errors.append(f"{prefix} converted value requires converted_unit")
+        if channel == "A0" and record.get("converted_value") is not None and record.get("converted_unit") != "A":
             errors.append(f"{prefix}.A0 converted_unit must be A")
         if channel in {"A2", "A3"} and record.get("derived_role") not in (None, "reference"):
             errors.append(f"{prefix}.A2/A3 conversion must remain reference-only")
@@ -304,7 +339,7 @@ def validate_record(record: Any, manifest: Dict[str, Any], index: int = 0) -> Li
         _require(record, fields, prefix, errors)
         if not _nonempty_string(record.get("calibration_id")):
             errors.append(f"{prefix}.calibration_id must be non-empty and unique")
-        if record.get("source") not in {"firmware_CAL_line", "host_calibration", "manual_calibration"}:
+        if not isinstance(record.get("source"), str) or record.get("source") not in {"firmware_CAL_line", "host_calibration", "manual_calibration"}:
             errors.append(f"{prefix}.source is invalid")
         if record.get("source") == "firmware_CAL_line" and not isinstance(record.get("raw_line"), str):
             errors.append(f"{prefix}.firmware_CAL_line requires raw_line string")
@@ -319,7 +354,7 @@ def validate_record(record: Any, manifest: Dict[str, Any], index: int = 0) -> Li
             if record.get(key) is not None and not _nonempty_string(record[key]):
                 errors.append(f"{prefix}.{key} must be non-empty string or null")
         status = record.get("application_status")
-        if status not in {"raw_capture_only", "scoped_for_application", "application_scope_unresolved"}:
+        if not isinstance(status, str) or status not in {"raw_capture_only", "scoped_for_application", "application_scope_unresolved"}:
             errors.append(f"{prefix}.application_status is invalid")
         channels = record.get("channels")
         if not isinstance(channels, dict) or set(channels) != set(CAL_CHANNELS):
@@ -338,7 +373,7 @@ def validate_record(record: Any, manifest: Dict[str, Any], index: int = 0) -> Li
     elif kind == "EVENT":
         _require(record, ("event", "observation_method", "actor", "observed_at_utc",
             "reported_at_utc", "host_monotonic_ns", "stage_id", "stage_index", "pwm_value"), prefix, errors)
-        if record.get("event") not in {"ROTATION_START_CONFIRMED", "ROTATION_NOT_OBSERVED_AT_STAGE"}:
+        if not isinstance(record.get("event"), str) or record.get("event") not in {"ROTATION_START_CONFIRMED", "ROTATION_NOT_OBSERVED_AT_STAGE"}:
             errors.append(f"{prefix}.event is invalid")
         if record.get("observation_method") != "human_visual":
             errors.append(f"{prefix}.observation_method must be human_visual")
