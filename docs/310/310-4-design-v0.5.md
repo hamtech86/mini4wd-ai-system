@@ -241,17 +241,28 @@ Python stores every received STOP_ACK byte-for-byte as protocol evidence. For a 
 
 ### 8.2 EEPROM journal proposal
 
-Use a 16-slot wear-levelled EEPROM journal. Each 16-byte slot contains: magic/version (2 B), generation_counter64 (8 B), CRC16 (2 B), reserved (2 B), commit marker (2 B). Write a new slot in this order: invalidate target marker, write payload, write CRC, read back and verify, then write commit marker last. A slot is valid only when marker, magic/version and CRC all validate. On boot, scan all slots and select the highest valid generation; increment it and commit to the next slot. Do not overwrite the last known-good slot before the new slot verifies.
+Use a 16-slot wear-levelled EEPROM journal occupying 256 bytes. Each 16-byte slot contains: magic/version (2 B), generation_counter64 (8 B), CRC16 (2 B), reserved (3 B), commit marker (1 B). CRC covers magic/version, generation and reserved bytes, not the marker. A slot is valid only when marker equals the exact committed value, magic/version match and CRC validates.
 
-- **First provisioned boot:** a factory-provisioned empty-state marker must be distinguishable from corruption. If explicitly provisioned blank state is found, write generation 1 and verify before entering IDLE.
+**Write order and interrupted-write reasoning**
+1. Select the next ring slot; never target the current highest valid slot.
+2. Write target marker to invalid value and read it back. Do not touch payload unless invalidation is verified.
+3. Write magic/version, generation and reserved bytes, then CRC; read back complete payload and independently recompute CRC.
+4. Write the one-byte committed marker last and read it back. Only after successful readback is the new generation committed.
+5. On boot, scan all slots and select highest valid generation. A power cut during payload writing leaves marker invalid. A power cut during final marker programming leaves it invalid or valid; if valid, the payload and CRC had already been fully written and verified. The prior committed slot is never overwritten in this operation.
+
+Factory-empty state is not inferred from blank journal bytes alone. Reserve EEPROM addresses 256–259 for a separate one-time provisioning record: magic bytes 0x50,0x52, version 0x01, and CRC8 over the first three bytes. This record is written and read back during controlled factory provisioning, before first boot. If all journal slots are invalid, generation 1 may be created only when this provisioning record validates AND all 256 journal bytes are erased (0xFF). Any other all-invalid condition is corruption and enters BOOT_ID_INVALID. The provisioning record is never automatically recreated or repaired by firmware.
+
+- **First provisioned boot:** valid provisioning record plus fully erased journal permits generation 1; commit and verify before IDLE.
 - **Normal boot:** select highest valid committed generation and commit generation+1 before enabling session/ARM.
-- **Power loss during write:** incomplete target slot is ignored; previous valid slot remains authoritative. On next boot, increment from the last valid generation.
-- **Corrupt records:** ignore individual CRC-invalid slots only if at least one valid committed record remains. If all slots are invalid and the device is not in the explicit factory-empty state, identity is untrusted.
-- **Write/readback failure, EEPROM unavailable, generation overflow, or ambiguous journal:** enter BOOT_ID_INVALID/FAULT, keep PWM disabled, reject ARM and all nonzero PWM commands, and do not create RawLog samples with a guessed epoch.
-- No wrap is allowed for uint64 generation. At maximum value, fail closed.
-- A factory reset/provisioning action is a separate controlled maintenance operation, not an automatic recovery from corruption.
+- **Power loss during write:** incomplete target slot is ignored; previous valid slot remains authoritative. Next boot increments from the last valid generation.
+- **Corrupt records:** ignore individual invalid slots only if at least one valid committed record remains. If no valid slot remains and explicit factory-empty predicate is false, identity is untrusted.
+- **Write/readback failure, EEPROM unavailable, generation overflow or ambiguous journal:** enter BOOT_ID_INVALID/FAULT, keep PWM disabled, reject ARM and nonzero PWM commands; never guess an epoch.
+- No uint64 generation wrap. At maximum value, fail closed.
+- Factory reset/provisioning is a separate controlled maintenance operation, not automatic recovery from corruption.
 
-This design requires a platform-specific EEPROM endurance and atomic-write review before implementation. It does not claim that EEPROM hardware behavior has been tested. A boot identity that cannot be durably established is a hard acquisition/session gate, not a random-ID fallback.
+**Endurance estimate (conditional, not a guarantee):** ATmega328P EEPROM endurance is specified as 100,000 write/erase cycles per cell under datasheet test conditions. Each slot is selected once per 16 successful boots. The marker cell receives at most two writes per slot use (invalidate + commit), giving a simplified marker-limited estimate of 100,000 × 16 / 2 = 800,000 boots. Payload cells receive at most one write per slot use, giving approximately 1,600,000 boots. Illustrative marker-limited life: 1 boot/day ≈ 2,192 years; 10 boots/day ≈ 219 years; 100 boots/day ≈ 21.9 years. These projections exclude temperature/voltage derating, abnormal retries, manufacturing variation, write amplification and other EEPROM uses; they are arithmetic projections, not service-life promises. Expected project boot frequency is not specified, so acceptance requires a lifetime target and worst-case write-count budget.
+
+The one-byte commit marker avoids a multi-byte marker torn-write ambiguity. This still depends on valid supply voltage during EEPROM programming; brownout behavior and reset thresholds require review. CRC detects payload corruption but does not alone guarantee power-fail behavior. This journal is a proposal, not a tested persistence guarantee. A boot identity that cannot be durably established is a hard session gate, not a random-ID fallback.
 
 ## 9. Unified state machine and transition table
 
