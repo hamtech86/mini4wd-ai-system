@@ -130,6 +130,33 @@ class RawLogV2Writer:
     def recover_incomplete(self, log_id: str, recovered_at_utc: Optional[str] = None):
         work_dir = self.work_root / log_id
         if not work_dir.is_dir(): return self._return_existing_recovery(log_id)
+        final_dir = self.root / log_id
+        if (final_dir / "manifest.json").is_file():
+            # Manifest-last publication is the commit point. A crash after that
+            # point must not downgrade an already committed package to incomplete.
+            try:
+                prior_recovery = self._return_existing_recovery(log_id)
+            except FileNotFoundError:
+                prior_recovery = None
+            if prior_recovery is not None:
+                shutil.rmtree(work_dir)
+                _fsync_dir(self.work_root)
+                return prior_recovery
+            state = json.loads((work_dir / "work_state.json").read_text(encoding="utf-8"))
+            intent = state.get("publication")
+            records_path = final_dir / "records.jsonl"
+            manifest_path = final_dir / "manifest.json"
+            if (not isinstance(intent, dict) or not records_path.is_file()
+                    or _sha256(records_path.read_bytes()) != intent.get("records_sha256")
+                    or _sha256(manifest_path.read_bytes()) != intent.get("manifest_sha256")):
+                raise ExistingPackageError("a final manifest exists but does not match this work area's publication intent")
+            state["phase"] = "published"
+            _atomic_replace_json(work_dir / "work_state.json", state)
+            shutil.rmtree(work_dir)
+            _fsync_dir(self.work_root)
+            return {"recovery_status": "already_published", "log_id": log_id,
+                    "final_package_path": log_id, "manifest_sha256": intent["manifest_sha256"],
+                    "records_sha256": intent["records_sha256"]}
         entries, tree_hash = _snapshot_tree(work_dir)
         recovery_id = "crash-" + tree_hash
         recovery_dir = self.recovery_root / log_id / recovery_id
