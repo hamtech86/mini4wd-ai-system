@@ -1,264 +1,393 @@
-# 310-4 Design Specification v0.5 — ADC acquisition and STOP/protocol reconciliation
+# 310-4 Design Specification v0.5 — Re-submission (review corrections)
 
-> **Status:** Draft for command review. This document is design-only. It does not authorize firmware implementation, Python changes, compilation, upload, serial communication, motor energization, or a 310-second physical measurement. 310-5 is not authorized by this document.
+> **Status: Draft / command review only.** This is a design proposal. It does not authorize firmware or Python implementation, compilation, upload, serial communication, motor energization, a 310-second physical measurement, formal acceptance, or transition to 310-5.
 >
-> **Safety:** Hardware current-limit confirmation remains **NOT CONFIRMED** (`HARDWARE_CURRENT_LIMIT_CONFIRMED=false`). Software behavior is not evidence of independent hardware protection.
+> **Safety gate:** `HARDWARE_CURRENT_LIMIT_CONFIRMED=false`. Software state, STOP acknowledgement, and PWM=0 are not proof of physical stop or independent hardware protection.
 
-## 1. Purpose and scope
+## 1. Purpose, authority and scope
 
-310-4 defines acquisition and protocol requirements for determining the ACS712 current-detection threshold and collecting evidence used in a winding-resistance estimate. The Python host owns the 310-second sequence. The Arduino provides command execution, acquisition, and telemetry. RawLog v2 is append-only and remains the authoritative record.
+310-4 defines acquisition and communication requirements for the PWM 0–30, 310-second measurement. Python owns the 31-stage sequence (PWM 0 through 30, 10 seconds each); Arduino executes explicit commands and acquires raw samples. The purpose is to characterize the ACS712 #1 detection threshold and collect evidence relevant to winding-resistance measurement. This document does not define a resistance formula or declare any current value valid for resistance calculation.
 
-This version reconciles eight review findings from v0.4. It is a proposed design, not a formal acceptance.
+Issue #35 is the project specification authority. Issue #170 defines the Arduino/Python/RawLog v2 contract workstream; Issue #174 defines the measurement purpose and constraints. This document may propose a detailed implementation contract for review but cannot override those authorities or convert their unresolved items into accepted requirements.
 
 ### In scope
-- 31 PWM stages, values 0 through 30, each 10 seconds; PWM 0 is the baseline.
-- Independent ADC samples and their timestamps/context.
-- Command correlation, STOP behavior, state definitions, framing and transmission scheduling.
-- Mapping telemetry into accepted RawLog v2 records without mutating accepted contracts.
+- Independent per-conversion raw ADC acquisition and timestamps.
+- PWM-stage context propagation and command correlation.
+- Message framing, STOP behavior, state transitions, loss reporting and scheduling.
+- Mapping serial telemetry into the separately defined RawLog v2 format.
 
 ### Out of scope
-- Any firmware/Python implementation or tests.
-- Physical safety qualification, motor energization, real measurements, and transition to 310-5.
-- Treating rotation as a failure: PWM 0–30 may rotate. Rotation is downstream analysis, not a 310-4 stop/failure condition.
+- Firmware/Python implementation, tests, compilation, upload, serial activity, and real hardware measurements.
+- Physical safety qualification and 310-5.
+- Rotation detection as a 310-4 failure or automatic stop condition. PWM 0–30 may rotate; rotation is a separately recorded observation/analysis label.
 
-## 2. Authority and invariants
+## 2. Binding measurement and channel rules
 
-1. Python owns stage order and duration; Arduino does not autonomously advance PWM stages.
-2. STOP has priority over PWM commands. After STOP is latched, no delayed command may re-drive PWM.
-3. A software timeout or state does not prove physical motor stop or independent protection.
-4. Each ADC conversion is an individual sample; a multichannel scan is not one ADC_SAMPLE.
-5. A0 and A1 remain independent. Never average them or substitute one for the other.
-6. A4 and A5 remain independent raw voltage inputs. Do not replace them with calculated V4−V5.
-7. A2 magnetic and A3 thermistor channels are references only; they do not control, stop, qualify, or produce 310-4 estimates.
-8. RawLog records are append-only. Unknown calibration applicability is represented as `calibration_id=null`; do not invent calibration.
-9. Any unresolved stage association is explicitly marked unresolved; do not silently assign by receipt time.
-10. No formal acceptance or implementation authorization is implied by this draft or its publication.
-
-## 3. Stage schedule
-
-| Stage | PWM | Planned duration |
-|---|---:|---:|
-| 1 | 0 | 10 s |
-| 2–31 | 1–30, sequential | 10 s each |
-
-The nominal sequence is 310 seconds. The Python host’s stage timing follows the accepted 310-1 convention:
-- Stage start is the host receipt time of the corresponding apply ACK.
-- The prior stage’s end is the host send time of the next-stage command.
-- `actual_duration_ms` is the host monotonic interval between those points.
-- This is a host-defined command interval, **not** a claim of exact physical PWM-on duration.
-- Device-side `t_apply` and ADC timestamps are supplementary evidence.
-
-PWM is a direct Arduino `analogWrite(0..30)` value, not a percentage or normalized full-scale value.
-
-## 4. Channel map and sample meaning
-
-| ADC | Sensor | Raw signal role | Use |
+| Input | Sensor / signal | Meaning | Permitted role |
 |---|---|---|---|
-| A0 | ACS712 #1 | `winding_current` | Primary current acquisition |
-| A1 | ACS712 #2 | `brush_stability_observation` | Independent observation only |
-| A2 | Magnetic sensor | `magnetic_reference` | Reference only |
-| A3 | Thermistor | `thermistor_reference` | Reference only |
-| A4 | V4 voltage input | `voltage_v4` | Independent raw voltage |
-| A5 | V5 voltage input | `voltage_v5` | Independent raw voltage |
+| A0 | ACS712 #1 | Winding-current raw signal | Sole current input for winding-current conversion and winding-resistance analysis |
+| A1 | ACS712 #2 | Independent brush-stability observation | Never average with, replace, or interpolate A0 |
+| A4 | V4 | Independent voltage raw signal | Preserve raw conversion; interpret in Python according to direction and TERMINAL/INPUT mode |
+| A5 | V5 | Independent voltage raw signal | Preserve raw conversion; interpret in Python according to direction and TERMINAL/INPUT mode |
+| A2 | Magnetic sensor | Reference observation | Record/display only; no control, stop, quality, eligibility or required-analysis use without separate approval |
+| A3 | Thermistor | Reference observation | Record/display only; no control, stop, quality, eligibility or required-analysis use without separate approval |
 
-An ADC_SAMPLE represents exactly one conversion from one channel. Each conversion carries its own raw code, timestamp, sequence and stage context. A4/A5 may later be used to calculate a voltage difference, but their raw records remain intact.
+A0/A1 are independent physical signals. Do not average them or treat A1 as an A0 substitute. A4/A5 are independently recorded; do not replace them with V4−V5. A2/A3 cannot drive PWM, ARM, STOP, continuation, fault classification, measurement acceptance or derived estimates before explicit use-specific approval.
 
-## 5. Acquisition cadence — unified proposal
+Each ADC conversion is one sample. A scan or batch is only a transport grouping; it is not one ADC_SAMPLE.
 
-The v0.4 conflict is resolved in favor of the slower cadence proposed in its continuation:
-- ADC scan 1 at time T.
-- ADC scan 2 at T + 25 ms.
-- Next scan 1 at T + 100 ms.
-- Thus each channel is sampled at 20 Hz, and an ADC_BATCH is produced 10 times per second if each batch contains the two scans.
+## 3. Sequence and timing ownership
 
-This cadence is a **proposal pending adequacy review**, not a verified capability or accepted requirement. Chapters 9, 11, 13 and 15 must all use this same cadence; no 25 ms/channel or 40 Hz/channel interpretation remains.
+There are 31 host-controlled stages: PWM 0, 1, …, 30 in ascending order, each planned for 10 seconds (310 seconds nominal). PWM 0 is the output-off baseline. PWM is a direct Arduino `analogWrite(0..30)` value, not a percentage.
 
-## 6. Immutable stage context
+The accepted 310-1 host timing convention applies:
+- Stage start = host monotonic time when the matching apply ACK is received.
+- Previous stage end = host monotonic time immediately before the next-stage command is sent.
+- `actual_duration_ms` = that host interval.
+- This is a host command interval, not a claim of exact physical PWM-on time.
+- Device apply time and per-conversion timestamps are supplementary device evidence.
 
-The host creates a unique `stage_context_id` for each applied stage and sends it with the PWM command. The Arduino associates the acknowledged applied context with subsequent conversions. Immediately before each conversion, the firmware snapshots the active context into that sample; it must not look up “current stage” later when serializing or when Python receives the sample.
+Arduino must not implement an autonomous 310-second sequencer. STOP, communication loss or fault must not cause uncompleted stages to be marked complete.
 
-The following identifiers have distinct meanings:
-- `measurement_session_id`: one host measurement session.
-- `command_id`: one command instance, used for command/ACK correlation.
-- `stage_context_id`: immutable host stage context assigned to samples.
-- `device_epoch_id`: identity of one Arduino boot epoch in RawLog.
-- `device_sample_sequence`: per-device sample sequence, if available.
+## 4. ADC sample structure and cadence candidate
 
-An apply ACK must echo the command correlation and applied stage context. Python persists the device-provided context unchanged and resolves it to a host `stage_id). If the context is absent, unknown, or contradictory, `stage_assignment=unresolved); never infer it solely from delayed host receipt time.
+### 4.1 Individual conversion fields
 
-## 7. Proposed message framing and length accounting
+Each sample in the serial ADC_BATCH contains the following 14-byte sample unit, in this exact order:
 
-All messages use the same framing rule: decoded message = fixed header + message payload + CRC; COBS-encode the decoded bytes; append one zero delimiter. Lengths below are **maximums** and must be confirmed against the final field widths and codec before implementation.
+| Offset | Field | Width | Encoding |
+|---:|---|---:|---|
+| 0 | `sample_sequence` | 2 B | uint16 little-endian, increments per attempted conversion |
+| 2 | `timestamp_us_u32` | 4 B | uint32 little-endian, micros() midpoint |
+| 6 | `channel_code` | 1 B | 0=A0, 1=A1, 2=A2, 3=A3, 4=A4, 5=A5 |
+| 7 | `adc_raw` | 2 B | uint16 little-endian; 0–1023 for 10-bit ADC |
+| 9 | `stage_context_token` | 2 B | uint16 little-endian; 0 means unresolved/no context |
+| 11 | `acquisition_status` | 1 B | 0=OK, 1=PRECONDITION_INVALID, 2=CONVERSION_TIMEOUT, 3=NOT_ACQUIRED |
+| 12 | `sample_flags` | 2 B | uint16 little-endian; v1 must be zero; reserved bits must be zero |
 
-| Message | Decoded maximum | COBS maximum | Delimiter | Wire maximum |
-|---|---:|---:|---:|---:|
-| APPLY_ACK | 17 B | 18 B | 1 B | 19 B |
-| STOP_ACK | 20 B | 21 B | 1 B | 22 B |
-| STATUS | 17 B | 18 B | 1 B | 19 B |
-| ERROR | 29 B | 30 B | 1 B | 31 B |
-| ADC_BATCH | 193 B | 194 B | 1 B | 195 B |
+The 14-byte unit is fixed-size. A conversion that was attempted but has no valid raw code uses `adc_raw=0xFFFF` and a nonzero status; zero is a valid ADC value and must not mean missing. `sample_sequence` increments for every attempted conversion, including a failed conversion, and wraps modulo 65536. A batch never renumbers samples.
 
-These figures are a sizing proposal, not a frozen wire contract. The final protocol table must specify for every message: field order, field width, byte order, enum values, decoded length, COBS maximum, delimiter length, and total wire maximum. The prior ERROR inconsistency (28 vs 29 decoded bytes) is corrected here to 29 for budgeting; the implementation must not proceed until the exact field list is reconciled. STOP_ACK sizing must be recalculated after its independent status dimensions are frozen.
+### 4.2 Batch payload
 
-## 8. STOP request, acknowledgment and duplicate handling
+The fixed ADC_BATCH payload is 173 bytes:
+- `batch_sequence`: uint16 (2 B)
+- `batch_flags`: uint8 (1 B)
+- `sample_count`: uint8 (1 B), exactly 12 in a complete batch
+- `loss_counter_snapshot`: uint8 (1 B), low 8 bits of the cumulative loss counter; full counter is reported in STATUS
+- 12 sample units × 14 B = 168 B
 
-### 8.1 STOP priority
-STOP is accepted independently of the current PWM stage. On acceptance, the controller latches the stop condition, commands PWM 0, rejects later PWM apply requests for that session, and emits STOP_ACK. A delayed PWM command or retransmission cannot clear the latch or re-drive the motor.
+Total payload = 5 + 168 = 173 B. A partial batch is not permitted in protocol v1. If fewer than 12 sample attempts are available, do not emit a malformed partial ADC_BATCH; report the missing attempts through sequence gaps and STATUS loss fields.
 
-### 8.2 Independent STOP_ACK dimensions
-Do not overload one field with both requester/session relation and duplicate-history status. STOP_ACK carries separate status dimensions:
+### 4.3 Cadence
 
-**Requester/session relation**
-- `CURRENT_SESSION`
-- `STALE_SESSION`
-- `NO_SESSION`
+The only cadence under consideration is:
+- Scan 1 begins at T.
+- Scan 2 begins at T + 25 ms.
+- Next Scan 1 begins at T + 100 ms.
+- Each channel is therefore sampled at 20 Hz; one 12-sample batch is emitted per 100 ms, i.e. 10 batches/s.
 
-**Request/history outcome**
-- `NEW_RECORDED`
-- `DUPLICATE_MATCH`
-- `ID_CONFLICT`
-- `HISTORY_FULL_UNRECORDED`
-- `NOT_ESTABLISHED`
+This is a **candidate cadence, not an accepted requirement**. The sample order within each scan is A0, A1, A4, A5, A2, A3. The time of each conversion is its own timestamp; channel order does not imply simultaneous sampling.
 
-These enum labels are semantic names; their numeric codes and widths remain to be assigned in the final wire table. An accepted stop and a duplicate request are distinct outcomes. A stale-session STOP still requests a safe stop; it must not be discarded merely because its requester is stale.
+### 4.4 Cadence adequacy boundary
 
-### 8.3 Fixed four-entry history
-- The STOP duplicate history has exactly four retained entries.
-- Retained entries are not overwritten during the session.
-- A STOP is always acted upon even when history is full.
-- If a request cannot be recorded because history is full, return `HISTORY_FULL_UNRECORDED`; duplicate detection for that unrecorded request is not guaranteed.
-- A retained key is the session/request identity tuple defined by the final protocol. Same key and same semantic request is a duplicate; same key with a different reason or incompatible payload is an ID conflict.
-- History insertion order is deterministic. Full history does not evict an earlier entry.
-- Python stores the exact received ACK bytes and outcome. A retransmission with byte-identical ACK is the same observed response. Python must not fabricate an earlier ACK or assume that a later response is identical if the device reports a changed history outcome.
-- Python maintains one canonical result per request identity while retaining received protocol evidence as required by the accepted RawLog contract.
+At 20 samples/s per channel, Nyquist frequency is 10 Hz. This cadence can characterize slow stage-to-stage or quasi-DC trends if the analog signal is sufficiently settled and if the acquisition phase/filtering are characterized. It cannot resolve PWM-frequency ripple, fast commutation transients, or waveform shape above 10 Hz. ACS712 bandwidth and motor/PWM dynamics can be far above this limit; no claim is made that 20 Hz captures them.
 
-## 9. Boot identity, epoch and clock semantics
+For the stated threshold/resistance purpose, 20 Hz may be adequate only for a deliberately defined low-frequency statistic (for example, a stable-window mean/dispersion computed in Python) after settling and aliasing are evaluated. It is not sufficient evidence for peak/ripple/current-transient characterization. The analog front-end filter, PWM frequency, expected signal bandwidth, settling time, threshold decision statistic, and required uncertainty have not yet been specified. Therefore 20 Hz remains a candidate and must not be frozen until those inputs and a sampling/aliasing analysis are reviewed. No firmware sampling-rate change is authorized here.
 
-- `generation_counter64`: persistent monotonic boot-generation value, if the hardware persistence design supports it.
-- `boot_id64`: unique identity for one boot epoch; its generation and uniqueness construction must be documented.
-- `boot_challenge64`: challenge used in the handshake; it is not itself the boot identity.
-- `epoch_token32`: HELLO_ACK correlation token. It is not a boot identity and may collide across epochs.
-- RawLog `device_epoch_id` identifies the boot epoch and must use the accepted RawLog v2 type and representation. Do not substitute `epoch_token32) for it.
+## 5. Stage-context identity and mapping
 
-Python must distinguish boot epochs using the agreed boot identity. A 32-bit token collision alone must not cause samples from different boots to be merged. If the boot identity is unavailable or cannot be validated, mark epoch association unresolved rather than guessing.
+Python creates a globally unique `stage_context_id` for each stage as a UUID string in RawLog v2. The wire protocol does not transmit that full string in every sample. Instead:
 
-## 10. Unified state machine and STOP eligibility
+1. Before a stage command, Python allocates a nonzero uint16 `stage_context_token`. Token values are unique within a `measurement_session_id`; do not reuse a token in that session. With 31 stages, tokens 1–31 are sufficient.
+2. Python durably records a context-map entry before sending the command: `measurement_session_id`, token, UUID `stage_context_id`, `stage_id`, intended PWM and command_id.
+3. PWM_SET carries both the uint16 token and the host command_id. APPLY_ACK echoes both.
+4. Immediately before every ADC conversion, Arduino snapshots the currently applied token into that sample. It does not look up the active stage later during batching or transmission.
+5. Python resolves token using the map scoped by both measurement_session_id and device_epoch_id, then writes the mapped UUID to RawLog. It never writes the 16-bit token into the RawLog UUID field.
+6. Unknown token, token zero, mismatched session/epoch, or contradictory ACK/sample mapping produces `stage_assignment=unresolved`; no nearest-time inference is allowed.
 
-The state vocabulary is unified as follows:
+A device reboot invalidates the current command/session association. A new session and new token map are required after handshake. A token collision in another session or boot epoch cannot alias a prior context because the lookup namespace includes session and device epoch. The mapping table and the original wire token are retained as separate data; the token alone is not a globally unique stage_context_id.
 
-| State | Meaning | STOP eligible |
-|---|---|---|
-| `BOOT` | Startup and initialization | Yes |
-| `BOOT_ID_INVALID` | Boot identity cannot be established | Yes |
-| `IDLE` | Initialized, no active session | Yes |
-| `ARMED` | Session established, PWM not yet applied | Yes |
-| `RUNNING` | PWM stage active | Yes |
-| `STOP_LATCHED` | STOP accepted and latched; no further drive allowed | Yes, idempotent |
-| `STOPPED` | Software sequence/controller has completed stop handling | Yes, idempotent |
-| `FAULT` | General protocol/initialization/runtime fault | Yes |
-| `FAULT_STOP` | Fault path with stop latch asserted | Yes, idempotent |
+## 6. Message framing and exact byte lengths
 
-A transition into `STOP_LATCHED` or `FAULT_STOP` commands PWM 0. `STOPPED` means software handling completed; it is not physical stop confirmation. The final transition table must enumerate allowed transitions and invalid-command responses. A general `FAULT` must not be treated as equivalent to a confirmed physical stop; STOP remains eligible in every state.
+### 6.1 Framing rule
 
-## 11. ADC timestamp and sequence rules
+All protocol messages use:
+- 17-byte fixed common header.
+- Message-specific payload.
+- 2-byte CRC-16/CCITT-FALSE, little-endian, calculated over header plus payload.
+- COBS encoding of the complete decoded message.
+- One zero delimiter byte after the COBS frame.
 
-Each sample includes:
-- `device_sample_sequence`
-- `device_timestamp_us_u32`
-- `channel_code`
-- `adc_raw)
-- `stage_context_token`
-- `acquisition_status`
+COBS maximum for a decoded frame of N bytes is N + ceil(N/254). All current frames are below 254 bytes, so the COBS maximum is N+1. Wire maximum is COBS maximum + one delimiter.
 
-Timestamp point is `conversion_midpoint`: take `micros()` immediately before and after `analogRead()), then record the midpoint. This is an estimate of conversion time, not the ADC sample-and-hold instant. On Uno, `micros()` has 4 µs granularity; it must not be described as 1 µs resolution.
+The 17-byte common header field allocation for this candidate is: magic uint16 (2), protocol_version uint8 (1), message_type uint8 (1), flags uint8 (1), measurement_session_tag uint32 (4), device_epoch_tag uint32 (4), command_id uint32 (4). Multi-byte integers are little-endian. The tags are correlation values only; they do not replace the full RawLog session UUID or boot identity.
 
-The 32-bit microsecond clock wraps after approximately 71.6 minutes. Python unwraps timestamps within a validated `device_epoch_id`; modular deltas are reliable only when gaps are less than 2^31 µs (about 35.8 minutes). If the host starts observing after a wrap and cannot reconstruct boot-relative elapsed time, it must use a documented relative origin or mark `device_elapsed_us` unavailable/unresolved. It must not fabricate an absolute boot elapsed value.
+### 6.2 Message payloads and lengths
 
-## 12. Acquisition failure semantics
+| Message | Payload definition | Payload | Decoded (17 + payload + 2 CRC) | COBS max | Delimiter | Wire max |
+|---|---|---:|---:|---:|---:|---:|
+| PWM_SET | pwm uint8 + stage_context_token uint16 | 3 B | 22 B | 23 B | 1 B | 24 B |
+| APPLY_ACK | result uint8 + applied_pwm uint8 + stage_context_token uint16 | 4 B | 23 B | 24 B | 1 B | 25 B |
+| STOP_REQ | stop_reason uint8 + stop_request_id uint16 | 3 B | 22 B | 23 B | 1 B | 24 B |
+| STOP_ACK | requester_relation uint8 + request_outcome uint8 + latched_state uint8 | 3 B | 22 B | 23 B | 1 B | 24 B |
+| STATUS | state uint8 + active_pwm uint8 + active_context_token uint16 + loss_counter uint32 + last_sample_sequence uint16 | 10 B | 29 B | 30 B | 1 B | 31 B |
+| ERROR | error_code uint8 + offending_message_type uint8 + detail_code uint16 + related_command_id uint32 | 8 B | 27 B | 28 B | 1 B | 29 B |
+| ADC_BATCH | payload defined in §4.2 | 173 B | 192 B | 193 B | 1 B | 194 B |
 
-A failure is reported only when it is actually detectable:
-- Invalid channel code or invalid acquisition precondition: detectable and reportable.
-- A custom bounded ADC conversion routine that times out: detectable if such a routine is implemented and its timeout is specified.
-- Standard Arduino `analogRead()` does not expose a per-conversion failure status. Do not claim a conversion timeout unless a bounded implementation exists.
-- Sensor disconnection, floating input, or electrically implausible value is generally not distinguishable from a valid ADC code by `analogRead()` alone. It must not be labeled a proven acquisition failure without independent diagnostics.
+These are proposed v1 byte definitions for review, not accepted production wire compatibility. The header tags must be initialized by HELLO/handshake and validated before PWM_SET. CRC failure, malformed COBS, unknown protocol version or invalid reserved bits must not result in PWM application.
 
-ADC_BATCH `acquisition_status` therefore distinguishes successful conversion, known acquisition failure, and unavailable/unknown status. The RawLog mapping uses `adc_raw=null` only when no raw conversion value exists, and records `validity`/ `invalid_reason` according to the accepted schema.
+### 6.3 ADC_BATCH arithmetic and throughput reconciliation
 
-## 13. RawLog v2 mapping
+The ADC_BATCH calculation is:
+- common header: 17 B
+- 12 samples × 14 B: 168 B
+- fixed batch payload: 5 B
+- CRC: 2 B
+- decoded total: 17 + 168 + 5 + 2 = **192 B**
+- COBS maximum: 192 + ceil(192/254) = **193 B**
+- delimiter: 1 B
+- wire maximum: **194 B**
 
-The accepted RawLog v2 envelope and field names are authoritative. This design does not redefine them. For each individual conversion, map to an ADC_SAMPLE record with the schema’s existing fields, including:
-- identity/envelope fields (`schema_version`, `record_type`, `record_id`, `record_seq`, `log_id`, `measurement_session_id`, `recorded_at_utc));
-- sample identity and channel fields (`sample_id`, `channel`, `sensor`, `signal_role`, `adc_raw`, `adc_resolution_bits`, `raw_unit=count`);
-- device timing and context (`device_timestamp_us_u32`, `device_timestamp_point=conversion_midpoint`, `device_epoch_id`, `device_elapsed_us`, `device_sample_sequence`, `stage_context_id`, `stage_id`, `stage_assignment));
-- calibration and quality (`calibration_id`, `validity`, `invalid_reason`).
+At 10 batches/s, ADC_BATCH maximum traffic is 1,940 wire B/s. Do not use 194 as decoded size or 193 as wire size.
 
-This list is a mapping checklist, not permission to add fields. Preserve the exact accepted types, nullability, enums, and names from RawLog v2. Each conversion gets its own `host_received_at_utc` and `host_received_monotonic_ns` when those fields exist in the accepted schema. If a field is not part of that accepted schema, do not add it here.
+## 7. STOP request, ACK and duplicate history
 
-## 14. TX scheduling, ownership and SRAM constraints
+### 7.1 STOP semantics
 
-UART is 57600 bps, 8N1: theoretical payload ceiling is 5,760 bytes/s. Proposed average rates:
-- ADC_BATCH: 1,940 B/s (10 batches/s × 194-byte encoded maximum; budgeting figure).
-- STATUS: 180 B/s.
-- APPLY_ACK: approximately 3.3 B/s.
-- Total: approximately 2,123.3 B/s, about 36.9% of theoretical line capacity.
+STOP is accepted in every defined state. On receipt, controller latches stop, requests PWM=0, invalidates the active ARM permission and rejects every later nonzero PWM_SET until a new explicitly authorized session/ARM sequence. A delayed command cannot clear STOP or re-drive the motor. A stale-session STOP is still treated as a safety stop request; session staleness affects the ACK classification, not whether the stop action is attempted.
 
-Average throughput does not prove bounded latency. Priority and nonblocking behavior are required:
-1. STOP_ACK and fault/error response.
-2. APPLY_ACK and session-critical STATUS.
-3. ADC_BATCH.
-4. Noncritical status/diagnostic traffic.
+### 7.2 STOP_ACK fields and enum codes
 
-A frame must never be interleaved with another frame. TX must retain ownership of the frame/source buffer until every byte is accepted by the UART. Send only a bounded amount that fits `availableForWrite()`; return to the main loop and continue later. A call that can block while the hardware TX ring is full is not acceptable in the acquisition path. STOP handling must not wait for a complete ADC_BATCH transmission.
+STOP_ACK payload is exactly three bytes as defined in §6.2:
 
-SRAM remains **unverified**. Proposed resources include ADC batch/sample storage, RX frame storage, TX frame state/storage, four STOP history entries, STATUS/ERROR state, HardwareSerial buffers and stack. The Uno has 2 KB SRAM; do not claim fit based on estimates. Before implementation, produce a compiler-backed static memory report and demonstrate that ADC acquisition and STOP remain responsive under worst-case transmission backlog. If the buffer strategy cannot meet this, reduce/stream the design without changing the accepted RawLog contract or silently dropping samples.
+**Byte 0 — requester_relation**
+- 0 = CURRENT_SESSION
+- 1 = STALE_SESSION
+- 2 = NO_SESSION
 
-## 15. ADC_BATCH cadence and transport consistency
+**Byte 1 — request_outcome**
+- 0 = NEW_RECORDED
+- 1 = DUPLICATE_MATCH
+- 2 = ID_CONFLICT
+- 3 = HISTORY_FULL_UNRECORDED
+- 4 = NOT_ESTABLISHED
 
-ADC_BATCH is emitted on the unified 100 ms batch interval (10 batches/s) and includes the two scans at offsets 0 and 25 ms. Its payload must preserve each individual conversion’s sequence, timestamp, channel, raw code, acquisition status and stage-context token.
+**Byte 2 — latched_state**
+- 0 = STOP_LATCHED
+- 1 = FAULT_STOP
+- 2 = STOPPED
 
-If acquisition or transport falls behind, the device must not silently relabel samples, overwrite a buffer still owned by TX, or emit fabricated regular timestamps. Report a detectable loss/overflow condition with a defined counter/status. The exact loss record and counter encoding must be frozen in the wire contract before implementation.
+All other enum values are invalid and reserved. The fields represent independent dimensions: requester/session relation is not duplicate status. STOP_ACK decoded length is 17 + 3 + 2 = 22 B; COBS maximum 23 B; delimiter 1 B; wire maximum 24 B.
 
-## 16. Python compatibility and accepted interface
+### 7.3 Four-entry history
 
-The accepted 310-3 interface includes `MessageCodec.encode_pwm(pwm:int)->bytes`, `encode_stop()->bytes`, `decode(payload:bytes)->object`; transport handles framing, partial/multiple frames, ACKs and unknown messages. Python owns the 310-second sequence.
+History contains exactly four fixed entries per device boot epoch. Each entry stores session tag, stop_request_id, stop_reason, and semantic request fingerprint. Entries are inserted in first-free slot order and never overwritten during that boot epoch.
 
-The current interface does not by itself establish the required correlation and telemetry path. The design proposal is additive:
-- transmit `stage_context_id) with PWM apply;
-- correlate ACK using `command_id);
-- receive ADC_BATCH telemetry;
-- persist device-provided context and timestamp unchanged;
-- resolve `stage_id) in Python;
-- preserve the existing `send_pwm(pwm)` behavior and existing tests until an explicitly reviewed compatibility change is approved.
+- First request with free slot: perform stop and record; outcome NEW_RECORDED.
+- Same session tag + request ID + same reason/fingerprint in retained history: stop remains latched; outcome DUPLICATE_MATCH.
+- Same session tag + request ID but different reason/fingerprint: stop remains latched; outcome ID_CONFLICT.
+- No free slot and request not found: perform stop; outcome HISTORY_FULL_UNRECORDED. No duplicate-detection guarantee is made for this unrecorded request.
+- A retained entry is not evicted to make room. History is cleared only on a new boot epoch; boot identity distinguishes the new epoch.
+- A stale session request is still processed as STOP. If it matches retained history, report the matching history outcome; requester_relation independently reports STALE_SESSION.
 
-The current `record_adc_sample()` behavior must not assign late telemetry using whichever stage is active at receipt time. This v0.5 does not authorize Python changes.
+Python stores every received STOP_ACK byte-for-byte as protocol evidence. For a request identity, Python preserves the first response as the canonical initial response and stores later retransmission responses separately. A later response with a different outcome is not silently rewritten to look like the first response. The Python log records that history-full responses cannot establish duplicate identity.
 
-## 17. Acceptance evidence required before implementation
+## 8. Boot identity and EEPROM generation journal
 
-A future review must receive, at minimum:
-1. Final byte-exact message definitions, including all lengths and enum values.
-2. One coherent state transition and STOP eligibility table.
-3. STOP history examples: first request, exact duplicate, ID conflict, stale session, and full history.
-4. Boot identity/epoch examples across reset and token collision.
-5. Sample traces demonstrating individual timestamps and immutable stage context across a stage boundary.
-6. Explicit loss/overflow semantics and bounded TX scheduler behavior.
-7. Compiler-backed SRAM/stack budget and proof of nonblocking acquisition/STOP handling.
-8. Clear distinction between detectable ADC acquisition failures and electrical/sensor anomalies.
-9. Confirmation that the RawLog mapping matches accepted 310-1/2 schemas without adding or mutating fields.
-10. A review disposition for all eight v0.4 findings.
+### 8.1 Identity roles
 
-No real-hardware test, motor energization, upload, or 310-5 transition is permitted by this draft. Those require separate explicit authorization.
+- `generation_counter64`: persistent monotonically increasing boot generation.
+- `boot_id64`: current boot identity, defined as the successfully committed generation value.
+- `boot_challenge64`: fresh handshake challenge; proves response freshness but is not boot identity.
+- `epoch_token32`: HELLO_ACK correlation token; may collide and is never used as device_epoch_id.
+- RawLog `device_epoch_id`: full boot_id64 value encoded using the exact type/representation accepted in RawLog v2. The serial tag is only a truncated correlation field.
 
-## 18. v0.4 review disposition
+### 8.2 EEPROM journal proposal
 
-| Review item | v0.5 disposition |
-|---|---|
-| 1. ADC cadence conflict | Unified to proposed 20 Hz/channel; adequacy remains pending |
-| 2. STOP_ACK status conflict | Requester/session and history outcomes separated |
-| 3. Four-entry STOP history | Fixed non-overwriting history; full behavior specified |
-| 4. boot_id vs epoch_token | Roles separated; RawLog epoch remains boot identity |
-| 5. State vocabulary | One table; STOP eligible in every state |
-| 6. Frame lengths | One length convention and budget table; exact byte table still required |
-| 7. SRAM/TX | Ownership and nonblocking requirements stated; SRAM not verified |
-| 8. Timestamp/failure | Midpoint semantics, wrap limits and detection boundary specified |
+Use a 16-slot wear-levelled EEPROM journal. Each 16-byte slot contains: magic/version (2 B), generation_counter64 (8 B), CRC16 (2 B), reserved (2 B), commit marker (2 B). Write a new slot in this order: invalidate target marker, write payload, write CRC, read back and verify, then write commit marker last. A slot is valid only when marker, magic/version and CRC all validate. On boot, scan all slots and select the highest valid generation; increment it and commit to the next slot. Do not overwrite the last known-good slot before the new slot verifies.
 
-**Decision requested:** review this integrated v0.5 as a design proposal. Do not treat it as accepted, implementation-ready, or authorization for hardware activity.
+- **First provisioned boot:** a factory-provisioned empty-state marker must be distinguishable from corruption. If explicitly provisioned blank state is found, write generation 1 and verify before entering IDLE.
+- **Normal boot:** select highest valid committed generation and commit generation+1 before enabling session/ARM.
+- **Power loss during write:** incomplete target slot is ignored; previous valid slot remains authoritative. On next boot, increment from the last valid generation.
+- **Corrupt records:** ignore individual CRC-invalid slots only if at least one valid committed record remains. If all slots are invalid and the device is not in the explicit factory-empty state, identity is untrusted.
+- **Write/readback failure, EEPROM unavailable, generation overflow, or ambiguous journal:** enter BOOT_ID_INVALID/FAULT, keep PWM disabled, reject ARM and all nonzero PWM commands, and do not create RawLog samples with a guessed epoch.
+- No wrap is allowed for uint64 generation. At maximum value, fail closed.
+- A factory reset/provisioning action is a separate controlled maintenance operation, not an automatic recovery from corruption.
+
+This design requires a platform-specific EEPROM endurance and atomic-write review before implementation. It does not claim that EEPROM hardware behavior has been tested. A boot identity that cannot be durably established is a hard acquisition/session gate, not a random-ID fallback.
+
+## 9. Unified state machine and transition table
+
+### 9.1 States
+
+`BOOT`, `BOOT_ID_INVALID`, `IDLE`, `ARMED`, `RUNNING`, `STOP_LATCHED`, `STOPPED`, `FAULT`, `FAULT_STOP`.
+
+STOP is eligible in every state. `STOPPED` means software stop handling completed; it does not confirm physical zero current or motor standstill.
+
+### 9.2 Transition rules
+
+| Current state | Input/event | Acceptance rule | Next state | Output/action |
+|---|---|---|---|---|
+| BOOT | EEPROM identity valid and increment committed; protocol init valid | All initialization checks pass | IDLE | PWM remains 0; HELLO available |
+| BOOT | identity invalid/corrupt/write failure | Any identity check fails | BOOT_ID_INVALID | PWM disabled; no ARM |
+| BOOT_ID_INVALID | STOP | Always | FAULT_STOP | Request PWM=0; return STOP_ACK if transport works |
+| BOOT_ID_INVALID | PWM_SET / ARM | Always reject | BOOT_ID_INVALID | ERROR; no PWM change |
+| IDLE | ARM | Valid session, handshake, fresh token and no fault | ARMED | No drive; ARM_ACK/STATUS |
+| IDLE | PWM_SET | Reject: not armed | IDLE | ERROR; PWM remains 0 |
+| ARMED | PWM_SET(pwm=0..30) | Valid CRC/header/session/command/token; no stop latch | RUNNING if pwm>0, otherwise ARMED | Apply exact PWM; emit APPLY_ACK |
+| ARMED | invalid PWM_SET | Any validation failure | ARMED or FAULT if internal invariant fails | ERROR; no nonzero output |
+| RUNNING | PWM_SET(pwm=0..30) | Current session/token, fresh command, no stop latch | RUNNING if >0; ARMED if 0 | Apply and ACK |
+| RUNNING | STOP | Always | STOP_LATCHED | Invalidate ARM; PWM=0; STOP_ACK |
+| ARMED | STOP | Always | STOP_LATCHED | Invalidate ARM; PWM=0; STOP_ACK |
+| IDLE | STOP | Always | STOP_LATCHED | PWM=0; STOP_ACK |
+| STOP_LATCHED | STOP duplicate/new | Always | STOP_LATCHED | PWM=0; ACK history outcome |
+| STOP_LATCHED | PWM_SET including zero | Reject as drive/session command; STOP remains latched | STOP_LATCHED | PWM=0; ERROR or idempotent status |
+| STOP_LATCHED | ARM | Re-arm only after new host synchronization boundary and new session token | ARMED | No drive; clear latch only after accepted ARM |
+| STOP_LATCHED | stop handling completion | PWM-zero request accepted by output adapter | STOPPED | Report software completion, not physical confirmation |
+| STOPPED | STOP | Always | STOPPED | Idempotent ACK |
+| STOPPED | PWM_SET | Reject until new ARM/session | STOPPED | ERROR; PWM=0 |
+| STOPPED | new valid ARM | New synchronized session and valid boot identity | ARMED | No drive |
+| Any non-stop state | protocol/internal fatal fault | Defined fatal condition | FAULT | Immediately request PWM=0 and invalidate ARM |
+| FAULT | STOP | Always | FAULT_STOP | Retry PWM=0 request; STOP_ACK if possible |
+| FAULT | ARM/PWM_SET | Reject | FAULT | ERROR; no drive |
+| FAULT_STOP | STOP | Always | FAULT_STOP | Idempotent safe action |
+| FAULT_STOP | ARM/PWM_SET | Reject | FAULT_STOP | No drive; recovery requires explicit maintenance/reinitialization |
+
+STOP acceptance has priority over queued PWM_SET. The command dispatcher must check the stop latch immediately before applying any nonzero PWM, not only when the frame is first parsed. A PWM command received before STOP but still queued when STOP is latched must be discarded.
+
+A failure to confirm PWM output state is not a transition to a claim of physical stop. It is a fault and requires external safety action under a separately approved hardware procedure.
+
+## 10. ADC timestamps and clock rollover
+
+For each conversion, capture `micros()` immediately before and after `analogRead()`; store their midpoint as `timestamp_us_u32` and set the semantic timestamp point to `conversion_midpoint`. This is an estimate around the conversion call, not the ADC sample-and-hold instant. On Uno, micros() granularity is 4 µs, not 1 µs.
+
+The 32-bit microsecond timer wraps at approximately 71.6 minutes. Python unwraps using modular differences only within a validated boot_id64 epoch. A modular gap must be less than 2^31 µs (about 35.8 minutes) to distinguish forward progress unambiguously. The sample sequence is uint16 and wraps after 65,536 attempted conversions; use both sequence and timestamp and treat discontinuity as a possible loss/reset signal.
+
+If the host begins receiving after a wrap and cannot reconstruct the boot-relative elapsed time, it must store a documented first-observed-relative origin or mark boot-relative elapsed time unavailable. It must not fabricate an absolute elapsed value. Device epoch association is invalid if boot_id64 is not verified.
+
+## 11. Acquisition failure boundary
+
+- Invalid channel code or invalid acquisition precondition is detectable.
+- Conversion timeout is detectable only if a custom bounded ADC conversion routine is implemented and has a defined timeout. Standard Arduino `analogRead()` does not expose a per-conversion failure result.
+- Sensor disconnection, floating input and electrically implausible values are not generally distinguishable from valid ADC codes by `analogRead()` alone. They are not automatically labeled conversion failures.
+- `adc_raw=0xFFFF` is reserved for no valid conversion code; a valid raw code of 0 is preserved.
+- Status 0 means a conversion code was acquired. Status 1/2/3 means no valid code for the stated reason. A2/A3 reference-channel status does not change control or measurement eligibility.
+
+A future analog plausibility or sensor-open diagnostic must be specified and validated separately; it must not be smuggled into acquisition_status.
+
+## 12. Loss, overflow and sequence semantics
+
+### 12.1 Counters
+
+Maintain a uint32 cumulative `loss_counter` per boot epoch, initialized to zero after successful boot identity establishment. It increments once for each sample attempt that cannot be delivered into an owned batch due to local acquisition-buffer exhaustion or a batch being discarded before transmission. It does not increment merely because a conversion status reports an acquisition failure; that attempt still has a sample record and sequence.
+
+Maintain separate uint16 `sample_sequence` and uint16 `batch_sequence`, both incremented for each attempted sample/batch respectively, including attempts that later cannot be transmitted. Counters wrap modulo their width. STATUS reports the full uint32 loss_counter and last attempted sample sequence. ADC_BATCH carries the low 8 bits as a snapshot only.
+
+### 12.2 Detectable versus undetectable loss
+
+- A gap in sample_sequence within one verified boot epoch detects one or more missing attempted sample records, subject to sequence-wrap disambiguation.
+- A gap in batch_sequence detects missing batches, subject to wrap disambiguation.
+- A rising loss_counter identifies locally detected acquisition/buffer/queue loss. Python records the observed counter delta.
+- A counter reset without a new verified boot_id64 is a protocol fault; do not assume a new epoch.
+- A lost final batch with no later STATUS/sample may be undetectable until reconnect. The protocol cannot guarantee notification over a failed link.
+- Sensor disconnection or an electrically invalid but in-range ADC value is not necessarily detectable as sample loss.
+- UART corruption is detected by CRC, but a corrupted frame cannot reveal all fields; Python records a transport error and waits for subsequent sequence/counter evidence.
+
+### 12.3 Buffer overflow behavior
+
+Never overwrite a batch currently owned by TX. If no free acquisition batch slot exists, increment loss_counter for every sample attempt that cannot be retained and continue sequence numbering. STATUS reports the loss counter as soon as the TX path permits. Do not fabricate replacement samples or timestamps. No stage is silently declared complete because samples were lost.
+
+### 12.4 RawLog mapping
+
+Python records each received ADC sample as its own RawLog v2 sample record using the exact schema accepted under Issue #170/PR #180. Preserve raw channel code, raw ADC code, device timestamp, sample sequence, batch sequence, stage token mapping, acquisition status, session and boot identity. The serial sample token is resolved through the separately recorded context map into the UUID stage_context_id. Store loss-counter observations and sequence-gap/transport-loss events as the event record type defined by the accepted RawLog schema. If that schema has no approved event representation for a required loss event, record it in the separately approved transport/session metadata path and raise a schema gap; do not invent a RawLog field or mutate the accepted schema.
+
+## 13. RawLog v2 contract boundary
+
+Issue #170 and the accepted RawLog v2 implementation are authoritative for field names, types, nullability, envelope, record types and storage. This document defines the serial-side source data and mapping semantics only; it does not redefine RawLog v2.
+
+For each ADC conversion, Python preserves the original serial fields and adds only host/session metadata already permitted by the accepted schema. The RawLog UUID `stage_context_id` is resolved from the context map; the 16-bit serial token remains a separate transport field only if the accepted schema provides a field for it. If not, retain it in the transport evidence/metadata path, not as a fabricated schema property.
+
+Do not require legacy RawLog v1 columns or old derived values. Do not generate derived values on Arduino. Do not use A1 as winding current. Do not use A2/A3 for automatic control or eligibility. Do not fill missing data with zero or previous values.
+
+## 14. TX scheduling, ownership and SRAM feasibility gate
+
+### 14.1 Throughput
+
+UART 57600 bps, 8N1 has a theoretical ceiling of 5,760 wire bytes/s. Using wire maxima:
+- ADC_BATCH: 194 B × 10/s = 1,940 B/s.
+- STATUS: 31 B × 1/s = 31 B/s (one status per second baseline; event-driven statuses add traffic).
+- APPLY_ACK: 25 B per stage × 3.1 stages/s average over a 310-second run = approximately 77.5 B/s.
+- Nominal subtotal = approximately 2,048.5 B/s, about 35.6% of theoretical UART capacity, before STOP/ERROR/handshake/event traffic.
+
+This average is not a latency guarantee. Worst-case bursts and serial driver backpressure must be bounded.
+
+### 14.2 Priority and ownership
+
+Priority: (1) STOP_ACK and fault/error, (2) APPLY_ACK and session-critical STATUS, (3) ADC_BATCH, (4) noncritical diagnostics.
+
+A frame is transmitted atomically with respect to other frames: bytes from different frames are never interleaved. TX owns the selected source buffer until the final delimiter has been accepted by UART. The scheduler may write only a bounded chunk no larger than the currently available UART TX capacity, then return to the main loop. STOP processing must not wait for a full ADC_BATCH transmission. A buffer cannot be reused while TX owns it.
+
+The acquisition producer and TX consumer require an explicit ownership state per buffer (FREE → FILLING → READY → TX_OWNED → FREE). Ownership changes must be atomic with respect to the main loop/interrupt context. ISR code must not perform serial writes, CRC/COBS encoding, or unbounded copies. Shared multi-byte counters and ownership flags require atomic snapshot/update or a short bounded critical section. The main loop remains responsible for framing and transmission.
+
+### 14.3 SRAM status
+
+**SRAM fit is not established.** Uno SRAM is 2 KB. The design has not yet provided compiler-backed sizes for common header, RX frame, TX frame, batch buffers, four STOP history entries, UART rings, globals, heap and worst-case stack. A 194-byte wire frame does not mean only 194 bytes of memory are needed. Two full batch buffers plus independent RX/TX encoded buffers may be infeasible.
+
+Before implementation, the design must choose a concrete memory layout and provide:
+- sizeof/map output for every static buffer and structure;
+- Arduino core/HardwareSerial ring allocation;
+- stack high-water measurement or defensible bound under worst nested call path;
+- proof that no dynamic String/heap allocation is used in the acquisition/STOP path;
+- maximum buffer occupancy and scheduler latency under worst-case UART backlog;
+- proof that STOP is serviced while TX is backpressured and while a batch is being assembled.
+
+No claim of nonblocking operation or SRAM fit is made by this draft. If the memory budget fails, return to design review; do not silently reduce samples, drop records, or change RawLog semantics.
+
+## 15. Python compatibility and command behavior
+
+The accepted 310-3 interface currently includes `MessageCodec.encode_pwm(pwm:int)->bytes`, `encode_stop()->bytes`, and `decode(payload:bytes)->object`. The transport supports partial/multiple frames and ACKs. The current interface does not itself establish all session, command and stage-context correlation described here.
+
+The required future additive contract is:
+- PWM_SET contains command_id and stage_context_token.
+- APPLY_ACK echoes command_id and stage_context_token.
+- Python maintains the UUID context map before command transmission.
+- ADC_BATCH carries the device-snapshotted token for every conversion.
+- Python never assigns late telemetry to whichever stage happens to be active at receive time.
+- Existing send_pwm(pwm) call sites and tests remain unchanged until a separately reviewed compatibility change is authorized.
+
+This document does not authorize Python changes.
+
+## 16. Acceptance evidence before implementation
+
+A future submission must include:
+1. Byte-exact protocol definitions and independently reproduced length arithmetic.
+2. Test vectors for every message, CRC, COBS boundary, malformed frame and reserved enum.
+3. Context-map examples across stage transition, delayed telemetry and reboot.
+4. STOP history examples: first request, exact duplicate, ID conflict, stale session, full history.
+5. EEPROM journal cases: first provision, normal boot, interrupted write, corrupt slots, readback failure and overflow.
+6. Full state transition test matrix, including queued PWM_SET followed by STOP.
+7. Loss-counter and sequence-gap examples, wrap behavior, and undetectable final-loss boundary.
+8. Sampling adequacy analysis for threshold statistic, signal bandwidth, PWM frequency, analog filter, settling and aliasing.
+9. Compiler-backed SRAM/stack map and backpressure test evidence.
+10. RawLog mapping confirmation against the exact accepted Issue #170/PR #180 schema without adding fields.
+11. Review disposition for all nine findings in this resubmission.
+
+No physical hardware activity is authorized by this document.
+
+## 17. Review correction matrix
+
+| # | Review finding | v0.5 re-submission response |
+|---:|---|---|
+| 1 | ADC_BATCH length and traffic mismatch | §4.2, §6.3: decoded 192 B, COBS 193 B, wire 194 B; 1,940 wire B/s |
+| 2 | stage_context_id/token mapping undefined | §5: UUID↔uint16 map, session/epoch namespace, pre-command persistence, unresolved behavior |
+| 3 | No actual state transition table | §9: explicit state/event/acceptance/next-state/action table |
+| 4 | STOP_ACK length unsupported | §6.2, §7.2: three payload bytes, enum codes and 22/23/24 B lengths |
+| 5 | Syntax/edit corruption | Full document rewritten and syntax pass required; malformed punctuation examples corrected |
+| 6 | Boot identity persistence conditional | §8: 16-slot EEPROM journal, CRC, commit marker, failure/first boot/overflow fail-closed |
+| 7 | Loss/overflow undefined | §12: counters, increments, resets, sequence mapping, detection limits and RawLog boundary |
+| 8 | 20 Hz adequacy unsupported | §4.3–4.4: candidate only; Nyquist/bandwidth/aliasing limitations and required evidence |
+| 9 | SRAM/TX implementation unproven | §14: ownership model and exact evidence gate; explicitly not claimed feasible |
+
+## 18. Submission decision requested
+
+Review this integrated document as a draft design proposal. The exact RawLog field mapping remains subordinate to the accepted Issue #170/PR #180 schema; the sampling cadence and SRAM feasibility remain open gates. This document does not assert that those gates have passed. Do not merge, implement, compile, upload, connect serial hardware, energize the motor, perform the 310-second measurement, or advance to 310-5 based solely on this submission.
