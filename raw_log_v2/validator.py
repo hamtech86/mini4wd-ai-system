@@ -309,7 +309,7 @@ def validate_record(record: Any, manifest: Dict[str, Any], index: int = 0) -> Li
             errors.append(f"{prefix}.adc_resolution_bits differs from manifest.device")
         if not _utc(record.get("host_received_at_utc")):
             errors.append(f"{prefix}.host_received_at_utc must be UTC ISO-8601")
-        if record.get("device_timestamp_point") not in {"conversion_midpoint", "conversion_start", "conversion_end", "unknown"}:
+        if not isinstance(record.get("device_timestamp_point"), str) or record.get("device_timestamp_point") not in {"conversion_midpoint", "conversion_start", "conversion_end", "unknown"}:
             errors.append(f"{prefix}.device_timestamp_point is invalid")
         if not isinstance(record.get("stage_assignment"), str) or record.get("stage_assignment") not in {"confirmed", "unresolved"}:
             errors.append(f"{prefix}.stage_assignment is invalid")
@@ -340,7 +340,7 @@ def validate_record(record: Any, manifest: Dict[str, Any], index: int = 0) -> Li
                 errors.append(f"{prefix} converted value requires converted_unit")
         if channel == "A0" and record.get("converted_value") is not None and record.get("converted_unit") != "A":
             errors.append(f"{prefix}.A0 converted_unit must be A")
-        if channel in {"A2", "A3"} and record.get("derived_role") not in (None, "reference"):
+        if isinstance(channel, str) and channel in {"A2", "A3"} and record.get("derived_role") not in (None, "reference"):
             errors.append(f"{prefix}.A2/A3 conversion must remain reference-only")
 
     elif kind == "CALIBRATION":
