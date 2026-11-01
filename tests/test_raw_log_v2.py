@@ -190,3 +190,34 @@ def test_final_package_rejects_unexpected_files_without_deleting_work(tmp_path):
         writer.recover_incomplete("MOTOR-310-TEST", recovered_at_utc=NOW)
     assert (tmp_path/".work"/"MOTOR-310-TEST"/"records.jsonl").exists()
     assert (final/"unexpected.bin").read_bytes()==b"foreign"
+
+
+def test_confirmed_adc_sample_must_match_stage_context():
+    manifest=manifest_fields()
+    stage=stage_record(0)
+    sample={"schema_version":"2.0.0","record_type":"ADC_SAMPLE","record_id":"sample-record",
+        "record_seq":2,"log_id":manifest["log_id"],"measurement_session_id":manifest["measurement_session_id"],
+        "recorded_at_utc":"2026-11-01T00:01:00.000Z","sample_id":"sample-a0","channel":"A0",
+        "sensor":"ACS712 #1","signal_role":"winding_current","adc_raw":512,
+        "adc_resolution_bits":10,"raw_unit":"count","device_timestamp_us_u32":10,
+        "device_timestamp_point":"conversion_midpoint","device_epoch_id":"boot-1",
+        "device_elapsed_us":10,"device_sample_sequence":1,"host_received_at_utc":"2026-11-01T00:01:00.000Z",
+        "host_received_monotonic_ns":10,"stage_context_id":"wrong-context","stage_id":"PWM-00",
+        "stage_assignment":"confirmed","calibration_id":None,"validity":"valid","invalid_reason":None}
+    manifest.update({"created_at_utc":NOW,"ended_at_utc":None,"status":"incomplete",
+        "planned_stage_count":31,"planned_stage_duration_ms":10000,"planned_total_duration_ms":310000,
+        "record_counts":{"PWM_STAGE":1,"ADC_SAMPLE":1}})
+    errors=validate_package(manifest,[stage,sample],raise_on_error=False)
+    assert any("confirmed context has no PWM_STAGE" in error for error in errors)
+
+
+def test_duplicate_record_ids_are_rejected():
+    manifest=manifest_fields()
+    first=session_event()
+    second=session_event()
+    second["record_seq"]=2
+    manifest.update({"created_at_utc":NOW,"ended_at_utc":None,"status":"incomplete",
+        "planned_stage_count":31,"planned_stage_duration_ms":10000,"planned_total_duration_ms":310000,
+        "record_counts":{"SESSION_EVENT":2}})
+    errors=validate_package(manifest,[first,second],raise_on_error=False)
+    assert any("duplicate record_id" in error for error in errors)
