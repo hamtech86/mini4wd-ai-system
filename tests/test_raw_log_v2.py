@@ -306,3 +306,18 @@ def test_recovery_resumes_after_partial_original_and_package_staging(tmp_path, m
     assert (final/"records.jsonl").read_bytes()==original_records
     assert json.loads((final/"manifest.json").read_text())["status"]=="incomplete"
     assert not work.exists()
+
+
+def test_startup_discovery_recovers_all_pending_work_in_stable_order(tmp_path):
+    writer=RawLogV2Writer(tmp_path)
+    assert writer.list_incomplete_work()==[]
+    writer.begin(manifest_fields("MOTOR-Z"))
+    writer.begin(manifest_fields("MOTOR-A"))
+    assert writer.list_incomplete_work()==["MOTOR-A","MOTOR-Z"]
+    results=writer.recover_pending()
+    assert [item["log_id"] for item in results]==["MOTOR-A","MOTOR-Z"]
+    assert writer.list_incomplete_work()==[]
+    for log_id in ("MOTOR-A","MOTOR-Z"):
+        manifest=json.loads((tmp_path/log_id/"manifest.json").read_text())
+        assert manifest["status"]=="incomplete"
+        assert manifest["record_counts"]=={}
