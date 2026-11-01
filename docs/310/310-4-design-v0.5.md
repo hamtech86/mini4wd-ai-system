@@ -280,7 +280,7 @@ STOP is eligible in every state. `STOPPED` means software stop handling complete
 | BOOT | identity invalid/corrupt/write failure | Any identity check fails | BOOT_ID_INVALID | PWM disabled; no ARM |
 | BOOT_ID_INVALID | STOP | Always | FAULT_STOP | Request PWM=0; return STOP_ACK if transport works |
 | BOOT_ID_INVALID | PWM_SET / ARM | Always reject | BOOT_ID_INVALID | ERROR; no PWM change |
-| IDLE | HELLO | Valid committed boot identity, valid nonce and nonzero session tag | IDLE | Bind session; HELLO_ACK; no ARM |
+| IDLE | HELLO | Valid committed boot identity, valid nonce and nonzero session tag | IDLE | Bind session; HELLO_ACK; no ARM |\n| STOP_LATCHED / STOPPED | HELLO | Valid committed boot identity, new session tag and fresh nonce | same state | Bind new session; HELLO_ACK; retain STOP latch |
 | IDLE / STOP_LATCHED / STOPPED | ARM | Verified HELLO session+epoch, fresh command_id, nonzero context token, initial_pwm=0, no fatal fault | ARMED | ARM_ACK; PWM remains 0 |\n| IDLE | PWM_SET | Reject: not armed | IDLE | ERROR; PWM remains 0 |
 | ARMED | PWM_SET(pwm=0..30) | Valid CRC/header/session/command/token; no stop latch | RUNNING if pwm>0, otherwise ARMED | Apply exact PWM; emit APPLY_ACK |
 | ARMED | invalid PWM_SET | Any validation failure | ARMED or FAULT if internal invariant fails | ERROR; no nonzero output |
@@ -467,17 +467,17 @@ This document does not authorize Python changes.
 ## 16. Acceptance evidence before implementation
 
 A future submission must include:
-1. Byte-exact protocol definitions and independently reproduced length arithmetic.
-2. Test vectors for every message, CRC, COBS boundary, malformed frame and reserved enum.
+1. Byte-exact definitions and independently reproduced length arithmetic for HELLO, HELLO_ACK, ARM, ARM_ACK and all existing messages.
+2. Test vectors for every message, CRC, COBS boundary, malformed frame, nonce mismatch, stale session/epoch, duplicate and reserved enum.
 3. Context-map examples across stage transition, delayed telemetry and reboot.
 4. STOP history examples: first request, exact duplicate, ID conflict, stale session, full history.
-5. EEPROM journal cases: first provision, normal boot, interrupted write, corrupt slots, readback failure and overflow.
-6. Full state transition test matrix, including queued PWM_SET followed by STOP.
-7. Loss-counter and sequence-gap examples, wrap behavior, and undetectable final-loss boundary.
+5. EEPROM journal cases: first provision, normal boot, interrupted write at every boundary, corrupt slots, readback failure and overflow; datasheet endurance and project boot-frequency budget.
+6. Full state transition matrix, including old-session frames, delayed HELLO_ACK, queued PWM_SET followed by STOP and STOP→new HELLO→ARM.
+7. Loss-counter/sequence-gap examples, wrap behavior, companion artifact persistence and undetectable final-loss boundary.
 8. Sampling adequacy analysis for threshold statistic, signal bandwidth, PWM frequency, analog filter, settling and aliasing.
 9. Compiler-backed SRAM/stack map and backpressure test evidence.
-10. RawLog mapping confirmation against the exact accepted Issue #170/PR #180 schema without adding fields.
-11. Review disposition for all nine findings in this resubmission.
+10. RawLog mapping confirmation against accepted Issue #170/PR #180 schema without additions; separate companion artifact package/hash/retention acceptance.
+11. Review disposition for all prior findings and the four findings in the current review.
 
 No physical hardware activity is authorized by this document.
 
