@@ -107,3 +107,42 @@ def test_transport_failure_raises():
     transport = MockTransport(fail_connect=True)
     with pytest.raises(Exception):
         transport.connect()
+
+
+def test_complete_31_stage_sweep_creates_schema_valid_package(tmp_path):
+    from raw_log_v2 import validate_package
+    clock = FakeClock()
+    pending = []
+    ctl = SequenceController(RawLogV2Writer(tmp_path), manifest(tmp_path),
+        lambda pwm: clock.utc_now(), lambda: None,
+        lambda: pending.pop(0) if pending else None, clock)
+    ctl.startup_recover()
+    ctl.start()
+    for pwm in range(31):
+        pending.append((pwm, clock.utc_now()))
+        ctl.poll()
+        assert ctl.state == SequenceState.RUNNING
+        clock.advance_ms(10_000)
+        ctl.poll()
+    assert ctl.state == SequenceState.COMPLETED
+    package = tmp_path / "TEST-310"
+    import json
+    mf = json.loads((package / "manifest.json").read_text())
+    records = [json.loads(line) for line in (package / "records.jsonl").read_text().splitlines()]
+    assert validate_package(mf, records, raise_on_error=False) == []
+    stages = [r for r in records if r["record_type"] == "PWM_STAGE"]
+    assert [r["pwm_command"] for r in stages] == list(range(31))
+
+
+def test_recovery_failure_blocks_start(tmp_path, monkeypatch):
+    writer = RawLogV2Writer(tmp_path)
+    clock = FakeClock()
+    ctl = SequenceController(writer, manifest(tmp_path), lambda pwm: clock.utc_now(),
+                             lambda: None, lambda: None, clock)
+    def fail():
+        raise OSError("recovery fsync failed")
+    monkeypatch.setattr(writer, "recover_pending", fail)
+    with pytest.raises(OSError):
+        ctl.startup_recover()
+    with pytest.raises(SequenceError):
+        ctl.start()
