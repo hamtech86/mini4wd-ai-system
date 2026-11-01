@@ -460,7 +460,8 @@ def test_session_started_append_failure_does_not_attempt_followup_append(tmp_pat
         return session
 
     monkeypatch.setattr(writer, "begin", begin_with_injected_append_failure)
-    ctl.start()
+    with pytest.raises(SequenceError, match="sequence startup failed closed"):
+        ctl.start()
     assert ctl.state == SequenceState.FAULT
     assert ctl._log_write_failed
     assert stops == ["STOP"]
@@ -487,8 +488,8 @@ def test_ack_wait_preserves_non_ack_before_ack_and_exposes_it_separately():
     mock = MockTransport()
     client = ProtocolClient(mock, StreamCodec())
     client.connect()
-    mock.queue(b"T\\x03")
-    mock.queue(b"A\\x07")
+    mock.queue(b"T\x03")
+    mock.queue(b"A\x07")
     assert client.poll_ack()[0] == 7
     assert client.poll_message() == {"kind": "TELEMETRY", "value": 3}
     assert client.poll_message() is None
@@ -514,7 +515,7 @@ def test_ack_then_non_ack_coalesced_and_unknown_message_are_not_discarded():
     mock = MockTransport()
     client = ProtocolClient(mock, StreamCodec())
     client.connect()
-    mock.queue(b"A\\x08T\\x02X\\x09")
+    mock.queue(b"A\x08T\x02X\x09")
     assert client.poll_ack()[0] == 8
     assert client.poll_message() == {"kind": "TELEMETRY", "value": 2}
     assert client.poll_message() == {"kind": "FUTURE_KIND", "value": 9}
@@ -639,7 +640,7 @@ def test_poll_message_does_not_consume_ack_needed_by_sequence_controller():
     mock = MockTransport()
     client = ProtocolClient(mock, StreamCodec())
     client.connect()
-    mock.queue(b"A\\x09T\\x04")
+    mock.queue(b"A\x09T\x04")
     assert client.poll_message() == {"kind": "TELEMETRY", "value": 4}
     assert client.poll_ack()[0] == 9
     client.disconnect()
