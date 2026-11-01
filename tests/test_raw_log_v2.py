@@ -385,3 +385,49 @@ def test_retry_after_manifest_link_fsync_failure_syncs_recovery_and_final_before
     assert tmp_path/"MOTOR-310-TEST" in syncs_before_delete
     assert syncs_before_delete.index(original_dir) < syncs_before_delete.index(tmp_path/"MOTOR-310-TEST")
     assert json.loads((tmp_path/"MOTOR-310-TEST"/"manifest.json").read_text())["status"]=="incomplete"
+
+
+def test_retry_after_recovery_original_link_fsync_failure_preserves_work_until_resynced(tmp_path, monkeypatch):
+    import raw_log_v2.storage as storage
+    writer=RawLogV2Writer(tmp_path)
+    session=writer.begin(manifest_fields())
+    session.append(session_event())
+    work=tmp_path/".work"/"MOTOR-310-TEST"
+    original_records=(work/"records.jsonl").read_bytes()
+    real_fsync=storage._fsync_dir
+    real_rmtree=storage.shutil.rmtree
+    synced=[]
+    fail={"once":True}
+    delete_observation=[]
+
+    def injected_fsync(path):
+        path=Path(path)
+        if fail["once"] and path.name=="original" and path.parent.name.startswith("crash-"):
+            fail["once"]=False
+            raise storage.DurabilityError("simulated crash after recovery-original hard-link")
+        result=real_fsync(path)
+        synced.append(path)
+        return result
+
+    def observed_rmtree(path,*args,**kwargs):
+        if Path(path)==work:
+            delete_observation.append(list(synced))
+        return real_rmtree(path,*args,**kwargs)
+
+    monkeypatch.setattr(storage,"_fsync_dir",injected_fsync)
+    monkeypatch.setattr(storage.shutil,"rmtree",observed_rmtree)
+    with pytest.raises(storage.DurabilityError,match="recovery-original hard-link"):
+        writer.recover_incomplete("MOTOR-310-TEST",recovered_at_utc=NOW)
+    assert work.is_dir()
+    recovery_dir=next((tmp_path/".recovery"/"MOTOR-310-TEST").glob("crash-*"))
+    original_dir=recovery_dir/"original"
+    assert (original_dir/"records.jsonl").read_bytes()==original_records
+
+    synced.clear()
+    result=writer.recover_incomplete("MOTOR-310-TEST",recovered_at_utc=NOW)
+    assert result["recovery_id"]==recovery_dir.name
+    assert not work.exists()
+    assert len(delete_observation)==1
+    assert original_dir in delete_observation[0]
+    assert recovery_dir in delete_observation[0]
+    assert recovery_dir.parent in delete_observation[0]
