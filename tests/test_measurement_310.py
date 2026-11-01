@@ -342,7 +342,7 @@ def test_protocol_client_retains_fragmented_ack_until_frame_complete():
     mock = MockTransport()
     client = ProtocolClient(mock, PartialCodec())
     client.connect()
-        mock.queue(b"A\x05B\x06")
+    mock.queue(b"ACK:")
     assert client.poll_ack() is None
     assert bytes(client._receive_buffer) == b"ACK:"
     assert client.poll_ack() is None
@@ -366,9 +366,9 @@ def test_protocol_client_preserves_multiple_frames_in_one_serial_read():
     mock = MockTransport()
     client = ProtocolClient(mock, MultiFrameCodec())
     client.connect()
-    mock.queue(b"A\\x05B\\x06")
+    mock.queue(b"A\x05B\x06")
     assert client.poll_ack()[0] == 5
-    assert bytes(client._receive_buffer) == b"B\\x06"
+    assert bytes(client._receive_buffer) == b"B\x06"
     assert client.poll_ack()[0] == 6
     assert client._receive_buffer == bytearray()
     client.disconnect()
