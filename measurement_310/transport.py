@@ -9,12 +9,21 @@ class TransportError(RuntimeError):
 class IncompleteMessage(Exception):
     """Codec signal that buffered bytes do not yet contain a complete frame."""
 
+@dataclass(frozen=True)
+class DecodedFrame:
+    """One decoded message and the exact number of input bytes it consumed."""
+    message: object
+    consumed_bytes: int
+
 class MessageCodec(Protocol):
     """310-4 supplies the concrete wire protocol implementation."""
     def encode_pwm(self, pwm: int) -> bytes: ...
     def encode_stop(self) -> bytes: ...
     def decode(self, payload: bytes) -> object:
-        """Decode one complete frame; raise IncompleteMessage for partial data."""
+        """Return DecodedFrame for streams; raise IncompleteMessage if partial.
+
+        Legacy single-frame codecs may return a mapping and consume the full buffer.
+        """
         ...
 
 class SerialTransport(Protocol):
@@ -159,11 +168,20 @@ class ProtocolClient:
             if not self._receive_buffer:
                 return None
             try:
-                message = self.codec.decode(bytes(self._receive_buffer))
+                decoded = self.codec.decode(bytes(self._receive_buffer))
             except IncompleteMessage:
                 return None
-            # The codec owns frame boundaries. Do not guess delimiters here.
-            self._receive_buffer.clear()
+            # Exact consumption preserves any coalesced following frame.
+            if isinstance(decoded, DecodedFrame):
+                consumed = decoded.consumed_bytes
+                if (not isinstance(consumed, int) or isinstance(consumed, bool)
+                        or consumed <= 0 or consumed > len(self._receive_buffer)):
+                    raise TransportError("codec returned invalid consumed byte count")
+                del self._receive_buffer[:consumed]
+                message = decoded.message
+            else:
+                self._receive_buffer.clear()
+                message = decoded
             if not isinstance(message, dict) or message.get("kind") != "PWM_ACK":
                 raise TransportError("response type/format mismatch")
             pwm = message.get("pwm")
