@@ -222,3 +222,41 @@ def test_duplicate_record_ids_are_rejected():
         "record_counts":{"SESSION_EVENT":2}})
     errors=validate_package(manifest,[first,second],raise_on_error=False)
     assert any("duplicate record_id" in error for error in errors)
+
+
+def test_controlled_abort_has_completed_aborted_then_not_reached_stages():
+    manifest=manifest_fields()
+    records=[]
+    for index in range(31):
+        if index == 0:
+            record=stage_record(0)
+            record.update({"started_at_utc":"2026-11-01T00:00:00.010Z",
+                "ended_at_utc":"2026-11-01T00:00:10.010Z",
+                "start_host_monotonic_ns":5010000000,"end_host_monotonic_ns":15010000000,
+                "actual_duration_ms":10000,"pwm_command_sent_at_utc":"2026-11-01T00:00:00.000Z",
+                "pwm_applied_ack_received_at_utc":"2026-11-01T00:00:00.010Z",
+                "recorded_at_utc":"2026-11-01T00:00:10.031Z"})
+        elif index == 1:
+            record=stage_record(1)
+            record.update({"stage_status":"aborted","started_at_utc":"2026-11-01T00:00:10.030Z",
+                "ended_at_utc":"2026-11-01T00:00:13.500Z",
+                "start_host_monotonic_ns":15030000000,"end_host_monotonic_ns":18500000000,
+                "actual_duration_ms":3470,"pwm_command_sent_at_utc":"2026-11-01T00:00:10.010Z",
+                "pwm_applied_ack_received_at_utc":"2026-11-01T00:00:10.030Z",
+                "recorded_at_utc":"2026-11-01T00:00:13.500Z","termination_reason":"user_stop"})
+        else:
+            record=stage_record(index)
+            record.update({"stage_status":"not_reached","started_at_utc":None,"ended_at_utc":None,
+                "start_host_monotonic_ns":None,"end_host_monotonic_ns":None,"actual_duration_ms":None,
+                "pwm_command_sent_at_utc":None,"pwm_applied_ack_received_at_utc":None,
+                "output_state":"unknown","stage_context_id":None,
+                "termination_reason":"not_started_after_abort",
+                "recorded_at_utc":"2026-11-01T00:00:13.600Z"})
+        record["record_seq"]=index+1
+        records.append(record)
+    manifest.update({"created_at_utc":"2026-11-01T00:00:13.700Z",
+        "started_at_utc":"2026-11-01T00:00:00.000Z",
+        "ended_at_utc":"2026-11-01T00:00:13.600Z","status":"aborted",
+        "planned_stage_count":31,"planned_stage_duration_ms":10000,
+        "planned_total_duration_ms":310000,"record_counts":{"PWM_STAGE":31}})
+    assert validate_package(manifest,records,raise_on_error=False) == []
