@@ -248,20 +248,29 @@ def validate_record(record: Any, manifest: Dict[str, Any], index: int = 0) -> Li
                     "pwm_command_sent_at_utc", "pwm_applied_ack_received_at_utc", "stage_context_id")):
                 errors.append(f"{prefix}.completed requires ACK, context, start/end and duration fields")
         elif status == "aborted":
-            if record.get("ended_at_utc") is None or record.get("pwm_command_sent_at_utc") is None:
-                errors.append(f"{prefix}.aborted requires an end boundary and command-send timestamp")
+            if any(record.get(k) is None for k in ("ended_at_utc", "end_host_monotonic_ns",
+                    "pwm_command_sent_at_utc", "stage_context_id")):
+                errors.append(f"{prefix}.aborted requires end boundary, command-send timestamp and context")
+            if record.get("termination_reason") in {"duration_elapsed", "not_started_after_abort"}:
+                errors.append(f"{prefix}.aborted termination_reason is invalid")
             if record.get("started_at_utc") is None:
                 if any(record.get(k) is not None for k in ("start_host_monotonic_ns", "actual_duration_ms",
                         "pwm_applied_ack_received_at_utc")):
                     errors.append(f"{prefix}.aborted without ACK cannot claim start/duration")
-            elif any(record.get(k) is None for k in ("start_host_monotonic_ns", "end_host_monotonic_ns", "actual_duration_ms",
-                    "pwm_applied_ack_received_at_utc", "stage_context_id")):
-                errors.append(f"{prefix}.aborted after ACK requires context and measured timing")
+            elif any(record.get(k) is None for k in ("start_host_monotonic_ns", "end_host_monotonic_ns",
+                    "actual_duration_ms", "pwm_applied_ack_received_at_utc")):
+                errors.append(f"{prefix}.aborted after ACK requires measured timing")
         if _utc(record.get("started_at_utc")) and _utc(record.get("ended_at_utc")):
             if record["ended_at_utc"] < record["started_at_utc"]:
                 errors.append(f"{prefix} stage end precedes start")
         if record.get("started_at_utc") is not None and record.get("pwm_applied_ack_received_at_utc") != record.get("started_at_utc"):
             errors.append(f"{prefix}.started_at_utc must equal ACK receive time")
+        if _utc(record.get("pwm_command_sent_at_utc")) and _utc(record.get("pwm_applied_ack_received_at_utc")):
+            if record["pwm_applied_ack_received_at_utc"] < record["pwm_command_sent_at_utc"]:
+                errors.append(f"{prefix} ACK precedes command send")
+        if _utc(record.get("pwm_command_sent_at_utc")) and _utc(record.get("ended_at_utc")):
+            if record["ended_at_utc"] < record["pwm_command_sent_at_utc"]:
+                errors.append(f"{prefix} stage end precedes command send")
         if _is_int(record.get("start_host_monotonic_ns")) and _is_int(record.get("end_host_monotonic_ns")):
             if record["end_host_monotonic_ns"] < record["start_host_monotonic_ns"]:
                 errors.append(f"{prefix} monotonic end precedes start")
@@ -409,8 +418,10 @@ def validate_record(record: Any, manifest: Dict[str, Any], index: int = 0) -> Li
                 errors.append(f"{prefix} stage_id/index/pwm_value must all be null or all supplied")
         elif not (_is_int(record["stage_index"]) and 0 <= record["stage_index"] <= 30
                   and record["stage_id"] == f"PWM-{record['stage_index']:02d}"
-                  and record["pwm_value"] == record["stage_index"]):
+                  and _is_int(record["pwm_value"]) and record["pwm_value"] == record["stage_index"]):
             errors.append(f"{prefix} stage_id/index/pwm_value do not identify one matching PWM stage")
+        if record.get("event") == "ROTATION_NOT_OBSERVED_AT_STAGE" and record.get("stage_id") is None:
+            errors.append(f"{prefix}.ROTATION_NOT_OBSERVED_AT_STAGE requires a known PWM stage")
 
     elif kind == "DERIVED":
         _require(record, ("metric", "algorithm_id", "algorithm_version", "input_sample_ids",
@@ -540,8 +551,13 @@ def validate_package(manifest: Any, records: Any, raise_on_error: bool = True) -
     elif status == "aborted":
         if len(stages) != 31 or set(stages) != set(range(31)):
             errors.append("aborted package must contain all 31 finalized PWM_STAGE records")
-        if sum(stage.get("stage_status") == "aborted" for stage in stages.values()) > 1:
-            errors.append("aborted package may contain at most one aborted stage")
+        ordered_statuses = [stages[i].get("stage_status") for i in range(31)] if set(stages) == set(range(31)) else []
+        aborted_positions = [i for i, value in enumerate(ordered_statuses) if value == "aborted"]
+        if len(aborted_positions) != 1:
+            errors.append("aborted package must contain exactly one aborted PWM_STAGE")
+        elif any(value != "completed" for value in ordered_statuses[:aborted_positions[0]]) or any(
+                value != "not_reached" for value in ordered_statuses[aborted_positions[0] + 1:]):
+            errors.append("aborted PWM_STAGE must follow completed stages and precede not_reached stages")
     # incomplete deliberately permits missing stages; never synthesize not_reached rows.
 
     if raise_on_error and errors:
