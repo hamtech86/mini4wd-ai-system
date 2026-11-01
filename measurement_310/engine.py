@@ -114,9 +114,13 @@ class SequenceController:
             "stage_duration_ms": 10000, "schedule_owner": "PYTHON"})
         fields.setdefault("record_counts", {})
         self.session = self.writer.begin(fields)
-        self._append("SESSION_EVENT", event="SESSION_STARTED",
-                     host_monotonic_ns=self.clock.monotonic_ns(), details={"stage_count": 31})
-        self._begin_stage(0)
+        try:
+            self._append("SESSION_EVENT", event="SESSION_STARTED",
+                         host_monotonic_ns=self.clock.monotonic_ns(), details={"stage_count": 31})
+            self._begin_stage(0)
+        except Exception as exc:
+            self.abort("storage_or_command_failure", fault=str(exc))
+            raise SequenceError("sequence startup failed closed") from exc
 
     def _append(self, record_type: str, **payload: Any) -> None:
         if self.session is None:
@@ -137,7 +141,11 @@ class SequenceController:
         self.stage_index = index
         self.stage_context_id = str(uuid.uuid4())
         self.command_sent_ns = self.clock.monotonic_ns()
-        self.command_sent_utc = self.send_pwm(index)
+        try:
+            self.command_sent_utc = self.send_pwm(index)
+        except Exception as exc:
+            self.abort("communication_lost", fault=f"PWM send failed: {exc}")
+            return
         self.ack_utc = None
         self.stage_start_ns = None
         self.stage_start_utc = None
@@ -153,7 +161,13 @@ class SequenceController:
                 self.abort("communication_lost", fault=str(exc))
                 return self.state
             if ack is not None:
+                if not isinstance(ack, tuple) or len(ack) != 2:
+                    self.abort("communication_lost", fault="malformed ACK object")
+                    return self.state
                 pwm, ack_utc = ack
+                if not isinstance(pwm, int) or isinstance(pwm, bool) or not isinstance(ack_utc, str):
+                    self.abort("communication_lost", fault="malformed ACK fields")
+                    return self.state
                 if pwm != self.stage_index:
                     self.abort("communication_lost", fault="ACK PWM mismatch")
                     return self.state
@@ -166,11 +180,14 @@ class SequenceController:
                 self.abort("communication_lost", fault="PWM ACK timeout")
         elif self.state == SequenceState.RUNNING:
             if self.clock.monotonic_ns() >= int(self.next_deadline_ns):
-                self._finish_stage()
-                if self.stage_index == self.STAGE_COUNT - 1:
-                    self._complete()
-                else:
-                    self._begin_stage(self.stage_index + 1)
+                try:
+                    self._finish_stage()
+                    if self.stage_index == self.STAGE_COUNT - 1:
+                        self._complete()
+                    else:
+                        self._begin_stage(self.stage_index + 1)
+                except Exception as exc:
+                    self.abort("storage_failure", fault=f"RawLog append/finalize failed: {exc}")
         return self.state
 
     def _finish_stage(self) -> None:
@@ -207,8 +224,12 @@ class SequenceController:
         # Keep work area incomplete for crash-safe recovery; do not falsely finalize
         # a partially completed sequence or claim physical stop.
         if self.session is not None:
-            self._append("SESSION_EVENT", event="COMMUNICATION_LOST" if fault else "SESSION_ABORTED",
-                         host_monotonic_ns=self.clock.monotonic_ns(),
-                         details={"reason": reason, "previous_state": previous.value,
-                                  "stop_transmission_attempted": True,
-                                  "device_state": "unknown", "fault": self._last_fault})
+            try:
+                self._append("SESSION_EVENT", event="COMMUNICATION_LOST" if fault else "SESSION_ABORTED",
+                             host_monotonic_ns=self.clock.monotonic_ns(),
+                             details={"reason": reason, "previous_state": previous.value,
+                                      "stop_transmission_attempted": True,
+                                      "device_state": "unknown", "fault": self._last_fault})
+            except Exception:
+                # Preserve the private work area for next-startup recovery.
+                self.state = SequenceState.FAULT
