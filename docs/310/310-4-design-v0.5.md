@@ -124,17 +124,54 @@ The 17-byte common header field allocation for this candidate is: magic uint16 (
 
 ### 6.2 Message payloads and lengths
 
-| Message | Payload definition | Payload | Decoded (17 + payload + 2 CRC) | COBS max | Delimiter | Wire max |
+| Message | Payload definition | Payload | Decoded | COBS max | Delimiter | Wire max |
 |---|---|---:|---:|---:|---:|---:|
-| PWM_SET | pwm uint8 + stage_context_token uint16 | 3 B | 22 B | 23 B | 1 B | 24 B |
-| APPLY_ACK | result uint8 + applied_pwm uint8 + stage_context_token uint16 | 4 B | 23 B | 24 B | 1 B | 25 B |
-| STOP_REQ | stop_reason uint8 + stop_request_id uint16 | 3 B | 22 B | 23 B | 1 B | 24 B |
-| STOP_ACK | requester_relation uint8 + request_outcome uint8 + latched_state uint8 | 3 B | 22 B | 23 B | 1 B | 24 B |
-| STATUS | state uint8 + active_pwm uint8 + active_context_token uint16 + loss_counter uint32 + last_sample_sequence uint16 | 10 B | 29 B | 30 B | 1 B | 31 B |
-| ERROR | error_code uint8 + offending_message_type uint8 + detail_code uint16 + related_command_id uint32 | 8 B | 27 B | 28 B | 1 B | 29 B |
+| HELLO | host_nonce64 | 8 B | 27 B | 28 B | 1 B | 29 B |
+| HELLO_ACK | result u8 + boot_id64 u64 + echoed host_nonce64 | 17 B | 36 B | 37 B | 1 B | 38 B |
+| ARM | stage_context_token u16 + initial_pwm u8 (MUST be 0) | 3 B | 22 B | 23 B | 1 B | 24 B |
+| ARM_ACK | result u8 + state u8 + active_context_token u16 | 4 B | 23 B | 24 B | 1 B | 25 B |
+| PWM_SET | pwm u8 + stage_context_token u16 | 3 B | 22 B | 23 B | 1 B | 24 B |
+| APPLY_ACK | result u8 + applied_pwm u8 + stage_context_token u16 | 4 B | 23 B | 24 B | 1 B | 25 B |
+| STOP_REQ | stop_reason u8 + stop_request_id u16 | 3 B | 22 B | 23 B | 1 B | 24 B |
+| STOP_ACK | requester_relation u8 + request_outcome u8 + latched_state u8 | 3 B | 22 B | 23 B | 1 B | 24 B |
+| STATUS | state u8 + active_pwm u8 + active_context_token u16 + loss_counter u32 + last_sample_sequence u16 | 10 B | 29 B | 30 B | 1 B | 31 B |
+| ERROR | error_code u8 + offending_message_type u8 + detail_code u16 + related_command_id u32 | 8 B | 27 B | 28 B | 1 B | 29 B |
 | ADC_BATCH | payload defined in §4.2 | 173 B | 192 B | 193 B | 1 B | 194 B |
 
-These are proposed v1 byte definitions for review, not accepted production wire compatibility. The header tags must be initialized by HELLO/handshake and validated before PWM_SET. CRC failure, malformed COBS, unknown protocol version or invalid reserved bits must not result in PWM application.
+All values are proposed v1 definitions, not accepted production wire compatibility. boot_id64 is uint64 little-endian. host_nonce64 is a host-generated fresh 64-bit challenge unique to each HELLO attempt; it is not a persistent identity. HELLO carries a nonzero measurement_session_tag and device_epoch_tag=0. HELLO_ACK echoes the session tag and carries the nonzero device epoch correlation tag derived from boot_id64. The payload echoes host_nonce64 exactly.
+
+### 6.2.1 Message type codes and common header validation
+
+Candidate v1 message_type codes: HELLO=0x01, HELLO_ACK=0x02, ARM=0x03, ARM_ACK=0x04, PWM_SET=0x10, APPLY_ACK=0x11, STOP_REQ=0x20, STOP_ACK=0x21, STATUS=0x30, ERROR=0x31, ADC_BATCH=0x40. Other codes are rejected without output change. Header flags MUST be zero. magic and protocol_version require exact match. command_id=0 is reserved for HELLO/HELLO_ACK and unsolicited STATUS/ADC_BATCH/ERROR; command-bearing requests and ACKs require nonzero command_id.
+
+device_epoch_tag is the low 32 bits of verified boot_id64; if that value is zero, use 0xFFFFFFFF only as the header correlation tag. The full boot_id64 remains the identity. measurement_session_tag is a nonzero host correlation tag allocated for one measurement_session_id and not reused within a host process. These tags are not security credentials and never replace full identifiers in RawLog or evidence.
+
+For non-STOP requests, validation order is: (1) frame boundary/COBS, (2) minimum and exact length, (3) CRC, (4) magic/version/flags/type/reserved enums, (5) verified boot epoch tag, (6) active session tag, (7) command_id freshness and duplicate consistency, (8) state and context-token eligibility, (9) action. No PWM or ARM change occurs before all checks pass. STOP_REQ is the safety exception: after valid frame/length/CRC/basic syntax, act even if session or epoch tags are stale; ACK reports the relation. A malformed or CRC-invalid STOP is not trusted and is not acted upon.
+
+### 6.2.2 HELLO / HELLO_ACK handshake
+
+Handshake is required after every device boot and before ARM. Host creates a new measurement_session_id and nonzero session tag, then sends HELLO with fresh host_nonce64 and command_id=0.
+
+1. Device accepts HELLO only after EEPROM boot identity has been committed and protocol initialization is valid. BOOT_ID_INVALID/FAULT never fabricates an identity.
+2. Device validates protocol version, flags, CRC and nonce field; it binds the requested session tag to current boot_id64 and records the nonce as the active challenge.
+3. HELLO_ACK returns result=0 (OK), full committed boot_id64 and exact echoed host_nonce64. Header echoes measurement_session_tag and carries the epoch tag derived from boot_id64.
+4. Host accepts only if nonce and session tag exactly match the outstanding HELLO, result is OK, boot_id64 is nonzero, and epoch tag matches its derivation. Host then binds full boot_id64 to measurement_session_id.
+5. Retry with same session tag and nonce is idempotent. Same session tag with a different nonce replaces the pending challenge only when not ARMED/RUNNING; otherwise reject. A different session tag invalidates prior ARM permission and command sequencing before binding the new session.
+6. Reboot increments and commits boot_id64 before any handshake. Delayed HELLO_ACK is rejected unless nonce matches the current outstanding request.
+
+No sample is associated with a session until full boot_id64 is verified. The 32-bit epoch tag is only a correlation check.
+
+### 6.2.3 ARM / ARM_ACK handshake
+
+ARM is an explicit permission step after HELLO; HELLO alone never enables PWM. ARM uses a fresh nonzero command_id, active session tag and verified epoch tag. Payload contains first stage_context_token and initial_pwm=0. Device accepts only with valid boot identity, current HELLO binding, exact session/epoch match, nonzero token, no fatal fault, and state IDLE, STOP_LATCHED or STOPPED. ARM_ACK echoes command_id and returns result, resulting state and active token.
+
+ARM result codes: 0=ARMED, 1=REJECTED_STATE, 2=INVALID_SESSION, 3=INVALID_EPOCH, 4=INVALID_CONTEXT, 5=BOOT_ID_INVALID, 6=FAULT_ACTIVE. Success requires result=0, state=ARMED and echoed token match. ARM never applies nonzero PWM. First PWM_SET is a separate command with a new command_id.
+
+Exact duplicate command_id plus byte-identical payload returns cached identical ARM_ACK without repeating the transition. Same command_id with different payload returns ERROR(ID_CONFLICT), never arms. A new ARM command_id while already armed is rejected except for the STOP recovery procedure in §9.3. Host timeout never implies ARM success; retry exact frame or restart HELLO with a new session tag.
+
+### 6.2.4 Retry, duplicate and command freshness
+
+For ARM/PWM_SET, device retains a bounded recent-command cache for active session. Exact duplicate command_id and identical request bytes returns original ACK without reapplying output. Reuse of command_id with different bytes is ID_CONFLICT. New command_ids must be strictly increasing; gaps are allowed, regressions rejected. Cache retains at least four recent outcomes; monotonic high-water mark prevents an evicted old ID being treated as new. Host retries only byte-identical frames with same command_id. STOP_REQ uses separate stop_request_id history in §7 and is always treated as a safety request.
 
 ### 6.3 ADC_BATCH arithmetic and throughput reconciliation
 
