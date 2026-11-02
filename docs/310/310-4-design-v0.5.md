@@ -675,3 +675,64 @@ STOP_ACK correlation is therefore two-dimensional: echoed header command_id iden
 This addendum resolves the six findings at the level of a concrete design proposal, not implementation evidence. The following remain evidence gates: host allocator crash/restore tests; sequence rollover and long-session tests; sidecar fsync/crash/manifest/restore tests; EEPROM datasheet/fuse and power-interruption verification; sampling qualification; compiler-backed SRAM/stack measurements and TX-backpressure/STOP scheduling tests. All such tests and implementation work require separate authorization.
 
 PR #183 must remain Draft, open and unmerged. No Python or firmware edits, compilation, upload, serial connection, motor energization, 310-second measurement, formal design acceptance or 310-5 transition is authorized by this revision.
+
+
+---
+
+## A9. Re-review closure: normative host-side contracts and approval split
+
+This section converts the six remaining review conditions into testable design contracts where possible, without claiming implementation evidence. It supersedes conflicting proposal wording in A1–A8; unresolved approvals remain unresolved.
+
+### A9.1 Session-tag allocator: normative failure and recovery behavior
+
+The host allocator MUST bind its durable journal to one installation namespace. The full measurement_session_id UUID is authoritative; the 32-bit session tag is correlation only.
+
+1. A tag is durably committed as consumed before any HELLO carrying it is transmitted. A crash after commit but before transmission burns the tag.
+2. Allocation success requires journal/checkpoint durability. Uncertain commit status consumes the tag; it MUST NOT be retried.
+3. After process restart, load and validate the same namespace and journal. Missing, corrupt, unrecoverably truncated, rolled-back, or namespace-mismatched state MUST fail closed. No random/time-derived fallback is allowed.
+4. Restore/migration preserves namespace and highest committed allocation. If rollback cannot be excluded, quarantine the old namespace; provision a new one only through explicit maintenance/recovery. Never resume a session under a possibly reused tag.
+5. Allocatable tags are 1..0xFFFFFFFE; 0 and 0xFFFFFFFF are reserved. Exhaustion is a hard stop; wrap is forbidden.
+6. Duplicate HELLO retry is allowed only with the same allocated tag and byte-identical challenge/frame. Every new measurement session receives a new tag.
+
+Host acceptance vectors: crash at every journal write/flush/rename boundary; committed-but-unsent allocation; corrupt/missing journal; older backup restore; namespace mismatch; final tag and exhaustion; concurrent allocations. Every vector must demonstrate no duplicate allocation and fail-closed behavior when uniqueness cannot be proven. These are future implementation tests, not authorized now.
+
+### A9.2 RawLog sequence expansion: continuity and ambiguity contract
+
+The host sequence expander maintains a durable checkpoint keyed by the verified full device_epoch_id, never the 32-bit epoch tag alone. It stores the last accepted uint16 wire sequence, expanded monotonic value, and evidence references for replay/conflict detection.
+
+- A new verified boot epoch starts a new expansion namespace. Sequence reset is valid only after HELLO verifies a different full boot identity. A low-32-bit tag by itself cannot prove epoch identity.
+- Within one verified epoch, counting is continuous across HELLO, ARM, STOP, measurement sessions, and host process restarts. The device does not reset the counter at those boundaries.
+- Modular delta d=(wire-last_wire) mod 65536: d=1..32767 is forward; d=0 is a duplicate candidate accepted only with exact matching frame/sample evidence; d=32768..65535 is ambiguous/backward and MUST NOT be guessed.
+- For forward progress, expanded sequence increases by d. Gaps are recorded; no synthetic RawLog samples are created. Accepted unique values are strictly increasing and stored in existing RawLog v2 device_sample_sequence; no schema change.
+- Checkpoint progress must be durable before package recovery/completion. If checkpoint/evidence is absent, corrupt, conflicting, or the outage could exceed the ambiguity bound, affected samples remain unresolved and the package is sequence_incomplete/evidence_incomplete. No rebasing by guesswork.
+- Unverified-epoch samples remain transport evidence only.
+
+Host acceptance vectors: 65535→0 rollover; exact and conflicting duplicates; forward gaps; d=32767 and d=32768; crash around checkpoint commit; absent/corrupt checkpoint; ambiguous outage; verified reboot; low-32-bit epoch-tag collision. Define each expected outcome as accepted, deduplicated, unresolved, or package-incomplete.
+
+### A9.3 transport-evidence: Python durability, deadline and package contract
+
+1. Before any command write, append and durably commit frame_tx_intent with exact bytes and correlations. Only then may serial write begin.
+2. Record and durably commit frame_tx_complete or frame_tx_error. Completion means accepted by the host serial API, not device receipt/application.
+3. Every received byte range is represented by a complete frame, fragment/discard, or explicit receive-loss event. An ACK cannot advance the sequence until raw bytes and ACK-match evidence are durable.
+4. ARM/PWM ACK matching requires expected response type, exact session/epoch correlation, command_id and applicable context/result. Timeout or missing ACK is unknown outcome; do not mark stage applied or advance its start timestamp. Retry byte-identically with same command_id or enter defined abort/STOP path.
+5. Any required evidence append/fsync failure prohibits further nonzero PWM. If transport remains usable, issue STOP through the emergency path; record possible STOP evidence failure. Run is incomplete, never complete.
+6. Evidence fsync is synchronous at command and frame-acceptance boundaries; it cannot be silently deferred beyond a stage transition/command decision. If fsync latency misses a stage deadline, do not backdate or fabricate timing: STOP if possible, record deadline overrun, and mark incomplete. The maximum fsync latency budget is a host performance requirement still to be measured.
+7. Package finalization requires durable RawLog, evidence, sequence checkpoint, and manifest/hash verification. Missing intent, ACK correlation, RX coverage, checkpoint, manifest, or failed hash yields evidence_incomplete. Recovery cannot retroactively make an interrupted run complete.
+
+Host acceptance vectors: fail each append/fsync; partial serial write; crash between intent/write, during write, after write/before completion event, after RX/before fsync, and during manifest commit; timeout/late ACK; fsync beyond deadline; torn JSONL recovery. Prove no false stage completion, no nonzero PWM after evidence failure, no fabricated duration, and incomplete classification.
+
+### A9.4 Explicit approval register
+
+| Item | Status | Decision/evidence required | Authority/gate |
+|---|---|---|---|
+| EEPROM operating target | Proposed 10 boots/day × 10 years = 36,600 events | Confirm service target or provide approved target and recalculate endurance | 310司令塔 policy decision |
+| EEPROM electrical behavior | Unverified | Exact MCU/board, supply envelope, BOD fuse, datasheet write conditions, safe-write threshold and power-interruption results | Hardware approval before implementation/test |
+| 20 Hz/channel cadence | Not adopted | Sensor variant/sensitivity/bandwidth, PWM frequency, analog filter, settling, statistic, uncertainty/classification limits; qualify against reference capture | Measurement design approval; reference experiment separately authorized |
+| SRAM/scheduling | Planning estimate only | Compiler/map/sizeof, actual serial rings, stack high-water, bounded TX/backpressure and STOP evidence | Implementation authorization then verification |
+| Evidence retention | Proposed ≥10 years and one verified backup | Approve retention, backup/restore policy, storage capacity | Data-retention authority |
+| Loss acceptance threshold | Undefined | Define allowed loss by channel/window and whether loss invalidates threshold/resistance evidence | Measurement design authority |
+| Host fsync latency budget | Undefined | Set maximum latency/jitter compatible with stage deadlines and stop/incomplete response | Python sequence design approval |
+
+### A9.5 Disposition and authority boundary
+
+A9.1–A9.3 define proposed normative host contracts and test vectors, not implementation proof. A9.4 lists decisions and qualification items still outstanding. Design remains conditionally returned for continued review. PR #183 MUST remain Draft, Open and Unmerged. No Python/firmware edits, compilation, upload, serial communication, motor energization, 310-second measurement, formal acceptance, or 310-5 transition is authorized. HARDWARE_CURRENT_LIMIT_CONFIRMED=false.
