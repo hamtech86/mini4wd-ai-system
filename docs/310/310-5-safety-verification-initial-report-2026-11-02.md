@@ -141,3 +141,28 @@ Python側に31段階・各10秒・ACK gate・monotonic timerは存在し、Ardui
 310-5の着手確認と設計/実装の一次照合を実施した。CI成功は確認したが、310-4契約に対する実装適合PASSは0件。STOPのfsync依存など、コード読取で確認したFAILが存在する。電源/EEPROMおよびSRAM/stackはBLOCKED。実機試験・通電・310秒測定は未承認・未実施。
 
 本書は一次調査報告であり、310-5完了審査申請ではない。上位司令塔の判断を待つ論点を提出しつつ、判断不要なhost-only検証準備と証拠整理は継続する。
+
+
+## 12. 既存テストのカバレッジ照合（追加調査）
+
+GitHub上でテストソースを取得し、テスト関数の定義と310-4試験要求を照合した。ここでの件数はソース中の `test_*` 定義数であり、同一CI runで実行された総数を意味しない。
+
+| テストファイル | 参照HEAD | 定義数 | 主な対象 |
+|---|---|---:|---|
+| `tests/test_measurement_310.py` | PR #182 HEAD `d9e718b...` | 24 | ACK gate、31段階、RawLog append失敗、fragmented ACK、send/ACK timing |
+| `tests/test_raw_log_v2.py` | PR #181 HEAD `e10d06b...` | 22 | append-only、crash recovery、manifest commit、schema、package closure |
+| `tests/test_serial_emergency_stop.py` | main `130e453...` | 18 | legacy serial manager/controllerのARM/STOP/lock競合 |
+| `tests/test_firmware_safety_native.py` | main `130e453...` | 1 | native C++ harnessでlegacy FW STOP/PWM/direction/ARM state |
+
+### 12.1 STOPの既存テストは独立性を証明していない
+`tests/test_serial_emergency_stop.py::test_emergency_stop_serializes_with_an_in_flight_positive_pwm_write` は、positive PWM writeが完了してからSTOPが送信されることを期待している。これは既存実装のwrite直列化を確認するテストであり、TX writeが永久にblockされた場合にもSTOPが独立して出せることを証明しない。
+`test_stop_request_event_is_set_before_lock_wait` はSTOP request eventをlock待ち前にセットすることを確認する一方、実際のSTOP worker完了はlock解放後である。request latchとSTOP出力実行を区別する必要がある。
+
+### 12.2 RawLog companion artifactとの衝突を既存テストが固定
+`tests/test_raw_log_v2.py::test_normal_finalize_publishes_exactly_two_files` は完成パッケージがmanifest.json + records.jsonlの2ファイルだけであることをassertする。`test_final_package_rejects_unexpected_files_without_deleting_work` はunexpected fileを含むpackageを拒否する。したがって310-4が要求するtransport-evidence-v1.jsonlを同じpackageへ加える場合、現行310-2実装/テスト契約のままでは通らない。これは310-1 schema authorityを含む明示的な整合判断が必要であり、310-5側で勝手に変更しない。
+
+### 12.3 310-3既存試験で確認できる範囲
+`tests/test_measurement_310.py` はACK timeout、mismatch、RawLog append failure、ACK/non-ACK分離、fragmented/coalesced frame、send後のmonotonic timestamp起点などを扱う。一方、STOP要求からsend_stopまでに中断stage append/fsyncが先行しないことを検証する専用テストは確認できない。また具体310-4 codecを通じたcommand_id/session/epoch/context一致、ADC_BATCH decode、T01/T02/T03のdevice epoch/session collision、T09 TX full STOP、T17 companion package、T18 host fsync p99.9/maxは未カバー。
+
+### 12.4 CIとテスト実行証拠の境界
+PR #181/#182で該当workflow jobsがsuccessであることはGitHub Actionsのrun/job metadataから確認した。ただし本調査環境から `git clone` を試みたところ、DNSでgithub.comを解決できずローカルpytest/native harnessを実行できなかった。CIのsuccessは保持するが、未確認のテスト件数・個々のテスト実行ログを推定しない。
