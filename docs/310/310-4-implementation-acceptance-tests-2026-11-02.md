@@ -56,9 +56,9 @@
 ## T07 ADC cadence / 20 Hz qualification
 
 **前提:** exact ACS712 variant, PWM frequency, analog front-end schematic/filter response, predeclared threshold statistic and error limits.  
-**操作:** high-rate reference acquisition (separately authorized) and candidate sampling at fixed phases; include channel-switch/stage settling, PWM phase, threshold-near points and all relevant PWM values.  
-**期待:** raw conversion order and individual midpoint timestamps correct. Compare candidate statistic to reference. 20 Hz adopted only if predeclared bias/variance/false-positive/false-negative/uncertainty criteria pass.  
-**合格:** no aliasing/settling violation beyond approved bounds; otherwise 20 Hz rejected and revised cadence/filter proposed.  
+**操作:** candidate schedule T/T+25ms/T+100ms repeated; record per-channel timestamp deltas across at least 10 periods. Separately authorized high-rate reference acquisition at controlled phases; include channel-switch/stage settling, PWM phase, threshold-near points and all relevant PWM values.  
+**期待:** raw conversion order and individual midpoint timestamps correct; same-channel intervals alternate 25ms and 75ms. Report long-run average as 20 conversions/s/channel only, never uniform 20Hz. Compare candidate statistic to reference. Cadence adopted only if predeclared bias/variance/false-positive/false-negative/uncertainty criteria pass.  
+**合格:** 25/75ms pattern and bounded timing deviations match the approved schedule. No cadence is approved by this test alone; non-uniform aliasing/settling must remain within pre-approved bounds in the reference comparison. Otherwise reject the candidate and propose a revised cadence/filter.  
 **証跡:** instrument calibration, reference raw capture, filter transfer data, timing traces, analysis notebook/report.
 
 ## T08 SRAM and stack maximum
