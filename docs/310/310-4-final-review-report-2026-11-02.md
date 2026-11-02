@@ -81,3 +81,32 @@
 
 Python/FW変更、compile、upload、serial接続、motor energization、310秒測定、310-5移行は引き続き未許可。  
 `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` を維持する。
+
+
+# 2026-11-02 最終自己審査報告（最終完遂指示対応）
+
+## 対象・権限
+Repository hamtech86/mini4wd-ai-system、PR #183、branch docs/310-4-design-v0.5。文書更新のみ。Python/FW変更、compile/upload、serial、motor energization、310秒測定、310-5移行は未実施。PR Draft/Open/Unmerged、HARDWARE_CURRENT_LIMIT_CONFIRMED=falseを維持。
+
+## 5課題の判断
+1. MCU/EEPROM: ATmega328P reference baseline、1KB EEPROM、≥100k write/erase cycles/cell。16-slot計算marker4,576/cell、payload2,288/cell、aggregate marker73,200。CPU write typical3.3ms。実chip/全条件寿命は未確認。
+2. BOD/fuse/power: 16MHz VCC min4.5V。4.3V BOD min4.1Vで単独不十分。external supervisor+hold-up必須。適合しなければEEPROM-only identity禁止。
+3. SRAM/STOP: static≤650B、stack≤384B、reserve≥256B、single194B TX workspace、40B RX parser。STOP latch→PWM0→direction LOW→ARM invalidation/STOP_LATCHEDをTXから独立。
+4. ADC: channel roles unchanged、10-bit ±2LSB ADC contribution、sensor/reference/filter/offset/settling/noiseを含むtraceable reference comparison。20Hz未採用、25/75ms nonuniform。
+5. fsync: durable TX intent before nonzero PWM、failure fail-closed、STOP best-effort、mean/p50/p95/p99/p99.9/max測定、worst-case sum+margin<deadline。根拠ない固定ms値なし。
+
+## 公式根拠・計算
+Atmel-42735B-ATmega328/P Datasheet Complete, 11/2016. https://docs.arduino.cc/resources/datasheets/Atmel-42735-8-bit-AVR-Microcontroller-ATmega328-328P_Datasheet.pdf §§2,12.4–12.4.2,15.5,31.2,32.3,32.5,28.1–28.5.
+ceil(36,600/16)=2,288 visits; marker=2×2,288=4,576; payload=2,288; aggregate marker=2×36,600=73,200; margins=100,000/4,576=21.85x and /2,288=43.71x. VREF5.000V example: LSB4.8828mV, ±2LSB=±9.7656mV (ADC only).
+
+## 変更ファイル
+1. docs/310/310-4-design-v0.5.md
+2. docs/310/310-4-decision-register-2026-11-02.md
+3. docs/310/310-4-implementation-acceptance-tests-2026-11-02.md
+4. docs/310/310-4-final-review-report-2026-11-02.md
+
+## CI・試験
+前回HEAD a21d22b944754674d2e7db9be960063f554a4b5bで2 workflow runs/5 jobs success（isolated-database-tests、test-full-suite、test-breakin、test-battery、test-raw-log-and-sequence）。これは前回HEADの結果であり最終修正HEADのCIではない。最終HEADに紐づくrunsを別途再取得する。新HEADで未起動/未完了ならPASSとしない。T01–T18、compile、map/stack、power/EEPROM、ADC reference、STOP hardware、storage benchmarkは未実施。
+
+## 自己審査
+4文書の数値・判断・未実施・合否条件を同期。marker4,576/cellとaggregate73,200を分離し旧4,575を訂正。4.3V BOD単独で16MHz保証としない。650/384/256は上限で実証値でない。STOP ACKはphysical stop証明でない。ADC精度を未測定保証値としない。fsync固定遅延値を作らない。310-1〜310-3/RawLog v2 schemaを変更しない。文書設計判断を完了し、司令塔の一括正式受入審査へ提出可能。ただし実装適合・実機安全・測定精度の証明は未取得。
