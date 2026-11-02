@@ -142,3 +142,26 @@ Four requested paths updated; all five technical topics have explicit design jud
 - Atmel-42735B-ATmega328/P Datasheet Complete, 11/2016: https://docs.arduino.cc/resources/datasheets/Atmel-42735-8-bit-AVR-Microcontroller-ATmega328-328P_Datasheet.pdf — §§12.3–12.4 (SRAM/EEPROM), §12.6.4 Table 12-1 (EEPROM write sequence/time), §15.5 and Table 32-8 (BOD), §28.3–28.5 (ADC timing/MUX), §32.3 (speed grade), §32.8 (ADC characteristics).
 - Allegro MicroSystems ACS712 Datasheet Rev.22 (2024-02-13): https://www.allegromicro.com/-/media/files/datasheets/acs712-datasheet.pdf — family bandwidth, FILTER pin and variant sensitivity; exact installed suffix/module remains unknown.
 - Microchip ATmega328P product page: https://www.microchip.com/en-us/product/ATMEGA328P
+
+# 310-4 統合整合性修正・司令塔最終審査記録（2026-11-02）
+
+## 審査進行度
+**設計文書整合性: 100%（文書上の契約確定・4成果物同期まで）**。実装適合・実機安全・測定精度の進行度とは別指標であり、未実施試験を完了率に含めない。
+
+## 追加修正内容
+- 受入試験T13–T18を一組に統合。従来重複していた二組の定義を削除し、各IDを一意化。
+- 損失会計をdevice epoch内1秒半開window×channelとし、expected/attempted/valid/invalid/missing、UNATTRIBUTABLE、append-only correctionを確定。
+- ADC失敗statusの意味、raw unavailable=0xFFFF、sample_sequence進行、断線/短絡をADC値だけで断定しない原則を確定。
+- RX/TX workspaceの所有状態、最大194B各1個、TX busy中のqueue/overwrite禁止、batch drop時のsequence/loss処理を確定。
+- transport-evidence-v1.jsonlをRawLog v2 package root siblingとし、manifest inventory/hash/count契約を明記。既存manifestで表現不能ならpackage incomplete、schema変更は310-1別承認。
+- fsync budgetを10秒stageとSTOP reserveから算出する式に統一。ARM前に対象host fingerprint別の測定値・marginを設定し、不成立ならARM禁止。
+- 先行記述の「設計入力不足」「未定」は、本節および各文書の統合確定節により上書き。実機値が未測定であることは適合証跡未取得を意味し、設計契約未決定とは区別。
+
+## 受入試験ID
+T01–T12は従来定義を維持。T13–T18は受入試験文書の統合節で各1回のみ定義。重複IDなし。
+
+## 310-1〜310-3整合
+RawLog v2 records schema、ADC_SAMPLE field/type/version、Python sequence authority、310-2 recovery preservation、310-3 command/ACK timingは変更しない。companion artifactは既存manifest inventoryで表現できる場合のみcompleteとし、できなければincompleteで止める。別schema変更で迂回しない。
+
+## 最終GitHub状態
+PR #183はDraft/Open/Unmergedを維持し、HARDWARE_CURRENT_LIMIT_CONFIRMED=falseを維持する。実装、compile/upload、serial、motor energization、310秒測定、310-5移行は行わない。
