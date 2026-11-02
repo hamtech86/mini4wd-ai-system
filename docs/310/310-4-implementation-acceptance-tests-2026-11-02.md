@@ -127,3 +127,31 @@ All T01–T12 must be individually reported PASS/FAIL/BLOCKED with evidence refe
 前提: T16入力と別途承認されたhigh-rate reference capture。操作: 25/75ms候補統計をreferenceとphase/settling/noise別に比較。期待: uniform20Hzへの再ラベル、単純Nyquist=10Hz主張なし。合格: named low-frequency statisticの事前uncertainty/aliasing/classification boundsを満たす場合のみ候補を推奨できる。sampling clock採用やfirmware変更は別承認。証跡: reference captureとanalysis。
 
 T13–T18はNOT RUN。実装・compile・serial・energize・motor measurementの許可ではない。
+
+
+## T13 EEPROM endurance and power interruption
+**前提:** exact MCU datasheet and emulator; physical power interruption only after separate authorization. **操作:** 36,600 event wear calculation; inject interruption at marker invalidation, each payload/CRC byte, readback, commit marker and post-commit; repeat brownout loops. **期待:** max slot visits 2,288; marker 4,576/cell; payload≤2,288/cell; aggregate marker 73,200; no provision rewrite; ambiguous record rejected. **合格:** every simulated cut selects previous valid or fully verified new record; otherwise BOOT_ID_INVALID. Physical qualification requires VCC≥4.5V for ≥57.8ms plus reviewed margin, verified early warning/supervisor and zero partial-record acceptance. **証跡:** chip marking/signature, datasheet, EEPROM dumps, per-cell counters, power waveform.
+
+## T14 BOD/fuse and 16MHz
+**前提:** exact MCU and approved supervisor circuit; no fuse writes without approval. **操作:** read fuse bytes, ramp VCC and inject pulses; verify reset threshold/delay/clock. **期待:** BOD 4.3V range 4.1–4.5V; 16MHz speed-grade requires VCC≥4.5V; external supervisor asserts before VCC falls below 4.5V. **合格:** no operation outside speed-grade envelope; no EEPROM corruption; 4.3V BOD-only configuration is FAIL. **証跡:** fuse dump, supply/clock waveform, supervisor datasheet and board schematic.
+
+## T15 SRAM and bounded buffers
+**前提:** pinned compiler/core/library/build flags. **操作:** linker map, sizeof inventory, UART ring size, 194B RX/TX max frames, nested parser/CRC/COBS/STOP/ISR stack watermark, heap audit. **期待:** static≤900B; stack≤700B; reserve≥448B; no second ADC 173B staging array; no critical-path heap/String; no TX-owned overwrite. **合格:** all bounds simultaneously met, no canary/collision/overflow, max frame round-trip. **証跡:** map, size output, sizeof table, stack canary, heap symbol audit.
+
+## T16 STOP under blocked TX and writer
+**前提:** simulator with permanent TX backpressure, partial TX frame, ADC batch and blocked Evidence writer. **操作:** inject valid STOP in each state. **期待:** STOP_LATCHED, PWM=0, direction outputs LOW, ARM invalidated before ACK; no wait for TX drain/flush/fsync/batch. **合格:** actions within preapproved bounded loop-service deadline independent of TX; no later nonzero PWM accepted; ACK may be delayed. Physical stop not inferred. **証跡:** scheduler/register/pin trace, ownership log, max STOP latency.
+
+## T17 ADC precision qualification
+**前提:** exact ACS712 suffix/module/filter, supply, VREF, source impedance, PWM frequency, statistic, Uallow/risk limits approved; reference Uref(k=2)≤Uallow/3. **操作:** zero/threshold-near/mid/max levels; ≥30 stable windows per level per channel; A0/A1 separately; relevant polarities/temp; high-rate reference phases; MUX dummy conversion and timestamps. **期待:** role separation unchanged; no uniform 20Hz claim. **合格:** each level abs(bias)+Uref≤Uallow, repeatability/95% interval/offset drift/hysteresis/false classifications within preapproved limits. Missing Uallow/risk limits = BLOCKED. **証跡:** sensor marking, schematic, filter, calibration cert, raw data and uncertainty report.
+
+## T18 fsync latency and recovery
+**前提:** exact host/OS/filesystem/storage/runtime; configured D_intent/D_evidence derived from measured stage slack and STOP reserve. **操作:** ≥10,000 intent and ≥10,000 Evidence commits; normal/max batch load, cold/warm, storage contention; inject short write, ENOSPC, fsync delay/error, crash at append/fsync/rename/directory-fsync, reboot and backup restore. **期待:** durable intent before nonzero TX; failure blocks continuation; STOP bypasses writer; recovery preserves originals. **合格:** every operation≤hard budget; p99.9 and max≤configured limits; zero missed 10s deadlines; STOP within its separate bound; exact hash/count/ACK reconciliation and byte-identical backup restore. Missing budget or silent loss = BLOCKED/FAIL. **証跡:** latency distribution mean/max/p50/p95/p99/p99.9, fault trace, hashes, recovery and restore report.
+
+## Updated gate
+T01–T18 individually PASS/FAIL/BLOCKED. BLOCKED is not PASS. Physical T13/T14/T16/T17 require separate explicit approval. This specification authorizes none of the prohibited actions.
+
+
+## 公式資料
+- Atmel-42735B-ATmega328/P Datasheet Complete, 11/2016: https://docs.arduino.cc/resources/datasheets/Atmel-42735-8-bit-AVR-Microcontroller-ATmega328-328P_Datasheet.pdf — §§12.3–12.4 (SRAM/EEPROM), §12.6.4 Table 12-1 (EEPROM write sequence/time), §15.5 and Table 32-8 (BOD), §28.3–28.5 (ADC timing/MUX), §32.3 (speed grade), §32.8 (ADC characteristics).
+- Allegro MicroSystems ACS712 Datasheet Rev.22 (2024-02-13): https://www.allegromicro.com/-/media/files/datasheets/acs712-datasheet.pdf — family bandwidth, FILTER pin and variant sensitivity; exact installed suffix/module remains unknown.
+- Microchip ATmega328P product page: https://www.microchip.com/en-us/product/ATMEGA328P
