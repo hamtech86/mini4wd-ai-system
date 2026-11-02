@@ -56,3 +56,23 @@
 | RawLog sequence | 技術根拠により確定（既存schemaの意味範囲） | Issue #170/PR #180のADC_SAMPLE.device_sample_sequenceはintegerかつepoch内monotonic、固定uint16幅の規定なし。host uint64 extensionを既存integerに格納し、wire uint16はcompanion Evidenceに保持。schema/type/version変更なし。 | validator/package fixtureで既存integer許容とmanifest companion inventoryを実装後確認 |
 | batch/loss/context/Evidence | 設計入力不足で保留（package実装） | batch_sequence、loss_counter、stage_context_token、wire uint16はRawLog fieldへ追加せず、transport-evidence-v1 sibling artifactに保持。Issue #35 §3.4に沿いpackage inventory/manifestでhash参照。 | 現行manifest validatorの許容形式・artifact inventory extensionは実装前にschema fixtureで確定 |
 | CI | 技術根拠により確定 | 対象HEAD a21d22bの2 workflow runs、5 jobs成功をGitHub Actionsから確認。 | CIは文書・既存ソフトウェア回帰の結果で、実機安全性を証明しない |
+
+
+## 最終完遂指示 — 技術判断確定表（2026-11-02）
+
+| 項目 | 最終分類 | 確定判断 |
+|---|---|---|
+| MCU基準 | 技術的に確定 | ATmega328P/Pを設計基準。実搭載chipはmarking/signatureで実機確認し、未確認の保証をしない。 |
+| EEPROM | 技術的に確定 | 1,024B、≥100,000 write/erase cycles/cell、CPU byte write typical 3.3ms。全条件寿命・byte atomicityは推定しない。 |
+| 16-slot | 技術的に確定 | 36,600 eventsでmarker max4,576/cell、payload max2,288/cell、aggregate marker73,200。算術余裕21.85x/43.71x。 |
+| BOD/fuse | 条件付き決定 | 16MHz VCC下限4.5V。4.3V BOD min4.1Vで単独不十分。external supervisor必須、BODは補助。Fuse policy確定、実機readback待ち。 |
+| 電源断 | 条件付き決定 | marker-last journal。byte atomicityなし。supervisor+hold-up不適合ならinternal EEPROM-only禁止/BOOT_ID_INVALID。 |
+| SRAM | 技術的に確定 | static≤650B、stack≤384B、reserve≥256B、max frame194B、RX≤40B、single TX workspace194B。いずれも上限で実証値でない。 |
+| STOP | 技術的に確定 | latch→PWM0→direction LOW→ARM invalidation/STOP_LATCHED。TX drain非依存。physical cutoffは外部回路。 |
+| ADC | 技術的に確定 | A0 formal current only、A1 independent、A2/A3 reference、A4/A5 raw independent。25/75ms nonuniform、20Hz未採用。 |
+| ADC精度 | 条件付き決定 | ADC 10-bit ±2LSB contribution。sensor/reference/offset/filter/settling/noiseを含むtraceable reference比較。未測定精度保証なし。 |
+| fsync動作 | 技術的に確定 | durable TX intent前nonzero送信禁止、fsync失敗fail-closed、STOP best-effort、unknown send再送禁止。 |
+| fsync性能 | 条件付き決定 | 固定ms値なし。mean/p50/p95/p99/p99.9/maxを測定しworst-case sum+margin<deadlineで合格。 |
+| 実機証跡 | 実機確認事項 | chip/fuse/VCC/hold-up/EEPROM/ADC/STOP/driver/storage測定は未実施。 |
+
+公式根拠: Atmel-42735B-ATmega328/P Datasheet Complete (11/2016), https://docs.arduino.cc/resources/datasheets/Atmel-42735-8-bit-AVR-Microcontroller-ATmega328-328P_Datasheet.pdf §§2,12.4–12.4.2,15.5,31.2,32.3,32.5,28.1–28.5.
