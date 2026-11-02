@@ -803,7 +803,7 @@ This excludes handshake, STOP, ERROR, bursts, retries, USB scheduling and servic
 
 ### F2.5 SRAM and buffers
 
-Existing A6.1 planning budget: 650 bytes static allocation + 384 bytes stack reserve + 256 bytes safety margin = 1,290 bytes against 2,048 bytes, leaving 758 bytes unallocated. It assumes one in-place 194-byte frame workspace, 40-byte RX parser, 128-byte serial rings, fixed caches and no dynamic String/heap in critical paths.
+旧A6.1の650B static + 384B stack + 256B marginおよび40B RX parserは未検証の旧見積もりであり、現行予算としては撤回する。現行設計はstatic≤900B、stack≤700B、protected reserve≥448B（合計2,048B）とし、RX/TX wire workspaceを各194Bで計上する。旧見積もりを実証値として扱わない。
 
 This is not measured static usage. Compiler/map/sizeof must verify each row and actual core ring sizes. Stack reserve must be checked under worst nested parser/CRC/COBS/STOP/TX path. Buffer ownership must expose FREE/FILLING/READY/TX_OWNED, occupancy/high-water and overflow. Every unretained attempt must be counted by channel and time window. TX-owned bytes may never be overwritten.
 
@@ -860,7 +860,7 @@ No accepted RawLog v2 fields, types, record semantics or public package structur
 
 UNO R3相当基板の実搭載チップのマーキング・signature・revisionは未確認。ATmega328Pを実機確認済みと記載しない。実機受入でtop marking、signature bytes、基板revision、clock sourceを採取し、異なる品種なら再審査する。
 
-EEPROMは1,024 bytes、byte-addressable。耐久値は少なくとも100,000 write/erase cycles per EEPROM cellであり、slot/device単位の回数ではない。CPU byte programmingは26,368 calibrated RC oscillator cycles、Table 12-1の3.4msはtypical programming timeであり最大保証値ではない。別表の3.3ms typical値も最大保証値ではないため、hold-upの保証値として扱わない。書込みはEEPE clear待ち、EEAR/EEDR設定、EEMPE set後4 CPU cycles以内にEEPE set、完了までEEPE clear待ち。EEMPE/EEPE間に割込みを許さない。低VCCではEEPROMだけでなくCPU誤実行も起き得る。データシートは耐久値について全電圧・全温度の個別試験条件を網羅した表やbyte-write atomicityを規定していないため、100,000回から全条件の寿命保証・電源断保証を推定しない。実チップ製造元/revisionの仕様・clarificationと実際の電源条件を受入時に確認する。
+EEPROMは1,024 bytes、byte-addressable。耐久値は少なくとも100,000 write/erase cycles per EEPROM cellであり、slot/device単位の回数ではない。CPU byte programmingは26,368 calibrated RC oscillator cycles、Table 12-1の3.4msはtypical programming timeであり最大保証値ではないため、hold-upの保証値として扱わない。書込みはEEPE clear待ち、EEAR/EEDR設定、EEMPE set後4 CPU cycles以内にEEPE set、完了までEEPE clear待ち。EEMPE/EEPE間に割込みを許さない。低VCCではEEPROMだけでなくCPU誤実行も起き得る。データシートは耐久値について全電圧・全温度の個別試験条件を網羅した表やbyte-write atomicityを規定していないため、100,000回から全条件の寿命保証・電源断保証を推定しない。実チップ製造元/revisionの仕様・clarificationと実際の電源条件を受入時に確認する。
 
 16-slot方式はslot 16B×16=256B。1 slotあたりmarker 1B、payload 15B。各eventでmarker INVALID、payload/CRC書込み、readback/recompute、marker COMMITTEDの順とし、最悪2 marker writes/visit、1 payload write/cell/visitで計算する。36,600 eventsでは各slot visitは2,287または2,288回。marker各cell最大2×ceil(36,600/16)=4,576 writes、payload各cell最大2,288 writes。全marker cells合計は2×36,600=73,200 operations。これはaggregateでありper-cell ratingではない。100,000/4,576=21.85倍、100,000/2,288=43.71倍の単純算術余裕。100,000×16/2=800,000 eventsは均等輪番の理想算術上限であって寿命保証ではない。36,600は10 events/day×365×10 years。slot別write counterを保持し、上限超過前にBOOT_ID_INVALIDへfail-closedする。
 
