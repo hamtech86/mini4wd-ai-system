@@ -134,7 +134,7 @@ Python側に31段階・各10秒・ACK gate・monotonic timerは存在し、Ardui
 1. STOPの最優先性: 現状のabort順序はRawLog append/fsyncの後にSTOP送信。設計契約に反するため、修正方針と実装許可が必要。
 2. RawLog companion artifact: 310-1/310-2の2-file package contractと310-4のthird sibling artifact inventory要求の整合が必要。310-5担当がschemaを変更してはならない。
 3. 310-4具体codec/FW実装: 現状未実装。実装担当・実装許可・対象HEADを明示する必要がある。
-4. 310-4設計正式受入: PR #183はDraft/Open/Unmergedである。今回の310-5着手指示は調査開始として扱い、PR本文の過去記載をもって設計受入済みとはしない。
+4. 310-4設計の前提: 本指示書が「310-4で確定した設計契約」を明示しているため、310-5検証の基準契約として扱う。PR #183のDraft/Open/UnmergedはGitHub上の公開・マージ状態であり、上位司令塔による工程指示の効力を覆すものではない。PR #183をマージしたとは扱わない。
 5. hardware current limit / independent cutoff: falseのまま。物理保護の証明がない状態で通電試験を行わない。
 
 ## 11. 結論
