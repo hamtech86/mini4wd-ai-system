@@ -55,7 +55,7 @@
 
 ## 6. 更新後Git状態
 
-更新後HEAD・blob SHA・PR状態は、commit後にGitHubから再取得して確認した値を本報告の最終版に記載する。PRはDraft/Open/Unmergedを維持し、マージ操作は行わない。
+全4成果物の反映後にGitHubから再取得したHEAD: 91d86a0117836bdc141935ac80b6d0ca4b6b7618。設計文書blob: 95408fa2a8cc3b081488d8588cfbe33b699bfc6e。決定表blob: ba243d950edce1d659130c7dfd391135d9b3999f。受入試験仕様blob: adeb9620dfc98ea107bc43ccadafe29e943367f9。本報告blob: f5399e5de625bb5079fa2e0f70f47bf57b91a8db（本更新前の値。更新後のblob/HEADは次のGitHub再照合で確定する）。PRはDraft/Open/Unmergedを維持し、マージ操作は行わない。
 
 ## 7. 設計受入判断
 
