@@ -97,7 +97,6 @@ For the stated threshold/resistance purpose, 20 Hz may be adequate only for a de
 ## 5. Stage-context identity and mapping
 
 Python creates a globally unique `stage_context_id` for each stage as a UUID string in RawLog v2. The wire protocol does not transmit that full string in every sample. Instead:
-
 1. Before a stage command, Python allocates a nonzero uint16 `stage_context_token`. Token values are unique within a `measurement_session_id`; do not reuse a token in that session. With 31 stages, tokens 1–31 are sufficient.
 2. Python durably records a context-map entry before sending the command: `measurement_session_id`, token, UUID `stage_context_id`, `stage_id`, intended PWM and command_id.
 3. PWM_SET carries both the uint16 token and the host command_id. APPLY_ACK echoes both.
@@ -198,7 +197,6 @@ The ADC_BATCH calculation is:
 At 10 batches/s, ADC_BATCH maximum traffic is 1,940 wire B/s. Do not use 194 as decoded size or 193 as wire size.
 
 ## 7. STOP request, ACK and duplicate history
-
 ### 7.1 STOP semantics
 
 STOP is accepted in every defined state. On receipt, controller latches stop, requests PWM=0, invalidates the active ARM permission and rejects every later nonzero PWM_SET until a new explicitly authorized session/ARM sequence. A delayed command cannot clear STOP or re-drive the motor. A stale-session STOP is still treated as a safety stop request; session staleness affects the ACK classification, not whether the stop action is attempted.
@@ -297,8 +295,7 @@ STOP is eligible in every state. `STOPPED` means software stop handling complete
 | ARMED | PWM_SET(pwm=0..30) | Valid CRC/header/session/command/token; no stop latch | RUNNING if pwm>0, otherwise ARMED | Apply exact PWM; emit APPLY_ACK |
 | ARMED | invalid PWM_SET | Any validation failure | ARMED or FAULT if internal invariant fails | ERROR; no nonzero output |
 | RUNNING | PWM_SET(pwm=0..30) | Current session/token, fresh command, no stop latch | RUNNING if >0; ARMED if 0 | Apply and ACK |
-| RUNNING | STOP | Always | STOP_LATCHED | Invalidate ARM; PWM=0; STOP_ACK |
-| ARMED | STOP | Always | STOP_LATCHED | Invalidate ARM; PWM=0; STOP_ACK |
+| RUNNING | STOP | Always | STOP_LATCHED | Invalidate ARM; PWM=0; STOP_ACK || ARMED | STOP | Always | STOP_LATCHED | Invalidate ARM; PWM=0; STOP_ACK |
 | IDLE | STOP | Always | STOP_LATCHED | PWM=0; STOP_ACK |
 | STOP_LATCHED | STOP duplicate/new | Always | STOP_LATCHED | PWM=0; ACK history outcome |
 | STOP_LATCHED | PWM_SET including zero | Reject as drive/session command; STOP remains latched | STOP_LATCHED | PWM=0; ERROR or idempotent status |
@@ -398,7 +395,6 @@ The mapping below is constrained by `docs/RAWLOG_V2_INDEPENDENT_SCHEMA.md` at ac
 | Acquisition status | ADC_SAMPLE.validity / invalid_reason | No additional acquisition_status field is added to RawLog v2. Preserve the raw status byte in transport evidence if required for protocol forensics. |
 
 **Fields that do not exist in the accepted ADC_SAMPLE schema:** `batch_sequence`, `loss_counter_snapshot`, full `loss_counter`, `stage_context_token`, `acquisition_status`, and `sample_flags`. Do not add them to ADC_SAMPLE or overload unrelated fields. Preserve these values in a separately versioned transport-evidence artifact/metadata path only after that path is defined and approved. Until then, sequence gaps and loss-counter observations can be reported in the design/test evidence but have no approved persistent RawLog v2 field mapping. This is an explicit integration gap, not a claim of completed RawLog mapping.
-
 The proposed 32-bit `device_epoch_tag` in the common wire header is insufficient to populate the accepted full `device_epoch_id` by itself. The handshake must return the full committed boot_id64 and Python must verify it before associating samples. The HELLO/HELLO_ACK byte layout and full boot identity transfer are now proposed in §6.2; the byte protocol remains a candidate requiring independent test vectors and review, not accepted production compatibility.
 
 ### 12.5 Companion transport-evidence artifact (separate from RawLog v2)
@@ -498,10 +494,184 @@ No physical hardware activity is authorized by this document.
 |---|---|
 | Previous 9 findings | Retained in §§4–14: ADC_BATCH arithmetic, context mapping, state table, STOP_ACK, document integrity, boot journal, loss semantics, cadence limitations and SRAM/TX gate |
 | Current #1: HELLO/HELLO_ACK/ARM/ARM_ACK undefined | §6.2–6.2.4: message type codes, exact payloads/lengths, nonce echo, full boot_id64 transfer, ARM rules, CRC/header validation order, retries and duplicates |
-| Current #2: RawLog mapping incomplete | §12.4 exact mapping and explicit schema ambiguities; §12.5 separate append-only companion JSONL proposal for transport-only fields; no RawLog schema additions |
-| Current #3: EEPROM endurance/power loss | §8.2: 16×16B journal, separate factory provisioning marker, one-byte commit marker, interrupted-write reasoning, conditional 100,000-cycle estimate and boot-frequency scenarios |
-| Current #4: STOP→re-ARM stale-frame risk | §9.3: new session/nonce/token map, HELLO verification, fresh ARM, strict validation order, old session/epoch/command rejection and queue flush |
 
-## 18. Submission decision requested
+---
 
-Review this integrated document as a draft design proposal. The companion transport-evidence artifact and package/retention contract, host-side persistent session-tag allocation, RawLog device_sample_sequence rollover semantics, EEPROM lifetime target, sampling cadence and SRAM feasibility remain open approval gates. The proposed message definitions are not accepted production wire compatibility. This document does not assert that any open gate has passed. Do not merge, implement, compile, upload, connect serial hardware, energize the motor, perform the 310-second measurement, or advance to 310-5 based solely on this submission.
+# 310-4 v0.5 — Sixth-finding closure addendum (design proposal; supersedes conflicting open statements above)
+
+This addendum responds to the six findings in the 2026-11-02 command review. It is part of the same design document and does not authorize implementation. Where this addendum supplies a concrete candidate, it remains subject to commander approval. No RawLog v2 schema change is proposed.
+
+## A1. Host session-tag allocation across process restart
+
+The earlier statement that a 32-bit `measurement_session_tag` is unique only within one host process is withdrawn. The candidate contract is a durable, never-reuse allocator:
+
+1. The host maintains an append-only allocator journal keyed by a stable installation namespace. Each allocation transaction reserves the next uint32 value in the range 1..0xFFFFFFFE, commits it durably, and only then may HELLO be transmitted. Value 0 and 0xFFFFFFFF are reserved.
+2. The tag is never returned to the free pool, including after a failed or abandoned session. Process restart, application upgrade and normal OS restart continue from the committed high-water mark. The full `measurement_session_id` UUID remains the authoritative identity; the 32-bit tag is only a wire correlation value.
+3. Allocation must use an exclusive lock and atomic durable commit (write-ahead record, fsync, atomic checkpoint/rename, parent-directory fsync). A torn or corrupt journal, missing namespace, unavailable durable storage, or uncertain commit result causes fail-closed behavior: no HELLO, ARM or PWM_SET.
+4. Backup/restore and host migration must preserve the allocator journal and namespace. A host that cannot prove continuity must not reset the counter or reuse a prior namespace. Recovery requires an explicitly provisioned new namespace plus a documented quarantine of the old host's outstanding sessions; until that recovery is approved, operation is blocked.
+5. **32-bit collision policy:** there is no probabilistic collision resolution. A value already present in the journal is never issued again. Exhaustion at 0xFFFFFFFE is a hard stop requiring a separately reviewed protocol revision; wraparound is forbidden. The device rejects a HELLO whose tag equals a tag already bound to a different live session in the same boot epoch. It does not silently rebind it.
+6. Delayed frames from an earlier session cannot match a newly allocated tag because tags are never reused. The full boot_id64 and host-side session UUID remain part of evidence correlation. Tags are not authentication or cryptographic anti-replay credentials.
+
+This closes the design choice only if the host allocator journal is implemented with the durability properties above. It is not evidence that the current Python implementation already provides them.
+
+## A2. Monotonic RawLog device_sample_sequence without changing RawLog v2
+
+The wire `sample_sequence` remains uint16 and increments per attempted conversion continuously across all measurement sessions within one verified device boot epoch. It MUST NOT reset on HELLO, ARM, STOP recovery or session change. Only a new committed boot_id64 starts a new device sequence epoch.
+
+The host converts the uint16 wire sequence into a monotonic extended integer `device_sample_sequence` for RawLog v2:
+
+- Maintain per-full-`device_epoch_id` state: last accepted uint16 value, extended uint64 value, last device timestamp, and continuity status.
+- For each new sample, calculate modular delta = (new_u16 - last_u16) mod 65536. A forward delta in 1..32767 is eligible to advance the extended counter by that delta. Delta 0 is a duplicate candidate and must be deduplicated using exact frame/sample evidence; it is not assigned a new RawLog sequence. Delta 32768..65535 is ambiguous/backward and must not be guessed.
+- A missing-sample gap may produce delta >1; the extended value advances by the observed modular delta and the gap is recorded in transport evidence. The host does not synthesize missing ADC_SAMPLE records.
+- A wrap such as 65534, 65535, 0, 1 becomes extended values N, N+1, N+2, N+3. The resulting uint64 is stored in the existing RawLog v2 `device_sample_sequence` field; no schema field or type is added.
+- The original uint16 value, batch_sequence, loss counters and wrap/continuity observations are retained in transport-evidence-v1, not added to RawLog.
+- If no unambiguous forward relation can be established (e.g. host outage longer than the sequence ambiguity bound, unexplained device reset without a new verified epoch, or conflicting duplicate), the affected sample is not assigned a fabricated monotonic value. It is retained as unresolved transport evidence and the measurement package is marked sequence-incomplete pending review.
+
+At 120 attempted conversions/s, uint16 wraps after 546.13 seconds. The 310-second single run produces at most 37,200 attempts and therefore does not itself wrap, but continuous counting is required for multiple sessions within one boot epoch. The host MUST NOT reset its extended base at a session boundary.
+
+## A3. transport-evidence-v1 complete event and durability contract (proposal)
+
+The companion JSONL file is the authoritative forensic record for protocol-level facts absent from RawLog v2. It remains a separate file and is not merged into RawLog records.
+
+### A3.1 Required event coverage
+
+Every protocol frame in either direction is recorded, including exact bytes and host timing:
+
+- `frame_tx_intent`: event persisted before the first serial write; direction=host_to_device; message type, session/epoch tags, command_id, stop_request_id if applicable, exact COBS frame including delimiter as base64, frame length, allocated session UUID, and intended action.
+- `frame_tx_complete`: after all frame bytes have been accepted by the host serial API; records send-start and send-complete UTC plus monotonic timestamps, byte count and the matching intent event_id. This is not proof that the device received or applied the frame.
+- `frame_tx_error`: partial/failed write, exception, byte count known/unknown, and related intent event_id. A partial frame is never relabeled as sent successfully.
+- `frame_rx`: every complete received frame, exact raw COBS bytes including delimiter, receive-start/receive-complete UTC and monotonic timestamps, CRC/COBS/length validation results, and parsed header fields only when safe to parse.
+- `frame_rx_fragment` / `frame_rx_discard`: incomplete bytes, overflow, framing loss and parser discard events, including byte count and reason. Do not invent a complete frame.
+- `command_ack_match`: links one transmitted intent/complete event to the exact ACK frame by session tag, epoch tag, command_id and expected ACK type; records match, timeout, duplicate, mismatch or unsolicited status.
+- `sample_context_map`, `adc_batch_received`, `status_received`, `transport_gap`, `protocol_error`, `session_open`, `session_close`, `allocator_commit`, and `artifact_error` retain the event-specific fields already specified in §12.5 plus the correlations needed to join them.
+
+For STOP, record both header `command_id` and payload `stop_request_id`; never collapse them into one identifier. Record all STOP retries and ACKs independently.
+
+### A3.2 Append, flush and crash recovery
+
+- Each JSONL event is serialized as one UTF-8 JSON object followed by exactly one LF. A line is immutable after append.
+- Before any command bytes are sent, append `frame_tx_intent`, flush userspace buffers, and fsync the evidence file. If this fails, do not send the command.
+- After each complete received frame (or fragment/discard event), append and fsync before allowing the parser to discard its only copy. If fsync fails, mark the session evidence-failed, issue STOP if the transport remains usable, and prohibit further nonzero PWM commands.
+- After a command write completes or fails, append its completion/error event and fsync. An intent without completion is recovered as outcome-unknown, not assumed unsent or successful.
+- On startup, scan the JSONL file from byte zero. Validate UTF-8, JSON, required fields and LF boundaries. A malformed/truncated final line is preserved byte-for-byte in a recovery segment and recorded as a torn-tail event in a new recovery log; never silently truncate or rewrite the original artifact.
+- Use a monotonically increasing host event_seq per artifact in addition to UUID event_id. Gaps, duplicates and out-of-order sequence values are integrity errors.
+- No heap of unflushed events is permitted to grow without a fixed bound. If disk or fsync latency causes acquisition/serial backpressure, the host must STOP and mark the measurement incomplete rather than drop evidence silently.
+
+### A3.3 Manifest, hashes and package closure
+
+At orderly finalization, create a manifest containing schema/version, measurement_session_id, full verified device_epoch_id or null, file names, byte lengths, event counts, first/last event_seq, SHA-256 of each artifact, completion status, and any evidence gaps. Hash the exact final bytes, including LF delimiters. The manifest itself is serialized canonically and hashed in a detached package index; avoid a self-referential hash.
+
+The package is finalized by writing temporary manifest/index files, fsyncing them, atomically renaming them, and fsyncing the containing directory. A package is complete only when RawLog, transport-evidence and manifest hashes verify and the manifest says complete. A crash before finalization leaves an explicitly incomplete package; it is never auto-promoted to complete. A recovery process may append recovery events and generate a new manifest version referencing the prior manifest hash; it must not rewrite prior artifacts.
+
+### A3.4 Retention and missing-evidence policy
+
+Proposed retention target: retain the complete session package for at least 10 years from session close, subject to project storage/privacy policy approval. Keep at least one independently verified backup copy; verify hashes on backup creation and periodic restore checks. If retention or backup policy is not approved, mark it as an unresolved package requirement rather than assuming archival durability.
+
+Missing command intent, missing ACK correlation, fsync failure, hash mismatch, missing sidecar, truncated tail, or missing manifest makes the package `evidence_incomplete`. RawLog samples may still be retained as raw observations, but the run cannot be represented as a complete, loss-auditable 310 measurement or used as complete teacher evidence. No missing event is reconstructed from timestamps or inferred state.
+
+## A4. EEPROM lifetime target and power-failure evaluation
+
+Adopt the following **design target for review**, not a proven product-life claim:
+
+- Maximum expected boot events: 10 per calendar day.
+- Required service interval: 10 years.
+- Required boot count: 10 × 365.25 × 10 = 36,525 boots (round up to 36,600 for acceptance budgeting).
+- Journal design estimate: 800,000 marker-cell write/erase cycles under the stated 16-slot rotation and maximum two marker writes per slot use. This is approximately 21.8 times the 36,600-boot target. The estimate is conditional on correct wear leveling, EEPROM specification conditions and no unexpected extra writes; it is not a service-life guarantee.
+
+Power and write failure requirements:
+
+1. Configure and verify a brown-out reset threshold appropriate to the actual board supply and MCU clock. A candidate ATmega328P BOD level is 4.3 V for a nominal 5 V Uno design, but this is not assumed to be configured on the existing board. Fuse configuration and board-specific supply tolerance must be independently verified before implementation.
+2. Do not start a journal write when supply voltage is below the approved safe-write threshold. The threshold and measurement method must be specified from the selected MCU datasheet and board power design; an ADC estimate alone is not a substitute for BOD.
+3. Keep the target slot's commit marker invalid until payload and CRC have been written and read back. Commit marker is the final write. On reset, only slots with valid magic/version, CRC and committed marker are candidates.
+4. If power fails before marker commit, the prior valid generation remains authoritative. If the marker is committed but subsequent verification fails, boot identity is invalid; fail closed. Never guess which generation was intended.
+5. Test power interruption at every byte-write boundary, during marker invalidation, each payload byte, CRC, marker commit, and readback. Verify that boot selects either the previous fully valid record or the new fully valid record, never a partially written identity.
+6. Repeated brownout/reset loops must not cause unbounded EEPROM writes. A failed boot identity write must enter BOOT_ID_INVALID and require maintenance/recovery; no automatic retry loop that consumes endurance.
+7. Count actual committed boot increments in the journal evidence when possible. The 10/day assumption must be reviewed against expected user operation; if measured/expected boot rate exceeds it, recalculate the lifetime budget before approval.
+
+The 10-year/10-boots-per-day target is a proposed project requirement awaiting commander confirmation. The earlier multi-century arithmetic examples are withdrawn as product-life statements.
+
+## A5. 20 Hz cadence: explicit non-adoption and qualification method
+
+20 Hz/channel remains **not adopted**. No threshold statistic or resistance input may assume it is adequate.
+
+Before cadence selection, the design authority must provide or approve:
+- ACS712 variant, sensitivity, bandwidth and output noise characteristics;
+- motor PWM frequency and PWM duty behavior at values 0–30;
+- analog input network, anti-alias low-pass filter topology and measured transfer function;
+- expected current signal bandwidth and the frequency components relevant to the selected low-frequency statistic;
+- settling interval after each PWM transition and after ADC multiplexer/channel switching;
+- threshold decision statistic (e.g. fixed-window mean, median, trimmed mean or dispersion) and its required uncertainty/confidence;
+- required detection probability and acceptable false-positive/false-negative rate near the threshold.
+
+Qualification proposal:
+
+1. Define the statistic and window before collecting comparison data; do not select it after seeing favorable results.
+2. Obtain a separately authorized high-rate reference capture with sufficient bandwidth and anti-alias filtering to characterize PWM ripple and commutation components. This is a future controlled experiment, not authorized by this document.
+3. Compare candidate 20 Hz samples against the reference statistic over the same settled windows and all PWM levels around the expected detection threshold.
+4. Quantify bias, repeatability, variance, aliasing sensitivity to sampling phase, and probability of misclassifying the threshold. Include worst-case PWM phase alignment and channel-switch settling.
+5. Accept 20 Hz only if the predeclared uncertainty and classification criteria are met. Otherwise choose a higher rate, a different analog filter/statistic, or a dedicated hardware averaging approach and revise the byte/throughput/SRAM budget.
+6. Until this qualification is approved, cadence is an open design variable. The current 20 Hz schedule is an arithmetic/transport candidate only, not a measurement-quality claim.
+
+## A6. Uno SRAM, bounded scheduling and STOP identifier semantics
+
+### A6.1 Provisional static memory budget
+
+The following is a conservative allocation proposal for an ATmega328P Uno with 2,048 bytes SRAM. It is a planning budget, not compiler evidence:
+
+| Allocation | Reserved bytes | Design constraint |
+|---|---:|---|
+| Single in-place decoded/COBS TX frame workspace (largest ADC_BATCH) | 194 | One frame buffer only; ADC batch payload is assembled directly into this workspace; no duplicate batch array |
+| RX frame parser workspace | 40 | Device receives only host frames up to HELLO/STOP request maximum; oversize frames are drained/discarded with bounded parser state |
+| HardwareSerial RX + TX rings | 128 | Assumes 64 bytes each; actual core build allocation must be verified |
+| STOP history (4 fixed entries) | 32 | 8 bytes/entry; no dynamic allocation |
+| Recent ARM/PWM command cache (4 entries) | 48 | 12 bytes/entry; exact cached ACK may be regenerated from fixed fields; no heap |
+| Protocol/session/state/counters | 96 | Fixed-width fields only |
+| ADC scheduler/channel/timestamp state | 64 | Fixed-width fields only |
+| Error/status scratch and parser state | 48 | Bounded, fixed-size |
+| **Subtotal planned static allocations** | **650** | No duplicate 173-byte batch buffer |
+| Reserved worst-case stack budget | 384 | Must be verified by stack watermark or static call-depth bound |
+| Reserved safety margin | 256 | Not allocatable by features |
+| **Total planned** | **1,290** | **758 bytes remain unallocated** |
+
+No dynamic allocation, Arduino `String`, recursion, variable-length arrays, or unbounded local arrays are permitted in acquisition, parser, scheduler, STOP or TX paths. All structures use fixed-width integer types and compile-time sizes. The 194-byte frame workspace must be encoded in place with bounded COBS operations; if the selected COBS implementation requires a second full frame buffer, this budget is invalid and design must return for revision.
+
+This budget is not a claim that the current firmware fits. Before implementation approval, provide compiler map/sizeof output for every row, confirm the actual HardwareSerial ring sizes and library/core version, measure worst-case stack high-water under nested parser/STOP/CRC/COBS/TX paths, and show the final linker SRAM total. Any static overrun, stack intrusion into the 256-byte margin, or unbounded heap use fails the gate.
+
+### A6.2 TX ownership and bounded service
+
+There is one TX frame workspace. The producer builds a complete frame in that workspace, marks it READY, and TX becomes its sole owner until the final delimiter is accepted by the UART. No other frame may interleave. The main loop writes only `min(availableForWrite(), configured_chunk_max)` bytes per service pass and then returns to command parsing/STOP checks. The configured chunk maximum must be small and fixed (candidate 16 bytes).
+
+STOP parsing and the immediate software output-zero request do not wait for the TX frame to finish. If a frame is already partially transmitted, it completes atomically before STOP_ACK can use the same workspace; STOP_ACK is queued at highest priority immediately afterward. STOP does not wait for an ADC batch to be assembled or transmitted. The implementation must not disable interrupts during a full frame write.
+
+Acquisition may continue only while the fixed workspace/producer state can retain every required sample attempt. If TX backpressure prevents retention, increment loss_counter for every unretained attempt, preserve sequence progression, and keep servicing STOP. Do not overwrite TX-owned bytes. If loss exceeds the approved measurement acceptance threshold (to be defined), the host marks the run incomplete. A permanently blocked UART cannot be solved by software scheduling; after the approved timeout the host sends STOP if possible and records link failure. Physical protection remains a separate hardware requirement.
+
+### A6.3 STOP header command_id versus payload stop_request_id
+
+These identifiers have different scopes and MUST remain distinct:
+
+- Header `command_id`: uint32 transport command correlation/freshness ID. For STOP_REQ it is nonzero and monotonically increasing within the active host session, like other command-bearing frames. It correlates the request frame with its STOP_ACK and is included in transport evidence.
+- Payload `stop_request_id`: uint16 safety-request identity maintained by the host. It is allocated per logical STOP action and remains unchanged across retries of that logical STOP. A new independent STOP action receives a new ID.
+- Exact retry: retransmit the byte-identical STOP_REQ frame, preserving both identifiers. Device returns the cached/recorded outcome when available.
+- Reframed retry: if the host must issue a new command_id for the same logical stop, it must retain the same stop_request_id. Device history classifies it as a duplicate only when requester/session relation, stop_request_id and stop_reason match; otherwise same stop_request_id with different reason is ID_CONFLICT. The ACK carries the header command_id of the received frame and the recorded request_outcome.
+- New logical STOP: new stop_request_id and new command_id. STOP action is idempotently attempted regardless of history capacity or stale session. History exhaustion affects duplicate auditability, never whether output-zero is requested.
+- Device duplicate key is (verified boot_id64, requester session tag if known, stop_request_id). It separately stores stop_reason and the first observed header command_id for diagnostics. Header command_id alone does not define logical STOP identity.
+- Header command_id freshness is checked for correlation, but the STOP safety exception means a valid STOP_REQ is acted upon even if the command_id is stale/regressed. Such a frame is recorded as stale-command evidence; it cannot clear STOP or cause drive.
+
+STOP_ACK correlation is therefore two-dimensional: echoed header command_id identifies the transport attempt, while payload outcome and stop_request_id in the evidence identify the logical safety request. The current three-byte STOP_ACK payload remains unchanged; adding stop_request_id to STOP_ACK would require a separate protocol revision and length review.
+
+## A7. Updated correction matrix
+
+| Review finding (2026-11-02) | Integrated response |
+|---|---|
+| 1. Host restart may reuse session tag | §A1: durable never-reuse uint32 allocator, fail-closed journal, no wrap/collision fallback |
+| 2. uint16 device sample sequence rollover | §A2: continuous per-boot counter, host-side extended monotonic uint64 in existing RawLog field, original wire value in sidecar |
+| 3. Companion artifact lacks outbound commands and durability | §A3: TX intent/completion/error, all RX frames/fragments, ACK correlation, fsync rules, recovery, manifest/hash, backup and retention proposal |
+| 4. EEPROM life assumptions unspecified | §A4: proposed 10 boots/day × 10 years target, 36,600 budget, brownout/write interruption test requirements |
+| 5. 20 Hz not qualified | §A5: explicitly not adopted; required signal inputs and predeclared comparison qualification method |
+| 6. SRAM/TX/STOP identifiers incomplete | §A6: 650-byte static allocation proposal, 384-byte stack reserve, 256-byte margin, bounded TX service and distinct command_id/stop_request_id semantics |
+
+## A8. Approval boundary after this addendum
+
+This addendum resolves the six findings at the level of a concrete design proposal, not implementation evidence. The following remain evidence gates: host allocator crash/restore tests; sequence rollover and long-session tests; sidecar fsync/crash/manifest/restore tests; EEPROM datasheet/fuse and power-interruption verification; sampling qualification; compiler-backed SRAM/stack measurements and TX-backpressure/STOP scheduling tests. All such tests and implementation work require separate authorization.
+
+PR #183 must remain Draft, open and unmerged. No Python or firmware edits, compilation, upload, serial connection, motor energization, 310-second measurement, formal design acceptance or 310-5 transition is authorized by this revision.
