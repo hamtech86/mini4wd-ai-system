@@ -102,3 +102,35 @@
 - Atmel-42735B-ATmega328/P Datasheet Complete, 11/2016: https://docs.arduino.cc/resources/datasheets/Atmel-42735-8-bit-AVR-Microcontroller-ATmega328-328P_Datasheet.pdf — §§12.3–12.4 (SRAM/EEPROM), §12.6.4 Table 12-1 (EEPROM write sequence/time), §15.5 and Table 32-8 (BOD), §28.3–28.5 (ADC timing/MUX), §32.3 (speed grade), §32.8 (ADC characteristics).
 - Allegro MicroSystems ACS712 Datasheet Rev.22 (2024-02-13): https://www.allegromicro.com/-/media/files/datasheets/acs712-datasheet.pdf — family bandwidth, FILTER pin and variant sensitivity; exact installed suffix/module remains unknown.
 - Microchip ATmega328P product page: https://www.microchip.com/en-us/product/ATMEGA328P
+
+## 310-4最終統合決定 — 旧記載を置換（2026-11-02）
+
+本節は本登録簿内の先行する「保留」「未定」「設計入力不足」表現と矛盾する場合に優先する。未測定の実機/host値は設計未決定ではなく、確定した契約への適合証跡として扱う。
+
+| 項目 | 最終分類 | 最終契約 | 実装後/実機で取得する証跡 |
+|---|---|---|---|
+| MCU/EEPROM | 条件付き設計基準確定 | ATmega328P/P baseline。実搭載chipが異なる場合は同等以上のdatasheet条件で再評価。100k cycles/cellはdatasheet条件下の値。 | marking/signature, datasheet revision, temp/VCC profile |
+| BOD/電源断 | 回路要件確定 | 4.3V BOD単独は16MHz下限を保証しない。external supervisorのworst-case falling thresholdはMCU pinで4.5V以上、delay中も4.5Vを下回らない。EEPROM write中はearly warning+hold-upでtransaction完了条件を満たす。不能ならEEPROM-only boot identityを禁止しBOOT_ID_INVALID。 | fuse readback, supervisor tolerance, VCC waveform, hold-up test |
+| SRAM | 上限契約確定 | .data+.bss≤900B（UART rings含む）、stack≤700B、reserve≥448B、RX/TX workspace各194B以下、ADC batchはTX workspace内。 | compiler map, sizeof, stack watermark, heap/collision trace |
+| STOP | 処理順契約確定 | STOP_LATCHED→PWM=0→direction LOW→ARM invalidation。TX workspaceを奪わず、TX drain/fsync/batchを待たない。ACKはframe boundary後可。 | simulator trace; physical cutoffは別承認のhardware test |
+| ADC failure | 意味契約確定 | PRECONDITION_INVALID / CONVERSION_TIMEOUT / NOT_ACQUIREDを定義通り区別。sensor断線等は回路診断なしにADC値だけで断定しない。raw missingは0xFFFF+status、0は有効値。 | bounded conversion implementation test, diagnostic circuit evidence |
+| Loss accounting | 意味契約確定 | device epoch内1秒半開window×channel。expected/attempted/valid/invalid/missingを計数。識別不能はUNATTRIBUTABLE、按分禁止。append-only correction。 | schedule fixture, boundary/gap/drop test vectors |
+| Buffer | 所有権・overflow契約確定 | RX/TX各194B workspaceを単一所有。状態遷移と所有者のみ書込。TX busy中はqueue/overwrite禁止、batch dropはsequence/lossへ反映。 | ownership invariant, high-water, overflow and STOP congestion tests |
+| RawLog companion | package契約確定 | transport-evidence-v1.jsonlをpackage root siblingとしてmanifest inventory/hashに列挙。schema変更禁止。manifest表現不能ならpackage incomplete、schema変更は310-1別承認。 | fixture against RawLog v2 validator; package hash/count roundtrip |
+| fsync | fail-closed契約確定 | durable intent before nonzero TX; unknown/failure blocks continuation; STOP bypass writer. ARM前にD_intent/D_evidence等を測定し、D_stage < 10,000ms−D_STOP_reserveを確認。 | target host benchmark, fault injection, deadline and STOP tests |
+| 20Hz | 未採用確定 | 25/75ms nonuniform scheduleはcandidate only。uniform 20HzやNyquist=10Hzと扱わない。 | high-rate reference and predeclared statistic qualification |
+
+### 固定window・loss record contract
+windowはdevice_elapsed_us基準のepoch内1,000,000µs半開区間。channelごとにscheduleからexpected_count、sample attemptからattempted_count、statusからvalid_count/invalid_countを算出。missing_count=expected−attempted。sample sequence gapだけでchannelを推測しない。channel/window不明はUNATTRIBUTABLEとしてepoch単位で保持する。batch lossとsample lossを二重計上しない。window確定後の修正は元recordを参照するappend-only correctionとする。
+
+### ADC failure contract
+PRECONDITION_INVALIDは取得前提不成立、CONVERSION_TIMEOUTはbounded routine timeout、NOT_ACQUIREDはschedule機会をdeviceが実行しなかったと特定できる場合のみ。失敗attemptもsequenceを進め、raw unavailableは0xFFFF+status。断線/短絡/浮遊は診断回路なしに断定しない。
+
+### Buffer ownership contract
+RX: FREE→FILLING→READY→PARSING→FREE。TX: FREE→FILLING→READY→TX_OWNED→FREE。workspace各1個、194B以下。TX_OWNED中は変更禁止。ADC_BATCHはTX内構築、次batchを別queueへ積まない。送信中に期限到来したbatchはdropし、sequence/loss accountingへ記録。STOPはoutput actionを即時実行し、ACKのみframe boundaryを待てる。
+
+### RawLog package contract
+transport-evidence-v1.jsonlはpackage rootのrecords.jsonl sibling。manifest既存artifact inventoryにpath/media type/byte_length/record_count/sha256を登録。既存manifestが表現できなければcomplete扱い禁止、schema拡張は310-1別承認。Evidence append-only、package complete前に全hash/count照合。
+
+### fsync期限契約
+ARM前に対象host fingerprintごとのD_intent、D_evidence、D_serial_write、D_ack、D_scheduler、margin M、D_STOP_reserveを測定・設定。D_stageの直列最悪経路合計は10,000ms−D_STOP_reserve未満。D_intent/D_evidenceは各10,000回以上、cold/warm・normal/max batch・storage contentionを含む測定のmaxとp99.9の大きい方を基礎とする。設定欠落・上限超過・fsync不明・stage deadline missはARM拒否またはfail-closed。STOPはwriter lock/queue/fsyncを待たない。数値msは測定前に捏造しない。
