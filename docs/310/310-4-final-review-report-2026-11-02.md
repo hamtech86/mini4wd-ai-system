@@ -109,7 +109,7 @@ ceil(36,600/16)=2,288 visits; marker=2×2,288=4,576; payload=2,288; aggregate ma
 前回HEAD a21d22b944754674d2e7db9be960063f554a4b5bで2 workflow runs/5 jobs success（isolated-database-tests、test-full-suite、test-breakin、test-battery、test-raw-log-and-sequence）。これは前回HEADの結果であり最終修正HEADのCIではない。最終HEADに紐づくrunsを別途再取得する。新HEADで未起動/未完了ならPASSとしない。T01–T18、compile、map/stack、power/EEPROM、ADC reference、STOP hardware、storage benchmarkは未実施。
 
 ## 自己審査
-4文書の数値・判断・未実施・合否条件を同期。marker4,576/cellとaggregate73,200を分離し旧4,576を訂正。4.3V BOD単独で16MHz保証としない。650/384/256は上限で実証値でない。STOP ACKはphysical stop証明でない。ADC精度を未測定保証値としない。fsync固定遅延値を作らない。310-1〜310-3/RawLog v2 schemaを変更しない。文書設計判断を完了し、司令塔の一括正式受入審査へ提出可能。ただし実装適合・実機安全・測定精度の証明は未取得。
+4文書の数値・判断・未実施・合否条件を同期。marker4,576/cellとaggregate73,200を分離し旧4,576を訂正。4.3V BOD単独で16MHz保証としない。900/700/448は上限で実証値でない。STOP ACKはphysical stop証明でない。ADC精度を未測定保証値としない。fsync固定遅延値を作らない。310-1〜310-3/RawLog v2 schemaを変更しない。文書設計判断を完了し、司令塔の一括正式受入審査へ提出可能。ただし実装適合・実機安全・測定精度の証明は未取得。
 
 
 # 310-4 最終完遂提出 — 2026-11-02
@@ -120,7 +120,7 @@ ceil(36,600/16)=2,288 visits; marker=2×2,288=4,576; payload=2,288; aggregate ma
 ## 5技術課題の結論
 1. EEPROM: 1KB, 100,000 cycles/cell. 36,600 events/16 slots: max slot visits 2,288; marker 4,576 writes/cell; payload 2,288; aggregate marker 73,200; headroom 95,424; ratio 21.86×. 17×3.4ms=57.8ms typical. Marker-last+CRC alone does not prove arbitrary power-loss atomicity; early warning, external supervisor and measured hold-up required.
 2. BOD: 4.3V nominal range 4.1–4.5V; 16MHz requires VCC≥4.5V. 4.3V BOD alone insufficient. External supervisor/hold-up requirement is explicit; installed fuse/chip not verified.
-3. SRAM/STOP: static≤650B, stack≤384B, reserve≥256B; RX/TX 194B each; STOP latch/PWM0/direction LOW/ARM invalidation before ACK; TX/fsync/batch cannot block. Software cannot protect frozen MCU or failed power stage.
+3. SRAM/STOP: static≤900B, stack≤700B, reserve≥448B; RX/TX 194B each; STOP latch/PWM0/direction LOW/ARM invalidation before ACK; TX/fsync/batch cannot block. Software cannot protect frozen MCU or failed power stage.
 4. ADC: A0/A1/A2/A3/A4/A5 roles unchanged; 10-bit, 5V ideal 4.883mV/LSB; ACS712 quantization examples 26.4/48.8/74.0mA/count only. 20Hz unadopted; 25/75ms nonuniform. Uref≤Uallow/3, ≥30 windows/level/channel, abs(bias)+Uref≤Uallow. No numeric accuracy claim; Uallow/risk limits need approval.
 5. fsync: durable intent before nonzero TX; fail-closed on uncertainty; STOP bypass; deadline miss abort; ≥10,000 commits/type and mean/max/p50/p95/p99/p99.9. No arbitrary fixed ms; host-specific budget and benchmark not yet measured.
 
