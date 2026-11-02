@@ -60,3 +60,24 @@ The added tests cover malformed ACK domain values, invalid codec consumed-byte c
 - New regression specifically feeds a delayed duplicate ACK for the previous PWM stage after the next PWM has been sent; expected result is FAULT and STOP attempt. The test passed in the full suite and focused RawLog/sequence suite.
 - This is a host-side behavior check with a fake clock and in-memory ACK callback. It does not establish real transport timing, MCU session/epoch identity, or physical STOP.
 - Local pytest remains NOT RUN. Firmware compile, serial hardware, and HW01–HW08 remain NOT RUN / BLOCKED pending explicit approval and missing board/electrical evidence.
+
+## 310-5 host regression follow-up — 2026-11-02 22:38Z
+
+PR #186 latest host-regression commit:
+- HEAD: `a7491c8fd7d214e23a6f649d262f978710474d6e`
+- Workflow run: `41538695288`
+- All four jobs completed successfully:
+  - RawLog / sequence: 38 passed
+  - Break-in: 19 passed
+  - Full suite: 326 passed in 9.20s
+  - Battery: 9 passed
+- Added regression: `test_late_ack_after_timeout_cannot_recover_faulted_sequence`.
+  It uses a fake monotonic clock and in-memory callbacks. It verifies that an ACK delivered after timeout does not recover FAULT, does not send another PWM, and does not cause a second STOP.
+- Existing delayed duplicate previous-stage ACK regression remains included and is covered by the same full-suite run.
+
+Limitations remain unchanged:
+- These are host-side tests; they do not establish real UART delivery, bounded TX/STOP latency, MCU session/boot-epoch binding, or physical stopping.
+- No local pytest run was performed.
+- No firmware compile or hardware action was performed.
+- HW01–HW08 remain blocked/not authorized; `HARDWARE_CURRENT_LIMIT_CONFIRMED=false`.
+- Pre-PWM durable intent/fsync remains an independent FAIL. STOP still shares the synchronous UART transport path. No RawLog v2 schema change is made by this follow-up.
