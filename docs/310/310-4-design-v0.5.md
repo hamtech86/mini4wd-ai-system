@@ -860,7 +860,7 @@ No accepted RawLog v2 fields, types, record semantics or public package structur
 
 UNO R3相当基板の実搭載チップのマーキング・signature・revisionは未確認。ATmega328Pを実機確認済みと記載しない。実機受入でtop marking、signature bytes、基板revision、clock sourceを採取し、異なる品種なら再審査する。
 
-EEPROMは1,024 bytes、byte-addressable。耐久値は少なくとも100,000 write/erase cycles per EEPROM cellであり、slot/device単位の回数ではない。CPU byte programmingは26,368 calibrated RC oscillator cycles、typical 3.4ms。3.3msはtypicalで最大保証値ではない。書込みはEEPE clear待ち、EEAR/EEDR設定、EEMPE set後4 CPU cycles以内にEEPE set、完了までEEPE clear待ち。EEMPE/EEPE間に割込みを許さない。低VCCではEEPROMだけでなくCPU誤実行も起き得る。データシートは耐久値について全電圧・全温度の個別試験条件を網羅した表やbyte-write atomicityを規定していないため、100,000回から全条件の寿命保証・電源断保証を推定しない。実チップ製造元/revisionの仕様・clarificationと実際の電源条件を受入時に確認する。
+EEPROMは1,024 bytes、byte-addressable。耐久値は少なくとも100,000 write/erase cycles per EEPROM cellであり、slot/device単位の回数ではない。CPU byte programmingは26,368 calibrated RC oscillator cycles、Table 12-1の3.4msはtypical programming timeであり最大保証値ではない。別表の3.3ms typical値も最大保証値ではないため、hold-upの保証値として扱わない。書込みはEEPE clear待ち、EEAR/EEDR設定、EEMPE set後4 CPU cycles以内にEEPE set、完了までEEPE clear待ち。EEMPE/EEPE間に割込みを許さない。低VCCではEEPROMだけでなくCPU誤実行も起き得る。データシートは耐久値について全電圧・全温度の個別試験条件を網羅した表やbyte-write atomicityを規定していないため、100,000回から全条件の寿命保証・電源断保証を推定しない。実チップ製造元/revisionの仕様・clarificationと実際の電源条件を受入時に確認する。
 
 16-slot方式はslot 16B×16=256B。1 slotあたりmarker 1B、payload 15B。各eventでmarker INVALID、payload/CRC書込み、readback/recompute、marker COMMITTEDの順とし、最悪2 marker writes/visit、1 payload write/cell/visitで計算する。36,600 eventsでは各slot visitは2,287または2,288回。marker各cell最大2×ceil(36,600/16)=4,576 writes、payload各cell最大2,288 writes。全marker cells合計は2×36,600=73,200 operations。これはaggregateでありper-cell ratingではない。100,000/4,576=21.85倍、100,000/2,288=43.71倍の単純算術余裕。100,000×16/2=800,000 eventsは均等輪番の理想算術上限であって寿命保証ではない。36,600は10 events/day×365×10 years。slot別write counterを保持し、上限超過前にBOOT_ID_INVALIDへfail-closedする。
 
@@ -876,7 +876,7 @@ journal順はINVALIDATE→payload+CRC→readback/recompute→COMMIT marker last�
 
 ## C. SRAM・STOP
 
-ATmega328P SRAM総量2,048B。実装受入上限をstatic/global≤650B（HardwareSerial ringを含む）、worst stack≤384B、未使用protected reserve≥256B、合計≤1,290Bに固定する。残り758Bは未割当て余裕で、追加バッファ枠ではない。最大wire frame 194B、RX parser≤40B、TX workspaceはsingle in-place 194B buffer。ADC stagingは最大173B payload。TX_OWNED bufferは変更禁止。dynamic String/new/malloc/heap growthはprotocol/STOP/ADC critical pathで禁止し、原則起動後heap allocationなし。650/384/256は設計上限であって実測値ではない。compiler map/avr-size/linker symbols、全structure/buffer sizeof、HardwareSerial ring実サイズ、worst nested parser/CRC/COBS/ADC/TX/STOP/ISR stack watermarkで確認する。static>650、stack>384、reserve<256、heap/stack collision、overflowはFAIL。
+ATmega328P SRAM総量2,048B。実装受入上限をstatic/global≤900B（HardwareSerial ringを含む）、worst stack≤700B、未使用protected reserve≥448Bに固定する。合計は2,048Bである。最大wire frameは194B、RX wire workspace 194B、TX workspace 194B。ADC_BATCH payload 173BはTX workspace内に構築し、別staging bufferを設けない。TX_OWNED bufferは変更禁止。dynamic String/new/malloc/heap growthはprotocol/STOP/ADC critical pathで禁止し、原則起動後heap allocationなし。650/384/256は設計上限であって実測値ではない。compiler map/avr-size/linker symbols、全structure/buffer sizeof、HardwareSerial ring実サイズ、worst nested parser/CRC/COBS/ADC/TX/STOP/ISR stack watermarkで確認する。static>650、stack>384、reserve<256、heap/stack collision、overflowはFAIL。
 
 STOP優先順位はSTOP latch first（不可逆）、PWM output=0、全direction output LOW、active ARM/command permission invalidation、state STOP_LATCHED、最後にACKを送信queueへ登録。出力操作はTX drain、availableForWrite、ACK、ADC batch完成に依存しない。すでにTX_OWNEDのframeはinterleave防止のためframe boundaryまで送信してよいが、STOP latch/output actionを待たせない。STOP handlerはbounded RX pathで処理しheap allocationやframe生成をしない。MCU freeze/reset、GPIO high-Z、driver fault、MOSFET short、電源断/配線故障には外部driver enable pull-down、独立watchdog/supervisor gating、power cutoffが必要。STOP_ACKは物理停止証明ではない。
 
@@ -931,13 +931,13 @@ Fuse方針: actual 16MHz clock sourceに適合したCKSEL/SUT、CKDIV8 disabled�
 
 | Region | Maximum | Verification |
 |---|---:|---|
-| .data + .bss including HardwareSerial rings and static buffers | 650B | linker map |
-| Worst-case stack incl. nested ISR/calls | 384B | stack watermark + path analysis |
-| Untouched reserve | 256B | 2048−650−384−256 |
+| .data + .bss including HardwareSerial rings and static buffers | 900B | linker map |
+| Worst-case stack incl. nested ISR/calls | 700B | stack watermark + path analysis |
+| Untouched reserve | 448B | 2048−900−700 |
 
 RX wire workspace最大194B、TX wire workspace最大194B。ADC_BATCH payload 173BはTX workspace内に構築し、別173B staging bufferを持たない。COBS decode/encodeはin-placeを原則とし、追加full-frame copyは禁止。HardwareSerial RX/TX ring actual sizes are measured from pinned core and included in .data+.bss. Remaining static globals must fit 900−194−194−actual UART ring sizes. No unbounded queue. Buffer ownership FREE/FILLING/READY/TX_OWNED、occupancy/high-water/overflow classを明示し、TX_OWNED bufferの再利用は禁止。
 
-Parser/ADC/STOP/CRC/COBS/TX critical pathではString、malloc/new、dynamic allocation、recursion、VLA、unbounded copyを禁止。実装後にcompiler map、全buffer/struct sizeof、core ring size、worst nested stack watermark/canary、heap symbol auditを取得する。合格条件はstatic≤650B、worst stack≤384B、reserve≥256B、critical path heap=0、stack collision/canary damage/overflow=0。以前の650B/384B/256Bは未検証見積もりであり実証値ではない。
+Parser/ADC/STOP/CRC/COBS/TX critical pathではString、malloc/new、dynamic allocation、recursion、VLA、unbounded copyを禁止。実装後にcompiler map、全buffer/struct sizeof、core ring size、worst nested stack watermark/canary、heap symbol auditを取得する。合格条件はstatic≤900B、worst stack≤700B、reserve≥448B、critical path heap=0、stack collision/canary damage/overflow=0。以前の650B/384B/256B案は撤回し、900B/700B/448Bの上限に置換する。いずれも実測値ではない。
 
 STOPはTX drain/availableForWrite/flush/ACK送信/fsync/ADC batch completionに依存させない。valid STOP_REQ受信後の最優先処理はSTOP_LATCHEDを先に設定し、PWM compare/output=0、両方向pin LOW、ARM permission invalidationを同一のbounded safety pathで実行し、その後にSTOP_ACKをbest-effort送信する。既にTX_OWNED frameがある場合はframe boundaryでACKを送るが、STOP state/actionは待たせない。STOP_LATCHEDは新規HELLO/sessionとARMの明示的復帰手順以外で解除しない。MCU freeze、driver故障、FET短絡、方向pin短絡、reset中の出力状態はsoftwareだけで保証できない。driver-enable pull-down/interlockまたは独立電流遮断がなければ物理停止保証なし。
 
