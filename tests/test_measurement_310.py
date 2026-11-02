@@ -219,6 +219,56 @@ def test_protocol_client_uses_injected_codec_and_mock_only():
     client.disconnect()
 
 
+
+def test_abort_attempts_stop_before_any_aborted_stage_log_append(tmp_path, monkeypatch):
+    clock = FakeClock()
+    order = []
+    ctl = SequenceController(RawLogV2Writer(tmp_path), manifest(tmp_path),
+        lambda pwm: clock.utc_now(), lambda: order.append("STOP"),
+        lambda: (0, clock.utc_now()), clock)
+    ctl.startup_recover()
+    ctl.start()
+    ctl.poll()
+    assert ctl.state == SequenceState.RUNNING
+
+    original_append = ctl.session.append
+
+    def ordered_append(record):
+        order.append("RAWLOG_APPEND")
+        return original_append(record)
+
+    monkeypatch.setattr(ctl.session, "append", ordered_append)
+    ctl.abort("user_stop")
+
+    assert order[0] == "STOP"
+    assert "RAWLOG_APPEND" in order[1:]
+    assert ctl.state == SequenceState.ABORTED
+
+
+def test_abort_still_records_fault_when_stop_send_fails_before_logging(tmp_path, monkeypatch):
+    clock = FakeClock()
+    order = []
+    ctl = SequenceController(RawLogV2Writer(tmp_path), manifest(tmp_path),
+        lambda pwm: clock.utc_now(),
+        lambda: (order.append("STOP") or (_ for _ in ()).throw(OSError("STOP failed"))),
+        lambda: (0, clock.utc_now()), clock)
+    ctl.startup_recover()
+    ctl.start()
+    ctl.poll()
+
+    original_append = ctl.session.append
+
+    def ordered_append(record):
+        order.append("RAWLOG_APPEND")
+        return original_append(record)
+
+    monkeypatch.setattr(ctl.session, "append", ordered_append)
+    ctl.abort("user_stop")
+
+    assert order[0] == "STOP"
+    assert "RAWLOG_APPEND" in order[1:]
+    assert ctl.state == SequenceState.FAULT
+
 def test_ack_mismatch_stops_without_advancing_or_auto_restarting(tmp_path):
     clock = FakeClock()
     sent, stops = [], []
