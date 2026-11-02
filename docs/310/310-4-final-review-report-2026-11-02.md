@@ -1,82 +1,83 @@
-# 310-4 最終審査報告 — 2026-11-02
+# 310-4 最終修正審査報告（5指摘対応）
 
-## 1. 対象と作業時点の確認
+> 状態：Draft / 司令塔再審査待ち。設計受入・実装許可・実機試験許可ではない。
 
-- Repository: hamtech86/mini4wd-ai-system
+## 1. 審査対象と基準
+
+- Repository: `hamtech86/mini4wd-ai-system`
 - PR: #183
-- Branch: docs/310-4-design-v0.5
-- 作業開始時HEAD: f10674de5ba329a69900546778b0bb9e5be10145
-- 作業開始時PR: Open / Draft / Unmerged
-- 作業開始時対象文書blob: aefa1cd5ea47655aff48d9d9cf762a4020dcbcb7
-- 作業開始時点で既存A9を取得し、再提出要求せずに作業を開始した。
+- Branch: `docs/310-4-design-v0.5`
+- 修正対象ベースHEAD（4成果物の内容を確定した時点）: `b32bc015fd18be4ef3f5c4c538e30dd1d030943c`
+- PR状態：Open / Draft / Unmerged（更新後の最終HEADはPR APIで確認し、PR本文に併記）
+- Issue #35を上位仕様権限、Issue #170およびPR #180の `docs/RAWLOG_V2_INDEPENDENT_SCHEMA.md` をRawLog v2 schema authorityとして照合。
+- 310-1 PR #180、310-2 PR #181、310-3 PR #182の受入済み契約を変更しない。
 
-310-1/2/3の基準文書・PRを照合した。310-1 PR #180 HEAD 5db3314ddf1efc2c068330ac333367662542ae5c、310-2 PR #181 HEAD e10d06bd1c5baf16df253792483bc4902582fdba、310-3 PR #182 HEAD d9e718b607a873759fffd58fc75bf950af499095。いずれもPRはOpen/Draft/Unmergedであり、PR #183から見た仕様整合性の基準として参照した。受入済み契約として扱われている仕様を変更せず、Issue #35の正本性を維持した。
+## 2. 5指摘への修正結果
 
-## 2. 更新成果物
+### 指摘1 — EEPROM耐久計算
 
-対象ブランチに以下を追加・更新した。
+修正済み。100,000 write/erase cyclesはEEPROM**セル単位**のデータシート耐久値であり、800,000回をセル耐久値とは記載しない。16-slot輪番、36,600 boot eventsの設計予算では、marker各セル最大4,575 write、payload各セル最大2,288 write。全16 markerセル合計73,200 write操作はaggregateであり、per-cell ratingとは明確に分離した。800,000 boot eventsは per-cell enduranceを輪番に換算した理想的なシステム上限の算術値で、寿命保証ではない。電源・温度・BOD・中断書込みの実証は未実施。
 
-1. 成果物1 — docs/310/310-4-design-v0.5.md  
-   既存本文・A9を保持し、F1〜F4を追加。承認要求、技術計算、未確定理由、責務境界、310-1〜3整合を統合。
-2. 成果物2 — docs/310/310-4-decision-register-2026-11-02.md  
-   既存審査指摘と今回の残存事項を分類表に統合。
-3. 成果物3 — docs/310/310-4-implementation-acceptance-tests-2026-11-02.md  
-   T01〜T12の前提・操作・期待結果・合格条件・証跡を定義。
-4. 成果物4 — docs/310/310-4-final-review-report-2026-11-02.md  
-   本報告。
+### 指摘2 — ADC候補周期
 
-## 3. 技術整理結果
+修正済み。T/T+25ms/T+100msの繰返しは、同一channelで25ms/75msが交互となる非等間隔取得である。長期平均20 conversions/s/channelと表現できるが、uniform 20Hz samplingではなく、通常のNyquist=10Hzを適用しない。20Hz採用は引き続き未承認。受入試験T07も非等間隔スケジュールとreference比較を判定するよう修正した。
 
-- EEPROM: 36,600 boot eventsを設計budgetとして反映。16-slot journalなら約2,288 generation/slot、marker約4,576 write operations/slotの概算。MCU/fuse/BOD/電源条件が未提示のため寿命保証・BOD値は確定していない。
-- 20Hz: 明示的に未採用。ATmega328P標準条件のADC conversion timeは概算できるが、実機設定・sensor bandwidth・filter・settling・threshold statisticを確認できず、妥当性は確定しない。
-- ADC: 1変換1 ADC_SAMPLE、個別midpoint timestamp、A0/A1/A4/A5/A2/A3順の候補を整理。analogRead単体で断線検出できるとはしない。
-- UART: 57600 8N1で理論5,760B/s、平均候補負荷1,973.5B/s（約34.3%）、194B frame約33.7msを計算。平均値はworst-case latency保証ではない。
-- SRAM: 650B static planning + 384B stack + 256B marginを保持。compiler/map/sizeof/stack証跡なしのためfit判定はしていない。
-- fsync: intent-before-send、failure後nonzero PWM禁止、可能ならSTOP、deadline超過時incompleteを明文化。数値latency budgetはtarget storage測定待ち。
-- Evidence: 10年以上、独立検証済みbackup最低1系統、channel/time-window loss、no-undetected-loss、manifest/hash/recovery条件を反映。
+### 指摘3 — RawLog v2互換性
 
-## 4. 310-1〜310-3整合
+設計上のmappingを明確化。Issue #170/PR #180の `ADC_SAMPLE.device_sample_sequence` は整数型で、device epoch内の単調増加値と定義されており、uint16幅の制約はない。wire uint16をhost側でepoch-scoped uint64 monotonic integerへ拡張し、既存integer fieldに格納する。既存schema field/type/versionは変更しない。元wire uint16、batch_sequence、loss_counter、stage_context_tokenはRawLog recordsへ追加せず、別artifact `transport-evidence-v1.jsonl` に保存する。Issue #35 §3.4に従いpackage-level sibling artifactとしてinventory/manifestからhash参照し、records.jsonlへ混在させない。manifest validatorとの実装互換性はT10で検証し、未確認の実装済み扱いはしない。
 
-確認した境界:
-- ADC_SAMPLEは1変換1レコード。12-sample batchは12件に展開。
-- device_timestamp_point=conversion_midpointを維持。
-- device_epoch_idはfull identityを正とし、32-bit tagでepoch確定しない。
-- device_sample_sequenceは既存RawLog v2 field内でhost expansion。schema変更なし。
-- stage_context_idは取得時点で固定し、受信時のactive stageで再割当しない。
-- Pythonが31 stageを管理し、Arduinoは明示指令を実行する。
-- command sent、ACK received、device-reported state、physical stateを区別。
-- 310-2 public package manifest.json + records.jsonlとappend-only recoveryを維持。Evidenceはcompanion artifact。
+### 指摘4 — HEAD/blobの記録
 
-## 5. 検証実施・未実施
+旧報告に残っていた不一致値と「更新前blob」の記載を置換。今回の報告書は4成果物の内容確定ベースHEADを明記し、各ファイルの実blob SHAをPR本文の最終状態記録と照合する。報告書自身のblob SHAはGitHub更新後のPR treeから独立して確認する（自己参照するSHAを本文に埋め込むことはしない）。
 
-**実施:** GitHub上のPR #183、対象branch文書、Issue #35/#170/#174、PR #180/#181/#182の文書と仕様内容を取得・照合。設計計算・byte/time arithmetic・journal wear-count estimateを実施。4文書をPR branchへcommitした。
+### 指摘5 — CI結果
 
-**未実施:** Python/FW変更、unit/integration test、CI再実行、コンパイル、map/sizeof、スタック測定、実機serial、EEPROM電源断、ADC参照測定、UART/STOP実機試験、310秒測定。未実施項目はPASSとしていない。既存CI成功を今回の更新成果物のCI成功や実機安全性証明として扱っていない。
+対象HEAD `a21d22b944754674d2e7db9be960063f554a4b5b` に紐づくGitHub Actionsを再取得。2 workflow runs、5 jobsすべてsuccess。
 
-## 6. 更新後Git状態
+| Workflow run | Job | Result |
+|---|---|---|
+| 41443507381 | isolated-database-tests | success |
+| 41443507345 | test-full-suite | success |
+| 41443507345 | test-breakin | success |
+| 41443507345 | test-battery | success |
+| 41443507345 | test-raw-log-and-sequence | success |
 
-全4成果物の反映後にGitHubから再取得したHEAD: 91d86a0117836bdc141935ac80b6d0ca4b6b7618。設計文書blob: 95408fa2a8cc3b081488d8588cfbe33b699bfc6e。決定表blob: ba243d950edce1d659130c7dfd391135d9b3999f。受入試験仕様blob: adeb9620dfc98ea107bc43ccadafe29e943367f9。本報告blob: f5399e5de625bb5079fa2e0f70f47bf57b91a8db（本更新前の値。更新後のblob/HEADは次のGitHub再照合で確定する）。PRはDraft/Open/Unmergedを維持し、マージ操作は行わない。
+これらは前回提出HEADのCI結果であり、今回5指摘修正後のHEADのCI結果ではない。修正後HEADのCIは別途取得・記録する。CI成功を実機安全性の証明とはしない。
 
-## 7. 設計受入判断
+## 3. 更新した4成果物
 
-**正式な設計受入可能とは判定しない。**
+1. `docs/310/310-4-design-v0.5.md` — EEPROMセル/aggregate耐久数、非等間隔ADC、RawLog sequence/Evidence mappingを修正。
+2. `docs/310/310-4-decision-register-2026-11-02.md` — 5指摘の決定分類と残る実装境界を追加。
+3. `docs/310/310-4-implementation-acceptance-tests-2026-11-02.md` — T07を25/75ms非等間隔検証に修正。
+4. `docs/310/310-4-final-review-report-2026-11-02.md` — 本報告。
 
-理由:
-1. EEPROMの正確なMCU/BOD/fuse/電源条件が不足。
-2. 20Hzの測定品質は参照実験なしに確定できない（現状は未採用）。
-3. fsync latency budgetとloss window durationが未確定。
-4. 実装後のSRAM/stack/TX STOP/EEPROM recovery/Evidence crash test証跡がない。
-5. 310-4 wire protocolは詳細候補を定義したが、Python/FW concrete implementation・test evidenceは未取得。
+## 4. 310-1〜310-3整合性
 
-ただし、司令塔指示の範囲で確定可能な技術計算、承認済み要求、残存事項分類、実装後受入試験仕様は一式に整理した。残存事項を理由に作業を停止・小分け提出せず、完成一式として提出する。
+- ADC_SAMPLEは1変換1レコード。
+- `device_timestamp_point=conversion_midpoint` を維持。
+- `device_epoch_id` はfull boot identity。32-bit epoch tagを代用しない。
+- `stage_context_id` は変換直前に固定したcontextを保持。
+- Pythonが31段階のsequenceを所有し、Arduinoは指令適用・取得・報告を担当。
+- command sent、ACK received、物理出力状態を同一視しない。
+- RawLog v2 recordsとtransport Evidence sibling artifactを分離。
+- 不明・欠落・復旧不能な範囲はunresolved/incompleteとし、合成・推測しない。
 
-## 8. 権限・PR
+## 5. 実施・未実施
 
-- 310-4設計: 最終審査資料提出。正式受入は未判定。
-- Python/FW実装: 未許可。
-- コンパイル/アップロード/serial/モーター通電/310秒実測: 未許可。
-- 310-5移行: 未許可。
-- PR #183: Draft / Open / Unmergedを維持。
-- HARDWARE_CURRENT_LIMIT_CONFIRMED=false。
+**実施:** GitHub PR/branch/Issue #35/Issue #170/PR #180のschema確認、4文書更新、EEPROM耐久回数のセル別算術、ADC取得間隔の算術、既存CI結果のjob単位再確認。
 
-本報告は設計審査資料の完成報告であり、実装許可・実機許可・PRマージ許可ではない。
+**未実施:** 修正後HEADのCI（再取得後に追記）、Python/FW実装、unit/integration tests、compile、SRAM map/stack測定、EEPROM電源断、ADC参照取得、UART/STOP実機試験、serial、motor energization、310秒測定。いずれもPASS扱いしない。
+
+## 6. 残存事項
+
+- 20Hz/非等間隔取得の測定妥当性はreference captureと事前定義基準が必要。
+- manifest validatorがcompanion artifact inventoryを受け入れるか、実装前のschema fixtureと実装後T10で確認する。
+- MCU/BOD/fuse/電源条件、EEPROMの電源断実証は未完了。
+- fsync latency、loss window granularity、compiler-backed SRAM/stack、TX詰まり時STOPは実装後検証待ち。
+
+## 7. 判断と権限
+
+今回の5指摘に対する**文書修正は完了**。ただし、設計受入の正式判断は司令塔に留保する。PR #183はDraft / Open / Unmergedを維持する。
+
+Python/FW変更、compile、upload、serial接続、motor energization、310秒測定、310-5移行は引き続き未許可。  
+`HARDWARE_CURRENT_LIMIT_CONFIRMED=false` を維持する。
