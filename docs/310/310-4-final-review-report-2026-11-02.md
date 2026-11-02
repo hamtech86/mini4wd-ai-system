@@ -16,7 +16,7 @@
 
 ### 指摘1 — EEPROM耐久計算
 
-修正済み。100,000 write/erase cyclesはEEPROM**セル単位**のデータシート耐久値であり、800,000回をセル耐久値とは記載しない。16-slot輪番、36,600 boot eventsの設計予算では、marker各セル最大4,575 write、payload各セル最大2,288 write。全16 markerセル合計73,200 write操作はaggregateであり、per-cell ratingとは明確に分離した。800,000 boot eventsは per-cell enduranceを輪番に換算した理想的なシステム上限の算術値で、寿命保証ではない。電源・温度・BOD・中断書込みの実証は未実施。
+修正済み。100,000 write/erase cyclesはEEPROM**セル単位**のデータシート耐久値であり、800,000回をセル耐久値とは記載しない。16-slot輪番、36,600 boot eventsの設計予算では、marker各セル最大4,576 write、payload各セル最大2,288 write。全16 markerセル合計73,200 write操作はaggregateであり、per-cell ratingとは明確に分離した。800,000 boot eventsは per-cell enduranceを輪番に換算した理想的なシステム上限の算術値で、寿命保証ではない。電源・温度・BOD・中断書込みの実証は未実施。
 
 ### 指摘2 — ADC候補周期
 
@@ -109,4 +109,36 @@ ceil(36,600/16)=2,288 visits; marker=2×2,288=4,576; payload=2,288; aggregate ma
 前回HEAD a21d22b944754674d2e7db9be960063f554a4b5bで2 workflow runs/5 jobs success（isolated-database-tests、test-full-suite、test-breakin、test-battery、test-raw-log-and-sequence）。これは前回HEADの結果であり最終修正HEADのCIではない。最終HEADに紐づくrunsを別途再取得する。新HEADで未起動/未完了ならPASSとしない。T01–T18、compile、map/stack、power/EEPROM、ADC reference、STOP hardware、storage benchmarkは未実施。
 
 ## 自己審査
-4文書の数値・判断・未実施・合否条件を同期。marker4,576/cellとaggregate73,200を分離し旧4,575を訂正。4.3V BOD単独で16MHz保証としない。650/384/256は上限で実証値でない。STOP ACKはphysical stop証明でない。ADC精度を未測定保証値としない。fsync固定遅延値を作らない。310-1〜310-3/RawLog v2 schemaを変更しない。文書設計判断を完了し、司令塔の一括正式受入審査へ提出可能。ただし実装適合・実機安全・測定精度の証明は未取得。
+4文書の数値・判断・未実施・合否条件を同期。marker4,576/cellとaggregate73,200を分離し旧4,576を訂正。4.3V BOD単独で16MHz保証としない。650/384/256は上限で実証値でない。STOP ACKはphysical stop証明でない。ADC精度を未測定保証値としない。fsync固定遅延値を作らない。310-1〜310-3/RawLog v2 schemaを変更しない。文書設計判断を完了し、司令塔の一括正式受入審査へ提出可能。ただし実装適合・実機安全・測定精度の証明は未取得。
+
+
+# 310-4 最終完遂提出 — 2026-11-02
+
+## 最終判断
+4文書を同じ技術判断・数値・合否条件で更新した。設計文書は完遂したが、MCU実装同定・基板電源・センサー型番・host storageの実測完了とは異なる。実測していない精度・物理停止・電源断耐性は保証しない。
+
+## 5技術課題の結論
+1. EEPROM: 1KB, 100,000 cycles/cell. 36,600 events/16 slots: max slot visits 2,288; marker 4,576 writes/cell; payload 2,288; aggregate marker 73,200; headroom 95,424; ratio 21.86×. 17×3.4ms=57.8ms. Marker-last+CRC alone does not prove arbitrary power-loss atomicity; early warning, external supervisor and measured hold-up required.
+2. BOD: 4.3V nominal range 4.1–4.5V; 16MHz requires VCC≥4.5V. 4.3V BOD alone insufficient. External supervisor/hold-up requirement is explicit; installed fuse/chip not verified.
+3. SRAM/STOP: static≤900B, stack≤700B, reserve≥448B; RX/TX 194B each; STOP latch/PWM0/direction LOW/ARM invalidation before ACK; TX/fsync/batch cannot block. Software cannot protect frozen MCU or failed power stage.
+4. ADC: A0/A1/A2/A3/A4/A5 roles unchanged; 10-bit, 5V ideal 4.883mV/LSB; ACS712 quantization examples 26.4/48.8/74.0mA/count only. 20Hz unadopted; 25/75ms nonuniform. Uref≤Uallow/3, ≥30 windows/level/channel, abs(bias)+Uref≤Uallow. No numeric accuracy claim; Uallow/risk limits need approval.
+5. fsync: durable intent before nonzero TX; fail-closed on uncertainty; STOP bypass; deadline miss abort; ≥10,000 commits/type and mean/max/p50/p95/p99/p99.9. No arbitrary fixed ms; host-specific budget and benchmark not yet measured.
+
+## Official datasheet and sections
+- Atmel-42735B-ATmega328/P Datasheet Complete (11/2016), official hosted PDF https://docs.arduino.cc/resources/datasheets/Atmel-42735-8-bit-AVR-Microcontroller-ATmega328-328P_Datasheet.pdf. §§12.3–12.4 SRAM/EEPROM/endurance/low-VCC corruption; §12.6.4 Table 12-1 3.4ms atomic erase+write and EEMPE/EEPE sequence; §15.5/Table 32-8 BOD ranges; §28.3–28.5 ADC timing/MUX; §32.3 16MHz supply boundary; §32.8 ADC characteristics.
+- Allegro ACS712 Datasheet Rev.22 (2024-02-13): https://www.allegromicro.com/-/media/files/datasheets/acs712-datasheet.pdf. Family bandwidth/filter/sensitivity context only; installed suffix unknown.
+
+## Calculation evidence
+36,600/16=2,287.5→2,288; 2×2,288=4,576; 100,000−4,576=95,424; 100,000/4,576≈21.86; 36,600×2=73,200; 100,000×16/2=800,000 idealized; 17×3.4ms=57.8ms; 16MHz/128=125kHz; 13 ADC cycles=104µs; 25 cycles=200µs; 5,000/1,024=4.883mV/LSB; current quantization 4.883/185=26.4mA, /100=48.8mA, /66=74.0mA per count; 2,048−900−700=448B.
+
+## CI / implementation status
+Previous HEAD a21d22b944754674d2e7db9be960063f554a4b5b had two workflow runs/five successful jobs (41443507381, 41443507345); these are historical and not final HEAD CI. Final HEAD CI must be fetched after last write; absent run means not run, never success. No Python/FW implementation, compile, upload, serial, motor energization, 310s measurement, fuse read/write, EEPROM interruption, ADC reference, compiler SRAM/stack or fsync benchmark performed.
+
+## Self-review and authority
+Four requested paths updated; all five technical topics have explicit design judgments and test gates; 310-1..310-3 and RawLog v2 schema remain unchanged; unknown physical inputs and application tolerances are not claimed verified. PR #183 remains Draft/Open/Unmerged. No merge, 310-5 or prohibited hardware action. HARDWARE_CURRENT_LIMIT_CONFIRMED=false.
+
+
+## 公式資料
+- Atmel-42735B-ATmega328/P Datasheet Complete, 11/2016: https://docs.arduino.cc/resources/datasheets/Atmel-42735-8-bit-AVR-Microcontroller-ATmega328-328P_Datasheet.pdf — §§12.3–12.4 (SRAM/EEPROM), §12.6.4 Table 12-1 (EEPROM write sequence/time), §15.5 and Table 32-8 (BOD), §28.3–28.5 (ADC timing/MUX), §32.3 (speed grade), §32.8 (ADC characteristics).
+- Allegro MicroSystems ACS712 Datasheet Rev.22 (2024-02-13): https://www.allegromicro.com/-/media/files/datasheets/acs712-datasheet.pdf — family bandwidth, FILTER pin and variant sensitivity; exact installed suffix/module remains unknown.
+- Microchip ATmega328P product page: https://www.microchip.com/en-us/product/ATMEGA328P
