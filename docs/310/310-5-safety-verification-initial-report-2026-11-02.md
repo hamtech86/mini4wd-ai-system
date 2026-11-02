@@ -221,3 +221,13 @@ PR #185のGitHub Actions run `41461916009` はhead SHA `3be119f5c163100ac3e08a50
 - `test-battery`: 9 passed
 
 各jobのstep一覧はすべてcompleted/successを返した。一方、workflow run summary APIは確認時点でstatus=in_progress / conclusion=nullのままであったため、workflow全体の最終結論は未確定と記録する。ローカルpytest未実施。テスト成功はSTOP送信順序の回帰確認に限られ、TX full独立性・物理停止・310-4全体適合のPASSを意味しない。
+
+
+### 14.2 STOP遅延再現テストの追加（最新HEAD）
+
+PR #185に3件目のテスト `test_abort_stop_is_not_blocked_by_a_stalled_rawlog_append` を追加した。RawLog appendをthreading.Eventで意図的に停止させ、appendがブロックしている間にSTOP callbackが先に実行済みであることを確認する決定的host-side testである。
+
+- Current PR #185 HEAD: `d2be96981673e250ba2cbd7f552f91a27a3016c7`
+- New CI run: `41462228503`（queued、確認時点）
+- Previous HEAD `3be119f...` run `41461916009`: completed/success。38/312/19/9 tests passed across the four jobs. This evidence does not apply to current HEAD.
+- Current HEADのCIが完了するまで、追加testを含む最新差分のCI判定は保留。
