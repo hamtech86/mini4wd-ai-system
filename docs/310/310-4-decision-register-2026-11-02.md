@@ -76,3 +76,29 @@
 | 実機証跡 | 実機確認事項 | chip/fuse/VCC/hold-up/EEPROM/ADC/STOP/driver/storage測定は未実施。 |
 
 公式根拠: Atmel-42735B-ATmega328/P Datasheet Complete (11/2016), https://docs.arduino.cc/resources/datasheets/Atmel-42735-8-bit-AVR-Microcontroller-ATmega328-328P_Datasheet.pdf §§2,12.4–12.4.2,15.5,31.2,32.3,32.5,28.1–28.5.
+
+
+## 最終完遂指示 — 決定登録
+
+| 論点 | 分類 | 確定判断 | 未取得証跡 |
+|---|---|---|---|
+| MCU | 条件付き設計決定 | ATmega328P baseline; EEPROM 1,024B, SRAM 2,048B; 16MHzはVCC≥4.5V | 実搭載chip/package/signature/clock/VCC/fuse |
+| EEPROM | 技術決定 | 100,000 cycles/cell; 36,600 events/16 slots; max visit 2,288; marker 4,576 writes/cell; payload 2,288; aggregate marker 73,200; margin 95,424; 21.86× | 実機電源/温度/電源断 |
+| EEPROM commit | 技術決定＋回路条件 | 3.4ms/byte; 17 writes=57.8ms; marker-last+CRC/readback; arbitrary power-loss claim requires early warning+external supervisor+hold-up | 実回路波形/hold-up measurement |
+| BOD/fuse | 技術決定 | BOD 1.8V range1.7–2.0; 2.7V range2.5–2.9; 4.3V range4.1–4.5. 4.3V alone cannot guarantee 16MHz; external supervisor required | fuse readback, supervisor limits, supply ramp |
+| SRAM | 技術決定 | .data+.bss≤900B; stack≤700B; reserve≥448B; RX/TX max194B each; no second 173B ADC staging buffer; no dynamic heap/String in critical path | linker map/sizeof/stack/heap audit |
+| STOP | 技術決定 | STOP_LATCHED→PWM0→direction LOW→ARM invalidation before ACK; no TX/fsync/batch wait | simulator then separately approved hardware test |
+| ADC | 技術決定＋application tolerance | A0 official, A1 independent, A2/A3 reference, A4/A5 independent; 10-bit; 5V ideal 4.883mV/LSB; ACS712 quantization examples 26.4/48.8/74.0mA/count; no 20Hz adoption; 25/75ms nonuniform; discard one dummy conversion after MUX switch | exact sensor/filter/VREF/impedance, Uallow/risk limits, reference captures |
+| ADC precision | 技術決定 | Uref(k=2)≤Uallow/3; ≥30 stable windows/level/channel; abs(bias)+Uref≤Uallow | Uallow and false-classification limit approval; no accuracy guarantee now |
+| fsync | 技術決定＋host configuration | intent fsync before nonzero TX; fail-closed on fsync failure/uncertainty; STOP bypass; deadline overrun abort; ≥10,000 operations/type; mean/max/p50/p95/p99/p99.9 | D_intent/D_evidence measured on exact host; not run |
+| Evidence retention | 承認済み要件 | ≥10 years; one independently verified backup; zero undetected loss; channel/time-window accounting | storage and restore evidence |
+
+訂正計算: 36,600/16=2,287.5→max2,288; marker=2×2,288=4,576 (prior 4,575 was incorrect); 100,000−4,576=95,424; 100,000/4,576≈21.86; 36,600×2=73,200; 100,000×16/2=800,000 idealized; 17×3.4ms=57.8ms; 5,000/1,024=4.883mV/LSB; 2,048−900−700=448B.
+
+「実装後検証待ち」は設計未決定を意味しない。上記設計判断は確定し、実装後検証は適合性証明に限定する。
+
+
+## 公式資料
+- Atmel-42735B-ATmega328/P Datasheet Complete, 11/2016: https://docs.arduino.cc/resources/datasheets/Atmel-42735-8-bit-AVR-Microcontroller-ATmega328-328P_Datasheet.pdf — §§12.3–12.4 (SRAM/EEPROM), §12.6.4 Table 12-1 (EEPROM write sequence/time), §15.5 and Table 32-8 (BOD), §28.3–28.5 (ADC timing/MUX), §32.3 (speed grade), §32.8 (ADC characteristics).
+- Allegro MicroSystems ACS712 Datasheet Rev.22 (2024-02-13): https://www.allegromicro.com/-/media/files/datasheets/acs712-datasheet.pdf — family bandwidth, FILTER pin and variant sensitivity; exact installed suffix/module remains unknown.
+- Microchip ATmega328P product page: https://www.microchip.com/en-us/product/ATMEGA328P
