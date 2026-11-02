@@ -968,3 +968,42 @@ ATmega328/P ADCは10-bit、single-ended 0..VREF。AVCCはVCCから±0.3V以内�
 - Atmel-42735B-ATmega328/P Datasheet Complete, 11/2016: https://docs.arduino.cc/resources/datasheets/Atmel-42735-8-bit-AVR-Microcontroller-ATmega328-328P_Datasheet.pdf — §§12.3–12.4 (SRAM/EEPROM), §12.6.4 Table 12-1 (EEPROM write sequence/time), §15.5 and Table 32-8 (BOD), §28.3–28.5 (ADC timing/MUX), §32.3 (speed grade), §32.8 (ADC characteristics).
 - Allegro MicroSystems ACS712 Datasheet Rev.22 (2024-02-13): https://www.allegromicro.com/-/media/files/datasheets/acs712-datasheet.pdf — family bandwidth, FILTER pin and variant sensitivity; exact installed suffix/module remains unknown.
 - Microchip ATmega328P product page: https://www.microchip.com/en-us/product/ATMEGA328P
+
+## 7. 310-4設計契約の統合確定（2026-11-02）
+
+本章は本書内の「未定」「設計入力不足」とする記述のうち、損失会計、ADC失敗、buffer所有権、RawLog companion artifact、fsync期限の設計意味を最終確定する。実機値・校正値・host性能値を捏造するものではない。実装後試験は以下の契約への適合確認とする。
+
+### 7.1 Channel/time-window loss accounting
+- 会計windowはdevice epoch内のdevice_elapsed_usを基準とする固定1,000,000µsの半開区間 [k×1,000,000,(k+1)×1,000,000)。epochごとにk=0から開始し、epochをまたいで結合しない。
+- 対象channelはA0,A1,A2,A3,A4,A5の各々。期待取得数は承認済みscheduleからchannelごと・windowごとに算出する。実取得数はそのwindow内にconversion midpointがあるADC_SAMPLE数で数える。adc_raw=0xFFFFかつstatus!=OKは「取得試行あり・有効rawなし」として別計数し、成功取得数に含めない。
+- missing_count = expected_count - attempted_count（負値はschedule/sequence矛盾としてevidence fault）。invalid_countはattemptedのうちstatus!=OK。sequence gapだけではchannelを推測しない。
+- loss record keyは(device_epoch_id, channel, window_start_device_elapsed_us)。必須値はexpected_count, attempted_count, valid_count, invalid_count, missing_count, first/last sequence（存在時）, reason_code, certainty。reason_codeはSCHEDULE_NOT_RUN / DEVICE_SEQUENCE_GAP / BATCH_DROPPED / ADC_PRECONDITION / ADC_TIMEOUT / HOST_EVIDENCE_GAP / UNATTRIBUTABLE。複数理由はdetailとして保持し、countを二重計上しない。
+- channel/windowを確定できない欠損はUNATTRIBUTABLEとしてepoch単位のunattributed counterに記録し、任意channelへ按分しない。batch_sequence gap/loss_counterはtransport-level evidenceでありsample loss countと同一視しない。
+- window境界のサンプルはconversion midpointで一意に所属させる。境界時刻が欠落/曖昧なら隣接windowへ推測配分せずUNATTRIBUTABLEとする。window確定後の訂正は元recordを参照するappend-only correction recordとする。
+
+### 7.2 ADC conversion failure semantics
+- PRECONDITION_INVALIDは変換開始前に既知の条件（ADC未初期化、reference未安定、禁止state等）が満たされない場合だけ使用する。
+- CONVERSION_TIMEOUTはbounded conversion routineが定義済み上限内に完了しない場合だけ使用する。標準analogReadが無期限待ちを持つ構成ではこのstatusを実装可能と主張しない。
+- NOT_ACQUIREDはschedule上の取得機会がdevice側で意図的に実行されなかったことをSTATUS/Evidenceで特定できる場合に限る。単なる受信欠落へ付与しない。
+- attempted conversionは必ずsample_sequenceを1進める。raw値が得られない場合adc_raw=0xFFFF、該当status、timestampは取得可能な最も近い時点とtimestamp qualityをEvidenceで区別する。ADC_SAMPLE側の既存schemaは変更せず、wire専用補足はtransport Evidenceに置く。
+- ADC入力の断線・短絡・浮遊・センサー故障はADCコードだけでは一般に識別できない。診断回路または独立した電気的検査がない限りsensor_faultと断定せずraw値を保存し、validityは未校正/判定不能として扱う。0は正常なraw codeであり欠損値に使わない。
+
+### 7.3 Buffer ownership and overflow
+- 最大wire frameは194B。RX frame workspace 194B、TX frame workspace 194Bを各1個だけ持つ。ADC_BATCHはTX workspace内で構築する。追加の173B ADC staging buffer、full-frame shadow copy、無制限queueは禁止。
+- RX workspace ownershipはFREE→FILLING→READY→PARSING→FREE。TX workspace ownershipはFREE→FILLING→READY→TX_OWNED→FREE。所有者だけが書込み可能。TX_OWNEDは最後のbyteがUARTへ渡されるまで不変。STOPはworkspace所有権を奪わず、出力安全動作を先に実行し、ACKは既存frame boundary後に送る。
+- ADC_BATCH組立中はTX workspaceをFILLINGとして占有する。送信中またはworkspace使用中に次batchを別bufferへqueueしない。次batchが期限までに格納できない場合はそのbatchをdropし、sample_sequence/batch_sequenceを進め、channel別window会計とtransport loss counterへ反映する。古いbatchを新しいデータで上書きしない。
+- RX overflow、COBS decode failure、frame oversize、TX backpressure、ADC batch dropは別reasonで数える。counter飽和時はwrapさせずSATURATED flagを立てる。overflow発生後もSTOP受信経路を優先し、受信不能が続く場合は通信喪失fail-closedとする。
+- static≤900B、stack≤700B、reserve≥448Bを同時に満たす。UART ring実サイズをstaticに含める。これらは上限であって現時点の実測値ではない。
+
+### 7.4 RawLog v2 companion artifact contract
+- transport-evidence-v1.jsonlはRawLog v2 package rootに置くrecords.jsonlの兄弟artifactとし、ADC_SAMPLE schema/records.jsonlへtransport専用fieldを追加しない。
+- manifestの既存artifact inventory/hash mechanismにartifact名、相対path、media type application/x-ndjson、byte_length、record_count、sha256を列挙する。manifestの既存構造がこれらを表現できない場合はmanifest schemaを独自拡張せず、packageをcompleteにしない。Issue #35 authorityに対する別設計承認なしにschema変更を行わない。
+- Evidence各行はschema_version=transport-evidence-v1、event_id、event_type、device_epoch_id、measurement_session_id、host_received_at_utc、host_received_monotonic_nsを共通必須とし、event_typeごとにwire sample/batch sequence、loss counter、stage_context_token、frame hash、command/ACK correlation、window loss detailを保持する。欠損値はnullで表し、推測値を入れない。raw frame保存時はbase64とCRC validation outcomeを保持する。
+- Evidenceはappend-only。records.jsonlと同じlog_id/package identityに属し、manifest完成前に全artifactのflush/fsync/hash/countを照合する。validatorがinventory形式を受け入れるfixtureが存在しない場合は実装上の互換性を主張せずpackage stateをincompleteとする。schema authority変更が必要なら310-1変更提案を別途行い、310-4実装で迂回しない。
+
+### 7.5 fsync budget and deadline calculation
+- stage計画時間は10,000ms。ARM前に対象host profileごとにD_intent、D_evidence、serial write/ACK上限、scheduler allowance、STOP reserveを実測・設定ファイル化する。設定値はOS、filesystem/mount、storage device、Python/runtime、負荷profile fingerprintと一体で管理する。
+- stage直列最悪経路を D_stage = D_intent + D_serial_write + D_ack + D_required_evidence + D_scheduler + M と定義し、D_stage < 10,000ms - D_STOP_reserve を満たすこと。Mは測定分散・clock/scheduler揺らぎに対する事前承認margin。D_STOP_reserveは通常writer/serial queueに依存しないSTOP処理用に別途予約する。
+- D_intent/D_evidenceは各10,000回以上の対象環境測定で得たmaxとp99.9の大きい方を基礎にmarginを適用する。cold/warm、通常/最大batch、storage contentionを含む。観測maxは将来の絶対保証とは呼ばない。
+- profile、上限、margin、STOP reserveのいずれかが未設定/無効、または合計が不等式を満たさない場合ARM禁止。実行中に上限超過・deadline miss・fsync結果不明が発生したらfail-closed、以後nonzero PWM禁止、transport使用可能なら独立STOP pathで停止要求、package incomplete。unknown outcome commandを再送しない。
+- STOP処理はwriter lock、Evidence queue、fsync、TX drainを待たない。STOP reserveはSTOP経路のbounded loop-service上限と独立driver cutoff応答時間を含めて別試験で定める。software ACKはphysical cutoffの証明ではない。
