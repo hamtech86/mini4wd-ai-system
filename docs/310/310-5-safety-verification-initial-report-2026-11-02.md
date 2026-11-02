@@ -187,3 +187,26 @@ PR #184で起動したGitHub Actions run `41450041113` はcompleted/success。4 
 - NOT RUN: 4
 
 ローカルclone試行は `Could not resolve host: github.com` で失敗。ローカルpytest/native harnessは未実施。CI成功はGitHub Actionsの証拠として保持するが、実機安全性・310-4 wire protocol適合のPASSには転用しない。
+
+
+## 14. STOP先行化の限定修正を別PRで提出（2026-11-02）
+
+追加調査後、310-3 Python実装のうち、仕様変更を伴わない明確な順序違反を限定修正した。
+
+- PR #185: https://github.com/hamtech86/mini4wd-ai-system/pull/185
+- Branch: `safety/310-5-stop-first`
+- Base: `feature/310-3-python-sequence-serial` / PR #182 HEAD `d9e718b607a873759fffd58fc75bf950af499095`
+- Head: `3be119f5c163100ac3e08a50e13ccc88704238e9`
+- Changed files: `measurement_310/engine.py`, `tests/test_measurement_310.py`
+- 変更: `SequenceController.abort()` でSTOP送信を中断stageのRawLog appendより先に試行する。STOP送信失敗時もログ記録を試み、FAULTを維持する。
+- 追加テスト: STOP先行順序、STOP送信失敗後のログ記録/FAULT保持の2件。
+- PR状態: Open / Draft / Unmerged。CI run `41461916009` はqueued（この追記時点）。ローカルpytest未実施。
+
+この修正が解消するのは、Pythonが自らRawLog append/fsyncを先に実行してSTOP要求を遅らせる順序違反だけである。以下は未解決のまま:
+- pySerialの通常送信は同期 `write()` と `flush()`。書込みtimeoutは明示設定されず、flushもSTOP専用の独立経路ではない。
+- 同一UART TXが永久backpressure、partial frame保持、またはOS/driver queue fullとなる条件で、同じUART経路のSTOPを独立して送信できる保証はない。
+- Pythonから同じUARTへ別スレッドでwriteするだけでは、既存writeとのフレームinterleave/順序保証がなく、独立した安全経路の証明にはならない。
+- 310-4 T09はMCU側のSTOP latch/output-zeroがTX drain/ADC batch completionを待たないこと、STOP_ACKはatomic frame boundary後に優先することを要求する。これはfirmware scheduler/buffer ownershipの検証を要し、Pythonのみの変更でPASSにできない。
+- 物理停止の保証にはdriver enable等の独立hardware cutoff/回路仕様も必要だが、現状の実装・回路証拠は未確認。
+
+PR #185のCI結果が出たらhead SHAとrun SHAを照合して追記する。CI successであっても、TX-full独立性、MCU出力、実機物理停止のPASSにはしない。
