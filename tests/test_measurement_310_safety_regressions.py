@@ -60,7 +60,7 @@ def test_codec_invalid_consumed_length_is_rejected(consumed):
 def test_receive_transport_failure_is_not_reported_as_empty_poll():
     client, transport = connected_client()
     transport.fail_receive = True
-    with pytest.raises(TransportError, match="response receive/decode failed"):
+    with pytest.raises(TransportError, match="mock receive failure or disconnected"):
         client.poll_ack()
     client.disconnect()
 
