@@ -30,7 +30,7 @@ The added tests cover malformed ACK domain values, invalid codec consumed-byte c
 ## Execution record
 
 - GitHub Actions workflow run `41536899145` on HEAD `bfd673e9e5f89327aa3c6d06d324d482789aeb69`: all four jobs completed successfully.
-- `test-full-suite`: `python -m pytest -q --ignore=serial_command_test.py --ignore=serial_test.py tests/test_breakin_controller.py tests/test_anomaly_skip.py tests/test_recipe_engine.py` — **324 passed in 9.45s**.
+- `test-full-suite`: `python -m pytest -vv --timeout=60 --timeout-method=thread --durations=30 --ignore=serial_command_test.py --ignore=serial_test.py` — **324 passed in 9.45s**.
 - `test-raw-log-and-sequence`: `python -m pytest -q tests/test_raw_log_library.py tests/test_raw_log_v2.py tests/test_local_raw_log_breakin_controller.py tests/test_sequence_executor.py` — **38 passed in 0.34s**.
 - `test-breakin`: `python -m pytest -q --ignore=serial_command_test.py --ignore=serial_test.py tests/test_breakin_controller.py tests/test_anomaly_skip.py tests/test_recipe_engine.py` — **19 passed in 0.67s**.
 - `test-battery`: `python -m pytest -q tests/test_battery_measurement_parser.py tests/test_battery_benchmark.py tests/test_battery_benchmark_service.py tests/test_battery_repository.py` — **9 passed in 0.07s**.
