@@ -89,10 +89,10 @@ Python/FW変更、compile、upload、serial接続、motor energization、310秒�
 Repository hamtech86/mini4wd-ai-system、PR #183、branch docs/310-4-design-v0.5。文書更新のみ。Python/FW変更、compile/upload、serial、motor energization、310秒測定、310-5移行は未実施。PR Draft/Open/Unmerged、HARDWARE_CURRENT_LIMIT_CONFIRMED=falseを維持。
 
 ## 5課題の判断
-1. MCU/EEPROM: ATmega328P reference baseline、1KB EEPROM、≥100k write/erase cycles/cell。16-slot計算marker4,576/cell、payload2,288/cell、aggregate marker73,200。CPU write typical3.3ms。実chip/全条件寿命は未確認。
+1. MCU/EEPROM: ATmega328P reference baseline、1KB EEPROM、≥100k write/erase cycles/cell。16-slot計算marker4,576/cell、payload2,288/cell、aggregate marker73,200。EEPROM atomic write Table 12-1 3.4ms typical (not maximum)。実chip/全条件寿命は未確認。
 2. BOD/fuse/power: 16MHz VCC min4.5V。4.3V BOD min4.1Vで単独不十分。external supervisor+hold-up必須。適合しなければEEPROM-only identity禁止。
-3. SRAM/STOP: static≤650B、stack≤384B、reserve≥256B、single194B TX workspace、40B RX parser。STOP latch→PWM0→direction LOW→ARM invalidation/STOP_LATCHEDをTXから独立。
-4. ADC: channel roles unchanged、10-bit ±2LSB ADC contribution、sensor/reference/filter/offset/settling/noiseを含むtraceable reference comparison。20Hz未採用、25/75ms nonuniform。
+3. SRAM/STOP: static≤900B、stack≤700B、reserve≥448B、194B RX/TX workspaces、ADC payloadをTX内に構築。STOP latch→PWM0→direction LOW→ARM invalidation/STOP_LATCHEDをTXから独立。
+4. ADC: channel roles unchanged、10-bit ADC; datasheet ADC accuracy figures apply only under stated VREF/VCC/clock conditions and do not guarantee end-to-end accuracy、sensor/reference/filter/offset/settling/noiseを含むtraceable reference comparison。20Hz未採用、25/75ms nonuniform。
 5. fsync: durable TX intent before nonzero PWM、failure fail-closed、STOP best-effort、mean/p50/p95/p99/p99.9/max測定、worst-case sum+margin<deadline。根拠ない固定ms値なし。
 
 ## 公式根拠・計算
@@ -129,7 +129,7 @@ ceil(36,600/16)=2,288 visits; marker=2×2,288=4,576; payload=2,288; aggregate ma
 - Allegro ACS712 Datasheet Rev.22 (2024-02-13): https://www.allegromicro.com/-/media/files/datasheets/acs712-datasheet.pdf. Family bandwidth/filter/sensitivity context only; installed suffix unknown.
 
 ## Calculation evidence
-36,600/16=2,287.5→2,288; 2×2,288=4,576; 100,000−4,576=95,424; 100,000/4,576≈21.86; 36,600×2=73,200; 100,000×16/2=800,000 idealized; 17×3.4ms=57.8ms typical; 16MHz/128=125kHz; 13 ADC cycles=104µs; 25 cycles=200µs; 5,000/1,024=4.883mV/LSB; current quantization 4.883/185=26.4mA, /100=48.8mA, /66=74.0mA per count; 2,048−650−384−256=758B.
+36,600/16=2,287.5→2,288; 2×2,288=4,576; 100,000−4,576=95,424; 100,000/4,576≈21.86; 36,600×2=73,200; 100,000×16/2=800,000 idealized; 17×3.4ms=57.8ms typical; 16MHz/128=125kHz; 13 ADC cycles=104µs; 25 cycles=200µs; 5,000/1,024=4.883mV/LSB; current quantization 4.883/185=26.4mA, /100=48.8mA, /66=74.0mA per count; 2,048−900−700=448B.
 
 ## CI / implementation status
 Previous HEAD a21d22b944754674d2e7db9be960063f554a4b5b had two workflow runs/five successful jobs (41443507381, 41443507345); these are historical and not final HEAD CI. Final HEAD CI must be fetched after last write; absent run means not run, never success. No Python/FW implementation, compile, upload, serial, motor energization, 310s measurement, fuse read/write, EEPROM interruption, ADC reference, compiler SRAM/stack or fsync benchmark performed.
