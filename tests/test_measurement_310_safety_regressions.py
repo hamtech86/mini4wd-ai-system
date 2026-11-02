@@ -84,3 +84,55 @@ def test_disconnect_discards_buffered_and_pending_protocol_messages():
     assert client._pending_messages == []
     assert client._pending_acks == []
     assert not client.connected
+
+def test_duplicate_previous_stage_ack_fails_closed_after_next_pwm_send(tmp_path):
+    """A delayed duplicate ACK from PWM N must not acknowledge PWM N+1."""
+    from measurement_310.engine import SequenceController, SequenceState
+    from raw_log_v2 import RawLogV2Writer
+
+    class Clock:
+        def __init__(self):
+            self.ns = 1_000_000_000
+
+        def monotonic_ns(self):
+            return self.ns
+
+        def utc_now(self):
+            return "2026-11-02T00:00:00.000Z"
+
+        def advance_ms(self, value):
+            self.ns += value * 1_000_000
+
+    clock = Clock()
+    sent, stops = [], []
+    acks = [(0, clock.utc_now())]
+
+    manifest = {
+        "log_id": "TEST-DUP-ACK", "measurement_session_id": "SESSION-DUP-ACK",
+        "started_at_utc": clock.utc_now(), "motor_instance_id": None,
+        "device": {"type": None, "model": None, "firmware_version": None,
+                   "firmware_build": None, "firmware_id": None, "adc_resolution_bits": None},
+        "measurement_conditions": {"direction": "UNKNOWN", "voltage_control_mode": "UNKNOWN",
+            "sweep_pwm_min": 0, "sweep_pwm_max": 30, "stage_duration_ms": 10000,
+            "schedule_owner": "PYTHON"},
+    }
+    ctl = SequenceController(
+        RawLogV2Writer(tmp_path), manifest,
+        lambda pwm: sent.append(pwm) or clock.utc_now(),
+        lambda: stops.append("STOP"),
+        lambda: acks.pop(0) if acks else None,
+        clock,
+    )
+    ctl.startup_recover()
+    ctl.start()
+    assert ctl.poll() == SequenceState.RUNNING
+
+    clock.advance_ms(10_000)
+    assert ctl.poll() == SequenceState.WAITING_ACK
+    assert sent == [0, 1]
+
+    # The duplicate ACK for stage 0 arrives after PWM 1 has been sent.
+    acks.append((0, clock.utc_now()))
+    assert ctl.poll() == SequenceState.FAULT
+    assert sent == [0, 1]
+    assert stops == ["STOP"]
