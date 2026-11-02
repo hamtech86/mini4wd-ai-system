@@ -736,3 +736,117 @@ Host acceptance vectors: fail each append/fsync; partial serial write; crash bet
 ### A9.5 Disposition and authority boundary
 
 A9.1–A9.3 define proposed normative host contracts and test vectors, not implementation proof. A9.4 lists decisions and qualification items still outstanding. Design remains conditionally returned for continued review. PR #183 MUST remain Draft, Open and Unmerged. No Python/firmware edits, compilation, upload, serial communication, motor energization, 310-second measurement, formal acceptance, or 310-5 transition is authorized. HARDWARE_CURRENT_LIMIT_CONFIRMED=false.
+
+# 310-4 Design Finalization Package — 2026-11-02
+
+**Authority:** 司令塔「310-4 設計審査完遂指示書」  
+**Status:** Finalized design-review submission; not formal acceptance and not implementation authorization.  
+**Precedence:** Issue #35 remains the project specification authority. Accepted 310-1/2/3 contracts are preserved. No RawLog v2 public-schema change is proposed.
+
+## F1. Binding requirements incorporated
+
+The following are binding project requirements, not approval of a specific implementation mechanism:
+
+1. EEPROM boot-identity journal endurance budget: 36,600 boot events (10/day × 10 years, rounded up).
+2. Transport Evidence retention: at least 10 years.
+3. At least one independent, verified backup copy.
+4. No undetected data loss is acceptable.
+5. Loss must be recorded by channel and time window.
+6. TX backpressure must not prevent STOP processing/output-zero request.
+7. Buffer ownership, occupancy/high-water and overflow/loss must be distinguishable.
+8. SRAM assessment includes static data, core/library buffers and worst-case stack.
+
+These requirements do not approve a board, fuse setting, storage device, sampling rate, queue implementation, backup product or physical safety design.
+
+## F2. Technical determinations
+
+### F2.1 EEPROM
+
+The candidate journal has 16 slots × 16 bytes. For 36,600 committed boots, rotation distributes about 2,288 generations per slot. Each slot visit invalidates and then commits its marker (about 4,576 marker write operations per slot over the target interval); each payload byte is rewritten about 2,288 times, subject to EEPROM update semantics and retries.
+
+This is a write-count budget, not a lifetime guarantee. Exact MCU marking, datasheet endurance conditions, fuse bytes, board revision, supply envelope and power-fail behavior are not in the reviewed evidence. No BOD threshold is selected. The 4.3 V candidate in A4 remains unverified.
+
+Write order: invalidate target marker; write payload and CRC; read back and verify; commit marker last; verify. Boot accepts only valid magic/version, CRC and committed marker. Ambiguous writes preserve the previous valid generation or enter BOOT_ID_INVALID. No identity is synthesized and no unbounded retry loop is allowed.
+
+**Determination:** 36,600 events is the adopted design budget. Electrical feasibility and service life remain unproven pending exact MCU datasheet conditions, fuse configuration, power envelope and power-interruption evidence.
+
+### F2.2 Sampling cadence and 20 Hz
+
+20 Hz/channel remains NOT ADOPTED. The candidate schedule (two scans 25 ms apart, repeated every 100 ms) yields 20 samples/s/channel and 10 ADC_BATCH/s, but does not establish measurement bandwidth or threshold validity.
+
+For a nominal 16 MHz ATmega328P using ADC prescaler 128, ADC clock is 125 kHz and a normal 13-clock conversion is approximately 104 µs. Six conversions have nominal conversion-core time around 0.62 ms per scan, excluding mux settling, software, timestamps and interrupts. This is clock arithmetic, not measured performance or proof of the installed firmware configuration.
+
+At 20 Hz, Nyquist is 10 Hz. It cannot resolve PWM ripple or commutation transients above 10 Hz. Suitability for a low-frequency statistic requires sensor variant/bandwidth, PWM frequency, analog filter transfer function, channel and stage settling, sampling phase, statistic and uncertainty limits, followed by an authorized reference comparison.
+
+**Determination:** no sampling rate is approved. 20 Hz is only a transport/arithmetic candidate.
+
+### F2.3 ADC order, timestamps and failures
+
+Candidate scan order remains A0, A1, A4, A5, A2, A3. These are six distinct conversions. Each gets its own timestamp and context snapshot. device_timestamp_point=conversion_midpoint means capture micros immediately before starting analogRead and immediately after completion, then compute modular midpoint. On a conventional 16 MHz Uno, micros quantization is 4 µs. uint32 micros wraps after about 71.6 minutes; unwrap only within one verified full device_epoch_id and modular gaps below 2^31 µs.
+
+Standard analogRead returns an ADC code and exposes no per-conversion hardware error status. A disconnected/floating input may still return a numeric value. A timeout status is valid only for a bounded conversion implementation with a verified timeout. Distinguish not-acquired from attempted-but-invalid. ADC raw zero is not a missing marker.
+
+**Determination:** one conversion = one ADC_SAMPLE. Preserve raw value, individual timestamp, channel, sequence, epoch and stage context. Do not claim sensor-disconnect detection from ADC code alone.
+
+### F2.4 UART
+
+57600 baud, 8N1 has theoretical capacity 5,760 bytes/s. Existing wire maxima:
+- ADC_BATCH: 194 bytes × 10/s = 1,940 B/s.
+- STATUS baseline: 31 B/s.
+- APPLY_ACK: 25 × 31 / 310 = 2.5 B/s.
+- Nominal subtotal: 1,973.5 B/s, about 34.3% of theoretical capacity.
+- One 194-byte ADC_BATCH occupies about 33.7 ms on the wire.
+
+This excludes handshake, STOP, ERROR, bursts, retries, USB scheduling and service gaps. It is not a worst-case latency guarantee. Preserve whole-frame non-interleaving and priority: STOP/fault, command ACK/session-critical status, ADC_BATCH, diagnostics. TX owns its buffer through the final delimiter. Bounded chunks must return control to command parsing/STOP service; STOP must not wait for batch completion or TX drain.
+
+**Determination:** frame-size and average-throughput arithmetic is consistent. Queue capacity, worst-case latency and physical STOP response are not established.
+
+### F2.5 SRAM and buffers
+
+Existing A6.1 planning budget: 650 bytes static allocation + 384 bytes stack reserve + 256 bytes safety margin = 1,290 bytes against 2,048 bytes, leaving 758 bytes unallocated. It assumes one in-place 194-byte frame workspace, 40-byte RX parser, 128-byte serial rings, fixed caches and no dynamic String/heap in critical paths.
+
+This is not measured static usage. Compiler/map/sizeof must verify each row and actual core ring sizes. Stack reserve must be checked under worst nested parser/CRC/COBS/STOP/TX path. Buffer ownership must expose FREE/FILLING/READY/TX_OWNED, occupancy/high-water and overflow. Every unretained attempt must be counted by channel and time window. TX-owned bytes may never be overwritten.
+
+**Determination:** 650/384/256 remains provisional; SRAM acceptance requires compiler map, core allocation, stack high-water/bound, heap evidence and backpressure/STOP test.
+
+### F2.6 fsync and schedule
+
+310-3 stage timing remains unchanged: stage starts at host receipt of matching apply ACK; prior stage ends at host send time of next-stage command. Evidence fsync is on the host critical path and cannot be backdated or excluded.
+
+No numeric fsync budget can be inferred from a 10-second stage. Measure p50/p95/p99/max and failures on the approved target storage under representative load, including file and directory fsync. Until a maximum is approved, fsync crossing a stage deadline means no fabricated timestamp: STOP if possible, mark incomplete, do not advance.
+
+If TX intent cannot be fsynced, do not send nonzero PWM. If RX evidence cannot be persisted, do not accept ACK/sample as durable; prohibit further nonzero PWM and attempt STOP through the emergency path. A STOP attempt that cannot itself be recorded remains uncertain.
+
+**Determination:** failure behavior is defined; numeric latency budget and target-storage performance remain unverified.
+
+### F2.7 Evidence, recovery and loss
+
+RawLog v2 public package remains exactly manifest.json + records.jsonl, append-only and manifest-last. Transport Evidence is a separate companion artifact. It records exact TX/RX bytes, fragments/discards, timestamps, intent/completion/error, ACK matches, sequence/loss observations, allocator/checkpoint events and artifact failures.
+
+Finalization requires RawLog, Evidence, sequence checkpoint and manifest/index hashes to verify. No-undetected-loss means any unaccounted sequence gap, missing byte range, fsync failure, missing sidecar/checkpoint, hash mismatch, torn tail or unverified backup yields incomplete/evidence_incomplete. Never synthesize missing samples/events.
+
+Distinguish: attempted conversion failure; attempted but unretained conversion; lost/discarded batch/frame; host receive gap/unknown bytes; Evidence persistence failure; unresolved loss. Aggregate counter alone is insufficient: channel and time-window dimensions are binding and belong in companion Evidence only, not RawLog v2. Window duration remains a design input.
+
+Recovery preserves originals byte-for-byte, does not truncate/repair records, does not synthesize PWM_STAGE/ADC_SAMPLE, publishes manifest last and retains work until all artifacts are verified. One independent backup is required; verification includes hashes and restore/readability, not merely successful copy.
+
+## F3. 310-1 through 310-3 compatibility
+
+| Contract | Source | 310-4 disposition |
+|---|---|---|
+| ADC_SAMPLE = one conversion | 310-1 / #170 | Preserved; each 12-sample batch expands to 12 independent records |
+| device_timestamp_point=conversion_midpoint | 310-1 | Preserved; individual conversion midpoint |
+| device_epoch_id full identity | 310-1 + 310-4 handshake | Full boot identity authoritative; low 32-bit tag is correlation only |
+| device_sample_sequence monotonic | 310-1 | Host expands uint16 wire sequence per full epoch; no schema change |
+| stage_context_id fixed at acquisition | 310-1 / #170 | Device snapshots token immediately before conversion; host maps by session + full epoch |
+| Python owns 31 stages | 310-3 | Preserved; no Arduino 310-second scheduler |
+| command sent ≠ ACK ≠ physical state | 310-1/3 | Preserved |
+| RawLog package/recovery | 310-2 | Public two-file package unchanged; Evidence is separate companion artifact |
+| Incomplete work not complete | 310-2/3 | Preserved; no synthetic records |
+
+No accepted RawLog v2 fields, types, record semantics or public package structure are changed. Any schema change requires a separate Issue #35 proposal.
+
+## F4. Authority boundary
+
+36,600 EEPROM events, ≥10-year Evidence retention, one independently verified backup, zero undetected loss, channel/window loss records, STOP independence from TX backpressure, explicit buffer ownership/occupancy/overflow and stack-inclusive SRAM evaluation are binding requirements. They do not approve a hardware configuration or prove implementation.
+
+20 Hz remains unadopted. BOD/fuse/supply conditions, numeric fsync budget, loss-window duration, exact storage/backup mechanism and compiler-backed SRAM/stack results remain open. This finalization authorizes no implementation or physical test.
