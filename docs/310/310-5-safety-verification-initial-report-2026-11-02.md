@@ -182,8 +182,8 @@ PR #184で起動したGitHub Actions run `41450041113` はcompleted/success。4 
 
 37項目の一覧集計:
 - PASS: 4（限定ソフトウェア範囲）
-- FAIL: 10
-- BLOCKED: 19
+- FAIL: 11
+- BLOCKED: 18
 - NOT RUN: 4
 
 ローカルclone試行は `Could not resolve host: github.com` で失敗。ローカルpytest/native harnessは未実施。CI成功はGitHub Actionsの証拠として保持するが、実機安全性・310-4 wire protocol適合のPASSには転用しない。
@@ -235,3 +235,23 @@ PR #185に3件目のテスト `test_abort_stop_is_not_blocked_by_a_stalled_rawlo
 - test-breakin: 19 passed
 - test-battery: 9 passed
 - 4 jobs all completed/success。ローカルpytest未実施。
+
+
+## 15. 送信前durable intent欠落の追加FAIL（2026-11-02）
+
+310-4の設計契約・decision registerを4文書横断で再照合し、Python sequenceの送信前処理を追加確認した。
+
+PR #182 HEAD `d9e718b607a873759fffd58fc75bf950af499095` の `measurement_310/engine.py`:
+- `_begin_stage(index)` は `self.send_pwm(index)` を先に呼び、その後に `command_sent_ns` を取得する。
+- 送信前にdurable TX intentまたはtransport Evidenceのappend/fsyncを行う処理は存在しない。
+- ACK受信後に `SESSION_EVENT(PWM_ACK_RECEIVED)` をappendするが、これは送信後の記録であり、送信前intentの代替にならない。
+
+310-4 design/decision register/T18は、nonzero PWM送信前にintentをdurable commitし、intent未fsyncまたは結果不明時はnonzero送信を禁止する契約である。したがってY03はBLOCKEDではなくFAILへ変更した。
+
+**判定変更後の37項目集計:**
+- PASS: 4（限定ソフトウェア範囲）
+- FAIL: 11
+- BLOCKED: 18
+- NOT RUN: 4
+
+この修正は試験一覧の判定更新のみ。durable intentはRawLog schemaを勝手に拡張せず、310-4で指定されたcompanion Evidence設計と310-2 package validator整合を解決した上で実装する必要がある。担当判断で新record typeやschemaを追加しない。
