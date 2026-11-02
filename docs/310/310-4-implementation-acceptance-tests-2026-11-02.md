@@ -104,3 +104,26 @@
 ## Overall gate
 
 All T01–T12 must be individually reported PASS/FAIL/BLOCKED with evidence references. BLOCKED is not PASS. T06 and physical portions of T07/T09 require separate hardware authorization. No CI-only result can satisfy physical safety or measurement qualification.
+
+
+## 最終完遂指示対応 — 追加受入試験（すべて未実施）
+
+### T13 EEPROM耐久・電源完全性
+前提: 実chip marking/signature、datasheet revision、board revision、fuse dump、温度/電圧範囲、external supervisor/hold-up設計の承認。操作: 36,600 events slot rotation modelとper-cell counter照合。全温度/電源公差/負荷stepでsupervisor threshold測定。各byte write境界でpower interruption注入しVCC waveformを記録。期待: marker≤4,576/cell、payload≤2,288/cell、aggregate marker=73,200。16MHz動作中VCC≥4.5V。power-failで新規commit抑止、既開始writeはhold-up内完了、曖昧journalはBOOT_ID_INVALID。合格: supervisor falling threshold min≥4.5V across specified tolerance/temp、hold-upは実測worst-case write completion+marginを満たす、partial record valid acceptance=0。満たせない場合EEPROM-only設計FAIL。証跡: marking/signature、fuse、scope waveform、temp/voltage sweep、journal dump、counter report。
+
+### T14 SRAM/map/stack
+前提: compiler/core/library/build flags固定、実装は別承認後。操作: linker map/avr-size、全構造体・buffer sizeof、HardwareSerial ring、worst nested parser/CRC/COBS/ADC/TX/STOP/ISR stack watermark、heap instrumentation。期待: static≤650B、stack≤384B、protected reserve≥256B、frame≤194B、RX≤40B、TX single workspace≤194B、critical pathにString/new/mallocなし。合格: 全上限同時達成、overflow/heap-stack collision/TX overwriteなし。上限超過はFAIL。証跡: map、symbols、sizeof、stack trace、heap trace、call graph。
+
+### T15 TX congestion中STOPとMCU fault
+前提: deterministic mock/simulator。実機は別の書面許可とindependent cutoff必須。操作: TX full、TX_OWNED、ADC batch assembly、RX burst、全stateでSTOP注入。別途MCU reset/freezeとdriver-enable/pull-down/cutoff観測。期待: STOP latch first、PWM0、direction LOW、ARM invalidation、STOP_LATCHED。UART drain/availableForWrite/ACKを待たない。TX frameは非interleaveでframe boundaryまでよいがoutput actionを遅らせない。MCU fault時は外部回路がdriver inactiveにする。合格: software transitionは事前承認bounded loop-service deadline内、latch後nonzero PWMなし。physical safetyはindependent driver-disable測定のみで判定。ACK単独はPASS根拠でない。証跡: scheduler/pin/enable waveform、TX occupancy、reset/freeze injection、driver/cutoff report。
+
+### T16 ADC精度・低周波統計
+前提: exact ACS712 suffix/vendor datasheet、schematic/filter、VREF/AVCC測定、traceable calibrated reference、statistic/window/settling/uncertainty/error/false-classification limitsを事前定義。操作: A0/A1個別zero/gain校正、A0,A1,A4,A5,A2,A3の個別midpoint取得。PWM0..30、threshold-near、channel switch、thermal/power cornersでreferenceと同期比較。25/75ms timestampsを維持。期待: A0だけ正式電流、A1独立、A2/A3参照、A4/A5独立raw。ADC ±2LSB contributionとsensor/reference/noise/offset/settling/filter termsを報告。合格: uncertainty budget内、bias/variance/repeatability/false classification限界内、timing/settling合格。variant/limits欠落はBLOCKED。証跡: sensor marking、calibration cert、paired raw captures、VREF、filter response、timing trace、uncertainty analysis。
+
+### T17 fsync latency/crash/durability
+前提: target host/storage benchmark profile、command/stage deadlines、safety marginを事前承認。操作: intent/RX/ACK/file/directory/manifest fsync各classを代表・stress loadで測定しmean/p50/p95/p99/p99.9/max/count/errorを記録。write/fsync/dir-fsync error、deadline超過、各intent/write/RX/ACK/checkpoint/manifest境界crash、backup restoreを注入。期待: durable intent前nonzero送信なし、failure後nonzero禁止、STOP best-effort、unknown-send intent再送なし、original保持、reconcile不能はincomplete。合格: measured worst-case persistence+serial/ACK/scheduler+preapproved margin < applicable deadline、p99/p99.9もdeadline内。全fault caseがhash verified completeまたは明示incomplete、silent successなし。backup restore hash identical。証跡: benchmark manifest、latency distributions、fault trace、recovery hashes、validator、restore report。
+
+### T18 20Hz候補の非採用確認
+前提: T16入力と別途承認されたhigh-rate reference capture。操作: 25/75ms候補統計をreferenceとphase/settling/noise別に比較。期待: uniform20Hzへの再ラベル、単純Nyquist=10Hz主張なし。合格: named low-frequency statisticの事前uncertainty/aliasing/classification boundsを満たす場合のみ候補を推奨できる。sampling clock採用やfirmware変更は別承認。証跡: reference captureとanalysis。
+
+T13–T18はNOT RUN。実装・compile・serial・energize・motor measurementの許可ではない。
