@@ -136,3 +136,54 @@ def test_duplicate_previous_stage_ack_fails_closed_after_next_pwm_send(tmp_path)
     assert ctl.poll() == SequenceState.FAULT
     assert sent == [0, 1]
     assert stops == ["STOP"]
+
+def test_late_ack_after_timeout_cannot_recover_faulted_sequence(tmp_path):
+    """An ACK arriving after timeout must not revive or advance the sequence."""
+    from measurement_310.engine import SequenceController, SequenceState
+    from raw_log_v2 import RawLogV2Writer
+
+    class Clock:
+        def __init__(self):
+            self.ns = 1_000_000_000
+
+        def monotonic_ns(self):
+            return self.ns
+
+        def utc_now(self):
+            return "2026-11-02T00:00:00.000Z"
+
+        def advance_ms(self, value):
+            self.ns += value * 1_000_000
+
+    clock = Clock()
+    sent, stops = [], []
+    acks = []
+    manifest = {
+        "log_id": "TEST-LATE-ACK", "measurement_session_id": "SESSION-LATE-ACK",
+        "started_at_utc": clock.utc_now(), "motor_instance_id": None,
+        "device": {"type": None, "model": None, "firmware_version": None,
+                   "firmware_build": None, "firmware_id": None, "adc_resolution_bits": None},
+        "measurement_conditions": {"direction": "UNKNOWN", "voltage_control_mode": "UNKNOWN",
+            "sweep_pwm_min": 0, "sweep_pwm_max": 30, "stage_duration_ms": 10000,
+            "schedule_owner": "PYTHON"},
+    }
+    ctl = SequenceController(
+        RawLogV2Writer(tmp_path), manifest,
+        lambda pwm: sent.append(pwm) or clock.utc_now(),
+        lambda: stops.append("STOP"),
+        lambda: acks.pop(0) if acks else None,
+        clock, ack_timeout_ms=100,
+    )
+    ctl.startup_recover()
+    ctl.start()
+    clock.advance_ms(100)
+    assert ctl.poll() == SequenceState.FAULT
+    assert sent == [0]
+    assert stops == ["STOP"]
+
+    # A late, otherwise matching ACK is now available to the controller.
+    acks.append((0, clock.utc_now()))
+    assert ctl.poll() == SequenceState.FAULT
+    assert sent == [0]
+    assert stops == ["STOP"]
+    assert acks == [(0, clock.utc_now())]
