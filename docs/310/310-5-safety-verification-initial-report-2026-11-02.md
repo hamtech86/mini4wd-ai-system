@@ -228,6 +228,10 @@ PR #185のGitHub Actions run `41461916009` はhead SHA `3be119f5c163100ac3e08a50
 PR #185に3件目のテスト `test_abort_stop_is_not_blocked_by_a_stalled_rawlog_append` を追加した。RawLog appendをthreading.Eventで意図的に停止させ、appendがブロックしている間にSTOP callbackが先に実行済みであることを確認する決定的host-side testである。
 
 - Current PR #185 HEAD: `d2be96981673e250ba2cbd7f552f91a27a3016c7`
-- New CI run: `41462228503`（queued、確認時点）
-- Previous HEAD `3be119f...` run `41461916009`: completed/success。38/312/19/9 tests passed across the four jobs. This evidence does not apply to current HEAD.
-- Current HEADのCIが完了するまで、追加testを含む最新差分のCI判定は保留。
+- Current PR #185 HEAD: `d2be96981673e250ba2cbd7f552f91a27a3016c7`
+- CI run `41462228503`: completed/success。head SHA一致を確認。
+- test-raw-log-and-sequence: 38 passed
+- test-full-suite: 313 passed
+- test-breakin: 19 passed
+- test-battery: 9 passed
+- 4 jobs all completed/success。ローカルpytest未実施。
