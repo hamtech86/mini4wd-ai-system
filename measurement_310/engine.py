@@ -345,15 +345,17 @@ class SequenceController:
         previous = self.state
         self.state = SequenceState.STOPPING
         self._last_fault = fault
+        # STOP transmission must be attempted before any RawLog append/fsync.
+        # Logging is secondary evidence and must never delay the emergency command.
+        try:
+            self.send_stop()
+        except Exception as exc:
+            self._last_fault = f"{self._last_fault or reason}; STOP send failed: {exc}"
         if not self._finalization_started and not self._log_write_failed:
             try:
                 self._record_aborted_stage(reason)
             except Exception as exc:
                 self._last_fault = f"{self._last_fault or reason}; stage log failed: {exc}"
-        try:
-            self.send_stop()
-        except Exception as exc:
-            self._last_fault = f"{self._last_fault or reason}; STOP send failed: {exc}"
         self.state = SequenceState.FAULT if self._last_fault else SequenceState.ABORTED
         # Keep work area incomplete for crash-safe recovery; do not falsely finalize
         # a partially completed sequence or claim physical stop.
