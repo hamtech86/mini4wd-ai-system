@@ -381,7 +381,7 @@ The mapping below is constrained by `docs/RAWLOG_V2_INDEPENDENT_SCHEMA.md` at ac
 | Python package writer order | Common record_seq | Assign monotonically in append order; never use device sample sequence as record_seq. |
 | measurement_session_id | Common measurement_session_id | Preserve the host UUID/string unchanged. |
 | Verified full boot_id64 from handshake | ADC_SAMPLE.device_epoch_id | Serialize as the accepted schema's string value, consistently for the whole boot epoch. The 32-bit header device_epoch_tag is correlation-only and MUST NOT be written as device_epoch_id. If the full boot_id64 is not received and verified, do not fabricate an epoch; acquisition/session association remains unresolved. |
-| sample_sequence (uint16) | ADC_SAMPLE.device_sample_sequence | Store the observed unsigned integer 0–65535, preserving wrap semantics in transport evidence. The accepted schema describes this as a monotonically increasing sequence but does not explicitly define uint16 rollover; this is a schema-contract ambiguity requiring commander resolution before implementation. |
+| sample_sequence (uint16) | ADC_SAMPLE.device_sample_sequence | Host extends the wire uint16 to an epoch-scoped monotonic uint64 JSON integer in the existing integer field. Preserve the original uint16 and wrap evidence in transport-evidence-v1. No RawLog schema/type change. |
 | channel_code | ADC_SAMPLE.channel | 0=A0, 1=A1, 2=A2, 3=A3, 4=A4, 5=A5. |
 | Channel lookup | ADC_SAMPLE.sensor / signal_role | A0=ACS712 #1 / winding_current; A1=ACS712 #2 / brush_stability_observation; A2=magnetic_sensor / magnetic_reference; A3=thermistor / thermistor_reference; A4=voltage_input_v4 / voltage_v4; A5=voltage_input_v5 / voltage_v5. |
 | adc_raw + acquisition_status | ADC_SAMPLE.adc_raw / validity / invalid_reason | Status 0: preserve 0–1023 raw integer, validity=valid, invalid_reason=null. Status 1/2/3: validity=unavailable, adc_raw=null, invalid_reason is the corresponding explicit status reason. Never persist 0xFFFF as a valid ADC code. |
@@ -523,7 +523,7 @@ The accepted RawLog v2 schema defines `device_sample_sequence` as an integer seq
 - Maintain per-full-`device_epoch_id` state: last accepted uint16 value, extended uint64 value, last device timestamp, and continuity status.
 - For each new sample, calculate modular delta = (new_u16 - last_u16) mod 65536. A forward delta in 1..32767 is eligible to advance the extended counter by that delta. Delta 0 is a duplicate candidate and must be deduplicated using exact frame/sample evidence; it is not assigned a new RawLog sequence. Delta 32768..65535 is ambiguous/backward and must not be guessed.
 - A missing-sample gap may produce delta >1; the extended value advances by the observed modular delta and the gap is recorded in transport evidence. The host does not synthesize missing ADC_SAMPLE records.
-- A wrap such as 65534, 65535, 0, 1 becomes extended values N, N+1, N+2, N+3. The resulting uint64 is stored in the existing RawLog v2 `device_sample_sequence` field; no schema field or type is added.
+- A wrap such as 65534, 65535, 0, 1 becomes extended values N, N+1, N+2, N+3. The resulting extended integer is stored in the existing RawLog v2 `device_sample_sequence` field; no schema field or type is added.
 - The original uint16 value, batch_sequence, loss counters and wrap/continuity observations are retained in transport-evidence-v1, not added to RawLog.
 - If no unambiguous forward relation can be established (e.g. host outage longer than the sequence ambiguity bound, unexplained device reset without a new verified epoch, or conflicting duplicate), the affected sample is not assigned a fabricated monotonic value. It is retained as unresolved transport evidence and the measurement package is marked sequence-incomplete pending review.
 
@@ -576,7 +576,7 @@ Adopt the following **design target for review**, not a proven product-life clai
 - Maximum expected boot events: 10 per calendar day.
 - Required service interval: 10 years.
 - Required boot count: 10 × 365.25 × 10 = 36,525 boots (round up to 36,600 for acceptance budgeting).
-- Journal design estimate: 800,000 marker-cell write/erase cycles under the stated 16-slot rotation and maximum two marker writes per slot use. This is approximately 21.8 times the 36,600-boot target. The estimate is conditional on correct wear leveling, EEPROM specification conditions and no unexpected extra writes; it is not a service-life guarantee.
+- Journal system-level rotation estimate: up to 800,000 boot events before a marker cell reaches 100,000 write/erase cycles, assuming 16-slot even rotation and two marker writes per slot visit. For the 36,600-event target, each marker cell sees at most 4,575 writes (73,200 marker writes summed across all slots); each payload cell sees at most 2,288 writes. These are per-cell versus aggregate counts as distinguished in §A4; conditional arithmetic only, not a service-life guarantee.
 
 Power and write failure requirements:
 
@@ -772,11 +772,11 @@ Write order: invalidate target marker; write payload and CRC; read back and veri
 
 ### F2.2 Sampling cadence and 20 Hz
 
-20 Hz/channel remains NOT ADOPTED. The candidate schedule (two scans 25 ms apart, repeated every 100 ms) yields 20 samples/s/channel and 10 ADC_BATCH/s, but does not establish measurement bandwidth or threshold validity.
+20 Hz/channel remains NOT ADOPTED. The candidate schedule (scans at T and T+25 ms, repeated every 100 ms) yields alternating 25 ms/75 ms intervals per channel, with a long-run average of 20 conversions/s/channel and 10 ADC_BATCH/s. It is non-uniform, not an equally spaced 20 Hz sample train, and does not establish measurement bandwidth or threshold validity.
 
 For a nominal 16 MHz ATmega328P using ADC prescaler 128, ADC clock is 125 kHz and a normal 13-clock conversion is approximately 104 µs. Six conversions have nominal conversion-core time around 0.62 ms per scan, excluding mux settling, software, timestamps and interrupts. This is clock arithmetic, not measured performance or proof of the installed firmware configuration.
 
-At 20 Hz, Nyquist is 10 Hz. It cannot resolve PWM ripple or commutation transients above 10 Hz. Suitability for a low-frequency statistic requires sensor variant/bandwidth, PWM frequency, analog filter transfer function, channel and stage settling, sampling phase, statistic and uncertainty limits, followed by an authorized reference comparison.
+The 25/75 ms periodic non-uniform schedule has no single uniform-sampling Nyquist frequency; do not apply a 10 Hz Nyquist claim. It cannot characterize PWM ripple or commutation transients from this average rate. Suitability for a low-frequency statistic requires sensor variant/bandwidth, PWM frequency, analog filter transfer function, channel and stage settling, sampling phase, statistic and uncertainty limits, followed by an authorized reference comparison.
 
 **Determination:** no sampling rate is approved. 20 Hz is only a transport/arithmetic candidate.
 
