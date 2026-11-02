@@ -10,7 +10,7 @@ No firmware or RawLog v2 schema change is authorized here. No PR merge or hardwa
 
 | Class | Presently runnable without hardware | Current status / evidence | Remaining need |
 |---|---|---|---|
-| Python sequence / protocol regressions | Yes, in CI using pytest and MockTransport | Draft PR #186 adds host regressions; Actions run 41536236339 is running at time of writing | Wait for run completion; report exact results and command from workflow |
+| Python sequence / protocol regressions | Yes, in CI using pytest and MockTransport | Draft PR #186; corrected HEAD `bfd673e9e5f89327aa3c6d06d324d482789aeb69`; Actions run `41536899145`: all four jobs success; full suite 324 passed | Extend cases only where behavior is supported by current API; late/stale ACK and reconnect/session binding still require explicit review |
 | ACK timeout/mismatch, fragmented/coalesced frames, timestamp ordering | Yes, existing Python tests | Existing test source covers representative paths | Additional cases for late/duplicate ACK and command/session/epoch binding are not yet demonstrated |
 | Transport write/flush error and STOP send failure | Mock-based tests can run | New STOP send-failure test added in PR #186 | pySerial physical behavior and timeout bounds remain unproven; configured write_timeout absent in reviewed source |
 | Durable pre-send TX intent | Not as a passing test with current implementation | FAIL retained: no durable intent is written/fsynced before nonzero PWM send | Implementation and acceptance criteria decision needed; do not alter RawLog v2 schema by assumption |
@@ -29,9 +29,14 @@ The added tests cover malformed ACK domain values, invalid codec consumed-byte c
 
 ## Execution record
 
-- GitHub Actions workflow run: 41536236339
-- Initial state observed: queued; later state: all four jobs entered dependency installation / in progress.
-- Exact test command and terminal outcome: pending final workflow result; do not mark PASS until observed.
+- GitHub Actions workflow run `41536899145` on HEAD `bfd673e9e5f89327aa3c6d06d324d482789aeb69`: all four jobs completed successfully.
+- `test-full-suite`: `python -m pytest -q --ignore=serial_command_test.py --ignore=serial_test.py tests/test_breakin_controller.py tests/test_anomaly_skip.py tests/test_recipe_engine.py` — **324 passed in 9.45s**.
+- `test-raw-log-and-sequence`: `python -m pytest -q tests/test_raw_log_library.py tests/test_raw_log_v2.py tests/test_local_raw_log_breakin_controller.py tests/test_sequence_executor.py` — **38 passed in 0.34s**.
+- `test-breakin`: `python -m pytest -q --ignore=serial_command_test.py --ignore=serial_test.py tests/test_breakin_controller.py tests/test_anomaly_skip.py tests/test_recipe_engine.py` — **19 passed in 0.67s**.
+- `test-battery`: `python -m pytest -q tests/test_battery_measurement_parser.py tests/test_battery_benchmark.py tests/test_battery_benchmark_service.py tests/test_battery_repository.py` — **9 passed in 0.07s**.
+- Note: the full-suite command is the workflow's configured command; it includes the new `tests/test_measurement_310_safety_regressions.py` via repository-wide discovery. The focused workflow jobs use explicit subsets.
+- The initial run `41536236339` failed only because a new test expected the wrong MockTransport exception text; test assertion was corrected without product-code changes, then run `41536899145` passed.
+- Local pytest/native firmware harness: NOT RUN in this record.
 - Local pytest/native firmware harness: NOT RUN in this record.
 - Hardware tests: BLOCKED / NOT RUN; no energization, Fuse operation, EEPROM interruption, ADC injection, or 310-second measurement.
 
