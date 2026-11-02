@@ -903,3 +903,68 @@ TX intentの完全frame bytes、command/session/epoch/context、host monotonic t
 条件付き決定: EEPROM journalは実chip確認とsupervisor/hold-up適合時のみ。満たさなければEEPROM-only採用禁止。ADC statisticは事前基準のreference比較合格時のみ。fsync性能はtarget benchmark profileとdeadline承認後に数値合否判定。
 
 実機/実装確認: chip marking/signature、fuse readback、VCC/reset/hold-up waveform、EEPROM interruption、compiler map/sizeof/stack、STOP pin/driver enable、ACS712 exact variant/filter/reference accuracy、storage p99.9/max/crash recovery。いずれも本作業では未実施。
+
+
+# 310-4 最終設計完遂追記 — 2026-11-02
+
+本追記は本文の旧暫定値に優先する。設計判断を確定するものであり、実装済み・実機確認済み・物理安全保証を意味しない。
+
+## 1. MCU・EEPROM耐久性
+
+設計基準はATmega328P/ATmega328/P、EEPROM 1,024 bytes、SRAM 2,048 bytes。16MHz動作はVCC 4.5–5.5Vのspeed-grade範囲に限定する。データシートはEEPROM耐久性を少なくとも100,000 write/erase cycles **per cell** と規定し、headline data retentionは85°Cで20年、25°Cで100年。保持年数と書換耐久回数は別の特性である。実搭載MCUは未同定であり、刻印、package、signature bytes、基板revision、実クロック、VCC/AVCC、fuse readbackを実機証跡として取得するまでATmega328P実機保証とは記載しない。
+
+16-slot × 16-byte journal、markerはslotごとに1 cell、slot visitごとにmarker invalidationとcommitの2 writes、payload cellは最大1 write/visitとする。36,600 boot eventsについて、36,600/16=2,287.5より最大slot visits=2,288。marker最大=2×2,288=**4,576 writes/cell**。payload最大=**2,288 writes/cell**。aggregate marker writes=36,600×2=**73,200**（全slot合計でありcell enduranceではない）。marker headroom=100,000−4,576=**95,424 cycles**、倍率=100,000/4,576=**約21.86×**。理想的な輪番上限=100,000×16/2=**800,000 boot events**は算術上の外挿であり、製品寿命保証ではない。36,600 eventsは計画値で、無制限retryは許可しない。
+
+EEPROM writeはatomic erase+write modeを使用し、データシートTable 12-1のprogramming time 3.4ms/byteを基準にする。EEMPE設定から4 CPU cycles以内にEEPEを設定し、次byte前にEEPE clearを待ち、readbackとCRC再計算を行う。slot更新順はmarker invalidation→残り15 bytes→readback/CRC→commit marker last→再readback。最悪17 byte writes × 3.4ms = **57.8ms programming time**（CPU処理、検出遅延、電源余裕は別）。marker-last+CRCは任意の電源断に対するbyte atomicityの証明ではない。任意の電源断に対する強い保証にはearly power-fail warning、外部supervisor、VCCを必要条件以上に維持するhold-up容量が必要。57.8msと設計余裕を満たす実測がない限り突然電源断耐性は未保証。曖昧なrecordはBOOT_ID_INVALIDとし、identityを推測・乱数生成しない。
+
+## 2. BOD・fuse・電源断
+
+ATmega328/P datasheet Table 32-8のBODLEVELは、disabled=111、1.8V nominal=110 (min 1.7/max 2.0V)、2.7V nominal=101 (min 2.5/max 2.9V)、4.3V nominal=100 (min 4.1/max 4.5V)。BOD hysteresisは約50mV、検出pulse幅は2µs。§32.3のspeed gradeは20MHz保証がVCC 4.5–5.5Vであり、16MHzもこの範囲内で使用する。
+
+**確定判断:** internal BODは4.3V nominal (fuse 100)を追加保護候補とするが、VBOT toleranceが4.1–4.5Vであり、16MHz保証下限4.5Vより低い個体側で動作し続け得るため、4.3V BOD単独で16MHz動作保証を満たすとは断定しない。基板側に外部voltage supervisorを必須とし、そのworst-case threshold/tolerance/temperature/propagation delayがMCU pin VCC 4.5V未満へ落ちる前にRESETをassertする設計とする。EEPROM書込中に完了させるには、early warningとhold-upを別に設計し、VCC≥4.5Vをtransaction中維持する。電源が瞬時消失、GND bounce、local VCC異常、supervisor故障/RESET線故障、hold-up不足では内部BODだけで保護できない。
+
+Fuse方針: actual 16MHz clock sourceに適合したCKSEL/SUT、CKDIV8 disabled、BODLEVEL=100をsecondary layer、SPIEN維持、RSTDISBL/DWEN未設定。BOOTRST/BOOTSZ/lock bitsはbootloader保守方針確定までUno既定値を盲目的に書き込まず、読出し値を記録する。Fuse書換は別承認が必要。cloneや別packageにUno標準fuse値を流用しない。
+
+## 3. SRAM・buffer・STOP
+
+2,048B SRAMの設計上限を以下に固定する（実測値ではない）。
+
+| Region | Maximum | Verification |
+|---|---:|---|
+| .data + .bss including HardwareSerial rings and static buffers | 900B | linker map |
+| Worst-case stack incl. nested ISR/calls | 700B | stack watermark + path analysis |
+| Untouched reserve | 448B | 2048−900−700 |
+
+RX wire workspace最大194B、TX wire workspace最大194B。ADC_BATCH payload 173BはTX workspace内に構築し、別173B staging bufferを持たない。COBS decode/encodeはin-placeを原則とし、追加full-frame copyは禁止。HardwareSerial RX/TX ring actual sizes are measured from pinned core and included in .data+.bss. Remaining static globals must fit 900−194−194−actual UART ring sizes. No unbounded queue. Buffer ownership FREE/FILLING/READY/TX_OWNED、occupancy/high-water/overflow classを明示し、TX_OWNED bufferの再利用は禁止。
+
+Parser/ADC/STOP/CRC/COBS/TX critical pathではString、malloc/new、dynamic allocation、recursion、VLA、unbounded copyを禁止。実装後にcompiler map、全buffer/struct sizeof、core ring size、worst nested stack watermark/canary、heap symbol auditを取得する。合格条件はstatic≤900B、worst stack≤700B、reserve≥448B、critical path heap=0、stack collision/canary damage/overflow=0。以前の650B/384B/256Bは未検証見積もりであり実証値ではない。
+
+STOPはTX drain/availableForWrite/flush/ACK送信/fsync/ADC batch completionに依存させない。valid STOP_REQ受信後の最優先処理はSTOP_LATCHEDを先に設定し、PWM compare/output=0、両方向pin LOW、ARM permission invalidationを同一のbounded safety pathで実行し、その後にSTOP_ACKをbest-effort送信する。既にTX_OWNED frameがある場合はframe boundaryでACKを送るが、STOP state/actionは待たせない。STOP_LATCHEDは新規HELLO/sessionとARMの明示的復帰手順以外で解除しない。MCU freeze、driver故障、FET短絡、方向pin短絡、reset中の出力状態はsoftwareだけで保証できない。driver-enable pull-down/interlockまたは独立電流遮断がなければ物理停止保証なし。
+
+## 4. ADC周期・測定精度
+
+チャンネル目的は不変: A0=巻線電流の唯一の正式入力、A1=独立ブラシ安定性観測、A2/A3=参照のみ、A4/A5=独立raw voltage。A0/A1平均・代替禁止。20Hz候補未採用。T/T+25ms/T+100msは同一channelの25ms/75ms交互intervalでありuniform 20Hzではない。
+
+ATmega328/P ADCは10-bit、single-ended 0..VREF。AVCCはVCCから±0.3V以内。VREFはAVCC/internal nominal 1.1V/external AREF。16MHz/128 prescaler=125kHz ADC clock。normal conversion 13 cycles=約104µs、first conversion 25 cycles=約200µs。MUX/referenceはconversion開始前に選択し、変換中に切替えない。channel switch後はdummy conversionを1回行って破棄し、次のconversionを正式sampleとする。source impedanceはADC pinで≤10kΩを設計目標とし、RC settlingを回路値で計算する。dummy conversionを含む実取得時間とper-channel timestampsが候補scheduleに合わなければ25/75ms案は採用しない。
+
+5.000V AVCC時のideal LSB=5000/1024=**4.883mV**。ACS712 sensitivity例185mV/A (5A)、100mV/A (20A)、66mV/A (30A)ではideal quantization scaleはそれぞれ約**26.4 / 48.8 / 74.0mA/count**。これはresolution換算であり検出限界/accuracyではない。Allegro ACS712 familyはFILTER pinでbandwidthが変わり、family datasheetの80kHz/5µsは個別moduleや当該sampling cadenceの保証ではない。正確なsuffix、module circuit、FILTER capacitor、sensor supply、VREF/AVCC、offset、temperature、wiringを同定するまでcurrent conversion accuracyを宣言しない。A0/A1は別々に校正・判定する。
+
+低周波statisticの精度試験は、sensor/filter/VREF/PWM frequency/channel order/dummy conversion/settling/statisticを固定してから行う。traceable reference instrumentのexpanded uncertainty Uref(k=2)はallowed uncertainty Uallowの1/3以下。zero、threshold-near、midrange、maximum intended rangeごとに各channelで30以上のstable windowsを収集する。各levelでabs(bias)+Uref≤Uallow、repeatability SD/95% interval/offset drift/temperature/hysteresisが事前承認限度内、threshold false-positive/false-negativeが事前承認risk limit内なら、その低周波statistic用途に限り合格。Uallowとrisk limitは現行specに数値がなく、司令塔/用途承認前のaccuracy保証はしない。PWM ripple/commutation transient/peak capture用途には適合を主張しない。
+
+## 5. fsync遅延・保存性能
+
+非zero PWMのframe bytes送信前に、完全なoutbound frame intent、command/session/epoch/context、monotonic timestamp、payload hashをTransport Evidenceへappendし、fsync完了させる。intent fsync失敗/結果不明なら送信禁止。RX/ACK/Evidence保存失敗後はnonzero PWMを禁止し、transportが使用可能ならSTOPを試行、packageはincomplete。STOP送信はnormal Evidence writer lock/queue/fsyncを待たない独立priority pathとし、STOP intentの保存失敗でSTOP自体を遅延させない。
+
+根拠のない固定ms値は設定しない。ARM前にtarget host実測からD_intentとD_evidenceを設定し、両者は10秒stage deadlineの残余slackおよび別途確保したSTOP handling budgetより厳しい上限であること。値が未設定/無効/実測で超過ならARM禁止。各operationが上限超過、10秒stage command deadline逸脱、matching durable ACK record欠落、fsync errorなら直ちにfail-closed abortし、次のnonzero PWMを禁止してSTOPを試行する。
+
+正確なhost/OS/filesystem/mount/storage/Python/runtime/負荷条件で、intent fsyncとEvidence fsyncを各10,000回以上、通常負荷・最大ADC_BATCH負荷・cold/warm状態で測定。intent、ACK/evidence append、checkpoint、manifest publication、backup syncを別々にmean/max/p50/p95/p99/p99.9で報告。短write、ENOSPC、fsync exception/delay、crash at append/fsync/rename/directory-fsync、host reboot、backup restoreをfault inject。合格は全operationが設定hard budget以内、p99.9以内、maximum以内、stage deadline miss=0、writer saturation中もSTOPが独立上限内、hash/count/ACK correlation一致、backupからbyte-identical restore。D_intent/D_evidenceはhost固有入力であり、実測未実施。失敗・欠損・不明な復旧はincomplete/evidence_incompleteとする。
+
+## 6. 決定事項と実機確認事項
+
+決定済み: MCU設計基準、EEPROMセル耐久計算、journal commit順序、BOD単独不十分、外部監視/hold-up要件、SRAM ceilings/buffer max、STOP action order、ADC channel roles/10-bit conversion framework/non-uniform schedule/accuracy qualification method、fsync fail-closed semantics/benchmark method。実機確認事項: fitted MCU/package/fuse/clock/VCC、external supervisor/hold-up implementation、ACS712 suffix/module/filter/VREF/source impedance、compiler map/stack、STOP electrical behavior、host fsync distribution and storage/backup. 実装後検証は確定設計への適合確認であり、設計判断の先送りではない。
+
+
+## 公式資料
+- Atmel-42735B-ATmega328/P Datasheet Complete, 11/2016: https://docs.arduino.cc/resources/datasheets/Atmel-42735-8-bit-AVR-Microcontroller-ATmega328-328P_Datasheet.pdf — §§12.3–12.4 (SRAM/EEPROM), §12.6.4 Table 12-1 (EEPROM write sequence/time), §15.5 and Table 32-8 (BOD), §28.3–28.5 (ADC timing/MUX), §32.3 (speed grade), §32.8 (ADC characteristics).
+- Allegro MicroSystems ACS712 Datasheet Rev.22 (2024-02-13): https://www.allegromicro.com/-/media/files/datasheets/acs712-datasheet.pdf — family bandwidth, FILTER pin and variant sensitivity; exact installed suffix/module remains unknown.
+- Microchip ATmega328P product page: https://www.microchip.com/en-us/product/ATMEGA328P
