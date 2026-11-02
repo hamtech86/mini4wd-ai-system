@@ -67,7 +67,7 @@
 | 16-slot | 技術的に確定 | 36,600 eventsでmarker max4,576/cell、payload max2,288/cell、aggregate marker73,200。算術余裕21.85x/43.71x。 |
 | BOD/fuse | 条件付き決定 | 16MHz VCC下限4.5V。4.3V BOD min4.1Vで単独不十分。external supervisor必須、BODは補助。Fuse policy確定、実機readback待ち。 |
 | 電源断 | 条件付き決定 | marker-last journal。byte atomicityなし。supervisor+hold-up不適合ならinternal EEPROM-only禁止/BOOT_ID_INVALID。 |
-| SRAM | 技術的に確定 | static≤900B、stack≤700B、reserve≥448B、max frame194B、RX≤40B、single TX workspace194B。いずれも上限で実証値でない。 |
+| SRAM | 技術的に確定 | static≤900B、stack≤700B、reserve≥448B、max frame194B、RX/TX workspace各194B、ADC payloadはTX内構築。いずれも上限で実証値でない。 |
 | STOP | 技術的に確定 | latch→PWM0→direction LOW→ARM invalidation/STOP_LATCHED。TX drain非依存。physical cutoffは外部回路。 |
 | ADC | 技術的に確定 | A0 formal current only、A1 independent、A2/A3 reference、A4/A5 raw independent。25/75ms nonuniform、20Hz未採用。 |
 | ADC精度 | 条件付き決定 | ADC 10-bit ±2LSB contribution。sensor/reference/offset/filter/settling/noiseを含むtraceable reference比較。未測定精度保証なし。 |
