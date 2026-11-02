@@ -37,7 +37,7 @@
 | L05 | incomplete packageをcompleteにしない・original preservation | crash/torn-tail/recovery retry/hash validation | **PASS (限定)** | 310-2既存recoveryテスト/CIのみ。companion Evidence追加後の挙動は未確認 |
 | Y01 | command_sent_nsはwrite/flush完了後 | blocking send clock injection、ACK timeout起点比較 | **PASS (限定)** | 310-3 source/testに対応あり。実対象310-4 codec未統合 |
 | Y02 | ACKはcommand/session/epoch/contextと一致 | wrong/late/duplicate ACKとtoken collision | **FAIL** | 現行SequenceControllerはPWM値中心、codec/全識別子相関なし |
-| Y03 | fsync前にnonzero command送信しない | intent/evidence fsync failure injection | **BLOCKED** | 310-4 durable TX intent integration未確認 |
+| Y03 | fsync前にnonzero command送信しない | _begin_stage()の送信前処理とRawLog append位置をソース照合 | **FAIL** | _begin_stage()はsend_pwm(index)を先に実行し、durable TX intent/Evidence appendを確認できない。ACK後のSESSION_EVENTは送信後記録であり代替にならない |
 | Y04 | fsync p99.9/max + margin < 10秒−STOP reserve | target host/storage fingerprintごと≥10,000 samples、分布/最大/合算評価 | **BLOCKED** | 実host測定なし |
 | Y05 | 不明command outcomeを安易に再送しない | partial write/flush timeout/late ACK recovery | **NOT RUN** | retry/reconciliation test未実施 |
 | W01 | Python管理PWM0..30、各10,000ms、全31段階 | injected clock/ACK、stage count/order/duration | **PASS (限定)** | 310-3 engine unit tests/CI。実機時間精度は未確認 |
