@@ -45,3 +45,14 @@
 | Evidence durability / fsync / recovery | A9.3およびF2.7。fault injection待ち |
 
 **総合:** 設計文書上の契約は統合したが、設計受入の最終判断に必要な一部の技術入力と、実装後検証の証拠は未取得。これらを設計記述の欠落と混同しない。
+
+
+## 2026-11-02 最終修正審査指摘への決定追記
+
+| 指摘 | 決定・分類 | 根拠／解決内容 | 残る境界 |
+|---|---|---|---|
+| EEPROM耐久表現 | 技術根拠により確定 | 100,000 write/erase cyclesはEEPROMセル単位。36,600 boot events時、16-slot輪番でmarker各セル最大4,575 write、payload各セル最大2,288 write。全markerセル合計73,200 write操作はaggregateでありセル耐久値ではない。 | データシートの実条件適用、BOD/電源断、実装後の耐久証跡は別途 |
+| ADC候補周期 | 技術根拠により確定 | T/T+25/T+100msは同一channelの25ms/75ms交互間隔。平均20 conversion/s/channelだがuniform 20Hzではない。 | 20Hz採用判断は行わない。非等間隔aliasingとreference captureが必要 |
+| RawLog sequence | 技術根拠により確定（既存schemaの意味範囲） | Issue #170/PR #180のADC_SAMPLE.device_sample_sequenceはintegerかつepoch内monotonic、固定uint16幅の規定なし。host uint64 extensionを既存integerに格納し、wire uint16はcompanion Evidenceに保持。schema/type/version変更なし。 | validator/package fixtureで既存integer許容とmanifest companion inventoryを実装後確認 |
+| batch/loss/context/Evidence | 設計入力不足で保留（package実装） | batch_sequence、loss_counter、stage_context_token、wire uint16はRawLog fieldへ追加せず、transport-evidence-v1 sibling artifactに保持。Issue #35 §3.4に沿いpackage inventory/manifestでhash参照。 | 現行manifest validatorの許容形式・artifact inventory extensionは実装前にschema fixtureで確定 |
+| CI | 技術根拠により確定 | 対象HEAD a21d22bの2 workflow runs、5 jobs成功をGitHub Actionsから確認。 | CIは文書・既存ソフトウェア回帰の結果で、実機安全性を証明しない |
