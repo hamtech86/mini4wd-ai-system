@@ -166,3 +166,24 @@ GitHub上でテストソースを取得し、テスト関数の定義と310-4試
 
 ### 12.4 CIとテスト実行証拠の境界
 PR #181/#182で該当workflow jobsがsuccessであることはGitHub Actionsのrun/job metadataから確認した。ただし本調査環境から `git clone` を試みたところ、DNSでgithub.comを解決できずローカルpytest/native harnessを実行できなかった。CIのsuccessは保持するが、未確認のテスト件数・個々のテスト実行ログを推定しない。
+
+
+## 13. 310-5提出状態・追加CI確認（2026-11-02）
+
+- 310-5 PR: #184
+- URL: https://github.com/hamtech86/mini4wd-ai-system/pull/184
+- Branch: `safety/310-5-verification`
+- 最新提出HEAD（追加試験一覧を含む）: `da930a1a4ff8ca8dfeffdd5a0ee0a9da10e97a67`
+- Base: `docs/310-4-design-v0.5` / PR #183 HEAD `291e8b17d31c2c4590986a4615f9454b9be666ce`
+- PR状態: Open / Draft / Unmerged
+- 変更ファイル: 2（本報告書、37項目の試験一覧）。Python/FW変更なし。
+
+PR #184で起動したGitHub Actions run `41450041113` はcompleted/success。4 jobs（test-full-suite、test-battery、test-raw-log-and-sequence、test-breakin）がsuccess。runの固定head_shaは `7e63aca7770e637aea993f0a00541e13030a4a2a` であり、最新HEAD `da930a1...` より前（試験一覧文書追加前）のcommitである。差分は文書追加のみでコード変更なし。最新文書HEADに対する別runは取得できていないため、run SHAを最新HEADと同一視しない。
+
+37項目の一覧集計:
+- PASS: 4（限定ソフトウェア範囲）
+- FAIL: 10
+- BLOCKED: 19
+- NOT RUN: 4
+
+ローカルclone試行は `Could not resolve host: github.com` で失敗。ローカルpytest/native harnessは未実施。CI成功はGitHub Actionsの証拠として保持するが、実機安全性・310-4 wire protocol適合のPASSには転用しない。
