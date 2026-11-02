@@ -210,3 +210,14 @@ PR #184で起動したGitHub Actions run `41450041113` はcompleted/success。4 
 - 物理停止の保証にはdriver enable等の独立hardware cutoff/回路仕様も必要だが、現状の実装・回路証拠は未確認。
 
 PR #185のCI結果が出たらhead SHAとrun SHAを照合して追記する。CI successであっても、TX-full独立性、MCU出力、実機物理停止のPASSにはしない。
+
+
+### 14.1 PR #185 CI確認（追加）
+
+PR #185のGitHub Actions run `41461916009` はhead SHA `3be119f5c163100ac3e08a50e13ccc88704238e9` に紐付く。各jobのpytest stepおよびcleanup stepは次の結果:
+- `test-raw-log-and-sequence`: 38 passed
+- `test-full-suite`: 312 passed
+- `test-breakin`: 19 passed
+- `test-battery`: 9 passed
+
+各jobのstep一覧はすべてcompleted/successを返した。一方、workflow run summary APIは確認時点でstatus=in_progress / conclusion=nullのままであったため、workflow全体の最終結論は未確定と記録する。ローカルpytest未実施。テスト成功はSTOP送信順序の回帰確認に限られ、TX full独立性・物理停止・310-4全体適合のPASSを意味しない。
