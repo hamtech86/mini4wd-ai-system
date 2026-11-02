@@ -118,9 +118,9 @@ ceil(36,600/16)=2,288 visits; marker=2×2,288=4,576; payload=2,288; aggregate ma
 4文書を同じ技術判断・数値・合否条件で更新した。設計文書は完遂したが、MCU実装同定・基板電源・センサー型番・host storageの実測完了とは異なる。実測していない精度・物理停止・電源断耐性は保証しない。
 
 ## 5技術課題の結論
-1. EEPROM: 1KB, 100,000 cycles/cell. 36,600 events/16 slots: max slot visits 2,288; marker 4,576 writes/cell; payload 2,288; aggregate marker 73,200; headroom 95,424; ratio 21.86×. 17×3.4ms=57.8ms. Marker-last+CRC alone does not prove arbitrary power-loss atomicity; early warning, external supervisor and measured hold-up required.
+1. EEPROM: 1KB, 100,000 cycles/cell. 36,600 events/16 slots: max slot visits 2,288; marker 4,576 writes/cell; payload 2,288; aggregate marker 73,200; headroom 95,424; ratio 21.86×. 17×3.4ms=57.8ms typical. Marker-last+CRC alone does not prove arbitrary power-loss atomicity; early warning, external supervisor and measured hold-up required.
 2. BOD: 4.3V nominal range 4.1–4.5V; 16MHz requires VCC≥4.5V. 4.3V BOD alone insufficient. External supervisor/hold-up requirement is explicit; installed fuse/chip not verified.
-3. SRAM/STOP: static≤900B, stack≤700B, reserve≥448B; RX/TX 194B each; STOP latch/PWM0/direction LOW/ARM invalidation before ACK; TX/fsync/batch cannot block. Software cannot protect frozen MCU or failed power stage.
+3. SRAM/STOP: static≤650B, stack≤384B, reserve≥256B; RX/TX 194B each; STOP latch/PWM0/direction LOW/ARM invalidation before ACK; TX/fsync/batch cannot block. Software cannot protect frozen MCU or failed power stage.
 4. ADC: A0/A1/A2/A3/A4/A5 roles unchanged; 10-bit, 5V ideal 4.883mV/LSB; ACS712 quantization examples 26.4/48.8/74.0mA/count only. 20Hz unadopted; 25/75ms nonuniform. Uref≤Uallow/3, ≥30 windows/level/channel, abs(bias)+Uref≤Uallow. No numeric accuracy claim; Uallow/risk limits need approval.
 5. fsync: durable intent before nonzero TX; fail-closed on uncertainty; STOP bypass; deadline miss abort; ≥10,000 commits/type and mean/max/p50/p95/p99/p99.9. No arbitrary fixed ms; host-specific budget and benchmark not yet measured.
 
@@ -129,7 +129,7 @@ ceil(36,600/16)=2,288 visits; marker=2×2,288=4,576; payload=2,288; aggregate ma
 - Allegro ACS712 Datasheet Rev.22 (2024-02-13): https://www.allegromicro.com/-/media/files/datasheets/acs712-datasheet.pdf. Family bandwidth/filter/sensitivity context only; installed suffix unknown.
 
 ## Calculation evidence
-36,600/16=2,287.5→2,288; 2×2,288=4,576; 100,000−4,576=95,424; 100,000/4,576≈21.86; 36,600×2=73,200; 100,000×16/2=800,000 idealized; 17×3.4ms=57.8ms; 16MHz/128=125kHz; 13 ADC cycles=104µs; 25 cycles=200µs; 5,000/1,024=4.883mV/LSB; current quantization 4.883/185=26.4mA, /100=48.8mA, /66=74.0mA per count; 2,048−900−700=448B.
+36,600/16=2,287.5→2,288; 2×2,288=4,576; 100,000−4,576=95,424; 100,000/4,576≈21.86; 36,600×2=73,200; 100,000×16/2=800,000 idealized; 17×3.4ms=57.8ms typical; 16MHz/128=125kHz; 13 ADC cycles=104µs; 25 cycles=200µs; 5,000/1,024=4.883mV/LSB; current quantization 4.883/185=26.4mA, /100=48.8mA, /66=74.0mA per count; 2,048−650−384−256=758B.
 
 ## CI / implementation status
 Previous HEAD a21d22b944754674d2e7db9be960063f554a4b5b had two workflow runs/five successful jobs (41443507381, 41443507345); these are historical and not final HEAD CI. Final HEAD CI must be fetched after last write; absent run means not run, never success. No Python/FW implementation, compile, upload, serial, motor energization, 310s measurement, fuse read/write, EEPROM interruption, ADC reference, compiler SRAM/stack or fsync benchmark performed.
