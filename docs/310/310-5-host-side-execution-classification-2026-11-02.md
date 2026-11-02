@@ -11,7 +11,7 @@ No firmware or RawLog v2 schema change is authorized here. No PR merge or hardwa
 | Class | Presently runnable without hardware | Current status / evidence | Remaining need |
 |---|---|---|---|
 | Python sequence / protocol regressions | Yes, in CI using pytest and MockTransport | Draft PR #186; corrected HEAD `bfd673e9e5f89327aa3c6d06d324d482789aeb69`; Actions run `41536899145`: all four jobs success; full suite 324 passed | Extend cases only where behavior is supported by current API; late/stale ACK and reconnect/session binding still require explicit review |
-| ACK timeout/mismatch, fragmented/coalesced frames, timestamp ordering | Yes, existing Python tests | Existing test source covers representative paths | Additional cases for late/duplicate ACK and command/session/epoch binding are not yet demonstrated |
+| ACK timeout/mismatch, fragmented/coalesced frames, timestamp ordering | Yes, existing Python tests | Existing test source covers representative paths | A delayed duplicate prior-stage ACK regression was added in PR #186 and passed CI; late ACK after timeout, reconnect/session binding, and epoch binding remain unproven |
 | Transport write/flush error and STOP send failure | Mock-based tests can run | New STOP send-failure test added in PR #186 | pySerial physical behavior and timeout bounds remain unproven; configured write_timeout absent in reviewed source |
 | Durable pre-send TX intent | Not as a passing test with current implementation | FAIL retained: no durable intent is written/fsynced before nonzero PWM send | Implementation and acceptance criteria decision needed; do not alter RawLog v2 schema by assumption |
 | fsync failure/crash/latency distribution | Failure injection is host-testable, but not all paths currently present | NOT RUN in this execution; no measured latency distribution | Add controlled writer/fsync injection tests and repeatable timing harness; production filesystem latency evidence remains environment-specific |
@@ -47,3 +47,16 @@ The added tests cover malformed ACK domain values, invalid codec consumed-byte c
 - fsync fault injection and latency distribution remain outstanding.
 - RawLog / transport Evidence artifact and manifest alignment remains unresolved.
 - SRAM/buffer ownership and firmware ADC acquisition quality remain unsupported by current Python-only evidence.
+
+
+## 310-5 host regression follow-up — 2026-11-02 22:27Z
+
+- PR #186 head: `937d00cf3ec8e1cdaeb3a2cff6553362ac6e4333`
+- CI run: `41537284114` — all four jobs completed successfully.
+- Full suite: `325 passed in 10.51s`.
+- RawLog/sequence focused suite: `38 passed in 2.29s`.
+- Break-in: `19 passed in 0.54s`.
+- Battery: `9 passed in 0.09s`.
+- New regression specifically feeds a delayed duplicate ACK for the previous PWM stage after the next PWM has been sent; expected result is FAULT and STOP attempt. The test passed in the full suite and focused RawLog/sequence suite.
+- This is a host-side behavior check with a fake clock and in-memory ACK callback. It does not establish real transport timing, MCU session/epoch identity, or physical STOP.
+- Local pytest remains NOT RUN. Firmware compile, serial hardware, and HW01–HW08 remain NOT RUN / BLOCKED pending explicit approval and missing board/electrical evidence.
