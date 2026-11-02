@@ -245,6 +245,39 @@ def test_abort_attempts_stop_before_any_aborted_stage_log_append(tmp_path, monke
     assert ctl.state == SequenceState.ABORTED
 
 
+
+def test_abort_stop_is_not_blocked_by_a_stalled_rawlog_append(tmp_path, monkeypatch):
+    import threading
+
+    clock = FakeClock()
+    stop_sent = threading.Event()
+    append_entered = threading.Event()
+    release_append = threading.Event()
+    ctl = SequenceController(RawLogV2Writer(tmp_path), manifest(tmp_path),
+        lambda pwm: clock.utc_now(), lambda: stop_sent.set(),
+        lambda: (0, clock.utc_now()), clock)
+    ctl.startup_recover()
+    ctl.start()
+    ctl.poll()
+
+    def blocked_append(record):
+        append_entered.set()
+        if not release_append.wait(2):
+            raise TimeoutError("test append release timed out")
+
+    monkeypatch.setattr(ctl.session, "append", blocked_append)
+    worker = threading.Thread(target=ctl.abort, args=("user_stop",), daemon=True)
+    worker.start()
+    try:
+        assert stop_sent.wait(1), "STOP must be attempted before RawLog append blocks"
+        assert append_entered.wait(1), "aborted stage append should follow STOP attempt"
+    finally:
+        release_append.set()
+        worker.join(2)
+
+    assert not worker.is_alive()
+    assert ctl.state == SequenceState.ABORTED
+
 def test_abort_still_records_fault_when_stop_send_fails_before_logging(tmp_path, monkeypatch):
     clock = FakeClock()
     order = []
