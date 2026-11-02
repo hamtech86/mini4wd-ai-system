@@ -19,7 +19,7 @@
 | UART frame arithmetic | 技術根拠により確定 | 194B batch、約33.7ms、平均負荷約34.3% | burst/worst-case latencyは未測定 | Protocol担当 | worst-case scheduler/queue試験 |
 | TX時STOP | 承認済み | TX backpressureでSTOP処理を阻害しない | 実装証明なし | Firmware担当（実装許可後） | TX詰まり時STOP試験 |
 | Buffer ownership/occupancy/overflow | 承認済み | 明示的状態・occupancy/high-water/loss区分 | 具体的配置は未確定 | Firmware担当（実装許可後） | ownership invariant/overflow試験 |
-| SRAM予算 | 実装後検証待ち | 650B static案 + 384B stack + 256B margin | compiler map/sizeof/core ring/stackがない | Firmware担当 | 実ビルドmapとstack余裕を提出 |
+| SRAM予算 | 実装後検証待ち | superseded: .data+.bss≤900B + stack≤700B + reserve≥448B | compiler map/sizeof/core ring/stackがない | Firmware担当 | 実ビルドmapとstack余裕を提出 |
 | fsync failure semantics | 技術根拠により確定 | intent未fsyncなら送信禁止、証跡失敗後nonzero PWM禁止、可能ならSTOP、incomplete | target storage性能未測定 | Python担当（実装許可後） | fault injection合格 |
 | fsync latency budget | 設計入力不足で保留 | 数値未確定 | 対象OS/filesystem/storage/load測定が必要 | Python設計担当 | p50/p95/p99/max測定＋期限合格基準を承認 |
 | RawLog v2 schema | 承認済み契約を維持 | 変更なし。ADC_SAMPLE=1 conversion | なし | 全担当 | schema validatorで無変更を確認 |
@@ -67,7 +67,7 @@
 | 16-slot | 技術的に確定 | 36,600 eventsでmarker max4,576/cell、payload max2,288/cell、aggregate marker73,200。算術余裕21.85x/43.71x。 |
 | BOD/fuse | 条件付き決定 | 16MHz VCC下限4.5V。4.3V BOD min4.1Vで単独不十分。external supervisor必須、BODは補助。Fuse policy確定、実機readback待ち。 |
 | 電源断 | 条件付き決定 | marker-last journal。byte atomicityなし。supervisor+hold-up不適合ならinternal EEPROM-only禁止/BOOT_ID_INVALID。 |
-| SRAM | 技術的に確定 | static≤650B、stack≤384B、reserve≥256B、max frame194B、RX≤40B、single TX workspace194B。いずれも上限で実証値でない。 |
+| SRAM | 技術的に確定 | static≤900B、stack≤700B、reserve≥448B、max frame194B、RX≤40B、single TX workspace194B。いずれも上限で実証値でない。 |
 | STOP | 技術的に確定 | latch→PWM0→direction LOW→ARM invalidation/STOP_LATCHED。TX drain非依存。physical cutoffは外部回路。 |
 | ADC | 技術的に確定 | A0 formal current only、A1 independent、A2/A3 reference、A4/A5 raw independent。25/75ms nonuniform、20Hz未採用。 |
 | ADC精度 | 条件付き決定 | ADC 10-bit ±2LSB contribution。sensor/reference/offset/filter/settling/noiseを含むtraceable reference比較。未測定精度保証なし。 |
@@ -86,14 +86,14 @@
 | EEPROM | 技術決定 | 100,000 cycles/cell; 36,600 events/16 slots; max visit 2,288; marker 4,576 writes/cell; payload 2,288; aggregate marker 73,200; margin 95,424; 21.86× | 実機電源/温度/電源断 |
 | EEPROM commit | 技術決定＋回路条件 | 3.4ms/byte; 17 writes=57.8ms; marker-last+CRC/readback; arbitrary power-loss claim requires early warning+external supervisor+hold-up | 実回路波形/hold-up measurement |
 | BOD/fuse | 技術決定 | BOD 1.8V range1.7–2.0; 2.7V range2.5–2.9; 4.3V range4.1–4.5. 4.3V alone cannot guarantee 16MHz; external supervisor required | fuse readback, supervisor limits, supply ramp |
-| SRAM | 技術決定 | .data+.bss≤900B; stack≤384B; reserve≥256B; RX/TX max194B each; no second 173B ADC staging buffer; no dynamic heap/String in critical path | linker map/sizeof/stack/heap audit |
+| SRAM | 技術決定 | .data+.bss≤900B; stack≤700B; reserve≥448B; RX/TX max194B each; no second 173B ADC staging buffer; no dynamic heap/String in critical path | linker map/sizeof/stack/heap audit |
 | STOP | 技術決定 | STOP_LATCHED→PWM0→direction LOW→ARM invalidation before ACK; no TX/fsync/batch wait | simulator then separately approved hardware test |
 | ADC | 技術決定＋application tolerance | A0 official, A1 independent, A2/A3 reference, A4/A5 independent; 10-bit; 5V ideal 4.883mV/LSB; ACS712 quantization examples 26.4/48.8/74.0mA/count; no 20Hz adoption; 25/75ms nonuniform; discard one dummy conversion after MUX switch | exact sensor/filter/VREF/impedance, Uallow/risk limits, reference captures |
 | ADC precision | 技術決定 | Uref(k=2)≤Uallow/3; ≥30 stable windows/level/channel; abs(bias)+Uref≤Uallow | Uallow and false-classification limit approval; no accuracy guarantee now |
 | fsync | 技術決定＋host configuration | intent fsync before nonzero TX; fail-closed on fsync failure/uncertainty; STOP bypass; deadline overrun abort; ≥10,000 operations/type; mean/max/p50/p95/p99/p99.9 | D_intent/D_evidence measured on exact host; not run |
 | Evidence retention | 承認済み要件 | ≥10 years; one independently verified backup; zero undetected loss; channel/time-window accounting | storage and restore evidence |
 
-訂正計算: 36,600/16=2,287.5→max2,288; marker=2×2,288=4,576 (prior 4,575 was incorrect); 100,000−4,576=95,424; 100,000/4,576≈21.86; 36,600×2=73,200; 100,000×16/2=800,000 idealized; 17×3.4ms=57.8ms typical; 5,000/1,024=4.883mV/LSB; 2,048−650−384−256=758B.
+訂正計算: 36,600/16=2,287.5→max2,288; marker=2×2,288=4,576 (prior 4,575 was incorrect); 100,000−4,576=95,424; 100,000/4,576≈21.86; 36,600×2=73,200; 100,000×16/2=800,000 idealized; 17×3.4ms=57.8ms typical; 5,000/1,024=4.883mV/LSB; 2,048−900−700=448B.
 
 「実装後検証待ち」は設計未決定を意味しない。上記設計判断は確定し、実装後検証は適合性証明に限定する。
 
