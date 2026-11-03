@@ -1,6 +1,7 @@
 """310-stage sequence orchestration and RawLog v2 adapter."""
 from __future__ import annotations
 
+import threading
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
@@ -82,6 +83,8 @@ class SequenceController:
         self._finalization_started = False
         # Once any append fails, this session is write-disabled. STOP is still attempted.
         self._log_write_failed = False
+        # Non-blocking lock makes abort entry atomic and safe for callback re-entry.
+        self._abort_lock = threading.Lock()
 
     def startup_recover(self) -> list[dict[str, Any]]:
         if self.state != SequenceState.READY:
@@ -340,13 +343,18 @@ class SequenceController:
         )
 
     def abort(self, reason: str, fault: Optional[str] = None) -> None:
-        if self.state in {SequenceState.STOPPING, SequenceState.ABORTED,
-                         SequenceState.FAULT, SequenceState.COMPLETED}:
-            # Re-entrant/repeated abort requests must not recursively transmit STOP
-            # or append duplicate abort records. STOPPING is latched before callback.
+        # A non-blocking acquisition avoids deadlock on same-thread callback
+        # re-entry and makes the state check/latch atomic across caller threads.
+        if not self._abort_lock.acquire(blocking=False):
             return
-        previous = self.state
-        self.state = SequenceState.STOPPING
+        try:
+            if self.state in {SequenceState.STOPPING, SequenceState.ABORTED,
+                             SequenceState.FAULT, SequenceState.COMPLETED}:
+                return
+            previous = self.state
+            self.state = SequenceState.STOPPING
+        finally:
+            self._abort_lock.release()
         self._last_fault = fault
         # STOP transmission must be attempted before any RawLog append/fsync.
         # Logging is secondary evidence and must never delay the emergency command.
