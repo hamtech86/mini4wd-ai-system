@@ -847,3 +847,55 @@ def test_stop_callback_failure_does_not_prevent_best_effort_abort_logging(tmp_pa
     assert append_seen
     assert ctl.state == SequenceState.FAULT
     assert "STOP send failed" in (ctl._last_fault or "")
+
+
+def test_reentrant_abort_during_stop_callback_is_latched_once(tmp_path):
+    clock = FakeClock()
+    stops = []
+    holder = {}
+
+    def stop_callback():
+        stops.append("STOP")
+        # Simulate a second abort source firing synchronously while STOP is in flight.
+        holder["controller"].abort("safety_stop", fault="nested source")
+
+    ctl = SequenceController(
+        RawLogV2Writer(tmp_path), manifest(tmp_path),
+        lambda pwm: clock.utc_now(), stop_callback, lambda: None, clock,
+    )
+    holder["controller"] = ctl
+    ctl.startup_recover()
+    ctl.start()
+    ctl.abort("user_stop")
+
+    assert stops == ["STOP"]
+    assert ctl.state == SequenceState.FAULT
+    # Later sources cannot trigger a second STOP or duplicate abort evidence.
+    ctl.abort("communication_lost", fault="late source")
+    assert stops == ["STOP"]
+
+
+def test_repeated_abort_after_success_does_not_repeat_stop_or_append(tmp_path, monkeypatch):
+    clock = FakeClock()
+    stops = []
+    ctl = SequenceController(
+        RawLogV2Writer(tmp_path), manifest(tmp_path),
+        lambda pwm: clock.utc_now(), lambda: stops.append("STOP"),
+        lambda: None, clock,
+    )
+    ctl.startup_recover()
+    ctl.start()
+    append_count = []
+    original_append = ctl.session.append
+
+    def count_append(record):
+        append_count.append(record)
+        return original_append(record)
+
+    monkeypatch.setattr(ctl.session, "append", count_append)
+    ctl.abort("user_stop")
+    count_after_first = len(append_count)
+    ctl.abort("safety_stop")
+    assert ctl.state == SequenceState.ABORTED
+    assert stops == ["STOP"]
+    assert len(append_count) == count_after_first
