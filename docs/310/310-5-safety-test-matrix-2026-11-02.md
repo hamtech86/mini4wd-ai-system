@@ -198,3 +198,19 @@ PR #184の最新HEADは `a1ff1acc682160161e128a11f40c3f980d11db7c`。ただし�
 - firmware compile / native harness / HEX artifact / linker map / SRAM・stack計測 / ADC・STOP timing traceは、いずれのHEADについても本PRのCI証拠として確認できていない。
 
 PR #184 remains Draft / Open / Unmerged. No workflow dispatch, source change, hardware operation, or stage transition was performed. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains in force.
+
+
+## 2026-11-03 latest HEAD CI execution (in progress at review time)
+
+After the CI-attribution clarification commit, GitHub Actions created run `41617286382` for exact PR #184 HEAD `b6f8552433ee92629e8459aaad8aa0a4433ef497`.
+
+Observed at review time:
+- Workflow: `Break-in and Battery Tests`; event is the PR workflow.
+- Four jobs exist: `test-full-suite`, `test-battery`, `test-raw-log-and-sequence`, `test-breakin`.
+- All four jobs were still `in_progress`; setup had started, while dependency installation and test steps were pending.
+- Artifact list: zero artifacts at this observation time.
+- No firmware compile/native C++ harness job is present in this run's job list.
+
+Disposition: **CI pending; no pass/fail result yet.** Recheck run `41617286382` before using it as completed evidence. Even if all four jobs pass, this run covers the listed Python suites only and does not close firmware compile, native harness, map/stack, ADC, TX congestion, STOP timing, or physical cutoff evidence gaps.
+
+PR #184 remains Draft / Open / Unmerged. No workflow was manually dispatched; this is the automatically associated PR run. No hardware operation or stage transition was performed. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains in force.
