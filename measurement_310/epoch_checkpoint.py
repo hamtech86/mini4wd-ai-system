@@ -82,6 +82,8 @@ def decode_checkpoint(raw: bytes) -> EpochCheckpoint:
     if set(envelope) != {"payload", "sha256"}:
         raise ValueError("invalid checkpoint envelope")
     payload = envelope["payload"]
+    if not isinstance(payload, dict):
+        raise ValueError("checkpoint payload must be an object")
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     if not isinstance(envelope["sha256"], str) or not hmac.compare_digest(
         hashlib.sha256(canonical).hexdigest(), envelope["sha256"]
@@ -116,7 +118,7 @@ def resolve_checkpoint(
                                     "checkpoint absent; sequence continuity is unproven")
     try:
         checkpoint = decode_checkpoint(raw)
-    except (ValueError, TypeError, UnicodeError, json.JSONDecodeError) as exc:
+    except (ValueError, TypeError, UnicodeError, json.JSONDecodeError, AttributeError) as exc:
         return CheckpointResolution(CheckpointStatus.UNRESOLVED_CORRUPT, None,
                                     f"checkpoint cannot be trusted: {exc}")
     if checkpoint.boot_id64 == observed_boot_id64:
