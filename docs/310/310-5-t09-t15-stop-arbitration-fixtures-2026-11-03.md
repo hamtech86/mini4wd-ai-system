@@ -45,3 +45,20 @@ physical safety.
 Authored only; NOT RUN in this environment. No CI dispatch. No physical
 hardware activity. Formal T09/T15 acceptance remains NOT PASS pending
 upper-command review and the required independent-path/concurrency evidence.
+
+## Re-entrant/repeated request latch (2026-11-03 follow-up)
+
+The controller now returns immediately when `abort()` is called while state is
+STOPPING, ABORTED, FAULT, or COMPLETED. This prevents a synchronous re-entrant
+callback from recursively invoking STOP and prevents later sequential abort
+calls from duplicating STOP/log records. The first abort request owns the
+transition; nested requests do not replace its reason.
+
+Implementation commit: `0fbffdbd9667cba836cd0ddb1b202817d49de0f3`.
+Regression tests: `e39294ae2e7155928267604bd62d9223d38e995d` (initial fixture),
+`0452902fa573adf09359970147a8884cd8f2d325` (first-request-wins assertion).
+
+This is a re-entrancy/sequential idempotence latch only. It is NOT a
+thread-synchronization primitive: simultaneous calls from multiple threads can
+still race between the state check and STOPPING assignment. No claim of
+concurrent arbitration or STOP deadline is made. Tests remain NOT RUN.
