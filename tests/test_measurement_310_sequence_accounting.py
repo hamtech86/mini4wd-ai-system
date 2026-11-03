@@ -98,3 +98,22 @@ def test_payload_must_be_immutable_bytes():
     tracker = DeviceSequenceTracker(7)
     with pytest.raises(TypeError):
         tracker.observe(1, bytearray(b"x"))
+
+def test_checkpoint_restore_preserves_extended_sequence_without_payload_guess():
+    tracker = DeviceSequenceTracker.from_checkpoint(
+        0x1234567800000001, extended_sequence=65536, wire_sequence=0
+    )
+    replay = tracker.observe(0, b"possibly-duplicate")
+    assert replay.disposition is D.UNVERIFIED_REPLAY
+    assert not replay.accepted
+    assert tracker.last_extended_sequence == 65536
+
+    next_frame = tracker.observe(1, b"next")
+    assert next_frame.disposition is D.NEXT
+    assert next_frame.extended_sequence == 65537
+    assert next_frame.accepted
+
+
+def test_checkpoint_restore_rejects_wire_extended_mismatch():
+    with pytest.raises(ValueError):
+        DeviceSequenceTracker.from_checkpoint(1, 65536, 1)
