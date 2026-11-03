@@ -50,7 +50,7 @@ This is an execution ledger, not a specification amendment, acceptance record, o
 - Added `measurement_310/loss_accounting.py`: pure deterministic accounting per channel, full boot epoch, and half-open window; separates valid/invalid attempts, exact duplicates, conflicting duplicates, missing, excess, and unattributable records. Unknown expected count leaves missing as null. Stable JSON and SHA-256 digest are provided.
 - Added `tests/test_measurement_310_loss_accounting.py`: coverage authored for expected/missing, invalid, duplicate/conflict, half-open boundary, channel/epoch isolation, unattributable observations, deterministic serialization, and invalid inputs.
 - Commits: implementation `4adfbf230484411f11c58bdce4fc08c1fe01f777`; tests `2e4812f0083627f45f4dd32601f933d29402fbbd`.
-- Tests have NOT been executed. This is host-only candidate code and does not infer missing records from sequence gaps automatically; upstream attribution and expected-count source remain required. No RawLog schema changed.
+- Tests have NOT been executed. This is host-only candidate code and does not infer missing records from sequence gaps automatically; upstream attribution and expected-count source remain required. No RawLog schema changed.\n- Follow-up hardening commits `363de0ef77dcd20de8b2a02531dddcc73d6dc492` and `ecdba6bb636431ab9c7c9d332e08a1c051e677a7` validate integer-only expected counts and window bounds, classify malformed observation identity/time fields as unattributable, and add excess/malformed-input boundary fixtures. These tests also remain NOT RUN.
 
 ## Status
 
