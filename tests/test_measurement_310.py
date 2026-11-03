@@ -1001,3 +1001,41 @@ def test_pyserial_success_requires_full_write_and_flush(monkeypatch):
     transport = _connected_pyserial(monkeypatch, fake)
     transport.send(b"STOP")
     assert fake.calls == [("write", b"STOP"), ("flush",)]
+
+
+
+def test_uncertain_protocol_stop_failure_latches_fault_and_records_unknown_device_state(tmp_path):
+    """A transport error is ambiguous delivery, not proof that STOP was not received."""
+    import json
+    from measurement_310.transport import ProtocolClient
+
+    class Codec:
+        def encode_pwm(self, pwm):
+            return f"PWM:{pwm}".encode()
+        def encode_stop(self):
+            return b"STOP"
+        def decode(self, payload):
+            return {"kind": "PWM_ACK", "pwm": 0}
+
+    clock = FakeClock()
+    transport = MockTransport(fail_send=True)
+    client = ProtocolClient(transport, Codec())
+    client.connect()
+    ctl = SequenceController(
+        RawLogV2Writer(tmp_path), manifest(tmp_path),
+        lambda pwm: clock.utc_now(), client.send_stop, lambda: None, clock,
+    )
+    ctl.startup_recover()
+    ctl.start()
+    ctl.abort("user_stop")
+
+    assert ctl.state == SequenceState.FAULT
+    assert "STOP command send failed" in (ctl._last_fault or "")
+    records = [json.loads(line) for line in
+               (tmp_path / ".work" / "TEST-310" / "records.jsonl").read_text().splitlines()]
+    event = next(r for r in records if r.get("event") == "COMMUNICATION_LOST")
+    assert event["details"]["stop_transmission_attempted"] is True
+    assert event["details"]["device_state"] == "unknown"
+    assert "STOP command send failed" in event["details"]["fault"]
+    assert transport.sent == []
+    # Mock failure does not model wire delivery; no retry is attempted.
