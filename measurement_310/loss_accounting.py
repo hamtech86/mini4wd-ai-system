@@ -48,17 +48,25 @@ class LossSummary:
     digest_sha256: str
 
 
+def _integer(value: object, name: str) -> None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f"{name} must be int")
+
+
 def _validate_window(w: Window) -> None:
-    if not w.channel:
-        raise ValueError("channel must be non-empty")
-    if isinstance(w.boot_id64, bool) or not isinstance(w.boot_id64, int):
-        raise TypeError("boot_id64 must be int")
+    if not isinstance(w.channel, str) or not w.channel:
+        raise ValueError("channel must be a non-empty string")
+    _integer(w.boot_id64, "boot_id64")
     if not 0 <= w.boot_id64 <= 0xFFFFFFFFFFFFFFFF:
         raise ValueError("boot_id64 must fit uint64")
+    _integer(w.start_ns, "start_ns")
+    _integer(w.end_ns, "end_ns")
     if w.start_ns >= w.end_ns:
         raise ValueError("window must be non-empty [start, end)")
-    if w.expected is not None and (isinstance(w.expected, bool) or w.expected < 0):
-        raise ValueError("expected must be a non-negative integer or None")
+    if w.expected is not None:
+        _integer(w.expected, "expected")
+        if w.expected < 0:
+            raise ValueError("expected must be non-negative or None")
 
 
 def summarize(window: Window, observations: Iterable[Observation]) -> LossSummary:
@@ -73,7 +81,21 @@ def summarize(window: Window, observations: Iterable[Observation]) -> LossSummar
     valid = invalid = duplicates = conflicts = attempts = unattributable = 0
 
     for item in observations:
+        if not isinstance(item, Observation):
+            raise TypeError("observations must contain Observation values")
         if item.channel is None or item.boot_id64 is None or item.timestamp_ns is None:
+            unattributable += 1
+            continue
+        if not isinstance(item.channel, str) or not item.channel:
+            unattributable += 1
+            continue
+        try:
+            _integer(item.boot_id64, "observation boot_id64")
+            _integer(item.timestamp_ns, "timestamp_ns")
+        except TypeError:
+            unattributable += 1
+            continue
+        if not 0 <= item.boot_id64 <= 0xFFFFFFFFFFFFFFFF:
             unattributable += 1
             continue
         if (item.channel, item.boot_id64) != (window.channel, window.boot_id64):
