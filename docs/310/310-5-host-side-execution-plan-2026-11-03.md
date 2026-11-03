@@ -62,3 +62,6 @@ This is an execution ledger, not a specification amendment, acceptance record, o
 ## Status
 
 T01–T18 formal acceptance remains unchanged: 0 PASS. This ledger does not authorize 310-6.
+
+
+T09/T15 follow-up (2026-11-03): `abort()` now latches re-entrant and sequential calls while STOPPING/ABORTED/FAULT/COMPLETED, avoiding repeated STOP callback and duplicate abort records. Implementation `0fbffdbd9667cba836cd0ddb1b202817d49de0f3`; regression tests `0452902fa573adf09359970147a8884cd8f2d325`; scope note `839a7e5426c8334163b8407f2577df418e78da64`. Tests NOT RUN. This is not thread synchronization; true simultaneous-call arbitration, hung STOP callbacks, independent UART priority, bounded latency, and physical cutoff remain unverified.
