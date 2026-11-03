@@ -148,10 +148,10 @@ A repository-wide code search located a legacy motor firmware candidate and its 
 At main snapshot `130e453ea3907f071209687a06c3e73535a8952d`, line 1384 is literally:
 
 ```cpp
-activeArmToken[0] = '\\\\0';
+activeArmToken[0] = '\\0';
 ```
 
-The character literal contains two backslashes before `0` in the source (not the single escape `'\\0'`). This is a multi-character literal rather than a null-character literal, so the intended token-buffer clearing is not performed as written. `driveArmed=false` is also set in the same fault path and remains the effective gate, but this is still a source defect requiring review by the firmware owner. The STOP path at line 970 uses the correct single-backslash null literal. No patch was made because firmware modification is outside this verification authorization.
+The character literal contains two backslashes before `0` in the source (not the single escape `'\0'`). This is a multi-character literal rather than a null-character literal, so the intended token-buffer clearing is not performed as written. `driveArmed=false` is also set in the same fault path and remains the effective gate, but this is still a source defect requiring review by the firmware owner. The STOP path at line 970 uses the correct single-backslash null literal. No patch was made because firmware modification is outside this verification authorization.
 
 ### Matrix interpretation
 
