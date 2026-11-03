@@ -88,3 +88,12 @@ The review artifact is
 (commit `5f238c83706e3de464469032d016ab638975891e`). No code change was made
 because channel topology, STOP-vs-in-flight-PWM policy, and latency bound require
 authority-level decisions. Tests NOT RUN; no CI/hardware. T09/T15 remain NOT PASS.
+
+
+T09/T15 serial failure fixtures (2026-11-03): added fake-pySerial host tests for
+write exception with unknown partial progress, short write, flush exception
+after write, and successful full write+flush. Test commit
+`91ebe8e4d22e527acfd3b266d601e5ae29d95ca4`; fixture note
+`5edd9c1adfe7802b34b24b5dc980e6d537598a03`. No real port is opened. A write or
+flush exception leaves delivery uncertain; it does not prove STOP was not
+received. Tests NOT RUN; no CI/hardware. T09/T15 remain NOT PASS.
