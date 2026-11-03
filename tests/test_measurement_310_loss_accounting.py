@@ -22,6 +22,12 @@ def test_counts_valid_invalid_missing_and_excess_separately():
     assert result.excess == 0
 
 
+def test_excess_is_counted_when_observed_attempts_exceed_expected():
+    result = summarize(Window("CH1", 9, 0, 10, 1), [obs(1), obs(2, "invalid")])
+    assert result.excess == 1
+    assert result.missing == 0
+
+
 def test_gap_is_represented_by_known_expected_count_not_synthetic_sample():
     result = summarize(Window("CH1", 9, 0, 100, 4), [obs(1), obs(2), obs(4)])
     assert result.valid == 3
@@ -51,6 +57,14 @@ def test_unattributable_is_separate_and_not_assigned_to_window():
     assert result.missing == 0
 
 
+def test_malformed_observation_numeric_fields_are_unattributable():
+    result = summarize(Window("CH1", 9, 0, 10, 1), [
+        obs(2), obs(3.5), obs(4, boot=True),
+    ])
+    assert result.valid == 1
+    assert result.unattributable == 2
+
+
 def test_identical_input_has_byte_identical_canonical_output():
     window = Window("CH1", 9, 0, 10, 3)
     inputs = [obs(1), obs(2, "invalid"), obs(3, "duplicate")]
@@ -69,3 +83,15 @@ def test_unknown_disposition_is_rejected():
 def test_invalid_expected_count_is_rejected(expected):
     with pytest.raises(ValueError):
         summarize(Window("CH1", 9, 0, 10, expected), [])
+
+
+@pytest.mark.parametrize("expected", [1.5, "2"])
+def test_non_integer_expected_count_is_rejected(expected):
+    with pytest.raises(TypeError):
+        summarize(Window("CH1", 9, 0, 10, expected), [])
+
+
+@pytest.mark.parametrize("start,end", [(0.5, 10), (0, 10.5), (10, 10), (11, 10)])
+def test_invalid_window_bounds_are_rejected(start, end):
+    with pytest.raises((TypeError, ValueError)):
+        summarize(Window("CH1", 9, start, end, 1), [])
