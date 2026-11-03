@@ -52,6 +52,13 @@ This is an execution ledger, not a specification amendment, acceptance record, o
 - Commits: implementation `4adfbf230484411f11c58bdce4fc08c1fe01f777`; tests `2e4812f0083627f45f4dd32601f933d29402fbbd`.
 - Tests have NOT been executed. This is host-only candidate code and does not infer missing records from sequence gaps automatically; upstream attribution and expected-count source remain required. No RawLog schema changed.\n- Follow-up hardening commits `363de0ef77dcd20de8b2a02531dddcc73d6dc492` and `ecdba6bb636431ab9c7c9d332e08a1c051e677a7` validate integer-only expected counts and window bounds, classify malformed observation identity/time fields as unattributable, and add excess/malformed-input boundary fixtures. These tests also remain NOT RUN.
 
+## T09/T15 host STOP-ordering update (2026-11-03)
+
+- Added two regression test cases (one parameterized for STOP success/failure) to `tests/test_measurement_310.py`: STOP callback is invoked before abort evidence append; STOP callback failure still permits best-effort logging and leaves controller FAULT.
+- Added `docs/310/310-5-t09-t15-stop-arbitration-fixtures-2026-11-03.md` to state exact coverage and exclusions.
+- Test changes commit `0cdc36795d1946b3b619817730f787d064dc52ea`; fixture document commit `8b96752d159c7c69cae2bdbf0375bf1b488978d1`.
+- Tests NOT RUN. This does not cover a hung callback, concurrent abort arbitration, queue bypass, independent UART path, or latency bounds. Current STOP/PWM share synchronous transport; physical cutoff remains unproven.
+
 ## Status
 
 T01–T18 formal acceptance remains unchanged: 0 PASS. This ledger does not authorize 310-6.
