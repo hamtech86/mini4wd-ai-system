@@ -42,12 +42,17 @@ def test_old_backup_is_not_used_as_recovery_source(tmp_path):
     # Without an external monotonic anchor, restoring an old valid journal is
     # not detectable by a hash chain stored only inside that journal.
     path.write_bytes(backup.read_bytes())
-    assert SessionTagAllocator(path, "fixed").allocate().tag == 2
+    with pytest.raises(JournalUntrusted):
+        SessionTagAllocator(path, "fixed").allocate()
 
-def test_exhaustion_never_wraps(tmp_path):
+def test_exhaustion_never_wraps(tmp_path, monkeypatch):
+    import measurement_310.session_tag_allocator as allocator_module
+    monkeypatch.setattr(allocator_module, "MAX_TAG", 2)
+    allocator = SessionTagAllocator(tmp_path / "tags.jsonl", "fixed")
+    assert allocator.allocate().tag == 1
+    assert allocator.allocate().tag == 2
     with pytest.raises(TagExhausted):
-        SessionTagAllocator(tmp_path / "tags.jsonl", "fixed",
-                            initial_high_water=MAX_TAG).allocate()
+        allocator.allocate()
 
 def test_concurrent_allocations_are_unique(tmp_path):
     allocator = SessionTagAllocator(tmp_path / "tags.jsonl", "fixed")
