@@ -45,6 +45,13 @@ This is an execution ledger, not a specification amendment, acceptance record, o
 4. Existing RawLog v2 final-package contract permits only `manifest.json` and `records.jsonl`; the required Evidence sibling inventory is not represented by the current manifest contract. Compatibility must be solved without changing records schema.
 5. No T18 10k+ benchmark evidence or latency distribution exists.\n6. No candidate-local tests have been executed; no formal acceptance can be inferred from authored tests or previous PR CI.
 
+## T11 candidate implementation update (2026-11-03)
+
+- Added `measurement_310/loss_accounting.py`: pure deterministic accounting per channel, full boot epoch, and half-open window; separates valid/invalid attempts, exact duplicates, conflicting duplicates, missing, excess, and unattributable records. Unknown expected count leaves missing as null. Stable JSON and SHA-256 digest are provided.
+- Added `tests/test_measurement_310_loss_accounting.py`: coverage authored for expected/missing, invalid, duplicate/conflict, half-open boundary, channel/epoch isolation, unattributable observations, deterministic serialization, and invalid inputs.
+- Commits: implementation `4adfbf230484411f11c58bdce4fc08c1fe01f777`; tests `2e4812f0083627f45f4dd32601f933d29402fbbd`.
+- Tests have NOT been executed. This is host-only candidate code and does not infer missing records from sequence gaps automatically; upstream attribution and expected-count source remain required. No RawLog schema changed.
+
 ## Status
 
 T01–T18 formal acceptance remains unchanged: 0 PASS. This ledger does not authorize 310-6.
