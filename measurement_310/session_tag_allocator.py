@@ -93,7 +93,7 @@ class SessionTagAllocator:
         body = {"format": FORMAT + "-anchor", "namespace": self.namespace,
                 "high_water": high, "ordinal": count, "journal_hash": digest}
         return _canonical({"body": body,
-                           "sha256": hashlib.sha256(_canonical(body)).hexdigest()}) + b"\\n"
+                           "sha256": hashlib.sha256(_canonical(body)).hexdigest()}) + b"\n"
 
     def _write_anchor(self, high: int, count: int, digest: str,
                       *, fault_at: Optional[str] = None) -> None:
@@ -125,7 +125,7 @@ class SessionTagAllocator:
             envelope = json.loads(self.anchor_path.read_text("utf-8"))
             body = envelope["body"]
             expected = self._anchor_bytes(high, count, digest)
-            if _canonical(envelope) + b"\\n" != expected:
+            if _canonical(envelope) + b"\n" != expected:
                 raise JournalUntrusted("rollback or mismatch against monotonic anchor")
         except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
             if isinstance(exc, JournalUntrusted): raise
