@@ -76,3 +76,15 @@ same-thread re-entry behavior. Implementation
 `7c8b1b944bc06b73754cca50b6de86cc0edc36d2`. Tests NOT RUN. This does not
 provide UART priority, in-flight PWM cancellation, cross-process arbitration,
 or bounded STOP latency.
+
+
+T09/T15 transport blocking review (2026-11-03): inspected
+`measurement_310/transport.py`. PWM and STOP share
+`ProtocolClient.transport.send()`; PySerialTransport synchronously performs
+`write()` then `flush()`, with read timeout configured but no write timeout.
+No priority queue, independent STOP path, or in-flight PWM cancellation exists.
+The review artifact is
+`docs/310/310-5-t09-t15-transport-blocking-review-2026-11-03.md`
+(commit `5f238c83706e3de464469032d016ab638975891e`). No code change was made
+because channel topology, STOP-vs-in-flight-PWM policy, and latency bound require
+authority-level decisions. Tests NOT RUN; no CI/hardware. T09/T15 remain NOT PASS.
