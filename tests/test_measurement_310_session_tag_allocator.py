@@ -66,3 +66,44 @@ def test_allocation_returns_after_durable_append(tmp_path):
     assert SessionTagAllocator(path, "fixed").allocate().tag == 1
     assert path.read_bytes().endswith(b"\n")
     assert json.loads(path.read_text().splitlines()[0])["body"]["tag"] == 1
+
+
+@pytest.mark.parametrize("fault", [
+    "after_journal_write",
+    "after_journal_fsync",
+    "after_anchor_file_fsync",
+    "after_anchor_replace",
+    "before_anchor_dir_fsync",
+])
+def test_crash_boundary_never_reuses_an_uncertain_tag(tmp_path, fault):
+    path = tmp_path / "tags.jsonl"
+    allocator = SessionTagAllocator(path, "fixed")
+    with pytest.raises(Exception):
+        allocator.allocate(fault_at=fault)
+
+    # Recovery may either fail closed when journal/anchor disagree, or
+    # continue after a fully replaced anchor. It must never return tag 1 again.
+    try:
+        recovered = SessionTagAllocator(path, "fixed").allocate()
+    except JournalUntrusted:
+        return
+    assert recovered.tag >= 2
+
+
+def test_anchor_corruption_fails_closed(tmp_path):
+    path = tmp_path / "tags.jsonl"
+    allocator = SessionTagAllocator(path, "fixed")
+    allocator.allocate()
+    anchor = path.with_name(path.name + ".anchor")
+    anchor.write_bytes(b'{"damaged":true}\\n')
+    with pytest.raises(JournalUntrusted):
+        SessionTagAllocator(path, "fixed").allocate()
+
+
+def test_missing_anchor_fails_closed(tmp_path):
+    path = tmp_path / "tags.jsonl"
+    allocator = SessionTagAllocator(path, "fixed")
+    allocator.allocate()
+    path.with_name(path.name + ".anchor").unlink()
+    with pytest.raises(JournalUntrusted):
+        SessionTagAllocator(path, "fixed").allocate()
