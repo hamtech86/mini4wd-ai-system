@@ -80,4 +80,4 @@ def test_transport_failure_latches_and_does_not_claim_send(tmp_path):
     outcome = gate.send(command(), b"PWM-NONZERO", "now")
     assert not outcome.sent
     assert gate.failed
-    assert stopped == []
+    assert stopped == [True]
