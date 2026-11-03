@@ -171,3 +171,24 @@ def write_checkpoint_atomic(path: os.PathLike | str, checkpoint: EpochCheckpoint
                 temp_path.unlink()
             except FileNotFoundError:
                 pass
+
+
+
+def restore_sequence_tracker(raw: Optional[bytes], observed_boot_id64: int):
+    """Return (resolution, tracker); only a proven same epoch restores state.
+
+    A changed boot ID is deliberately not auto-accepted as a new epoch here:
+    callers must obtain independent reboot confirmation through
+    resolve_checkpoint(..., reboot_confirmed=True) and handle the new epoch.
+    """
+    resolution = resolve_checkpoint(raw, observed_boot_id64)
+    if resolution.status is not CheckpointStatus.RESUME_SAME_EPOCH:
+        return resolution, None
+    from .sequence_accounting import DeviceSequenceTracker
+    checkpoint = resolution.checkpoint
+    tracker = DeviceSequenceTracker.from_checkpoint(
+        checkpoint.boot_id64,
+        checkpoint.extended_sequence,
+        checkpoint.wire_sequence,
+    )
+    return resolution, tracker
