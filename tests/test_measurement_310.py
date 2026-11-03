@@ -787,3 +787,63 @@ def test_ack_timeout_excludes_blocking_command_send_duration(tmp_path):
     ctl.poll()
     assert ctl.state == SequenceState.FAULT
     assert stops == ["STOP"]
+
+
+@pytest.mark.parametrize("stop_fails", [False, True])
+def test_abort_attempts_stop_before_any_abort_record_append(tmp_path, monkeypatch, stop_fails):
+    """Host ordering only: STOP callback precedes abort evidence append."""
+    clock = FakeClock()
+    trace = []
+
+    def send_stop():
+        trace.append("stop_attempt")
+        if stop_fails:
+            raise OSError("injected STOP transport failure")
+
+    ctl = SequenceController(
+        RawLogV2Writer(tmp_path), manifest(tmp_path),
+        lambda pwm: clock.utc_now(), send_stop, lambda: None, clock,
+    )
+    ctl.startup_recover()
+    ctl.start()
+    original_append = ctl.session.append
+
+    def traced_append(record):
+        if record.get("event") in {"COMMUNICATION_LOST", "SESSION_ABORTED"} or record.get("record_type") == "PWM_STAGE":
+            trace.append("abort_evidence_append")
+        return original_append(record)
+
+    monkeypatch.setattr(ctl.session, "append", traced_append)
+    ctl.abort("user_stop")
+
+    assert trace[0] == "stop_attempt"
+    assert "abort_evidence_append" in trace[1:]
+    if stop_fails:
+        assert ctl.state == SequenceState.FAULT
+        assert "STOP send failed" in (ctl._last_fault or "")
+    else:
+        assert ctl.state == SequenceState.ABORTED
+
+
+def test_stop_callback_failure_does_not_prevent_best_effort_abort_logging(tmp_path):
+    clock = FakeClock()
+    append_seen = []
+    ctl = SequenceController(
+        RawLogV2Writer(tmp_path), manifest(tmp_path),
+        lambda pwm: clock.utc_now(),
+        lambda: (_ for _ in ()).throw(OSError("STOP failed")),
+        lambda: None, clock,
+    )
+    ctl.startup_recover()
+    ctl.start()
+    original_append = ctl.session.append
+
+    def tracked_append(record):
+        append_seen.append(record)
+        return original_append(record)
+
+    ctl.session.append = tracked_append
+    ctl.abort("communication_lost", fault="test fault")
+    assert append_seen
+    assert ctl.state == SequenceState.FAULT
+    assert "STOP send failed" in (ctl._last_fault or "")
