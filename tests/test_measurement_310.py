@@ -1033,7 +1033,7 @@ def test_uncertain_protocol_stop_failure_latches_fault_and_records_unknown_devic
     assert "STOP command send failed" in (ctl._last_fault or "")
     records = [json.loads(line) for line in
                (tmp_path / ".work" / "TEST-310" / "records.jsonl").read_text().splitlines()]
-    event = next(r for r in records if r.get("event") == "COMMUNICATION_LOST")
+    event = next(r for r in records if r.get("event") == "SESSION_ABORTED")
     assert event["details"]["stop_transmission_attempted"] is True
     assert event["details"]["device_state"] == "unknown"
     assert "STOP command send failed" in event["details"]["fault"]
