@@ -857,7 +857,7 @@ def test_reentrant_abort_during_stop_callback_is_latched_once(tmp_path):
     def stop_callback():
         stops.append("STOP")
         # Simulate a second abort source firing synchronously while STOP is in flight.
-        holder["controller"].abort("safety_stop", fault="nested source")
+        holder["controller"].abort("safety_stop")
 
     ctl = SequenceController(
         RawLogV2Writer(tmp_path), manifest(tmp_path),
@@ -869,7 +869,7 @@ def test_reentrant_abort_during_stop_callback_is_latched_once(tmp_path):
     ctl.abort("user_stop")
 
     assert stops == ["STOP"]
-    assert ctl.state == SequenceState.FAULT
+    assert ctl.state == SequenceState.ABORTED
     # Later sources cannot trigger a second STOP or duplicate abort evidence.
     ctl.abort("communication_lost", fault="late source")
     assert stops == ["STOP"]
