@@ -1,4 +1,5 @@
 from pathlib import Path
+import threading
 
 import pytest
 
@@ -899,3 +900,40 @@ def test_repeated_abort_after_success_does_not_repeat_stop_or_append(tmp_path, m
     assert ctl.state == SequenceState.ABORTED
     assert stops == ["STOP"]
     assert len(append_count) == count_after_first
+
+
+
+def test_concurrent_abort_callers_latch_exactly_one_stop(tmp_path):
+    clock = FakeClock()
+    stop_entered = threading.Event()
+    release_stop = threading.Event()
+    stop_calls = []
+
+    def blocking_stop():
+        stop_calls.append("STOP")
+        stop_entered.set()
+        assert release_stop.wait(timeout=2)
+
+    ctl = SequenceController(
+        RawLogV2Writer(tmp_path), manifest(tmp_path),
+        lambda pwm: clock.utc_now(), blocking_stop, lambda: None, clock,
+    )
+    ctl.startup_recover()
+    ctl.start()
+
+    first = threading.Thread(target=lambda: ctl.abort("user_stop"))
+    first.start()
+    assert stop_entered.wait(timeout=2)
+
+    # A second thread enters while the first caller is blocked in STOP transport.
+    second = threading.Thread(target=lambda: ctl.abort("safety_stop"))
+    second.start()
+    second.join(timeout=2)
+    assert not second.is_alive()
+    assert stop_calls == ["STOP"]
+
+    release_stop.set()
+    first.join(timeout=2)
+    assert not first.is_alive()
+    assert ctl.state == SequenceState.ABORTED
+    assert stop_calls == ["STOP"]
