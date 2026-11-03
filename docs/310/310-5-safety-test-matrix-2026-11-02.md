@@ -122,3 +122,42 @@ The current evidence package still contains no exact 310-4 firmware build identi
 3. Provide deterministic firmware-level simulator traces for TX congestion + STOP, ADC channel sequencing/failure states, and loss accounting. Keep physical cutoff, reference-instrument accuracy, fuse, EEPROM power interruption, and energized board tests outside this work until separately authorized.
 
 No source implementation was changed in this review. No firmware compilation or hardware operation was performed. These rows are not PASS, and this review does not authorize implementation, merge, energization, or 310-6.
+
+
+## 2026-11-03 legacy firmware source discovery and native-harness boundary
+
+A repository-wide code search located a legacy motor firmware candidate and its native safety harness. This closes the earlier *source-location discovery* gap, but it does not identify this source as the approved 310-4 implementation. The source is explicitly the legacy main snapshot below; the 310-4 accepted design PR remains documentation-only and the implementation PRs remain separate Draft branches.
+
+| Evidence | Exact reference | What it establishes | What it does not establish |
+|---|---|---|---|
+| Firmware source | `firmware/motor/MotoreRev.ino`, main snapshot `130e453ea3907f071209687a06c3e73535a8952d`, blob `b0c3a5845fee4e4eb3f0fc6a08b1d860311f362b` | A legacy MOTOR_BREAKIN_V3 firmware exists (FW 3.03, build ID `ARM-STOP-ACK-ACS712-RAIL-20261023-01`), with Uno pin mapping, ARM token gate, STOP routine, periodic sensor reads, and CSV logging. | It is not the concrete 310-4 framed protocol/acquisition implementation. It does not provide ADC_SAMPLE per-conversion timestamp/sequence/status, loss ledger, TX_OWNED scheduler, bounded STOP service, or 310-4 Evidence package. |
+| Native harness | `tests/firmware_safety/test_motor_firmware_safety.cpp`, blob `6c8e18141b4b80fb7c308b95bf0582ec26a4293b` | Host-compiled C++ tests exercise STOP state/output writes, ARM token gating, stale-token rejection, PWM zero, PAUSE, and legacy voltage-control non-restart behavior. | It is a mock environment, not an MCU execution or hardware waveform test. |
+| Mock Arduino layer | `tests/firmware_safety/Arduino.h` | `analogRead()` always returns 512; `millis()` always returns 1000; `delay()` is a no-op; Serial output is discarded. | It cannot test ADC rail/fault injection, conversion cadence/timestamps, elapsed-time behavior, serial congestion, partial TX, STOP scheduling latency, or physical cutoff. |
+| Build workflows | `.github/workflows/motor-firmware-compile.yml` and `.github/workflows/arduino-firmware-compile.yml` | Repository contains Arduino Uno compile workflows; the former also builds/runs the native harness. The latter pins AVR core 1.8.8 and records a HEX hash/build manifest. | No workflow run attributable to this exact source SHA and retained artifact/map/size/stack evidence was established in this review. A compile workflow definition is not itself a successful build record. |
+
+### Direct source observations
+
+- `stopMotor()` writes PWM 0 and both direction pins LOW, then clears the runtime running/paused flags. This is a software register-write path only; it does not prove driver cutoff or rotor stop.
+- The native harness checks the mocked values after calling `processCommand("STOP")`; its mock `analogWrite` records a value in an integer array. It does not observe an electrical pin or motor driver.
+- `updateSensors()` samples magnetic A2 and thermistor A3, then ACS1/ACS2, then calls `readMotorVoltage()` for A4/A5. The ADC reads are ordinary `analogRead()` calls with no per-conversion timestamp, sequence, timeout, or explicit unavailable status. The existing legacy CSV is not the 310-4 ADC_SAMPLE protocol.
+- The firmware's sensor loop uses a 20 ms nominal scheduling interval, but the mock `millis()` is constant and the harness does not exercise that cadence.
+- The current-sensor rail branch calls `stopMotor()`, revokes ARM, sets ERROR, and emits an error line. The native mock always returns 512, so this branch is not covered by the harness.
+
+### Additional source defect to track (no code change)
+
+At main snapshot `130e453ea3907f071209687a06c3e73535a8952d`, line 1384 is literally:
+
+```cpp
+activeArmToken[0] = '\\\\0';
+```
+
+The character literal contains two backslashes before `0` in the source (not the single escape `'\\0'`). This is a multi-character literal rather than a null-character literal, so the intended token-buffer clearing is not performed as written. `driveArmed=false` is also set in the same fault path and remains the effective gate, but this is still a source defect requiring review by the firmware owner. The STOP path at line 970 uses the correct single-backslash null literal. No patch was made because firmware modification is outside this verification authorization.
+
+### Matrix interpretation
+
+- The source-location part of the earlier firmware evidence gap is **resolved**.
+- T14/M01–M04 remain **BLOCKED / NOT RUN**: no exact 310-4 target build, linker map, SRAM inventory, stack watermark, or ownership/congestion trace.
+- T15/S08 remains **BLOCKED / NOT RUN**: the native harness proves selected host-mocked state transitions only; it does not model TX full, frame ownership, bounded STOP service, MCU freeze, or independent driver cutoff.
+- T16/A01–A05 remains **FAIL / NOT RUN** for the 310-4 contract: the legacy acquisition path is not the required ADC_SAMPLE implementation, and the mock cannot exercise conversion behavior.
+- T17/L01–L04 remains **FAIL / NOT RUN**: no firmware loss ledger or companion transport Evidence package is present in this source.
+- No firmware source, test, workflow, schema, or acceptance document was modified. No firmware compile, board connection, energization, Fuse/ISP operation, EEPROM interruption, or 310-second test was performed. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains in force.
