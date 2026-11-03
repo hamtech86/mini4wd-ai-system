@@ -63,12 +63,6 @@ class EvidenceGate:
             return SendOutcome(False, False, self.failure_reason or "evidence gate is latched")
         if not isinstance(payload, bytes):
             raise TypeError("payload must be immutable bytes")
-        if identity.command_type == "PWM" and payload and payload != b"\x00":
-            # This generic harness treats any nonzero payload as potentially energizing.
-            # Production integration must provide a protocol-aware zero/nonzero predicate.
-            potentially_nonzero = True
-        else:
-            potentially_nonzero = False
         try:
             self.journal.append_intent(identity, created_utc)
             self.correlator.register(identity)
@@ -80,9 +74,7 @@ class EvidenceGate:
             self.send_payload(identity, payload)
             return SendOutcome(True, False)
         except Exception as exc:
-            self.failed = True
-            self.failure_reason = f"transport send outcome uncertain: {exc}"
-            return SendOutcome(False, False, self.failure_reason)
+            return self._fail_and_stop(f"transport send outcome uncertain: {exc}")
 
     def record_evidence(self, record: dict) -> bool:
         if self.failed:
