@@ -5,15 +5,15 @@ Candidate branch: `safety/310-5-host-integration-candidate`
 Starting HEAD: `a7491c8fd7d214e23a6f649d262f978710474d6e`
 Authority: upper-command decision comment `6602410842`
 
-This document is an execution ledger, not a specification amendment, acceptance record, or authorization for hardware activity.
+This is an execution ledger, not a specification amendment, acceptance record, or hardware authorization.
 
 ## Guardrails
 
 - Host-side implementation and deterministic host/simulator tests only.
 - No firmware, RawLog schema/type, workflow, Issue #35, or accepted 310-4 document changes.
 - No PR merge, CI dispatch, energized hardware, EEPROM power interruption, fuse/ISP operation, ADC reference measurement, motor operation, or 310-second measurement.
-- A test is not PASS until the applicable 310-4 acceptance-test evidence is produced. Source inspection and unexecuted tests remain NOT RUN.
-- STOP attempt is not proof of MCU output-off, driver cutoff, or rotor stop.
+- Tests not executed and source-only findings remain NOT RUN.
+- STOP transmission attempt is not proof of MCU output-off, driver cutoff, or rotor stop.
 - Preserve `HARDWARE_CURRENT_LIMIT_CONFIRMED=false`.
 
 ## Work sequence and exit evidence
@@ -35,16 +35,16 @@ This document is an execution ledger, not a specification amendment, acceptance 
 - PR #185 HEAD: `d2be96981673e250ba2cbd7f552f91a27a3016c7`; host-side STOP-before-log ordering and 3 tests.
 - PR #186 HEAD: `a7491c8fd7d214e23a6f649d262f978710474d6e`; includes PR #185 history and adds host regression coverage.
 - PR #185 CI run `41462228503` and PR #186 CI run `41538695288` succeeded on their respective separate PR HEADs. These are not CI results for this candidate branch and do not establish physical safety.
-- Candidate branch currently points at PR #186 HEAD; no new implementation or test has yet been committed on this branch.
+- Candidate source inspection: `SequenceController._begin_stage` calls `send_pwm(index)`; `ProtocolClient.poll_ack()` yields only (PWM, host receive UTC). Therefore the current ACK cannot be correlated to command ID, session, full boot epoch, or stage context. Do not synthesize these fields or treat PWM equality as exact identity.\n- Candidate source inspection: PySerialTransport send is synchronous write/flush; STOP uses the same transport. No independent/bounded STOP path is established.\n- T04/T05 modules are standalone primitives, not integrated into SequenceController/ProtocolClient production path. Their tests have not been run in this environment.\n- T05 EvidenceGate records intent before its callback, latches on uncertain send/evidence failure, and attempts STOP; this remains host policy behavior, not a physical stop guarantee.
 
 ## Initial blockers retained
 
 1. Existing synchronous serial write/flush path is shared by PWM and STOP. No bounded independent STOP path is established.
-2. Existing ACK correlation lacks command/context/session/full-epoch binding.
-3. No durable command intent is established before nonzero PWM write.
+2. Existing ACK lacks exact command/context/session/full-epoch binding.
+3. Durable intent is not yet integrated before production-path nonzero PWM.
 4. Existing RawLog v2 final-package contract permits only `manifest.json` and `records.jsonl`; the required Evidence sibling inventory is not represented by the current manifest contract. Compatibility must be solved without changing records schema.
-5. No T18 10k+ benchmark evidence or latency distribution exists.
+5. No T18 10k+ benchmark evidence or latency distribution exists.\n6. No candidate-local tests have been executed; no formal acceptance can be inferred from authored tests or previous PR CI.
 
 ## Status
 
-All T01-T18 formal acceptance statuses remain unchanged from the 310-5 initial review. This ledger does not convert partial evidence to PASS and does not authorize 310-6.
+T01–T18 formal acceptance remains unchanged: 0 PASS. This ledger does not authorize 310-6.
