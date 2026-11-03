@@ -96,3 +96,10 @@ def test_checkpoint_rejects_inconsistent_wire_sequence():
 
 def test_invalid_boot_identity_is_unresolved():
     assert resolve_checkpoint(None, -1).status is S.UNRESOLVED_INVALID
+
+
+@pytest.mark.parametrize("raw", [b"[]", b'"string"', b'{"payload": [], "sha256": "x"}'])
+def test_non_object_checkpoint_payload_fails_closed(raw):
+    result = resolve_checkpoint(raw, cp().boot_id64)
+    assert result.status is S.UNRESOLVED_CORRUPT
+    assert result.checkpoint is None
