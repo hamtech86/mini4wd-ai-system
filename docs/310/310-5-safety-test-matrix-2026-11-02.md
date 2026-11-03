@@ -79,3 +79,25 @@ Evidence links:
 - PR #186 CI: `41538695288`
 
 All evidence above is host-side software/CI only. No firmware compile, serial communication, physical energization, Fuse/ISP operation, EEPROM power interruption, ADC injection, or 310-second hardware measurement was performed. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains in force. This supplement is not a 310-5 completion report, acceptance request, or authorization to proceed to 310-6.
+
+
+## 2026-11-03 source-level transport / sequencing audit
+
+Reviewed the actual host implementation at the 310-3 base referenced by PR #185/#186 (commit d9e718b607a873759fffd58fc75bf950af499095), rather than relying only on test summaries.
+
+| File / method | Direct source observation | Safety interpretation |
+|---|---|---|
+| `measurement_310/engine.py::SequenceController._begin_stage` | Calls `self.send_pwm(index)` and only afterwards captures `command_sent_ns`. There is no pre-send TX-intent append/fsync in this method or in the shown start path before the first call. | Y03 remains **FAIL**. The subsequent ACK event cannot establish a durable record before actuation. |
+| `measurement_310/engine.py::SequenceController.abort` at base HEAD | Original base order records the aborted stage (which appends through the RawLog session) before calling `send_stop()`. PR #185 changes this order in its branch and adds host tests. | Base source confirms the defect; PR #185 is a narrowly scoped ordering improvement only. It does not prove delivery or physical stopping. |
+| `measurement_310/transport.py::PySerialTransport.__init__ / connect` | Constructor accepts port, baudrate and read timeout only. `serial.Serial(..., timeout=self.timeout_s)` is opened without an explicit `write_timeout`. | A finite read timeout does not bound write/flush. S02 remains **FAIL**. |
+| `measurement_310/transport.py::PySerialTransport.send` | Calls synchronous `write(payload)`, then `flush()`; no independent STOP channel or bounded STOP deadline is present in this transport. `ProtocolClient.send_stop()` delegates to the same `transport.send()` used for PWM. | A blocked write/flush can prevent STOP from reaching the transport call. S02 remains **FAIL**; host ordering in PR #185 does not change this. |
+| `measurement_310/transport.py::ProtocolClient.disconnect` | Clears receive buffer, pending messages and pending ACKs. | Useful local cleanup, but not a device-session/boot-epoch identity mechanism. Y02 remains **FAIL** for session/epoch/context correlation. |
+| `measurement_310/engine.py::SequenceController` ACK handling | The controller accepts a two-field `(pwm, ack_utc)` result and compares the PWM value with `stage_index`. | This does not bind ACK to a command ID, measurement session, device boot epoch, or transmitted stage context. Y02 remains **FAIL**. |
+
+### Audit boundaries
+
+- The source audit is static inspection of host Python at the stated commit; it is not a runtime timing test.
+- PR #185/#186 are separate Draft PRs. Their CI results do not change the inspected base source unless those changes are integrated.
+- No firmware source/build, serial device, board, driver, or physical STOP behavior was exercised.
+- No RawLog v2 schema or 310-4 acceptance document was changed.
+- This audit does not authorize a code change, merge, hardware operation, or stage transition.
