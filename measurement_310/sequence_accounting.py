@@ -23,6 +23,7 @@ class SequenceDisposition(str, Enum):
     GAP = "gap"
     DUPLICATE = "duplicate"
     CONFLICTING_DUPLICATE = "conflicting_duplicate"
+    UNVERIFIED_REPLAY = "unverified_replay"
     AMBIGUOUS_DELTA = "ambiguous_delta"
     STALE_OR_BACKWARD = "stale_or_backward"
 
@@ -60,6 +61,31 @@ class DeviceSequenceTracker:
         self._last_payload: Optional[bytes] = None
         self._extended: Optional[int] = None
 
+    @classmethod
+    def from_checkpoint(cls, boot_id64: int, extended_sequence: int,
+                        wire_sequence: int) -> "DeviceSequenceTracker":
+        """Restore sequence position without inventing the previous payload.
+
+        Since the checkpoint does not persist the prior frame bytes, a frame
+        repeating the checkpoint's wire sequence cannot be proven an exact
+        duplicate after process restart and is classified UNVERIFIED_REPLAY.
+        """
+        tracker = cls(boot_id64)
+        if isinstance(extended_sequence, bool) or not isinstance(extended_sequence, int):
+            raise TypeError("extended_sequence must be an integer")
+        if extended_sequence < 0:
+            raise ValueError("extended_sequence cannot be negative")
+        if isinstance(wire_sequence, bool) or not isinstance(wire_sequence, int):
+            raise TypeError("wire_sequence must be an integer")
+        if not 0 <= wire_sequence <= UINT16_MASK:
+            raise ValueError("wire_sequence must fit uint16")
+        if (extended_sequence & UINT16_MASK) != wire_sequence:
+            raise ValueError("wire_sequence must match extended_sequence low bits")
+        tracker._last_wire = wire_sequence
+        tracker._extended = extended_sequence
+        tracker._last_payload = None
+        return tracker
+
     @property
     def last_extended_sequence(self) -> Optional[int]:
         return self._extended
@@ -86,10 +112,15 @@ class DeviceSequenceTracker:
             )
 
         assert self._extended is not None
-        assert self._last_payload is not None
         delta = (wire_sequence - self._last_wire) & UINT16_MASK
 
         if delta == 0:
+            if self._last_payload is None:
+                return SequenceResult(
+                    SequenceDisposition.UNVERIFIED_REPLAY, wire_sequence,
+                    self._extended, 0, accepted=False,
+                    detail="same sequence as checkpoint; prior payload unavailable after restart",
+                )
             if payload == self._last_payload:
                 return SequenceResult(
                     SequenceDisposition.DUPLICATE, wire_sequence,
