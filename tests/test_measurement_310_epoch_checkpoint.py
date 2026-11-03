@@ -8,6 +8,7 @@ from measurement_310.epoch_checkpoint import (
     decode_checkpoint,
     encode_checkpoint,
     resolve_checkpoint,
+    restore_sequence_tracker,
     write_checkpoint_atomic,
 )
 
@@ -103,3 +104,29 @@ def test_non_object_checkpoint_payload_fails_closed(raw):
     result = resolve_checkpoint(raw, cp().boot_id64)
     assert result.status is S.UNRESOLVED_CORRUPT
     assert result.checkpoint is None
+
+
+
+def test_same_epoch_checkpoint_restores_tracker_but_not_prior_payload():
+    raw = encode_checkpoint(cp(extended=65536))
+    resolution, tracker = restore_sequence_tracker(raw, cp().boot_id64)
+    assert resolution.status is S.RESUME_SAME_EPOCH
+    assert tracker is not None
+    replay = tracker.observe(0, b"cannot-prove-duplicate")
+    assert replay.disposition.value == "unverified_replay"
+    assert not replay.accepted
+    next_frame = tracker.observe(1, b"next")
+    assert next_frame.extended_sequence == 65537
+    assert next_frame.accepted
+
+
+def test_missing_or_mismatched_checkpoint_never_creates_tracker():
+    missing, tracker = restore_sequence_tracker(None, cp().boot_id64)
+    assert missing.status is S.UNRESOLVED_MISSING
+    assert tracker is None
+    mismatch, tracker = restore_sequence_tracker(
+        encode_checkpoint(cp(boot=0x0000000100000001)),
+        0x0000000200000001,
+    )
+    assert mismatch.status is S.UNRESOLVED_BOOT_MISMATCH
+    assert tracker is None
