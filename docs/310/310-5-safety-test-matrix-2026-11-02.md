@@ -57,3 +57,25 @@
 - NOT RUNは試験を定義できるが、まだ実施していないもの。
 - PASS (限定)は指定した既存ソフトウェア単体の範囲のみ。310-4全体の受入PASSではない。
 - 本一覧のいずれも実機安全性を証明しない。HARDWARE_CURRENT_LIMIT_CONFIRMED=falseを維持する。
+
+
+## 2026-11-03 host regression follow-up (PR #185 / #186)
+
+This supplement updates the execution evidence without changing the initial matrix classifications into whole-system PASS claims.
+
+| Matrix row | Follow-up evidence | Updated interpretation |
+|---|---|---|
+| S01 — STOP-before-log | PR #185 changes the host abort order to attempt STOP before appending the aborted-stage record. Its host regressions cover STOP-before-append, STOP while append stalls, and STOP-send failure; CI run `41462228503` passed (RawLog/sequence 38, full suite 313, break-in 19, battery 9). | The Python call order is improved and covered. **Not a safety PASS**: STOP still uses the shared synchronous UART transport; send attempt is not proof of delivery or physical stop. |
+| S04 — timeout / delayed / duplicate ACK | PR #186 tests invalid ACK domain values, invalid codec consumed lengths, receive failure, STOP send failure, disconnect state clearing, delayed prior-stage ACK after next PWM, and late ACK after timeout. CI run `41538695288` passed: RawLog/sequence 38, full suite 326, break-in 19, battery 9. | Host regression coverage is expanded. Session identity, device epoch/boot identity, reconnect stale-frame binding, and the complete 310-4 codec contract remain unproven. |
+| Y02 — ACK correlation | Same PR #186 tests above. | Retain **FAIL** for the full 310-4 requirement: host-only PWM correlation tests do not implement/prove session+epoch+context binding. |
+| Y03 — durable intent before nonzero PWM | No change in PR #185/#186. | Retain **FAIL**. A durable intent append+fsync before send is absent; post-ACK event is not a substitute. |
+| S02/S03 — independent bounded STOP path | No change in PR #185/#186. | Retain **FAIL**. Shared synchronous write/flush and command-lock behavior remain; no bounded independent STOP transport is established. |
+| L04 — transport Evidence artifact / manifest | No RawLog v2 package contract change authorized or made. | Retain **FAIL / contract mismatch**. Do not add a third package artifact or change manifest rules without the design authority resolving the relationship. |
+
+Evidence links:
+- PR #185: https://github.com/hamtech86/mini4wd-ai-system/pull/185
+- PR #186: https://github.com/hamtech86/mini4wd-ai-system/pull/186
+- PR #185 CI: `41462228503`
+- PR #186 CI: `41538695288`
+
+All evidence above is host-side software/CI only. No firmware compile, serial communication, physical energization, Fuse/ISP operation, EEPROM power interruption, ADC injection, or 310-second hardware measurement was performed. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains in force. This supplement is not a 310-5 completion report, acceptance request, or authorization to proceed to 310-6.
