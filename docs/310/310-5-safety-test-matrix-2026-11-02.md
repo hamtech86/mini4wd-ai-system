@@ -101,3 +101,24 @@ Reviewed the actual host implementation at the 310-3 base referenced by PR #185/
 - No firmware source/build, serial device, board, driver, or physical STOP behavior was exercised.
 - No RawLog v2 schema or 310-4 acceptance document was changed.
 - This audit does not authorize a code change, merge, hardware operation, or stage transition.
+
+
+## 2026-11-03 firmware-evidence boundary review
+
+The accepted 310-4 design/acceptance documents define firmware obligations, but the reviewed 310-4 acceptance PR #183 changes only four documentation files (design, decision register, final review report, and acceptance-test specification). It contains no firmware implementation change. This is a scope observation about PR #183, not a claim that no firmware exists anywhere in the repository.
+
+The current evidence package still contains no exact 310-4 firmware build identity, pinned compiler/core/build flags, linker map, `avr-size` output, per-structure `sizeof` inventory, stack watermark, ADC acquisition trace, or TX-congestion STOP scheduler trace. Accordingly:
+
+| Acceptance item | Evidence required by accepted 310-4 contract | 310-5 disposition |
+|---|---|---|
+| T14 / M01–M04 — SRAM and ownership | Exact target build + map/size + UART ring accounting + structure sizes + worst-path stack watermark + ownership/overflow traces | **BLOCKED / NOT RUN** — no attributable build/map/stack or runtime trace in the reviewed evidence. Numeric budgets remain requirements, not measured results. |
+| T15 / S08 — STOP under TX congestion and MCU fault | Deterministic simulator trace for TX full/TX_OWNED/partial frame/ADC assembly; bounded STOP latch latency; no nonzero PWM after latch; separate hardware cutoff evidence for MCU freeze/reset | **BLOCKED / NOT RUN** — no simulator trace or independent cutoff evidence. Host STOP-before-log tests do not satisfy this firmware test. |
+| T16 / A01–A05 — ADC acquisition | Exact sensor/front-end/VREF identity, bounded acquisition implementation, one-conversion/one-sample trace, per-channel timestamps/sequences, failure-state fixtures, reference uncertainty analysis | **BLOCKED / NOT RUN** — no attributable firmware acquisition trace or approved reference dataset. Existing host schema tests do not establish ADC behavior or accuracy. |
+| T17 / L01–L04 — loss and companion package | Implemented per-channel/window loss ledger and transport-evidence sibling with manifest inventory/hash/count roundtrip | **FAIL / NOT RUN** — L04 contract mismatch remains FAIL; other implementation evidence absent. No schema or manifest change is authorized here. |
+
+### Required next evidence (software-only first)
+1. Identify the exact firmware source path, branch/commit, board target, compiler/core versions, and build flags intended to implement the accepted 310-4 contract.
+2. Produce a reproducible non-hardware build and linker map/size report; enumerate all static buffers and UART core rings; then obtain a worst-case stack watermark using an approved simulator/test harness.
+3. Provide deterministic firmware-level simulator traces for TX congestion + STOP, ADC channel sequencing/failure states, and loss accounting. Keep physical cutoff, reference-instrument accuracy, fuse, EEPROM power interruption, and energized board tests outside this work until separately authorized.
+
+No source implementation was changed in this review. No firmware compilation or hardware operation was performed. These rows are not PASS, and this review does not authorize implementation, merge, energization, or 310-6.
