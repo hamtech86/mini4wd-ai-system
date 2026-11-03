@@ -97,3 +97,17 @@ after write, and successful full write+flush. Test commit
 `5edd9c1adfe7802b34b24b5dc980e6d537598a03`. No real port is opened. A write or
 flush exception leaves delivery uncertain; it does not prove STOP was not
 received. Tests NOT RUN; no CI/hardware. T09/T15 remain NOT PASS.
+
+
+T09/T15 ambiguous STOP outcome follow-up (2026-11-03): added a deterministic
+host test that connects `SequenceController.abort()` to
+`ProtocolClient.send_stop()` with a failing MockTransport. It checks error
+propagation, FAULT latching, best-effort abort evidence, explicit
+`device_state=unknown`, and absence of automatic retry. Test change commits
+`af3967af6f37e968946f40adbfe9ffb5d3e1f840` and
+`53656ad4848d7237aab96af95cf2602d6b09616a`; fixture note
+`92f785a19e3776fe972b2c2033d6b48bde65ddfa`. This is a host mock only:
+an empty mock sent list does not establish whether bytes reached real hardware
+in an ambiguous write/flush failure. No retry semantics are selected; firmware
+duplicate handling and transport policy remain authority-level questions.
+Tests NOT RUN; no CI/hardware. T09/T15 remain NOT PASS.
