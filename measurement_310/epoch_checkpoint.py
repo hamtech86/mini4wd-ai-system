@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 import hashlib
+import hmac
 import json
 import os
 from pathlib import Path
@@ -82,7 +83,7 @@ def decode_checkpoint(raw: bytes) -> EpochCheckpoint:
         raise ValueError("invalid checkpoint envelope")
     payload = envelope["payload"]
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    if not isinstance(envelope["sha256"], str) or not hashlib.compare_digest(
+    if not isinstance(envelope["sha256"], str) or not hmac.compare_digest(
         hashlib.sha256(canonical).hexdigest(), envelope["sha256"]
     ):
         raise ValueError("checkpoint checksum mismatch")
