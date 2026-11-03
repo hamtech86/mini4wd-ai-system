@@ -184,3 +184,17 @@ Updated evidence classification:
 - Firmware ADC / congestion / STOP timing evidence: NOT RUN.
 
 No source, workflow, test, or schema change was made. Existing hardware authorization boundaries remain unchanged.
+
+
+## 2026-11-03 CI HEAD帰属の明確化
+
+PR #184の最新HEADは `a1ff1acc682160161e128a11f40c3f980d11db7c`。ただし、前節の成功CI run `41601307045` が直接紐付くHEADは `237c23d7a3711d4b5a8fa7f1483fa98d2232c702` であり、`a1ff1acc...` そのものではない。
+
+差分コミット `a1ff1acc...` は本マトリクスへのCI証拠境界の追記のみ（firmware / Python source / test / workflowの変更なし）。したがって以下のように扱う。
+
+- `237c23d...`: Python regression CI run `41601307045` — 4 jobs success。直接のCI対象HEAD。
+- `a1ff1acc...`: 上記からの文書のみの後続HEAD。ソース差分がないことはcommit diffで確認したが、このHEADに紐付く新しいCI runは確認していない。
+- よって「最新HEADでCI再実行済み」とは表記しない。Pythonソースに変更がないため既存runは関連する回帰証拠として参照できるが、HEAD一致のCI証拠ではない。
+- firmware compile / native harness / HEX artifact / linker map / SRAM・stack計測 / ADC・STOP timing traceは、いずれのHEADについても本PRのCI証拠として確認できていない。
+
+PR #184 remains Draft / Open / Unmerged. No workflow dispatch, source change, hardware operation, or stage transition was performed. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains in force.
