@@ -214,3 +214,18 @@ Observed at review time:
 Disposition: **CI pending; no pass/fail result yet.** Recheck run `41617286382` before using it as completed evidence. Even if all four jobs pass, this run covers the listed Python suites only and does not close firmware compile, native harness, map/stack, ADC, TX congestion, STOP timing, or physical cutoff evidence gaps.
 
 PR #184 remains Draft / Open / Unmerged. No workflow was manually dispatched; this is the automatically associated PR run. No hardware operation or stage transition was performed. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains in force.
+
+
+## 2026-11-03 follow-up: newest documentation HEAD and CI queue
+
+A further documentation-only commit advanced PR #184 to `3ea1fc7ee4a1babb2adb2e3288de6c6c38f7be3f`. GitHub associated workflow run `41617359787` with this exact HEAD.
+
+Observed at review time:
+- Run `41617359787`: queued/in progress; two jobs (`test-battery`, `test-breakin`) had started, while `test-raw-log-and-sequence` and `test-full-suite` were queued.
+- Artifact list: zero.
+- The job list contains only the four Python test jobs; no firmware compile or native firmware harness job.
+- Prior run `41617286382` for parent documentation HEAD `b6f8552433ee92629e8459aaad8aa0a4433ef497` was also still active at the same observation: RawLog/sequence and break-in jobs had passed, battery job's test step had passed, and full-suite remained in progress. It had zero artifacts.
+
+Disposition: neither run is complete at this observation; do not count either as a completed all-green CI result. Recheck the newest run `41617359787` and record the final job conclusions. These workflows still provide Python regression evidence only, not firmware/build/physical safety evidence.
+
+No source, test, workflow, firmware, or schema changes were made. PR #184 remains Draft/Open/Unmerged; no hardware operation or stage transition was performed. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains in force.
