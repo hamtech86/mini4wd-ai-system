@@ -9,6 +9,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 import os
+import fcntl
 from pathlib import Path
 from typing import Callable
 
@@ -62,6 +63,18 @@ class DurableIntentJournal:
         if not isinstance(created_utc, str) or not created_utc:
             raise ValueError("created_utc is required")
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path = self.path.with_name(self.path.name + ".lock")
+        lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            return self._append_locked(identity, created_utc)
+        finally:
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            finally:
+                os.close(lock_fd)
+
+    def _append_locked(self, identity: CommandIdentity, created_utc: str) -> str:
         previous = self._last_hash()
         body = {
             "record_type": "COMMAND_INTENT",
@@ -74,7 +87,7 @@ class DurableIntentJournal:
             "previous_hash": previous,
         }
         digest = hashlib.sha256(self._canonical(body)).hexdigest()
-        line = self._canonical({"body": body, "sha256": digest}) + b"\\n"
+        line = self._canonical({"body": body, "sha256": digest}) + b"\n"
         fd = os.open(str(self.path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
         try:
             written = os.write(fd, line)
@@ -91,7 +104,7 @@ class DurableIntentJournal:
         if not self.path.exists():
             return "0" * 64
         raw = self.path.read_bytes()
-        if raw and not raw.endswith(b"\\n"):
+        if raw and not raw.endswith(b"\n"):
             raise IntentUntrusted("torn intent journal tail")
         previous = "0" * 64
         for number, line in enumerate(raw.splitlines(), 1):
