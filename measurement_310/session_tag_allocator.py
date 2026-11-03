@@ -95,7 +95,8 @@ class SessionTagAllocator:
         return _canonical({"body": body,
                            "sha256": hashlib.sha256(_canonical(body)).hexdigest()}) + b"\\n"
 
-    def _write_anchor(self, high: int, count: int, digest: str) -> None:
+    def _write_anchor(self, high: int, count: int, digest: str,
+                      *, fault_at: Optional[str] = None) -> None:
         data = self._anchor_bytes(high, count, digest)
         temp = self.anchor_path.with_name(self.anchor_path.name + ".tmp")
         fd = os.open(str(temp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -104,7 +105,13 @@ class SessionTagAllocator:
                 stream.write(data)
                 stream.flush()
                 os.fsync(stream.fileno())
+            if fault_at == "after_anchor_file_fsync":
+                raise OSError("injected after anchor file fsync")
             os.replace(temp, self.anchor_path)
+            if fault_at == "after_anchor_replace":
+                raise OSError("injected after anchor replace")
+            if fault_at == "before_anchor_dir_fsync":
+                raise OSError("injected before anchor directory fsync")
             dfd = os.open(str(self.anchor_path.parent), os.O_RDONLY)
             try: os.fsync(dfd)
             finally: os.close(dfd)
@@ -146,7 +153,7 @@ class SessionTagAllocator:
             high_water = tag
         return high_water, ordinal, previous
 
-    def allocate(self) -> Allocation:
+    def allocate(self, *, fault_at: Optional[str] = None) -> Allocation:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         lock_fd = os.open(str(self.lock_path), os.O_CREAT | os.O_RDWR, 0o600)
         try:
@@ -164,9 +171,13 @@ class SessionTagAllocator:
             try:
                 written = os.write(fd, line)
                 if written != len(line): raise AllocationError("short append; fail closed")
+                if fault_at == "after_journal_write":
+                    raise OSError("injected after journal append before fsync")
                 os.fsync(fd)
+                if fault_at == "after_journal_fsync":
+                    raise OSError("injected after journal fsync before anchor update")
             finally: os.close(fd)
-            self._write_anchor(tag, ordinal + 1, record["sha256"])
+            self._write_anchor(tag, ordinal + 1, record["sha256"], fault_at=fault_at)
             return Allocation(tag, self.namespace, ordinal + 1, record["sha256"])
         except OSError as exc:
             raise AllocationError(f"allocation persistence failed: {exc}") from exc
