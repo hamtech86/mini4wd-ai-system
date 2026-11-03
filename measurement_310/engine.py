@@ -340,7 +340,10 @@ class SequenceController:
         )
 
     def abort(self, reason: str, fault: Optional[str] = None) -> None:
-        if self.state in {SequenceState.ABORTED, SequenceState.COMPLETED}:
+        if self.state in {SequenceState.STOPPING, SequenceState.ABORTED,
+                         SequenceState.FAULT, SequenceState.COMPLETED}:
+            # Re-entrant/repeated abort requests must not recursively transmit STOP
+            # or append duplicate abort records. STOPPING is latched before callback.
             return
         previous = self.state
         self.state = SequenceState.STOPPING
