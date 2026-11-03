@@ -161,3 +161,26 @@ The character literal contains two backslashes before `0` in the source (not the
 - T16/A01–A05 remains **FAIL / NOT RUN** for the 310-4 contract: the legacy acquisition path is not the required ADC_SAMPLE implementation, and the mock cannot exercise conversion behavior.
 - T17/L01–L04 remains **FAIL / NOT RUN**: no firmware loss ledger or companion transport Evidence package is present in this source.
 - No firmware source, test, workflow, schema, or acceptance document was modified. No firmware compile, board connection, energization, Fuse/ISP operation, EEPROM interruption, or 310-second test was performed. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains in force.
+
+
+## 2026-11-03 CI provenance check for firmware workflows
+
+The current 310-5 HEAD `237c23d7a3711d4b5a8fa7f1483fa98d2232c702` has one associated PR workflow run discovered by commit:
+- Run `41601307045`, workflow `Break-in and Battery Tests`, event `pull_request`, conclusion `success`.
+- Four jobs completed successfully: RawLog/sequence, battery, full suite, break-in.
+- The run contains **zero artifacts** and does not include a firmware compile or native firmware safety harness job.
+
+The firmware workflow definitions were inspected separately:
+- `.github/workflows/motor-firmware-compile.yml` runs for PRs only when `firmware/motor/MotoreRev.ino` or that workflow file changes; it runs the native C++ harness and compiles Arduino Uno, then uploads HEX + SHA256 + metadata. It does not pin the AVR core version and does not export linker map, `avr-size`, SRAM/stack watermark, or timing traces.
+- `.github/workflows/arduino-firmware-compile.yml` runs for PRs changing `firmware/motor/**` or itself; it pins AVR core 1.8.8, compiles Uno, and uploads HEX + build manifest. It does not run the native harness and does not export linker map, `avr-size`, SRAM/stack watermark, or timing traces.
+
+Neither workflow was triggered by this documentation-only PR. Therefore the green 310-5 CI result is valid for the Python regression suites only; it must not be represented as firmware compile/native-harness evidence. No workflow dispatch or firmware build was initiated during this review.
+
+Updated evidence classification:
+- Host Python suite at 310-5 HEAD: PASS (run 41601307045; 4 jobs success).
+- Firmware native harness at this HEAD: NOT RUN.
+- Arduino Uno firmware compile at this HEAD: NOT RUN.
+- Firmware binary identity / SRAM map / stack watermark: NOT RUN.
+- Firmware ADC / congestion / STOP timing evidence: NOT RUN.
+
+No source, workflow, test, or schema change was made. Existing hardware authorization boundaries remain unchanged.
