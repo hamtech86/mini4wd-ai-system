@@ -62,3 +62,18 @@ This is a re-entrancy/sequential idempotence latch only. It is NOT a
 thread-synchronization primitive: simultaneous calls from multiple threads can
 still race between the state check and STOPPING assignment. No claim of
 concurrent arbitration or STOP deadline is made. Tests remain NOT RUN.
+
+
+## Atomic host-thread entry latch (2026-11-03 follow-up)
+
+The abort entry now uses a non-blocking `threading.Lock` around the state
+check and transition to STOPPING. A concurrent caller that arrives while the
+first caller is in the STOP callback returns without sending another STOP.
+The lock is released before invoking the callback, so synchronous callback
+re-entry does not deadlock. This protects the abort-entry decision among
+threads in this Python process; it does not establish transport-level STOP
+priority, cancellation of an in-flight PWM write, or a bounded STOP deadline.
+
+Implementation: `43071b42f15b61634e6659d7f990b509de978714`.
+Concurrent-caller regression test: `e7270ac73c331ac94147d8e21f36a73f4d056539`.
+Tests remain NOT RUN; no CI and no hardware activity.
