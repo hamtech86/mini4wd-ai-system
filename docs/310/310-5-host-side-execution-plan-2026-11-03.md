@@ -65,3 +65,14 @@ T01–T18 formal acceptance remains unchanged: 0 PASS. This ledger does not auth
 
 
 T09/T15 follow-up (2026-11-03): `abort()` now latches re-entrant and sequential calls while STOPPING/ABORTED/FAULT/COMPLETED, avoiding repeated STOP callback and duplicate abort records. Implementation `0fbffdbd9667cba836cd0ddb1b202817d49de0f3`; regression tests `0452902fa573adf09359970147a8884cd8f2d325`; scope note `839a7e5426c8334163b8407f2577df418e78da64`. Tests NOT RUN. This is not thread synchronization; true simultaneous-call arbitration, hung STOP callbacks, independent UART priority, bounded latency, and physical cutoff remain unverified.
+
+
+T09/T15 concurrency follow-up (2026-11-03): the abort state check and STOPPING
+latch are now atomic among Python threads in one process via a non-blocking
+lock. The lock is released before STOP callback invocation, preserving safe
+same-thread re-entry behavior. Implementation
+`43071b42f15b61634e6659d7f990b509de978714`; concurrent caller regression
+`e7270ac73c331ac94147d8e21f36a73f4d056539`; scope note
+`7c8b1b944bc06b73754cca50b6de86cc0edc36d2`. Tests NOT RUN. This does not
+provide UART priority, in-flight PWM cancellation, cross-process arbitration,
+or bounded STOP latency.
