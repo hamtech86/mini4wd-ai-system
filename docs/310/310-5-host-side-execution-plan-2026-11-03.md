@@ -152,3 +152,26 @@ Tests NOT RUN; no CI/hardware. T09/T15 remain NOT PASS.
 - Corrective actions recorded in this candidate branch: (1) T11 boolean expected-count exception classification; (2) T11 collection-wide attribution API and cross-window duplicate-count prevention; (3) R01 recovered-incomplete-work re-arm inhibition. These are three concrete corrective changes, affecting two verification entries (T11 and R01). They are not counted as formal PASS because the updated repository tests have not been run and remaining T11/R01 acceptance conditions are broader.
 - No full repository checkout or CI run was available in this work session. GitHub Actions dispatch, merge, and all hardware operations remain prohibited. Tests must not be described as executed merely because test code was added.
 - Prior premature stopping was a process error: work was reported after a bounded subtask/commit instead of continuing through the remaining authorized host-side scope. It was not caused by a new technical blocker or by a need for another user instruction. Continue the remaining host-side implementation, tests, and documentation in the current authorization; stop only at an actual authority/safety boundary or when the authorized scope is exhausted.
+
+
+## T04 ACK identity validation follow-up (2026-11-04)
+
+- Adversarial source review found that `AckIdentity` had no runtime validation. Python considers `True == 1`; therefore a malformed ACK with `boot_id64=True` could compare equal to a trusted command epoch of 1 and pass the equality-only correlator.
+- Added independent validation of every ACK identity string and the full uint64 epoch, explicitly rejecting bool, negative, overflow, float, and non-integer epoch values. `AckCorrelator.correlate()` now rejects non-`AckIdentity` objects without consuming pending identity; `register()` rejects non-`CommandIdentity` objects.
+- Implementation commit: `33a08033f27d9534db68242415aae62b42485e9b`.
+- Added malformed-field and non-object regression tests: `eacca44ed9a577043db3bfa820051ceac388d893`.
+- This hardens the standalone host correlator only. It does not integrate the correlator with the current production protocol, whose ACK still contains only PWM and host receive time. T04 remains NOT PASS; tests are not yet executed.
+
+## R01 restart-persistence follow-up (2026-11-04)
+
+- Adversarial restart review found a bypass in the earlier in-memory latch: after process A recovered and removed a pending `.work` area, process B could see no pending work, construct a fresh controller with an empty latch, and re-arm.
+- Added a durable host-side marker `.310-rearm-inhibited` under the RawLog root. When pending work is discovered, the marker is created and file/directory fsynced BEFORE RawLog recovery can remove the work area. Any later controller process sees the marker and remains inhibited. Symlinks/non-regular marker paths fail closed.
+- Implementation commit: `17b7f8df1fdd5fa4f9a5920bf62f9e7515cd63dc`.
+- Added a two-controller restart regression test proving that a second controller cannot send PWM after the first has recovered the incomplete work: `0521209a5a50c9d6ac264b6e09b761d7d8b8e47e`.
+- The marker is intentionally not auto-cleared. A safe reconciliation/clear protocol does not yet exist; manual deletion would defeat the inhibit and is not authorized as an automatic action. This is conservative containment, not full R01 acceptance. The new test has not been executed.
+
+## Updated work accounting (2026-11-04)
+
+- Additional corrective actions since the previous ledger entry: ACK identity runtime validation (T04) and persistent re-arm inhibition across process restarts (R01).
+- Total concrete corrective actions now recorded: five (two T11 accounting corrections, two R01 recovery/re-arm corrections, one T04 ACK-validation correction), affecting three verification entries: T04, T11, R01.
+- These are implementation changes, not formal verification passes. Updated repository tests remain unexecuted in this environment; no full checkout, CI run, or hardware test is claimed.
