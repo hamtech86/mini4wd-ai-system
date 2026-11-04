@@ -289,6 +289,24 @@ def test_protocol_session_latch_abort_prevents_pending_command_reuse(tmp_path, m
     session.latch_abort("ACK timeout")
     assert session._failed is True
     assert session._pending is None
+    order = []
+    original_send = transport.send
+    original_append = session.evidence.append
+
+    def traced_send(frame):
+        order.append("STOP_WRITE")
+        return original_send(frame)
+
+    def traced_append(event, payload):
+        if event == "STOP_TX_ATTEMPT":
+            order.append("STOP_EVIDENCE")
+        return original_append(event, payload)
+
+    transport.send = traced_send
+    session.evidence.append = traced_append
+    session.send_stop_best_effort(stop_reason=1, stop_request_id=7)
+    assert order == ["STOP_WRITE", "STOP_EVIDENCE"]
+    assert session.codec.decode(transport.sent[-1]).message["kind"] == "STOP_REQ"
     with pytest.raises(RuntimeError, match="fail-closed"):
         session.poll_apply_ack(0.0)
     with pytest.raises(RuntimeError, match="fail-closed"):
