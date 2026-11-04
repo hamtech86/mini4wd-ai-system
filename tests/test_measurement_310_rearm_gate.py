@@ -301,3 +301,36 @@ def test_intent_fsync_failure_suppresses_send_and_callback_exception_is_unknown(
         )
     state = journal.recover()["cmd-001"]
     assert state.write_flush is WriteFlushStatus.UNKNOWN
+
+
+def test_symlinked_actuation_journal_blocks_rearm(tmp_path):
+    target = tmp_path / "trusted.jsonl"
+    ActuationSafetyJournal(target).record_intent(command())
+    link = tmp_path / "actuation.jsonl"
+    link.symlink_to(target)
+    _, gate = make_gate(link)
+    calls = []
+    decision, sent = arm(gate, calls)
+    assert not decision.allowed
+    assert "symlink" in decision.reason
+    assert sent is None and calls == []
+
+
+def test_unreadable_actuation_journal_blocks_rearm(tmp_path, monkeypatch):
+    from pathlib import Path
+    path = tmp_path / "actuation.jsonl"
+    ActuationSafetyJournal(path).record_intent(command())
+    original_read_bytes = Path.read_bytes
+
+    def fail_read(self):
+        if self == path:
+            raise PermissionError("injected permission failure")
+        return original_read_bytes(self)
+
+    monkeypatch.setattr(Path, "read_bytes", fail_read)
+    _, gate = make_gate(path)
+    calls = []
+    decision, sent = arm(gate, calls)
+    assert not decision.allowed
+    assert "unavailable" in decision.reason
+    assert sent is None and calls == []
