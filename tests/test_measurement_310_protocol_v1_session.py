@@ -294,6 +294,28 @@ def test_protocol_session_partial_pwm_write_is_unknown_and_fail_closed(tmp_path,
     assert transport.sent == sent_before
 
 
+def test_protocol_session_duplicate_previous_ack_cannot_release_next_stage(
+    tmp_path, monkeypatch
+):
+    codec = ProtocolV1Codec(MAGIC_FIXTURE, VERSION_FIXTURE)
+    hello, arm = handshake_frames(codec)
+    first_ack = ack_frame(codec, MessageType.APPLY_ACK, command=2,
+                          payload=struct.pack("<BBH", 0, 0, 1))
+    second_ack = ack_frame(codec, MessageType.APPLY_ACK, command=3,
+                           payload=struct.pack("<BBH", 0, 1, 2))
+    session, _, _, _ = make_session(
+        tmp_path, monkeypatch, [hello, arm, first_ack, first_ack, second_ack]
+    )
+    session.send_stage_pwm(0, "stage-zero", "session-uuid", stage_index=0)
+    assert session.poll_apply_ack(0.0)[0] == 0
+
+    session.send_stage_pwm(1, "stage-one", "session-uuid", stage_index=1)
+    assert session.poll_apply_ack(0.0) is None
+    assert session._pending is not None
+    assert session.poll_apply_ack(0.0)[0] == 1
+    assert session._pending is None
+
+
 def test_protocol_session_evidence_torn_tail_fails_closed(tmp_path):
     path = tmp_path / "evidence.jsonl"
     journal = TransportEvidenceJournal(path)
