@@ -157,7 +157,7 @@ def run_profile(output_dir, samples, stage_ms, stop_reserve_ms, margin_ms):
     result["samples_sha256"] = sample_sha
 
     report_path = output_dir / "310-fsync-report.json"
-    report_bytes = (json.dumps(result, indent=2, sort_keys=True) + "\\n").encode()
+    report_bytes = (json.dumps(result, indent=2, sort_keys=True) + "\n").encode()
     with report_path.open("wb") as stream:
         stream.write(report_bytes)
         stream.flush()
@@ -165,7 +165,7 @@ def run_profile(output_dir, samples, stage_ms, stop_reserve_ms, margin_ms):
     report_sha = hashlib.sha256(report_bytes).hexdigest()
     checksum_path = output_dir / "310-fsync-report.sha256"
     with checksum_path.open("w", encoding="ascii", newline="") as stream:
-        stream.write(f"{report_sha}  {report_path.name}\\n")
+        stream.write(f"{report_sha}  {report_path.name}\n")
         stream.flush()
         os.fsync(stream.fileno())
     dir_fd = os.open(str(output_dir), os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
