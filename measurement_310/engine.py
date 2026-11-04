@@ -60,12 +60,14 @@ class SequenceController:
         poll_ack: Callable[[], Optional[tuple[int, str]]],
         clock: Optional[Clock] = None,
         ack_timeout_ms: int = 2_000,
+        protocol_session: Optional[object] = None,
     ) -> None:
         self.writer = writer
         self.manifest_fields = dict(manifest_fields)
         self.send_pwm = send_pwm
         self.send_stop = send_stop
         self.poll_ack = poll_ack
+        self.protocol_session = protocol_session
         self.clock = clock or SystemClock()
         self.ack_timeout_ns = ack_timeout_ms * 1_000_000
         self.state = SequenceState.READY
@@ -220,7 +222,13 @@ class SequenceController:
             # send_pwm returns UTC after transport write/flush completes.
             # Capture monotonic time immediately afterwards so ACK timeout and
             # send-to-ACK delay exclude time spent inside the blocking send.
-            self.command_sent_utc = self.send_pwm(index)
+            if self.protocol_session is None:
+                self.command_sent_utc = self.send_pwm(index)
+            else:
+                self.command_sent_utc = self.protocol_session.send_stage_pwm(
+                    index, self.stage_context_id,
+                    self.session.state["measurement_session_id"], stage_index=index,
+                )
             self.command_sent_ns = self.clock.monotonic_ns()
         except Exception as exc:
             self.abort("communication_lost", fault=f"PWM send failed: {exc}")
@@ -231,7 +239,8 @@ class SequenceController:
         """Advance using injected clock; caller controls polling cadence."""
         if self.state == SequenceState.WAITING_ACK:
             try:
-                ack = self.poll_ack()
+                ack = (self.poll_ack() if self.protocol_session is None
+                       else self.protocol_session.poll_apply_ack(timeout_s=0.0))
             except Exception as exc:
                 self.abort("communication_lost", fault=str(exc))
                 return self.state
