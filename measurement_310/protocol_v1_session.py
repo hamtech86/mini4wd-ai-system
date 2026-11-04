@@ -102,7 +102,7 @@ class TransportEvidenceJournal:
                 "FRAME_TX_INTENT": "frame_tx_intent",
                 "FRAME_TX_COMPLETE": "frame_tx_complete",
                 "FRAME_TX_ERROR": "frame_tx_error",
-                "RX_BYTES": "frame_rx_fragment",
+                "RX_BYTES": "frame_rx_fragment",\n                "FRAME_RX_DECODED": "frame_rx_received",
                 "RX_DECODE_ERROR": "protocol_error",
                 "HELLO_ACK_MATCHED": "hello_ack_match",
                 "STAGE_CONTEXT_MAP": "sample_context_map",
@@ -194,7 +194,7 @@ class ProtocolV1HostSession:
         if direction is None:
             if event.startswith(("FRAME_TX", "STOP_TX")):
                 direction = "host_to_device"
-            elif event.startswith(("RX", "ACK_MATCHED", "HELLO_ACK")):
+            elif event.startswith(("RX", "ACK_", "HELLO_ACK")):
                 direction = "device_to_host"
             else:
                 direction = "host_internal"
@@ -282,10 +282,20 @@ class ProtocolV1HostSession:
                 raise ProtocolV1SessionError(f"RX frame rejected: {exc}") from exc
             raw_frame = bytes(self._rx_buffer[:decoded.consumed_bytes])
             del self._rx_buffer[:decoded.consumed_bytes]
-            decoded.message["_raw_frame_base64"] = base64.b64encode(raw_frame).decode("ascii")
+            raw_frame_b64 = base64.b64encode(raw_frame).decode("ascii")
+            decoded.message["_raw_frame_base64"] = raw_frame_b64
             decoded.message["_rx_evidence_event_id"] = rx_evidence_event_id
             decoded.message["_host_received_at_utc"] = received_utc
             decoded.message["_host_received_monotonic_ns"] = received_ns
+            decoded.message["_rx_frame_evidence_event_id"] = self._append(
+                "FRAME_RX_DECODED", direction="device_to_host",
+                host_received_at_utc=received_utc,
+                host_received_monotonic_ns=received_ns,
+                raw_frame_base64=raw_frame_b64,
+                rx_chunk_event_id=rx_evidence_event_id,
+                message_type=decoded.message.get("message_type"),
+                command_id=decoded.message.get("command_id"),
+            )
             self._messages.append(decoded.message)
 
     def _next_message(self, timeout_s: float) -> Optional[dict]:
