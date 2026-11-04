@@ -1043,3 +1043,34 @@ def test_uncertain_protocol_stop_failure_latches_fault_and_records_unknown_devic
     assert "STOP command send failed" in event["details"]["fault"]
     assert transport.sent == []
     # Mock failure does not model wire delivery; no retry is attempted.
+
+
+
+def test_recovery_rearm_inhibition_survives_a_new_controller_process(tmp_path):
+    writer = RawLogV2Writer(tmp_path)
+    previous = manifest(tmp_path)
+    previous["log_id"] = "PENDING-RESTART"
+    previous["measurement_session_id"] = "SESSION-RESTART"
+    writer.begin(previous)
+
+    clock = FakeClock()
+    first = SequenceController(
+        writer, manifest(tmp_path), lambda pwm: clock.utc_now(),
+        lambda: None, lambda: None, clock,
+    )
+    recovered = first.startup_recover()
+    assert [item["log_id"] for item in recovered] == ["PENDING-RESTART"]
+    marker = tmp_path / ".310-rearm-inhibited"
+    assert marker.is_file()
+    assert writer.list_incomplete_work() == []
+
+    sent = []
+    second = SequenceController(
+        RawLogV2Writer(tmp_path), manifest(tmp_path),
+        lambda pwm: sent.append(pwm) or clock.utc_now(),
+        lambda: None, lambda: None, clock,
+    )
+    assert second.startup_recover() == []
+    with pytest.raises(SequenceError, match="automatic re-arm is prohibited"):
+        second.start()
+    assert sent == []
