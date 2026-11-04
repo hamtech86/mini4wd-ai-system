@@ -46,7 +46,7 @@ class TransportEvidenceJournal:
         if not self.path.exists():
             return [], "0" * 64
         raw = self.path.read_bytes()
-        if raw and not raw.endswith(b"\\n"):
+        if raw and not raw.endswith(b"\n"):
             raise ProtocolV1SessionError("transport Evidence has a torn final line")
         events, previous = [], "0" * 64
         for number, line in enumerate(raw.splitlines(), 1):
