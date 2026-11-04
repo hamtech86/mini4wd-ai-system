@@ -294,7 +294,7 @@ class SequenceController:
                     return self.state
                 self.ack_utc = ack_utc
                 self.stage_start_utc = ack_utc
-                self.stage_start_ns = self.clock.monotonic_ns()
+                self.stage_start_ns = ack_received_ns
                 self.next_deadline_ns = self.stage_start_ns + self.STAGE_DURATION_MS * 1_000_000
                 self.state = SequenceState.RUNNING
                 try:
