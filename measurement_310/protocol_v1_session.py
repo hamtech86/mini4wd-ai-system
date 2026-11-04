@@ -293,6 +293,14 @@ class ProtocolV1HostSession:
 
     def send_stage_pwm(self, pwm: int, stage_context_id: str,
                        measurement_session_id: str, stage_index: Optional[int] = None) -> str:
+        try:
+            return self._send_stage_pwm(pwm, stage_context_id, measurement_session_id, stage_index)
+        except Exception:
+            self._failed = True
+            raise
+
+    def _send_stage_pwm(self, pwm: int, stage_context_id: str,
+                        measurement_session_id: str, stage_index: Optional[int] = None) -> str:
         if self._failed:
             raise ProtocolV1SessionError("host protocol session is fail-closed")
         if not 0 <= pwm <= 30 or isinstance(pwm, bool):
@@ -344,6 +352,13 @@ class ProtocolV1HostSession:
         return sent_utc
 
     def poll_apply_ack(self, timeout_s: float = 0.0):
+        try:
+            return self._poll_apply_ack(timeout_s)
+        except Exception:
+            self._failed = True
+            raise
+
+    def _poll_apply_ack(self, timeout_s: float = 0.0):
         if self._failed:
             raise ProtocolV1SessionError("host protocol session is fail-closed")
         if self._pending is None:
