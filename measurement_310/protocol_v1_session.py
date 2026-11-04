@@ -147,22 +147,31 @@ class ProtocolV1HostSession:
         return self._command_id
 
     def _record_frame_intent(self, frame: bytes, *, kind: str, command_id: int,
-                             session_tag: int, epoch_tag: int) -> None:
+                             session_tag: int, epoch_tag: int,
+                             identity: Optional[CommandIdentity] = None,
+                             intent_hash: Optional[str] = None) -> None:
         self._append("FRAME_TX_INTENT", kind=kind, frame_b64=base64.b64encode(frame).decode("ascii"),
                      byte_count=len(frame), command_id=command_id,
-                     measurement_session_tag=session_tag, device_epoch_tag=epoch_tag)
+                     measurement_session_tag=session_tag, device_epoch_tag=epoch_tag,
+                     identity=asdict(identity) if identity is not None else None,
+                     intent_journal_sha256=intent_hash)
 
     def _send_frame(self, frame: bytes, *, kind: str, command_id: int,
-                    session_tag: int, epoch_tag: int) -> str:
+                    session_tag: int, epoch_tag: int,
+                    identity: Optional[CommandIdentity] = None,
+                    intent_hash: Optional[str] = None) -> str:
         self._record_frame_intent(frame, kind=kind, command_id=command_id,
-                                  session_tag=session_tag, epoch_tag=epoch_tag)
+                                  session_tag=session_tag, epoch_tag=epoch_tag,
+                                  identity=identity, intent_hash=intent_hash)
         try:
             self.transport.send(frame)
         except Exception as exc:
             try:
                 self._append("FRAME_TX_ERROR", kind=kind, command_id=command_id,
                              frame_b64=base64.b64encode(frame).decode("ascii"),
-                             error=str(exc), outcome="UNKNOWN")
+                             error=str(exc), outcome="UNKNOWN",
+                             identity=asdict(identity) if identity is not None else None,
+                             intent_journal_sha256=intent_hash)
             finally:
                 raise ProtocolV1SessionError(f"{kind} write/flush outcome unknown: {exc}") from exc
         # Capture UTC immediately after the transport write/flush has completed.
@@ -170,7 +179,9 @@ class ProtocolV1HostSession:
         # This fsync is required before the caller can treat host transmission as complete.
         self._append("FRAME_TX_COMPLETE", kind=kind, command_id=command_id,
                      frame_b64=base64.b64encode(frame).decode("ascii"),
-                     byte_count=len(frame), host_write_completed_at_utc=self.utc_now())
+                     byte_count=len(frame), host_write_completed_at_utc=self.utc_now(),
+                     identity=asdict(identity) if identity is not None else None,
+                     intent_journal_sha256=intent_hash)
         return sent_utc
 
     def _pump_rx(self, timeout_s: float) -> None:
@@ -258,10 +269,11 @@ class ProtocolV1HostSession:
         return self.session_tag
 
     def _register_and_send(self, identity: CommandIdentity, frame: bytes, kind: str) -> str:
-        self.intent_journal.append_intent(identity, self.utc_now())
+        intent_hash = self.intent_journal.append_intent(identity, self.utc_now())
         self._correlator.register(identity)
         return self._send_frame(frame, kind=kind, command_id=int(identity.command_id),
-                                session_tag=int(self.session_tag), epoch_tag=int(self.epoch_tag))
+                                session_tag=int(self.session_tag), epoch_tag=int(self.epoch_tag),
+                                identity=identity, intent_hash=intent_hash)
 
     def _accept_identity_ack(self, message: dict, identity: CommandIdentity,
                              expected_kind: str, expected_token: int,
