@@ -88,9 +88,14 @@ class ActuationSafetyJournal:
         return json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
 
     def _read(self):
+        if self.path.is_symlink():
+            raise JournalUntrusted("actuation journal must not be a symlink")
         if not self.path.exists():
             return []
-        raw = self.path.read_bytes()
+        try:
+            raw = self.path.read_bytes()
+        except OSError as exc:
+            raise JournalUntrusted(f"actuation journal cannot be read: {exc}") from exc
         if raw and not raw.endswith(b"\n"):
             raise JournalUntrusted("torn journal tail")
         previous, bodies = "0" * 64, []
@@ -273,8 +278,8 @@ class ActuationRearmGate:
             return RearmDecision(False, "device safe state not independently confirmed")
         try:
             states = self.journal.recover()
-        except JournalUntrusted as exc:
-            return RearmDecision(False, f"actuation journal untrusted: {exc}")
+        except (JournalUntrusted, OSError) as exc:
+            return RearmDecision(False, f"actuation journal untrusted/unavailable: {exc}")
         unresolved = sorted(cid for cid, state in states.items() if not state.terminal_safe)
         if unresolved:
             return RearmDecision(False, "unresolved command outcome(s): " + ", ".join(unresolved))
