@@ -285,7 +285,7 @@ class ProtocolV1HostSession:
             del self._rx_buffer[:decoded.consumed_bytes]
             raw_frame_b64 = base64.b64encode(raw_frame).decode("ascii")
             decoded.message["_raw_frame_base64"] = raw_frame_b64
-            decoded.message["_rx_evidence_event_id"] = rx_evidence_event_id
+            decoded.message["_rx_chunk_event_id"] = rx_evidence_event_id
             decoded.message["_host_received_at_utc"] = received_utc
             decoded.message["_host_received_monotonic_ns"] = received_ns
             decoded.message["_rx_frame_evidence_event_id"] = self._append(
@@ -297,6 +297,7 @@ class ProtocolV1HostSession:
                 message_type=decoded.message.get("message_type"),
                 command_id=decoded.message.get("command_id"),
             )
+            decoded.message["_rx_evidence_event_id"] = decoded.message["_rx_frame_evidence_event_id"]
             self._messages.append(decoded.message)
 
     def _next_message(self, timeout_s: float) -> Optional[dict]:
