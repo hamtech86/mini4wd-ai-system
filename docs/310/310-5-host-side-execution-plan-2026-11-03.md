@@ -121,3 +121,15 @@ Tests NOT RUN; no CI/hardware. T09/T15 remain NOT PASS.
 - Re-running the isolated reconstructed T11 suite after the correction: 17 passed. This was not a checkout-based run of the complete repository suite and is not represented as CI evidence.
 - Additional cross-window probe found an unresolved accounting contract issue: an observation with missing channel identity is counted as `unattributable=1` in each window that receives the same observation collection. Two channel windows therefore sum to 2 for one physical observation. A record with missing timestamp is likewise counted in every window because it cannot be temporally scoped.
 - T11 therefore remains NOT PASS until the caller/API contract guarantees globally unique attribution of unattributable records (or separates global unassignable diagnostics from per-window summaries) and tests cover multiple channels/epochs/windows. Do not sum per-window `unattributable` values without a defined deduplication/ownership rule.
+
+
+## T11 collection-wide attribution correction (2026-11-04)
+
+- Added `summarize_many(windows, observations)` and `BatchLossSummary`.
+- The batch API validates windows, rejects overlap within the same channel/full-epoch pair, attributes each fully identified observation to at most one half-open window, and counts incomplete/malformed identity or timestamp records once in the collection-wide `unattributable` field.
+- Per-window summaries produced by the batch API contain zero unattributable records; callers must use the batch-level count and must not sum single-window `summarize()` unattributable counts across repeated collections.
+- Implementation commit: `ca35b97d62edebd8eef656f063a7f6ede244e9ed`.
+- Regression tests commit: `3c89090c1dfe569c29cbbc8a125e3b4d4ccdf563`.
+- Added coverage for missing channel across channels, missing timestamp across windows, attribution by channel/epoch/time, and overlapping-window rejection.
+- This closes the identified double-counting path for callers using the batch API. The original single-window API remains intentionally single-window; callers aggregating across windows must migrate to `summarize_many()`.
+- Execution of the updated test module is pending; T11 is not yet PASS.
