@@ -111,7 +111,7 @@ python -m pytest -q \
   tests/test_measurement_310_loss_accounting.py \
   tests/test_measurement_310_sequence_accounting.py \
   tests/test_measurement_310_epoch_checkpoint.py \
-  tests/test_measurement_310_session_tag_allocator.py \\
+  tests/test_measurement_310_session_tag_allocator.py \
   tests/test_measurement_310_safety_regressions_transport_only.py
 ```
 
