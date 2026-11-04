@@ -408,5 +408,14 @@ class ProtocolV1HostSession:
         self._pending = None
         return pending["pwm"], self.utc_now()
 
+    def latch_abort(self, reason: str) -> None:
+        """In-memory fail-closed latch; deliberately performs no storage or I/O."""
+        self._failed = True
+        if self._pending is not None:
+            identity = self._pending.get("identity")
+            if identity is not None:
+                self._correlator.expire(identity.command_id)
+            self._pending = None
+
     def disconnect(self) -> None:
         self.transport.disconnect()
