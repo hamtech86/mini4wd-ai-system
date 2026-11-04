@@ -45,7 +45,7 @@ def make_session(tmp_path, monkeypatch, incoming, stop_writer=None):
     session = ProtocolV1HostSession(
         transport, codec, FixedAllocator(),
         DurableIntentJournal(tmp_path / "command-intent.jsonl"),
-        evidence, ack_timeout_s=0.2,
+        evidence, stop_writer=stop_writer, ack_timeout_s=0.2,
     )
     return session, transport, codec, evidence
 
