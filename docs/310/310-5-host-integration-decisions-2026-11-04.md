@@ -142,3 +142,32 @@ Prior full-checkout baseline (not this candidate): GitHub Actions run #1290, mer
 - T18 remains NOT RUN pending a 10,000-sample profile on the approved host/storage.
 - No CI dispatch, PR merge, firmware modification, RawLog schema/writer/validator change, hardware operation, or stage transition was performed.
 - Formal T01–T18 PASS remains 0. R01 remains FAIL. 310-5 acceptance remains pending.
+
+
+## 2026-11-05 superseding implementation status
+
+This section supersedes earlier source snapshots in §§2–3 where they describe the host candidate before the v0.5 adapter integration.
+
+### T04/T05 — optional v0.5 host path now integrated
+
+- `ProtocolV1HostSession` implements the adopted v0.5 host-side HELLO/nonce/full boot identity check, ARM-before-PWM, durable command intent before exact frame transmission, raw RX evidence before decode, exact session/epoch/command/context ACK correlation, and durable ACK evidence before stage release.
+- `SequenceController.with_protocol_session(...)` provides an additive route through that adapter; legacy construction remains available and is not silently reinterpreted as v0.5.
+- The candidate does not assign production `magic` or `protocol_version` numeric values. Test fixtures are not production constants. No qualified concrete 310-4 firmware build/identity is available, so physical wire use remains gated.
+- ACK evidence failure coverage now includes failures at RX_BYTES, FRAME_RX_DECODED, and ACK_MATCHED. The exact current complete-checkout CI is run #1364, HEAD `40b0e3f417f2d052f0458f849bb8fca881c33003`, 503 passed, all four jobs successful.
+- T04/T05 are advanced host implementation candidates, not formal PASS: remaining fault matrix, production firmware identity, and physical device correlation remain open.
+
+### T09/T15 — independent dispatch injection and exact retry
+
+- `ProtocolV1HostSession.send_stop_best_effort()` now requires an injected STOP writer distinct from the normal command transport. It sends before Evidence fsync, so the host dispatch path does not wait for the command transport queue or evidence append.
+- Retry with the same `stop_request_id` and same reason reuses the retained byte-identical STOP_REQ frame and preserves both `command_id` and `stop_request_id`, consistent with 310-4 v0.5 §A6.3. Reuse of that ID with a different reason is rejected.
+- This is not proof that the injected writer uses an independent physical channel, is bounded, or can interrupt a hung OS/driver write. The production caller still has to supply and qualify the callback; the v0.5 numeric STOP reason registry is not assigned. No MCU/driver/physical STOP result is inferred.
+- T09/T15 therefore remains NOT PASS. The host dispatch separation is a limited implementation improvement only.
+
+### T10/T17 and T18 — unchanged authority boundaries
+
+- T10/T17 remains unresolved. The public RawLog v2 package stays exactly `manifest.json` + `records.jsonl`; this branch does not change its schema, writer, validator, or package contents. The external collection-manifest concept remains a proposal, not an adopted replacement for the stated RawLog-manifest inventory requirement.
+- T18 remains NOT RUN on the approved target host/storage. The development-host 10,000-sample smoke profile with zero STOP reserve/margin is not acceptance evidence. Numeric STOP reserve and margin remain unapproved.
+
+### Safety boundary
+
+No firmware build/upload, physical serial connection, motor energization, hardware STOP/cutoff test, EEPROM/fuse operation or 310-second measurement occurred. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains in force. PR #187 remains Draft/Open/Unmerged; 310-5 formal acceptance remains NOT COMPLETE.
