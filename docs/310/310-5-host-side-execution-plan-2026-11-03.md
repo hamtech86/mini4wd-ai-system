@@ -184,3 +184,12 @@ Tests NOT RUN; no CI/hardware. T09/T15 remain NOT PASS.
 - Implementation commit: `df83ae65af57492d848e032eb9eb7af0e8661220`.
 - Updated send-order assertion and added a directory-fsync failure regression that requires zero send callbacks: `f6b4e3a69aedf54c86530d863991e65511525ee3`.
 - This remains a standalone primitive; it is not wired into the production `SequenceController._begin_stage()` path. Also, newly created parent-directory ancestors are not individually fsynced; deployment must use a pre-existing durable state directory or this limitation must be addressed before claiming crash durability for newly created directory trees. T05 remains NOT PASS and tests remain NOT RUN.
+
+
+## Current execution checkpoint (2026-11-04)
+
+- Six corrective actions are now recorded: T11 boolean validation; T11 collection-wide attribution; R01 initial recovered-work inhibit; R01 persistent cross-process inhibit; T04 ACK identity validation; T05 intent-journal parent-directory fsync. These affect four entries (T04, T05, T11, R01).
+- Regression tests have been added/updated for malformed ACKs, recovery across a second controller process, and directory-fsync failure. None of the newly updated candidate test modules has been executed in a full repository checkout or CI in this environment. No test PASS is claimed.
+- T05 remains blocked at production integration: SequenceController._begin_stage() still calls the legacy send_pwm(index) path directly; the full boot epoch is not available from the current protocol/host integration, and the ACK wire object still has no command/session/context/full-epoch identity. The standalone journal and gate do not prove production nonzero PWM is gated.
+- T04 remains blocked for the same protocol integration reason. T09/T15 remain blocked by shared synchronous serial transport and lack of independent bounded STOP. T10/T17 remain blocked by the immutable two-file RawLog v2 package contract and no authorized schema change. T18 remains NOT RUN. Hardware and ADC/fuse/BOD/SRAM validation remain prohibited/unrun.
+- Formal T01–T18 acceptance remains 0 PASS. The original matrix plus R01 remains 38 entries; previously reported categories remain 12 provisional FAIL, 18 BLOCKED, 4 NOT RUN, and 4 limited-scope PASS candidates. The six corrective actions do not change those formal statuses.
