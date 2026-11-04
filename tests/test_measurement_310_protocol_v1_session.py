@@ -154,6 +154,34 @@ def test_protocol_session_rejects_wrong_command_ack_without_advancing(tmp_path, 
     assert session.poll_apply_ack(0.0)[0] == 0
 
 
+@pytest.mark.parametrize("failed_event", ["RX_BYTES", "FRAME_RX_DECODED", "ACK_MATCHED"])
+def test_protocol_session_ack_evidence_failure_never_releases_stage(
+    tmp_path, monkeypatch, failed_event
+):
+    codec = ProtocolV1Codec(MAGIC_FIXTURE, VERSION_FIXTURE)
+    hello, arm = handshake_frames(codec)
+    apply = ack_frame(codec, MessageType.APPLY_ACK, command=2,
+                      payload=struct.pack("<BBH", 0, 0, 1))
+    session, _, _, evidence = make_session(tmp_path, monkeypatch, [hello, arm, apply])
+    session.send_stage_pwm(0, "stage-uuid", "session-uuid", stage_index=0)
+
+    original_append = evidence.append
+
+    def fail_selected_evidence(event, payload, **kwargs):
+        if event == failed_event:
+            raise OSError(f"injected {failed_event} durability failure")
+        return original_append(event, payload, **kwargs)
+
+    evidence.append = fail_selected_evidence
+    with pytest.raises(OSError, match=f"injected {failed_event} durability failure"):
+        session.poll_apply_ack(0.0)
+
+    assert session._failed is True
+    assert session._pending is not None
+    with pytest.raises(RuntimeError, match="fail-closed"):
+        session.send_stage_pwm(1, "next-stage", "session-uuid", stage_index=1)
+
+
 def test_protocol_session_evidence_torn_tail_fails_closed(tmp_path):
     path = tmp_path / "evidence.jsonl"
     journal = TransportEvidenceJournal(path)
