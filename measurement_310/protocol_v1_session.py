@@ -413,6 +413,10 @@ class ProtocolV1HostSession:
                         measurement_session_id: str, stage_index: Optional[int] = None) -> str:
         if self._failed:
             raise ProtocolV1SessionError("host protocol session is fail-closed")
+        if self._pending is not None:
+            raise ProtocolV1SessionError(
+                "previous PWM command outcome is unresolved; a new stage cannot be sent"
+            )
         if isinstance(pwm, bool) or not isinstance(pwm, int) or not 0 <= pwm <= 30:
             raise ValueError("PWM must be integer 0..30")
         if not isinstance(stage_context_id, str) or not stage_context_id:
