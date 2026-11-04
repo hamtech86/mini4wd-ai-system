@@ -259,8 +259,8 @@ def test_sequence_controller_fails_closed_on_invalid_or_late_ack_timing(
     }
     controller = SequenceController(
         RawLogV2Writer(tmp_path), fields, lambda pwm: clock.utc_now(),
-        lambda: stops.append("STOP"), lambda: None, clock,
-        protocol_session=Adapter(),
+        lambda: (adapter.events.append("STOP"), stops.append("STOP")),
+        lambda: None, clock, protocol_session=adapter,
     )
     controller.startup_recover()
     controller.start()
