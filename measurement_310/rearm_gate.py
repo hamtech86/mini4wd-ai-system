@@ -206,6 +206,26 @@ class ActuationSafetyJournal:
             raise RearmGateError("command_id reuse prohibited")
         self._append("INTENT", {"identity": asdict(identity)})
 
+    def intent_then_send(self, identity, send_callback):
+        """Commit durable intent before invoking a nonzero-command callback.
+
+        The callback must return only after its write/flush path completes.
+        Any callback exception is recorded conservatively as UNKNOWN; this
+        method never retries or replays the command.
+        """
+        self.record_intent(identity)
+        try:
+            result = send_callback()
+        except Exception:
+            try:
+                self.record_write_flush(identity, WriteFlushStatus.UNKNOWN)
+            except Exception:
+                # The durable intent remains unresolved and therefore blocks re-arm.
+                pass
+            raise
+        self.record_write_flush(identity, WriteFlushStatus.SUCCEEDED)
+        return result
+
     def record_write_flush(self, identity, status):
         if not isinstance(status, WriteFlushStatus):
             raise TypeError("status must be WriteFlushStatus")
