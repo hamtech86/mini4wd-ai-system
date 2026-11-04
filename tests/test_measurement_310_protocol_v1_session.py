@@ -5,10 +5,12 @@ from types import SimpleNamespace
 import pytest
 
 from measurement_310.command_intent import DurableIntentJournal
+from measurement_310.engine import SequenceController, SequenceState
 from measurement_310.protocol_v1 import (MessageType, ProtocolV1Codec, PROTOCOL_V1_MAGIC,
                                           PROTOCOL_V1_VERSION, StopReason, epoch_tag_for_boot_id)
 from measurement_310.protocol_v1_session import ProtocolV1HostSession, TransportEvidenceJournal
 from measurement_310.transport import MockTransport
+from raw_log_v2 import RawLogV2Writer
 
 
 MAGIC_FIXTURE = PROTOCOL_V1_MAGIC
@@ -57,6 +59,107 @@ def handshake_frames(codec):
     arm = ack_frame(codec, MessageType.ARM_ACK, command=1,
                     payload=struct.pack("<BBH", 0, 1, 1))
     return hello, arm
+
+
+class FakeClock:
+    def __init__(self):
+        self.ns = 1_000_000_000
+
+    def monotonic_ns(self):
+        return self.ns
+
+    def utc_now(self):
+        return "2026-11-04T00:00:00.000Z"
+
+    def advance_ms(self, value):
+        self.ns += value * 1_000_000
+
+
+def test_protocol_sequence_sends_normal_completion_stop_before_rawlog_finalize(
+    tmp_path, monkeypatch
+):
+    clock = FakeClock()
+    monkeypatch.setattr(
+        "measurement_310.protocol_v1_session.time.monotonic_ns",
+        clock.monotonic_ns,
+    )
+    codec = ProtocolV1Codec(MAGIC_FIXTURE, VERSION_FIXTURE)
+    hello, arm = handshake_frames(codec)
+    apply_acks = [
+        ack_frame(
+            codec, MessageType.APPLY_ACK, command=2 + index,
+            payload=struct.pack("<BBH", 0, index, index + 1),
+        )
+        for index in range(31)
+    ]
+    stop_frames = []
+    session, transport, codec, evidence = make_session(
+        tmp_path, monkeypatch, [hello, arm, *apply_acks],
+        stop_writer=lambda frame: stop_frames.append(bytes(frame)),
+    )
+    fields = {
+        "log_id": "PROTOCOL-310",
+        "measurement_session_id": "00000000-0000-4000-8000-000000000002",
+        "started_at_utc": clock.utc_now(),
+        "motor_instance_id": None,
+        "device": {
+            "type": "MOTOR", "model": "MOTOR_BREAKIN_V3",
+            "firmware_version": "test", "firmware_build": "test",
+            "firmware_id": "test", "adc_resolution_bits": 10,
+        },
+        "measurement_conditions": {
+            "direction": "FWD", "voltage_control_mode": "INPUT",
+            "sweep_pwm_min": 0, "sweep_pwm_max": 30,
+            "stage_duration_ms": 10000, "schedule_owner": "PYTHON",
+        },
+        "metadata_warnings": [],
+    }
+    controller = SequenceController.with_protocol_session(
+        RawLogV2Writer(tmp_path), fields, session,
+        send_stop=lambda: session.send_stop_best_effort(
+            stop_reason=StopReason.INTERNAL_HOST_FAULT
+        ),
+        send_normal_stop=lambda: session.send_stop_best_effort(
+            stop_reason=StopReason.NORMAL_COMPLETION
+        ),
+        clock=clock,
+    )
+    controller.startup_recover()
+    controller.start()
+
+    for index in range(31):
+        assert controller.poll() == SequenceState.RUNNING
+        clock.advance_ms(10_000)
+        state = controller.poll()
+        assert state == (
+            SequenceState.COMPLETED if index == 30 else SequenceState.WAITING_ACK
+        )
+
+    assert len(stop_frames) == 1
+    stop_message = codec.decode(stop_frames[0]).message
+    assert stop_message["kind"] == "STOP_REQ"
+    assert stop_message["stop_reason"] == StopReason.NORMAL_COMPLETION
+    sent_kinds = [codec.decode(frame).message["kind"] for frame in transport.sent]
+    assert sent_kinds == ["HELLO", "ARM"] + ["PWM_SET"] * 31
+    assert controller.state == SequenceState.COMPLETED
+    assert session._failed is True
+    assert session.last_stop_request_id == 1
+
+    package = tmp_path / "PROTOCOL-310"
+    assert sorted(item.name for item in package.iterdir()) == ["manifest.json", "records.jsonl"]
+    manifest = json.loads((package / "manifest.json").read_text(encoding="utf-8"))
+    records = [
+        json.loads(line)
+        for line in (package / "records.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert manifest["status"] == "completed"
+    completed = next(record for record in records if record.get("event") == "SESSION_COMPLETED")
+    assert completed["details"]["stop_transmission_attempted"] is True
+    assert completed["details"]["device_state"] == "unknown"
+
+    events, _ = evidence._read()
+    stop_event = next(event for event in events if event["event"] == "STOP_TX_ATTEMPT")
+    assert stop_event["payload"]["stop_reason"] == StopReason.NORMAL_COMPLETION
 
 
 def test_protocol_session_durable_intent_handshake_arm_and_exact_apply_ack(tmp_path, monkeypatch):
