@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from typing import Callable, Optional
 
 from .command_intent import AckCorrelator, AckIdentity, CommandIdentity, DurableIntentJournal
-from .protocol_v1 import MessageType, ProtocolV1Codec, ProtocolV1Error, epoch_tag_for_boot_id
+from .protocol_v1 import MessageType, ProtocolV1Codec, ProtocolV1Error, StopReason, epoch_tag_for_boot_id
 from .transport import IncompleteMessage, SerialTransport
 
 
@@ -510,8 +510,10 @@ class ProtocolV1HostSession:
         """
         if self.stop_writer is None:
             raise ProtocolV1SessionError("independent STOP writer is not configured")
-        if isinstance(stop_reason, bool) or not isinstance(stop_reason, int) or not 0 <= stop_reason <= 0xFF:
-            raise ValueError("stop_reason must be an explicit uint8")
+        valid_stop_reasons = {int(reason) for reason in StopReason}
+        if (isinstance(stop_reason, bool) or not isinstance(stop_reason, int)
+                or stop_reason not in valid_stop_reasons):
+            raise ValueError("stop_reason must use an assigned StopReason code")
         exhausted_id = False
         if stop_request_id is None:
             if self._stop_request_id < 0xFFFF:
