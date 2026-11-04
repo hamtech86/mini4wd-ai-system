@@ -34,7 +34,7 @@ def ack_frame(codec, kind, *, session=37, epoch=None, command=0, payload):
     )
 
 
-def make_session(tmp_path, monkeypatch, incoming):
+def make_session(tmp_path, monkeypatch, incoming, stop_writer=None):
     monkeypatch.setattr("measurement_310.protocol_v1_session.secrets.randbits",
                         lambda bits: NONCE)
     codec = ProtocolV1Codec(MAGIC_FIXTURE, VERSION_FIXTURE)
@@ -298,30 +298,36 @@ def test_sequence_controller_requires_callbacks_or_v1_session(tmp_path):
 def test_protocol_session_latch_abort_prevents_pending_command_reuse(tmp_path, monkeypatch):
     codec = ProtocolV1Codec(MAGIC_FIXTURE, VERSION_FIXTURE)
     hello, arm = handshake_frames(codec)
-    session, transport, _, _ = make_session(tmp_path, monkeypatch, [hello, arm])
+    order = []
+    stop_frames = []
+
+    def independent_stop_writer(frame):
+        order.append("STOP_WRITE")
+        stop_frames.append(frame)
+
+    session, transport, _, _ = make_session(
+        tmp_path, monkeypatch, [hello, arm], stop_writer=independent_stop_writer
+    )
     session.send_stage_pwm(0, "stage-uuid", "session-uuid", stage_index=0)
     assert session._pending is not None
     session.latch_abort("ACK timeout")
     assert session._failed is True
     assert session._pending is None
-    order = []
-    original_send = transport.send
     original_append = session.evidence.append
-
-    def traced_send(frame):
-        order.append("STOP_WRITE")
-        return original_send(frame)
 
     def traced_append(event, payload, **kwargs):
         if event == "STOP_TX_ATTEMPT":
             order.append("STOP_EVIDENCE")
         return original_append(event, payload, **kwargs)
 
-    transport.send = traced_send
     session.evidence.append = traced_append
     session.send_stop_best_effort(stop_reason=1, stop_request_id=7)
     assert order == ["STOP_WRITE", "STOP_EVIDENCE"]
-    assert session.codec.decode(transport.sent[-1]).message["kind"] == "STOP_REQ"
+    assert len(stop_frames) == 1
+    assert session.codec.decode(stop_frames[0]).message["kind"] == "STOP_REQ"
+    assert [session.codec.decode(frame).message["kind"] for frame in transport.sent] == [
+        "HELLO", "ARM", "PWM_SET"
+    ]
     with pytest.raises(RuntimeError, match="fail-closed"):
         session.poll_apply_ack(0.0)
     with pytest.raises(RuntimeError, match="fail-closed"):
@@ -329,3 +335,12 @@ def test_protocol_session_latch_abort_prevents_pending_command_reuse(tmp_path, m
     assert [session.codec.decode(frame).message["kind"] for frame in transport.sent] == [
         "HELLO", "ARM", "PWM_SET", "STOP_REQ"
     ]
+
+
+def test_stop_request_refuses_to_share_command_transport(tmp_path, monkeypatch):
+    codec = ProtocolV1Codec(MAGIC_FIXTURE, VERSION_FIXTURE)
+    session, transport, _, _ = make_session(tmp_path, monkeypatch, [])
+    session.latch_abort("operator abort")
+    with pytest.raises(RuntimeError, match="independent STOP writer"):
+        session.send_stop_best_effort(stop_reason=1, stop_request_id=1)
+    assert transport.sent == []
