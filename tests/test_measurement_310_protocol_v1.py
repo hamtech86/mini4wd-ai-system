@@ -194,3 +194,24 @@ def test_stop_request_is_allowed_without_session_or_verified_epoch(codec):
     assert message["kind"] == "STOP_REQ"
     assert message["measurement_session_tag"] == 0
     assert message["device_epoch_tag"] == 0
+
+
+def test_failed_hello_ack_without_boot_identity_uses_zero_epoch_tag(codec):
+    frame = codec.encode_message(
+        MessageType.HELLO_ACK, session_tag=7, epoch_tag=0, command_id=0,
+        payload=struct.pack("<BQQ", 1, 0, 123),
+    )
+    message = codec.decode(frame).message
+    assert message["result"] == 1
+    assert message["boot_id64"] == 0
+    assert message["device_epoch_tag"] == 0
+
+
+def test_failed_hello_ack_with_boot_identity_still_requires_matching_epoch_tag(codec):
+    boot_id = 0x1234567800000001
+    frame = codec.encode_message(
+        MessageType.HELLO_ACK, session_tag=7, epoch_tag=0x12345678,
+        command_id=0, payload=struct.pack("<BQQ", 2, boot_id, 123),
+    )
+    with pytest.raises(ProtocolV1Error, match="epoch tag"):
+        codec.decode(frame)
