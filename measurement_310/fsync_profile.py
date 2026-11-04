@@ -163,9 +163,16 @@ def run_profile(output_dir, samples, stage_ms, stop_reserve_ms, margin_ms):
         stream.flush()
         os.fsync(stream.fileno())
     report_sha = hashlib.sha256(report_bytes).hexdigest()
-    (output_dir / "310-fsync-report.sha256").write_text(
-        f"{report_sha}  {report_path.name}\\n", encoding="ascii"
-    )
+    checksum_path = output_dir / "310-fsync-report.sha256"
+    with checksum_path.open("w", encoding="ascii", newline="") as stream:
+        stream.write(f"{report_sha}  {report_path.name}\\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    dir_fd = os.open(str(output_dir), os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(dir_fd)
+    finally:
+        os.close(dir_fd)
     return result
 
 
