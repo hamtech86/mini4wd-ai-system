@@ -94,6 +94,7 @@ class SequenceController:
         # establish whether a nonzero command reached the device or was stopped.
         self._recovery_requires_review = False
         self._finalization_started = False
+        self._stop_attempted = False
         # Once any append fails, this session is write-disabled. STOP is still attempted.
         self._log_write_failed = False
         # Non-blocking lock makes abort entry atomic and safe for callback re-entry.
@@ -397,10 +398,32 @@ class SequenceController:
             raise SequenceError("visual event storage failed; sequence stopped") from exc
 
     def _complete(self) -> None:
-        self._append("SESSION_EVENT", event="SESSION_COMPLETED",
-                     host_monotonic_ns=self.clock.monotonic_ns(), details={"stages_completed": 31})
+        # The final PWM_SET has no device-side duration field. Therefore normal
+        # completion must request STOP before recording/finalizing completion.
         self.state = SequenceState.FINALIZING
         self._finalization_started = True
+        if self.protocol_session is not None:
+            latch = getattr(self.protocol_session, "latch_abort", None)
+            if callable(latch):
+                latch("normal completion")
+        self._stop_attempted = True
+        try:
+            self.send_stop()
+        except Exception as exc:
+            self._last_fault = f"normal completion STOP failed: {exc}"
+            self.state = SequenceState.FAULT
+            raise SequenceError(
+                "normal completion STOP failed; RawLog remains incomplete"
+            ) from exc
+        self._append(
+            "SESSION_EVENT", event="SESSION_COMPLETED",
+            host_monotonic_ns=self.clock.monotonic_ns(),
+            details={
+                "stages_completed": 31,
+                "stop_transmission_attempted": True,
+                "device_state": "unknown",
+            },
+        )
         self.session.finalize({"record_counts": {}}, "completed", self.clock.utc_now())
         self.state = SequenceState.COMPLETED
 
@@ -459,10 +482,12 @@ class SequenceController:
                 self._last_fault = f"{self._last_fault or reason}; protocol latch failed: {exc}"
         # STOP transmission must be attempted before any RawLog append/fsync.
         # Logging is secondary evidence and must never delay the emergency command.
-        try:
-            self.send_stop()
-        except Exception as exc:
-            self._last_fault = f"{self._last_fault or reason}; STOP send failed: {exc}"
+        if not self._stop_attempted:
+            self._stop_attempted = True
+            try:
+                self.send_stop()
+            except Exception as exc:
+                self._last_fault = f"{self._last_fault or reason}; STOP send failed: {exc}"
         if not self._finalization_started and not self._log_write_failed:
             try:
                 self._record_aborted_stage(reason)
