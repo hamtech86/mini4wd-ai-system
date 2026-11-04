@@ -173,6 +173,51 @@ def test_protocol_session_rejects_wrong_command_ack_without_advancing(tmp_path, 
 
 
 @pytest.mark.parametrize("failed_event", ["RX_BYTES", "FRAME_RX_DECODED", "ACK_MATCHED"])
+def test_protocol_session_stage_context_evidence_failure_suppresses_arm_and_pwm(
+    tmp_path, monkeypatch
+):
+    codec = ProtocolV1Codec(MAGIC_FIXTURE, VERSION_FIXTURE)
+    hello, arm = handshake_frames(codec)
+    session, transport, _, evidence = make_session(tmp_path, monkeypatch, [hello, arm])
+    original_append = evidence.append
+
+    def fail_context_map(event, payload, **kwargs):
+        if event == "STAGE_CONTEXT_MAP":
+            raise OSError("injected context map durability failure")
+        return original_append(event, payload, **kwargs)
+
+    evidence.append = fail_context_map
+    with pytest.raises(OSError, match="context map durability failure"):
+        session.send_stage_pwm(0, "stage-uuid", "session-uuid", stage_index=0)
+    assert session._failed is True
+    assert [session.codec.decode(frame).message["kind"] for frame in transport.sent] == ["HELLO"]
+
+
+def test_protocol_session_pwm_write_complete_evidence_failure_is_unknown(
+    tmp_path, monkeypatch
+):
+    codec = ProtocolV1Codec(MAGIC_FIXTURE, VERSION_FIXTURE)
+    hello, arm = handshake_frames(codec)
+    session, transport, _, evidence = make_session(tmp_path, monkeypatch, [hello, arm])
+    original_append = evidence.append
+
+    def fail_pwm_complete(event, payload, **kwargs):
+        if event == "FRAME_TX_COMPLETE" and payload.get("kind") == "PWM_SET":
+            raise OSError("injected PWM completion evidence failure")
+        return original_append(event, payload, **kwargs)
+
+    evidence.append = fail_pwm_complete
+    with pytest.raises(OSError, match="PWM completion evidence failure"):
+        session.send_stage_pwm(0, "stage-uuid", "session-uuid", stage_index=0)
+    assert session._failed is True
+    assert [session.codec.decode(frame).message["kind"] for frame in transport.sent] == [
+        "HELLO", "ARM", "PWM_SET"
+    ]
+    assert session._pending is None
+    with pytest.raises(RuntimeError, match="fail-closed"):
+        session.send_stage_pwm(1, "next-stage", "session-uuid", stage_index=1)
+
+
 def test_protocol_session_ack_evidence_failure_never_releases_stage(
     tmp_path, monkeypatch, failed_event
 ):
