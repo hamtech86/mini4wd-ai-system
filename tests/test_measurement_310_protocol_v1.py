@@ -38,6 +38,10 @@ def test_codec_requires_explicit_magic_and_version():
         ProtocolV1Codec(magic=-1, protocol_version=VERSION_FIXTURE)
     with pytest.raises(ValueError):
         ProtocolV1Codec(magic=MAGIC_FIXTURE, protocol_version=256)
+    with pytest.raises(ValueError, match="normative v1 value"):
+        ProtocolV1Codec(magic=MAGIC_FIXTURE ^ 0x0001, protocol_version=VERSION_FIXTURE)
+    with pytest.raises(ValueError, match="normative v1 value"):
+        ProtocolV1Codec(magic=MAGIC_FIXTURE, protocol_version=VERSION_FIXTURE + 1)
 
 
 def test_hello_frame_layout_crc_and_wire_length(codec):
