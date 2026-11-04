@@ -112,7 +112,7 @@ class SequenceController:
                     payload = (
                         "Recovered incomplete 310 work requires explicit command-outcome "
                         "reconciliation before re-arm. This marker is intentionally "
-                        "persistent and is not cleared automatically.\\n"
+                        "persistent and is not cleared automatically.\n"
                     ).encode("utf-8")
                     written = os.write(fd, payload)
                     if written != len(payload):
