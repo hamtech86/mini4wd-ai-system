@@ -260,3 +260,44 @@ def test_fsync_failure_at_each_preterminal_evidence_boundary_fails_closed(
     decision, sent = arm(restarted_gate, calls_sent)
     assert not decision.allowed
     assert sent is None and calls_sent == []
+
+
+def test_intent_is_fsynced_before_send_callback_and_write_result_after(tmp_path, monkeypatch):
+    import os
+    journal = ActuationSafetyJournal(tmp_path / "actuation.jsonl")
+    events = []
+    original_fsync = os.fsync
+
+    def observed_fsync(fd):
+        events.append("fsync")
+        return original_fsync(fd)
+
+    monkeypatch.setattr("measurement_310.rearm_gate.os.fsync", observed_fsync)
+    result = journal.intent_then_send(command(), lambda: events.append("send") or "sent")
+    assert result == "sent"
+    assert events == ["fsync", "fsync", "send", "fsync", "fsync"]
+    assert journal.recover()["cmd-001"].write_flush is WriteFlushStatus.SUCCEEDED
+
+
+def test_intent_fsync_failure_suppresses_send_and_callback_exception_is_unknown(tmp_path, monkeypatch):
+    import os
+    journal = ActuationSafetyJournal(tmp_path / "actuation.jsonl")
+    sent = []
+    original_fsync = os.fsync
+
+    def fail_fsync(fd):
+        raise OSError("intent fsync failure")
+
+    monkeypatch.setattr("measurement_310.rearm_gate.os.fsync", fail_fsync)
+    with pytest.raises(RearmGateError, match="durability uncertain"):
+        journal.intent_then_send(command(), lambda: sent.append("sent"))
+    assert sent == []
+
+    monkeypatch.setattr("measurement_310.rearm_gate.os.fsync", original_fsync)
+    journal = ActuationSafetyJournal(tmp_path / "uncertain.jsonl")
+    with pytest.raises(OSError, match="partial write"):
+        journal.intent_then_send(
+            command(), lambda: (_ for _ in ()).throw(OSError("partial write / flush uncertain"))
+        )
+    state = journal.recover()["cmd-001"]
+    assert state.write_flush is WriteFlushStatus.UNKNOWN
