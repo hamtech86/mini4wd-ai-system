@@ -121,6 +121,8 @@ COBS maximum for a decoded frame of N bytes is N + ceil(N/254). All current fram
 
 The 17-byte common header field allocation for this candidate is: magic uint16 (2), protocol_version uint8 (1), message_type uint8 (1), flags uint8 (1), measurement_session_tag uint32 (4), device_epoch_tag uint32 (4), command_id uint32 (4). Multi-byte integers are little-endian. The tags are correlation values only; they do not replace the full RawLog session UUID or boot identity.
 
+**Command-authority numeric assignment (2026-11-05):** `magic = 0x344D` (uint16; little-endian wire bytes `4D 34`, ASCII `M4`) and `protocol_version = 0x01` (uint8). These values are normative for this v1 wire contract. Any incompatible change requires a separately approved protocol revision. Host and firmware must use these exact values; no per-device or build-specific variation is permitted.
+
 ### 6.2 Message payloads and lengths
 
 | Message | Payload definition | Payload | Decoded | COBS max | Delimiter | Wire max |
