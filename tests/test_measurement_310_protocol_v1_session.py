@@ -166,14 +166,18 @@ def test_sequence_controller_uses_protocol_session_and_does_not_call_legacy_send
     class Adapter:
         def __init__(self):
             self.calls = []
-            self.acks = [(0, "2026-11-04T14:00:00.010Z")]
+            self.acks = [(0, "2026-11-04T14:00:00.010Z", 1_020_000_000)]
+            self.last_write_completed_monotonic_ns = 1_010_000_000
 
         def send_stage_pwm(self, pwm, stage_context_id, measurement_session_id, stage_index=None):
             self.calls.append((pwm, stage_context_id, measurement_session_id, stage_index))
             return "2026-11-04T14:00:00.000Z"
 
         def poll_apply_ack(self, timeout_s=0.0):
-            return self.acks.pop(0) if self.acks else None
+            ack = self.acks.pop(0) if self.acks else None
+            if ack is not None:
+                clock.ns = ack[2] + 1
+            return ack
 
     clock = Clock()
     adapter = Adapter()
@@ -200,6 +204,8 @@ def test_sequence_controller_uses_protocol_session_and_does_not_call_legacy_send
     assert adapter.calls[0][3] == 0
     assert legacy_calls == []
     assert controller.poll() == SequenceState.RUNNING
+    assert controller.command_sent_ns == 1_010_000_000
+    assert controller.stage_start_ns == 1_020_000_000
 
 
 @pytest.mark.parametrize("ack_ns,now_ns,expected_fault", [
