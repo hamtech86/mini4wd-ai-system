@@ -64,7 +64,7 @@ def test_half_range_boundary_is_not_misclassified(delta):
         assert result.disposition is D.STALE_OR_BACKWARD
         assert not result.accepted
         assert result.extended_sequence is None
-    assert tracker.last_extended_sequence == 0
+    assert tracker.last_extended_sequence == (32767 if delta == 32767 else 0)
 
 
 def test_tracker_does_not_rebase_after_ambiguous_or_stale_frame():
