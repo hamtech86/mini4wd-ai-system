@@ -142,6 +142,23 @@ def test_protocol_session_does_not_send_pwm_if_tx_intent_evidence_fails(tmp_path
     assert session._failed is True
 
 
+def test_protocol_session_missing_ack_keeps_command_pending_and_blocks_next_stage(
+    tmp_path, monkeypatch
+):
+    codec = ProtocolV1Codec(MAGIC_FIXTURE, VERSION_FIXTURE)
+    hello, arm = handshake_frames(codec)
+    session, transport, _, _ = make_session(tmp_path, monkeypatch, [hello, arm])
+    session.send_stage_pwm(0, "stage-zero", "session-uuid", stage_index=0)
+
+    assert session.poll_apply_ack(0.0) is None
+    assert session._pending is not None
+    sent_before = list(transport.sent)
+    with pytest.raises(RuntimeError, match="previous PWM command outcome is unresolved"):
+        session.send_stage_pwm(1, "stage-one", "session-uuid", stage_index=1)
+    assert session._failed is True
+    assert transport.sent == sent_before
+
+
 def test_protocol_session_rejects_wrong_command_ack_without_advancing(tmp_path, monkeypatch):
     codec = ProtocolV1Codec(MAGIC_FIXTURE, VERSION_FIXTURE)
     hello, arm = handshake_frames(codec)
