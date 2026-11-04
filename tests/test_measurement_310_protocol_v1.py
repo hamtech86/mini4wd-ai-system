@@ -3,7 +3,7 @@ import struct
 import pytest
 
 from measurement_310.protocol_v1 import (
-    HEADER, MessageType, ProtocolV1Codec, ProtocolV1Error, PROTOCOL_V1_MAGIC, PROTOCOL_V1_VERSION,
+    HEADER, MessageType, ProtocolV1Codec, ProtocolV1Error, PROTOCOL_V1_MAGIC, PROTOCOL_V1_VERSION, StopReason,
     cobs_decode, cobs_encode, crc16_ccitt_false, epoch_tag_for_boot_id,
 )
 from measurement_310.transport import DecodedFrame, IncompleteMessage
@@ -143,7 +143,7 @@ def test_ack_enum_and_rejected_pwm_rules(codec):
 
 def test_stop_request_and_ack_layout(codec):
     request = codec.encode_stop_request(session_tag=9, epoch_tag=8, command_id=44,
-                                        stop_reason=2, stop_request_id=65535)
+                                        stop_reason=StopReason.ACK_TIMEOUT, stop_request_id=65535)
     decoded = cobs_decode(request[:-1])
     assert len(decoded) == 22
     assert struct.unpack("<BH", decoded[17:20]) == (2, 65535)
@@ -189,7 +189,7 @@ def test_command_id_zero_rules_and_session_tag_are_enforced(codec):
 
 def test_stop_request_is_allowed_without_session_or_verified_epoch(codec):
     frame = codec.encode_stop_request(session_tag=0, epoch_tag=0, command_id=1,
-                                      stop_reason=1, stop_request_id=1)
+                                      stop_reason=StopReason.OPERATOR_REQUEST, stop_request_id=1)
     message = codec.decode(frame).message
     assert message["kind"] == "STOP_REQ"
     assert message["measurement_session_tag"] == 0
