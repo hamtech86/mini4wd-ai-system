@@ -189,10 +189,8 @@ def test_sequence_controller_uses_protocol_session_and_does_not_call_legacy_send
             "sweep_pwm_min": 0, "sweep_pwm_max": 30, "stage_duration_ms": 10000,
             "schedule_owner": "PYTHON"},
     }
-    controller = SequenceController(
-        RawLogV2Writer(tmp_path), fields,
-        lambda pwm: legacy_calls.append(pwm) or clock.utc_now(),
-        lambda: None, lambda: None, clock, protocol_session=adapter,
+    controller = SequenceController.with_protocol_session(
+        RawLogV2Writer(tmp_path), fields, adapter, lambda: None, clock,
     )
     controller.startup_recover()
     controller.start()
@@ -256,3 +254,13 @@ def test_sequence_controller_fails_closed_on_invalid_or_late_ack_timing(
     assert controller.poll() == SequenceState.FAULT
     assert stops == ["STOP"]
     assert expected_fault in str(controller._last_fault)
+
+
+def test_sequence_controller_requires_callbacks_or_v1_session(tmp_path):
+    from measurement_310.engine import SequenceController
+    from raw_log_v2 import RawLogV2Writer
+
+    with pytest.raises(ValueError, match="legacy send_pwm and poll_ack"):
+        SequenceController(
+            RawLogV2Writer(tmp_path), {}, None, lambda: None, None,
+        )
