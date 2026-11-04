@@ -165,6 +165,7 @@ class ProtocolV1HostSession:
                                   identity=identity, intent_hash=intent_hash)
         try:
             self.transport.send(frame)
+            self.last_write_completed_monotonic_ns = time.monotonic_ns()
         except Exception as exc:
             try:
                 self._append("FRAME_TX_ERROR", kind=kind, command_id=command_id,
@@ -193,8 +194,11 @@ class ProtocolV1HostSession:
         raw = bytes(chunk)
         if not raw:
             return
+        received_utc = self.utc_now()
+        received_ns = time.monotonic_ns()
         self._append("RX_BYTES", raw_b64=base64.b64encode(raw).decode("ascii"),
-                     byte_count=len(raw), host_received_monotonic_ns=time.monotonic_ns())
+                     byte_count=len(raw), host_received_at_utc=received_utc,
+                     host_received_monotonic_ns=received_ns)
         self._rx_buffer.extend(raw)
         while b"\x00" in self._rx_buffer:
             try:
@@ -205,6 +209,8 @@ class ProtocolV1HostSession:
                 self._append("RX_DECODE_ERROR", buffered_byte_count=len(self._rx_buffer), error=str(exc))
                 raise ProtocolV1SessionError(f"RX frame rejected: {exc}") from exc
             del self._rx_buffer[:decoded.consumed_bytes]
+            decoded.message["_host_received_at_utc"] = received_utc
+            decoded.message["_host_received_monotonic_ns"] = received_ns
             self._messages.append(decoded.message)
 
     def _next_message(self, timeout_s: float) -> Optional[dict]:
