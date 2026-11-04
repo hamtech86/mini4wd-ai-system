@@ -396,6 +396,20 @@ def test_stop_request_retry_reuses_byte_identical_frame_and_both_ids(tmp_path, m
     assert stop_events == ["STOP_TX_ERROR", "STOP_TX_ATTEMPT"]
 
 
+def test_stop_request_id_cannot_be_reused_for_a_different_reason(tmp_path, monkeypatch):
+    codec = ProtocolV1Codec(MAGIC_FIXTURE, VERSION_FIXTURE)
+    writes = []
+    session, _, _, _ = make_session(
+        tmp_path, monkeypatch, [], stop_writer=lambda frame: writes.append(bytes(frame))
+    )
+    session.latch_abort("operator abort")
+    session.send_stop_best_effort(stop_reason=1, stop_request_id=11)
+    with pytest.raises(RuntimeError, match="different logical STOP"):
+        session.send_stop_best_effort(stop_reason=2, stop_request_id=11)
+    assert len(writes) == 1
+    assert codec.decode(writes[0]).message["stop_reason"] == 1
+
+
 def test_stop_request_refuses_to_share_command_transport(tmp_path, monkeypatch):
     codec = ProtocolV1Codec(MAGIC_FIXTURE, VERSION_FIXTURE)
     session, transport, _, _ = make_session(tmp_path, monkeypatch, [])
