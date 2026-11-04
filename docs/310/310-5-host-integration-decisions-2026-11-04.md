@@ -5,7 +5,7 @@
 - Candidate branch: `safety/310-5-host-integration-candidate`.
 - Candidate base: PR #186 HEAD `a7491c8fd7d214e23a6f649d262f978710474d6e`.
 - Underlying 310-3 source base: `d9e718b607a873759fffd58fc75bf950af499095`.
-- Current candidate HEAD at the latest source audit: `4bfdc5e051324bc891175ea53b92188dfaaaa59c`. Re-read the branch ref before any integration.
+- Latest code-source snapshot audited before this report refresh: `4bfdc5e051324bc891175ea53b92188dfaaaa59c`. This documentation refresh advances the branch; re-read the branch ref before any integration.
 - Firmware source reference: legacy `firmware/motor/MotoreRev.ino` at main snapshot `130e453ea3907f071209687a06c3e73535a8952d`, FW 3.03, declared build ID `ARM-STOP-ACK-ACS712-RAIL-20261023-01`.
 
 The firmware reference above is a legacy source identity only. It is **not** identified as the accepted 310-4 concrete implementation, and no HEX/map/size/stack artifact attributable to this candidate was established. No firmware source or build was changed or produced.
@@ -102,6 +102,7 @@ Environment:
 - Python 3.13.5
 - pytest 9.0.2
 - Linux 6.18.57 x86_64 (glibc 2.41)
+- This is not the previously confirmed target host environment (Linux Mint 21.2 / Python 3.10.12); Python 3.10 compatibility and target-host filesystem behavior remain unverified.
 
 Exact test command:
 ```bash
