@@ -192,3 +192,71 @@ def test_operator_reconciliation_is_bound_to_exact_command(tmp_path):
             command(command_id="other"), operator_decision_id="operator-4",
             device_safe_state_confirmed=True,
         )
+
+
+def test_ack_identity_rejects_bool_epoch_even_when_integer_one(tmp_path):
+    with pytest.raises(ValueError, match="boot_id64"):
+        AckIdentity("cmd-001", "PWM", "session-A", True, "stage-context-A")
+
+
+def test_short_write_torn_tail_blocks_after_restart(tmp_path, monkeypatch):
+    import os
+    path = tmp_path / "partial.jsonl"
+    journal, _ = make_gate(path)
+    original_write = os.write
+
+    def short_write(fd, data):
+        if data.endswith(b"\\n"):
+            return original_write(fd, data[:-1])
+        return original_write(fd, data)
+
+    monkeypatch.setattr("measurement_310.rearm_gate.os.write", short_write)
+    with pytest.raises(RearmGateError, match="short journal append"):
+        journal.record_intent(command())
+    monkeypatch.setattr("measurement_310.rearm_gate.os.write", original_write)
+    _, restarted_gate = make_gate(path)
+    calls = []
+    decision, sent = arm(restarted_gate, calls)
+    assert not decision.allowed
+    assert "untrusted" in decision.reason
+    assert sent is None and calls == []
+
+
+@pytest.mark.parametrize("failed_event", ["INTENT", "WRITE_FLUSH", "ACK_MATCHED"])
+def test_fsync_failure_at_each_preterminal_evidence_boundary_fails_closed(
+    tmp_path, monkeypatch, failed_event
+):
+    import os
+    path = tmp_path / f"{failed_event}.jsonl"
+    journal, _ = make_gate(path)
+    identity = command()
+    if failed_event != "INTENT":
+        journal.record_intent(identity)
+    if failed_event == "ACK_MATCHED":
+        journal.record_write_flush(identity, WriteFlushStatus.SUCCEEDED)
+
+    original_fsync = os.fsync
+    calls = {"count": 0}
+
+    def fail_first_fsync(fd):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise OSError("injected fsync failure")
+        return original_fsync(fd)
+
+    monkeypatch.setattr("measurement_310.rearm_gate.os.fsync", fail_first_fsync)
+    with pytest.raises(RearmGateError, match="durability uncertain"):
+        if failed_event == "INTENT":
+            journal.record_intent(identity)
+        elif failed_event == "WRITE_FLUSH":
+            journal.record_write_flush(identity, WriteFlushStatus.SUCCEEDED)
+        else:
+            assert journal.record_ack(identity, ack())
+    monkeypatch.setattr("measurement_310.rearm_gate.os.fsync", original_fsync)
+
+    # The append may or may not survive a crash; either valid prefix is unsafe.
+    _, restarted_gate = make_gate(path)
+    calls_sent = []
+    decision, sent = arm(restarted_gate, calls_sent)
+    assert not decision.allowed
+    assert sent is None and calls_sent == []
