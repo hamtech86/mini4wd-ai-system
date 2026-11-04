@@ -53,6 +53,10 @@ class AckIdentity:
     boot_id64: int
     stage_context_id: str
 
+    def __post_init__(self):
+        # Validate untrusted ACK fields independently; bool is an int subclass.
+        CommandIdentity(**asdict(self))
+
     def matches(self, identity: CommandIdentity) -> bool:
         return asdict(self) == asdict(identity)
 
@@ -111,6 +115,33 @@ class ActuationSafetyJournal:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX)
             bodies = self._read()
+            # Re-check transition preconditions while holding the append lock so
+            # concurrent host processes cannot append duplicate/out-of-order events.
+            states = self.recover()
+            identity = CommandIdentity(**payload["identity"])
+            current = states.get(identity.command_id)
+            if event == "INTENT":
+                if current is not None:
+                    raise RearmGateError("command_id reuse prohibited")
+            elif current is None or current.identity != identity:
+                raise RearmGateError("event lacks a unique matching intent")
+            elif event == "WRITE_FLUSH":
+                if current.write_flush is not None or current.terminal_safe:
+                    raise RearmGateError("duplicate/late write/flush result")
+            elif event == "ACK_MATCHED":
+                ack = AckIdentity(**payload["ack"])
+                if current.write_flush is not WriteFlushStatus.SUCCEEDED or current.ack_matched or not ack.matches(identity):
+                    raise RearmGateError("ACK does not match a pending successful command")
+            elif event == "TERMINAL_SAFE":
+                if current.terminal_safe or payload.get("device_safe_state_confirmed") is not True:
+                    raise RearmGateError("terminal state is not independently confirmed")
+                if not isinstance(payload.get("operator_decision_id"), str) or not payload["operator_decision_id"].strip():
+                    raise RearmGateError("explicit operator decision required")
+                expected = "ACK_AND_OPERATOR_CONFIRMATION" if current.ack_matched else "OPERATOR_RECONCILIATION"
+                if payload.get("source") != expected:
+                    raise RearmGateError("terminal source/evidence mismatch")
+            else:
+                raise RearmGateError(f"unknown event {event}")
             previous = hashlib.sha256(self._canonical(bodies[-1])).hexdigest() if bodies else "0" * 64
             body = {"format": self.FORMAT, "event": event, "payload": payload, "previous_hash": previous}
             line = self._canonical({"body": body, "sha256": hashlib.sha256(self._canonical(body)).hexdigest()}) + b"\n"
