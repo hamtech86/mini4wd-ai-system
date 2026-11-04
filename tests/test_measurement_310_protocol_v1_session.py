@@ -312,5 +312,5 @@ def test_protocol_session_latch_abort_prevents_pending_command_reuse(tmp_path, m
     with pytest.raises(RuntimeError, match="fail-closed"):
         session.send_stage_pwm(1, "next-stage-uuid", "session-uuid", stage_index=1)
     assert [session.codec.decode(frame).message["kind"] for frame in transport.sent] == [
-        "HELLO", "ARM", "PWM_SET"
+        "HELLO", "ARM", "PWM_SET", "STOP_REQ"
     ]
