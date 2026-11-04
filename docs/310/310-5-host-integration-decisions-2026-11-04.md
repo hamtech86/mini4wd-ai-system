@@ -171,3 +171,14 @@ This section supersedes earlier source snapshots in §§2–3 where they describ
 ### Safety boundary
 
 No firmware build/upload, physical serial connection, motor energization, hardware STOP/cutoff test, EEPROM/fuse operation or 310-second measurement occurred. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains in force. PR #187 remains Draft/Open/Unmerged; 310-5 formal acceptance remains NOT COMPLETE.
+
+
+## 2026-11-05 command-authority wire constant assignment
+
+The previously open v0.5 header constants are now assigned by the command authority in the 310-4 design branch:
+- `PROTOCOL_V1_MAGIC = 0x344D` (uint16, little-endian wire bytes `4D 34`, ASCII `M4`).
+- `PROTOCOL_V1_VERSION = 0x01` (uint8).
+
+The candidate codec now exposes these named normative constants and the protocol/session tests use them instead of synthetic fixture values. Constructor arguments remain explicit to prevent accidental implicit configuration. This closes the numeric-value decision only; it does not provide a concrete matching firmware build or prove physical interoperability.
+
+The 310-4 design source and decision register on branch `docs/310-4-design-v0.5` record the same assignment. Hardware authorization is unchanged.
