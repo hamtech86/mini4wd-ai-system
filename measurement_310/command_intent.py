@@ -105,6 +105,17 @@ class DurableIntentJournal:
             if written != len(line):
                 raise IntentError("short intent append; outcome is uncertain")
             os.fsync(fd)
+            # Persist the directory entry as well as the journal bytes. Without
+            # this, the first intent file could disappear after power loss even
+            # though fsync(file) returned successfully.
+            dir_fd = os.open(
+                str(self.path.parent),
+                os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+            )
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
         except OSError as exc:
             raise IntentError(f"intent durability failed: {exc}") from exc
         finally:
