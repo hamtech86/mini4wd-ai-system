@@ -80,6 +80,10 @@ def test_protocol_session_durable_intent_handshake_arm_and_exact_apply_ack(tmp_p
     assert names.count("FRAME_TX_INTENT") == 3
     assert names.count("FRAME_TX_COMPLETE") == 3
     assert names.count("ACK_MATCHED") == 2
+    command_tx = [event for event in events if event["event"] == "FRAME_TX_INTENT"
+                  and event["payload"]["kind"] in {"ARM", "PWM_SET"}]
+    assert all(event["payload"]["identity"] for event in command_tx)
+    assert all(event["payload"]["intent_journal_sha256"] for event in command_tx)
     assert "00000000-0000-4000-8000-000000000001" in json.dumps(events)
 
 
