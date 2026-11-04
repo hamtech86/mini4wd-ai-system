@@ -158,6 +158,7 @@ class ProtocolV1HostSession:
         intent_journal: DurableIntentJournal,
         evidence_journal: TransportEvidenceJournal,
         *,
+        stop_writer: Optional[Callable[[bytes], None]] = None,
         ack_timeout_s: float = 2.0,
         monotonic: Callable[[], float] = time.monotonic,
         utc_now: Optional[Callable[[], str]] = None,
@@ -169,6 +170,7 @@ class ProtocolV1HostSession:
         self.tag_allocator = tag_allocator
         self.intent_journal = intent_journal
         self.evidence = evidence_journal
+        self.stop_writer = stop_writer
         self.ack_timeout_s = ack_timeout_s
         self.monotonic = monotonic
         self.utc_now = utc_now or self._utc_now
@@ -498,11 +500,13 @@ class ProtocolV1HostSession:
     def send_stop_best_effort(self, *, stop_reason: int, stop_request_id: Optional[int] = None) -> None:
         """Send v0.5 STOP_REQ without waiting for Evidence fsync.
 
-        This is a synchronous best-effort write on the configured transport,
-        not an independent/bounded STOP channel or proof of device receipt.
-        The caller must supply a stop_reason because v0.5 does not assign its
-        numeric reason registry.
+        This requires a separately supplied STOP writer. It is not proof that
+        the writer is bounded or that the device physically stopped. The caller
+        must qualify that path independently and supply stop_reason because
+        v0.5 does not assign its numeric reason registry.
         """
+        if self.stop_writer is None:
+            raise ProtocolV1SessionError("independent STOP writer is not configured")
         if isinstance(stop_reason, bool) or not isinstance(stop_reason, int) or not 0 <= stop_reason <= 0xFF:
             raise ValueError("stop_reason must be an explicit uint8")
         exhausted_id = False
@@ -532,8 +536,9 @@ class ProtocolV1HostSession:
         )
         attempted_at = self.utc_now()
         try:
-            # Safety STOP is deliberately transmitted before any journal fsync.
-            self.transport.send(frame)
+            # Safety STOP is deliberately sent on the separate injected path
+            # before any journal fsync; it never shares the command transport.
+            self.stop_writer(frame)
             outcome = "HOST_WRITE_COMPLETED"
             error = None
         except Exception as exc:
