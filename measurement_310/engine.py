@@ -61,6 +61,7 @@ class SequenceController:
         clock: Optional[Clock] = None,
         ack_timeout_ms: int = 2_000,
         protocol_session: Optional[object] = None,
+        send_normal_stop: Optional[Callable[[], None]] = None,
     ) -> None:
         if protocol_session is None and (not callable(send_pwm) or not callable(poll_ack)):
             raise ValueError("legacy send_pwm and poll_ack callbacks are required without protocol_session")
@@ -73,6 +74,7 @@ class SequenceController:
         self.manifest_fields = dict(manifest_fields)
         self.send_pwm = send_pwm
         self.send_stop = send_stop
+        self.send_normal_stop = send_normal_stop or send_stop
         self.poll_ack = poll_ack
         self.protocol_session = protocol_session
         self.clock = clock or SystemClock()
@@ -109,11 +111,13 @@ class SequenceController:
         send_stop: Callable[[], None],
         clock: Optional[Clock] = None,
         ack_timeout_ms: int = 2_000,
+        send_normal_stop: Optional[Callable[[], None]] = None,
     ) -> "SequenceController":
         """Construct the v0.5 path without dummy legacy PWM/ACK callbacks."""
         return cls(
             writer, manifest_fields, None, send_stop, None, clock,
             ack_timeout_ms=ack_timeout_ms, protocol_session=protocol_session,
+            send_normal_stop=send_normal_stop,
         )
 
     def startup_recover(self) -> list[dict[str, Any]]:
@@ -408,7 +412,7 @@ class SequenceController:
                 latch("normal completion")
         self._stop_attempted = True
         try:
-            self.send_stop()
+            self.send_normal_stop()
         except Exception as exc:
             self._last_fault = f"normal completion STOP failed: {exc}"
             self.state = SequenceState.FAULT
