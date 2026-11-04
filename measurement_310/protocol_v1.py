@@ -224,6 +224,8 @@ class ProtocolV1Codec:
                             stop_reason: int, stop_request_id: int) -> bytes:
         self._uint(stop_request_id, 16, "stop_request_id", nonzero=True)
         self._uint(stop_reason, 8, "stop_reason")
+        if stop_reason not in {int(reason) for reason in StopReason}:
+            raise ProtocolV1Error("stop_reason must use an assigned StopReason code")
         return self.encode_message(MessageType.STOP_REQ, session_tag=session_tag,
                                    epoch_tag=epoch_tag, command_id=command_id,
                                    payload=struct.pack("<BH", stop_reason, stop_request_id))
