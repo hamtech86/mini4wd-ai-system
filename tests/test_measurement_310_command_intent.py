@@ -145,3 +145,21 @@ def test_parent_directory_fsync_failure_prevents_send(tmp_path, monkeypatch):
         )
     assert len(calls) == 2
     assert sent == []
+
+
+def test_command_id_reuse_is_rejected_from_persisted_history(tmp_path):
+    path = tmp_path / "intent.jsonl"
+    DurableIntentJournal(path).append_intent(identity(), "2026-11-03T11:00:00Z")
+    # A new journal object models a host process restart.
+    restarted = DurableIntentJournal(path)
+    with pytest.raises(IntentError, match="already been used"):
+        restarted.append_intent(identity(), "2026-11-03T11:00:01Z")
+
+
+def test_symlinked_intent_journal_fails_closed(tmp_path):
+    target = tmp_path / "trusted.jsonl"
+    DurableIntentJournal(target).append_intent(identity(), "2026-11-03T11:00:00Z")
+    link = tmp_path / "intent.jsonl"
+    link.symlink_to(target)
+    with pytest.raises(IntentUntrusted, match="symlink"):
+        DurableIntentJournal(link).append_intent(identity(command_id="cmd-002"), "2026-11-03T11:00:01Z")
