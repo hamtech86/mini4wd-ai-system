@@ -144,7 +144,7 @@ def epoch_tag_for_boot_id(boot_id64: int) -> int:
 
 @dataclass(frozen=True)
 class ProtocolV1Codec:
-    """Strict stream codec. magic and version must come from an approved firmware identity."""
+    """Strict v1 stream codec using the command-authority assigned wire constants."""
 
     magic: int
     protocol_version: int
@@ -155,6 +155,10 @@ class ProtocolV1Codec:
         if (isinstance(self.protocol_version, bool) or not isinstance(self.protocol_version, int)
                 or not 0 <= self.protocol_version <= 0xFF):
             raise ValueError("protocol_version must be explicitly supplied as uint8")
+        if self.magic != PROTOCOL_V1_MAGIC:
+            raise ValueError(f"magic must equal normative v1 value 0x{PROTOCOL_V1_MAGIC:04X}")
+        if self.protocol_version != PROTOCOL_V1_VERSION:
+            raise ValueError(f"protocol_version must equal normative v1 value 0x{PROTOCOL_V1_VERSION:02X}")
 
     def _validate_header(self, message_type: MessageType, session_tag: int,
                          epoch_tag: int, command_id: int) -> None:
