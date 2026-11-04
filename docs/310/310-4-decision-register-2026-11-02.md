@@ -154,3 +154,17 @@ ARM前に対象host fingerprintごとのD_intent、D_evidence、D_serial_write�
 The command authority adopted v0.5 as the production implementation contract on 2026-11-04. During host codec implementation, a specification completeness issue was confirmed: v0.5 assigns the 16-bit `magic` and 8-bit `protocol_version` header field positions and widths, but does not assign their numeric values. The host codec therefore requires both values as explicit constructor inputs and has no defaults. Synthetic values appear only in isolated tests and are not production configuration.
 
 This note does not change the adopted v0.5 contract or authorize an implementation-specific value. Before firmware/host interoperability or real serial use, the concrete firmware implementation/configuration must provide the exact two values and a matching build identity; the host must then pin and verify them. Until then, codec unit tests can validate algorithms and layout, but production-wire compatibility is **NOT QUALIFIED**. No firmware or physical device operation was performed.
+
+
+## 2026-11-05 command-authority decision — production wire constants
+
+**Decision:** Assign the previously unassigned v0.5 common-header values as:
+
+- `magic`: uint16 `0x344D` (little-endian wire bytes `4D 34`, ASCII `M4`).
+- `protocol_version`: uint8 `0x01`.
+
+**Rationale:** v0.5 already defines a v1 message registry and fixes the header widths and byte order. A stable protocol magic and version are required to distinguish this protocol from legacy serial traffic and reject incompatible frames. The chosen magic has the visible wire signature `M4`; version 1 matches the adopted v1 message registry. These are protocol constants, not device identity values.
+
+**Implementation rule:** Host and firmware must use these exact constants. The host codec may continue to require explicit constructor arguments; production composition must pass the named constants rather than inventing per-build values. A change to either value requires a separately approved protocol revision. Test fixtures must use the normative constants and must no longer label them synthetic.
+
+**Boundary:** This decision resolves only the numeric header constants. It does not qualify a concrete firmware build, MCU identity, compiler/map/stack/SRAM, BOD, ADC timing/reference, STOP path, physical cutoff, or any hardware behavior. No firmware upload, physical serial connection, motor energization, EEPROM/fuse operation, or 310-second measurement is authorized.
