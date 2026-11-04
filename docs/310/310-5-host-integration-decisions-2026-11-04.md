@@ -44,7 +44,23 @@ Required integration sequence once the protocol authority supplies the concrete 
 
 Until the firmware/wire contract provides a real full boot identity and matching ACK fields, production integration must not substitute a constant, zero, truncated boot ID, PWM-only ACK, or host-generated token as proof of device identity. No firmware or wire change is made in this branch. T04/T05 primitives remain candidate building blocks, not production-path PASS.
 
-## 3. T18 host fsync profile — execution plan
+## 3. T09/T15 STOP transport — source-level confirmation
+
+The candidate branch source was re-read at the current host-integration candidate ref:
+
+- `measurement_310/transport.py::PySerialTransport.connect()` opens pySerial with a read `timeout`, but does not configure `write_timeout`.
+- `PySerialTransport.send()` performs synchronous `write(payload)` followed by `flush()`; it checks for a short write only after flush returns.
+- `ProtocolClient.send_stop()` delegates to the same `transport.send()` method used by `send_pwm()`. There is no independent STOP transport, queue, or bounded STOP deadline.
+- `SequenceController.abort()` now attempts STOP before RawLog abort logging, but that changes call order only. If the shared write/flush is already blocked, the STOP call can still block behind it.
+- `SequenceController._begin_stage()` still calls `send_pwm(index)` before recording a durable command intent. The host-only T04/T05 primitives are not wired into this production path.
+
+Disposition:
+- S01 STOP-before-log: limited host ordering improvement retained; not a delivery/physical-stop PASS.
+- S02/S03 independent bounded STOP path: **FAIL**.
+- T09/T15 hung shared write/flush, unknown partial delivery, and independent STOP behavior: **FAIL / NOT RUN** as applicable.
+- No write-timeout, independent transport, firmware STOP latch, driver cutoff, or hardware behavior is implemented or claimed here. These are outside the current change scope and require separate design/authorization.
+
+## 4. T18 host fsync profile — execution plan
 
 The required measurement is host/storage-specific and must be collected on the actual approved host and storage target, not inferred from a cloud or development environment.
 
@@ -66,7 +82,7 @@ python -m measurement_310.fsync_profile --output-dir /path/on/approved/storage -
 
 Replace the two uppercase placeholders with the approved numeric values; do not use invented defaults. Exit code 0 means the measured p99.9 and maximum plus margin are both below the remaining budget and no fsync failures were recorded; exit code 2 means the profile did not meet that condition.
 
-## 4. Verification and acceptance boundary
+## 5. Verification and acceptance boundary
 
 - The R01 source and tests are on the independent host-integration candidate branch.
 - R01 tests are authored but NOT RUN; full repository test execution is still unavailable.
