@@ -181,6 +181,7 @@ class ProtocolV1HostSession:
         self._command_id = 0
         self._stop_request_id = 0
         self._used_stop_request_ids: set[int] = set()
+        self._stop_frames: dict[int, dict] = {}
         self._rx_buffer = bytearray()
         self._messages: list[dict] = []
         self._pending: Optional[dict] = None
@@ -520,22 +521,45 @@ class ProtocolV1HostSession:
             stop_request_id = self._stop_request_id or 0xFFFF
         if isinstance(stop_request_id, bool) or not isinstance(stop_request_id, int) or not 1 <= stop_request_id <= 0xFFFF:
             raise ValueError("stop_request_id must be nonzero uint16")
-        if stop_request_id in self._used_stop_request_ids and not exhausted_id:
-            raise ProtocolV1SessionError("stop_request_id already used; retries must reuse the original frame")
-        self._used_stop_request_ids.add(stop_request_id)
-        self._stop_request_id = max(self._stop_request_id, stop_request_id)
-        try:
-            command_id = self._next_command_id()
-            stale_command_id = False
-        except ProtocolV1SessionError:
-            command_id = 0xFFFFFFFF
-            stale_command_id = True
-        session_tag = int(self.session_tag or 0)
-        epoch_tag = int(self.epoch_tag or 0)
-        frame = self.codec.encode_stop_request(
-            session_tag=session_tag, epoch_tag=epoch_tag, command_id=command_id,
-            stop_reason=stop_reason, stop_request_id=stop_request_id,
-        )
+
+        cached = self._stop_frames.get(stop_request_id)
+        if cached is not None:
+            if cached["stop_reason"] != stop_reason:
+                raise ProtocolV1SessionError(
+                    "stop_request_id already identifies a different logical STOP; allocate a new ID"
+                )
+            # Retry the exact same logical STOP using the byte-identical frame.
+            # This preserves both command_id and stop_request_id as required by v0.5.
+            command_id = cached["command_id"]
+            stale_command_id = cached["stale_command_id"]
+            exhausted_id = cached["stop_request_id_exhausted"]
+            frame = cached["frame"]
+        else:
+            if stop_request_id in self._used_stop_request_ids:
+                raise ProtocolV1SessionError("stop_request_id reuse is not a retry of a retained frame")
+            try:
+                command_id = self._next_command_id()
+                stale_command_id = False
+            except ProtocolV1SessionError:
+                # STOP is the protocol safety exception: retain a nonzero stale
+                # command identity and let firmware act on the valid STOP_REQ.
+                command_id = 0xFFFFFFFF
+                stale_command_id = True
+            session_tag = int(self.session_tag or 0)
+            epoch_tag = int(self.epoch_tag or 0)
+            frame = self.codec.encode_stop_request(
+                session_tag=session_tag, epoch_tag=epoch_tag, command_id=command_id,
+                stop_reason=stop_reason, stop_request_id=stop_request_id,
+            )
+            self._used_stop_request_ids.add(stop_request_id)
+            self._stop_request_id = max(self._stop_request_id, stop_request_id)
+            self._stop_frames[stop_request_id] = {
+                "frame": frame,
+                "command_id": command_id,
+                "stop_reason": stop_reason,
+                "stale_command_id": stale_command_id,
+                "stop_request_id_exhausted": exhausted_id,
+            }
         attempted_at = self.utc_now()
         try:
             # Safety STOP is deliberately sent on the separate injected path
