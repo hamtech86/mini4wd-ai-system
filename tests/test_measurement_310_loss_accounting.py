@@ -3,7 +3,7 @@ import json
 import pytest
 
 from measurement_310.loss_accounting import (
-    Observation, Window, canonical_json, summarize,
+    Observation, Window, canonical_json, summarize, summarize_many,
 )
 
 
@@ -95,3 +95,51 @@ def test_non_integer_expected_count_is_rejected(expected):
 def test_invalid_window_bounds_are_rejected(start, end):
     with pytest.raises((TypeError, ValueError)):
         summarize(Window("CH1", 9, start, end, 1), [])
+
+
+
+def test_batch_counts_unattributable_observation_once_across_channels():
+    windows = [
+        Window("CH1", 9, 0, 10, 1),
+        Window("CH2", 9, 0, 10, 1),
+    ]
+    batch = summarize_many(windows, [
+        obs(1, channel="CH1"),
+        obs(2, channel="CH2"),
+        obs(3, channel=None),
+    ])
+    assert [item.valid for item in batch.summaries] == [1, 1]
+    assert [item.unattributable for item in batch.summaries] == [0, 0]
+    assert batch.unattributable == 1
+
+
+def test_batch_counts_missing_timestamp_once_across_windows():
+    windows = [
+        Window("CH1", 9, 0, 10, 0),
+        Window("CH2", 9, 0, 10, 0),
+    ]
+    batch = summarize_many(windows, [obs(None)])
+    assert batch.unattributable == 1
+    assert sum(item.unattributable for item in batch.summaries) == 0
+
+
+def test_batch_assigns_epoch_and_time_scoped_observations_once():
+    windows = [
+        Window("CH1", 9, 0, 10, 1),
+        Window("CH1", 9, 10, 20, 1),
+        Window("CH1", 10, 0, 10, 1),
+    ]
+    batch = summarize_many(windows, [
+        obs(1, boot=9), obs(11, boot=9), obs(1, boot=10),
+        obs(30, boot=9),
+    ])
+    assert [item.valid for item in batch.summaries] == [1, 1, 1]
+    assert batch.unattributable == 0
+
+
+def test_batch_rejects_overlapping_windows_for_same_channel_epoch():
+    with pytest.raises(ValueError, match="overlapping"):
+        summarize_many([
+            Window("CH1", 9, 0, 10, 1),
+            Window("CH1", 9, 9, 20, 1),
+        ], [])
