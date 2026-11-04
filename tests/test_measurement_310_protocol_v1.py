@@ -191,6 +191,15 @@ def test_command_id_zero_rules_and_session_tag_are_enforced(codec):
         codec.encode_hello(session_tag=0, host_nonce64=1)
 
 
+@pytest.mark.parametrize("invalid_reason", [0, 10, 254, 256, True])
+def test_codec_rejects_unassigned_stop_reason(invalid_reason, codec):
+    with pytest.raises(ProtocolV1Error, match="assigned StopReason"):
+        codec.encode_stop_request(
+            session_tag=0, epoch_tag=0, command_id=1,
+            stop_reason=invalid_reason, stop_request_id=1,
+        )
+
+
 def test_stop_request_is_allowed_without_session_or_verified_epoch(codec):
     frame = codec.encode_stop_request(session_tag=0, epoch_tag=0, command_id=1,
                                       stop_reason=StopReason.OPERATOR_REQUEST, stop_request_id=1)
