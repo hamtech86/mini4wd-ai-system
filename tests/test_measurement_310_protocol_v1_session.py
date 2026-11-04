@@ -575,6 +575,31 @@ def test_stop_request_retry_reuses_byte_identical_frame_and_both_ids(tmp_path, m
     assert stop_events == ["STOP_TX_ERROR", "STOP_TX_ATTEMPT"]
 
 
+def test_auto_allocated_stop_id_remains_available_after_unknown_write(
+    tmp_path, monkeypatch
+):
+    writes = []
+    fail_once = {"value": True}
+
+    def stop_writer(frame):
+        writes.append(bytes(frame))
+        if fail_once["value"]:
+            fail_once["value"] = False
+            raise OSError("uncertain write")
+
+    session, _, _, _ = make_session(tmp_path, monkeypatch, [], stop_writer=stop_writer)
+    session.latch_abort("operator abort")
+    with pytest.raises(RuntimeError, match="outcome unknown"):
+        session.send_stop_best_effort(stop_reason=StopReason.OPERATOR_REQUEST)
+    request_id = session.last_stop_request_id
+    assert request_id == 1
+
+    assert session.send_stop_best_effort(
+        stop_reason=StopReason.OPERATOR_REQUEST, stop_request_id=request_id
+    ) == request_id
+    assert writes[0] == writes[1]
+
+
 def test_stop_request_id_cannot_be_reused_for_a_different_reason(tmp_path, monkeypatch):
     codec = ProtocolV1Codec(MAGIC_FIXTURE, VERSION_FIXTURE)
     writes = []
