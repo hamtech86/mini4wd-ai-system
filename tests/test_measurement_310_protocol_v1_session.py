@@ -80,6 +80,10 @@ def test_protocol_session_durable_intent_handshake_arm_and_exact_apply_ack(tmp_p
     assert names.count("FRAME_TX_INTENT") == 3
     assert names.count("FRAME_TX_COMPLETE") == 3
     assert names.count("ACK_MATCHED") == 2
+    context_map = next(event["payload"] for event in events
+                       if event["event"] == "STAGE_CONTEXT_MAP")
+    assert context_map["command_id"] == 2
+    assert context_map["measurement_session_tag"] == 37
     command_tx = [event for event in events if event["event"] == "FRAME_TX_INTENT"
                   and event["payload"]["kind"] in {"ARM", "PWM_SET"}]
     assert all(event["payload"]["identity"] for event in command_tx)
