@@ -206,7 +206,7 @@ def test_short_write_torn_tail_blocks_after_restart(tmp_path, monkeypatch):
     original_write = os.write
 
     def short_write(fd, data):
-        if data.endswith(b"\\n"):
+        if data.endswith(b"\n"):
             return original_write(fd, data[:-1])
         return original_write(fd, data)
 
