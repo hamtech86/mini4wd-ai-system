@@ -100,3 +100,27 @@ def test_command_id_cannot_be_reused_after_expiry():
     correlator.expire("cmd-001")
     with pytest.raises(IntentError):
         correlator.register(identity())
+
+
+
+@pytest.mark.parametrize("boot_id64", [True, False, -1, 0x10000000000000000, 1.5, "1"])
+def test_ack_identity_rejects_invalid_full_epoch(boot_id64):
+    with pytest.raises(ValueError, match="boot_id64"):
+        ack(boot_id64=boot_id64)
+
+
+@pytest.mark.parametrize("field", [
+    "command_id", "command_type", "session_id", "stage_context_id",
+])
+def test_ack_identity_rejects_empty_or_non_string_identity_fields(field):
+    with pytest.raises(ValueError, match=field):
+        ack(**{field: ""})
+    with pytest.raises(ValueError, match=field):
+        ack(**{field: None})
+
+
+def test_correlator_rejects_non_ack_objects_without_advancing():
+    correlator = AckCorrelator()
+    correlator.register(identity())
+    assert not correlator.correlate({"command_id": "cmd-001"})
+    assert correlator.correlate(ack())
