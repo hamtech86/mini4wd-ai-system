@@ -157,7 +157,7 @@ def run_profile(output_dir, samples, stage_ms, stop_reserve_ms, margin_ms):
     }
 
     sample_path = output_dir / "310-fsync-samples.csv"
-    with sample_path.open("w", newline="", encoding="utf-8") as stream:
+    with sample_path.open("x", newline="", encoding="utf-8") as stream:
         writer = csv.writer(stream)
         writer.writerow(("sample", "file_fsync_ns", "directory_fsync_ns", "paired_sum_ns"))
         writer.writerows(
@@ -172,13 +172,13 @@ def run_profile(output_dir, samples, stage_ms, stop_reserve_ms, margin_ms):
 
     report_path = output_dir / "310-fsync-report.json"
     report_bytes = (json.dumps(result, indent=2, sort_keys=True) + "\n").encode()
-    with report_path.open("wb") as stream:
+    with report_path.open("xb") as stream:
         stream.write(report_bytes)
         stream.flush()
         os.fsync(stream.fileno())
     report_sha = hashlib.sha256(report_bytes).hexdigest()
     checksum_path = output_dir / "310-fsync-report.sha256"
-    with checksum_path.open("w", encoding="ascii", newline="") as stream:
+    with checksum_path.open("x", encoding="ascii", newline="") as stream:
         stream.write(f"{report_sha}  {report_path.name}\n")
         stream.flush()
         os.fsync(stream.fileno())
