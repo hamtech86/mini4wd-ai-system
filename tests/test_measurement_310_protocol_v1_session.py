@@ -716,7 +716,7 @@ def test_stop_request_id_cannot_be_reused_for_a_different_reason(tmp_path, monke
     assert codec.decode(writes[0]).message["stop_reason"] == 1
 
 
-@pytest.mark.parametrize("invalid_reason", [0, 10, 254, 256, True])
+@pytest.mark.parametrize("invalid_reason", [0, 11, 254, 256, True])
 def test_stop_request_rejects_unassigned_reason_codes(tmp_path, monkeypatch, invalid_reason):
     writes = []
     session, _, _, _ = make_session(
