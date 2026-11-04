@@ -230,6 +230,12 @@ def test_sequence_controller_fails_closed_on_invalid_or_late_ack_timing(
     class Adapter:
         last_write_completed_monotonic_ns = 1_010_000_000
 
+        def __init__(self):
+            self.events = []
+
+        def latch_abort(self, reason):
+            self.events.append("LATCH")
+
         def send_stage_pwm(self, pwm, stage_context_id, measurement_session_id, stage_index=None):
             return "2026-11-04T14:00:00.000Z"
 
@@ -239,6 +245,7 @@ def test_sequence_controller_fails_closed_on_invalid_or_late_ack_timing(
 
     clock = Clock()
     stops = []
+    adapter = Adapter()
     fields = {
         "log_id": "PROTOCOL-TIMING-FAIL",
         "measurement_session_id": "00000000-0000-4000-8000-000000000003",
@@ -259,6 +266,7 @@ def test_sequence_controller_fails_closed_on_invalid_or_late_ack_timing(
     controller.start()
     assert controller.poll() == SequenceState.FAULT
     assert stops == ["STOP"]
+    assert adapter.events == ["LATCH", "STOP"]
     assert expected_fault in str(controller._last_fault)
 
 
@@ -270,3 +278,21 @@ def test_sequence_controller_requires_callbacks_or_v1_session(tmp_path):
         SequenceController(
             RawLogV2Writer(tmp_path), {}, None, lambda: None, None,
         )
+
+
+def test_protocol_session_latch_abort_prevents_pending_command_reuse(tmp_path, monkeypatch):
+    codec = ProtocolV1Codec(MAGIC_FIXTURE, VERSION_FIXTURE)
+    hello, arm = handshake_frames(codec)
+    session, transport, _, _ = make_session(tmp_path, monkeypatch, [hello, arm])
+    session.send_stage_pwm(0, "stage-uuid", "session-uuid", stage_index=0)
+    assert session._pending is not None
+    session.latch_abort("ACK timeout")
+    assert session._failed is True
+    assert session._pending is None
+    with pytest.raises(RuntimeError, match="fail-closed"):
+        session.poll_apply_ack(0.0)
+    with pytest.raises(RuntimeError, match="fail-closed"):
+        session.send_stage_pwm(1, "next-stage-uuid", "session-uuid", stage_index=1)
+    assert [session.codec.decode(frame).message["kind"] for frame in transport.sent] == [
+        "HELLO", "ARM", "PWM_SET"
+    ]
