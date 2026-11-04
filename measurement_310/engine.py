@@ -80,6 +80,9 @@ class SequenceController:
         self.next_deadline_ns: Optional[int] = None
         self._last_fault: Optional[str] = None
         self._recovery_complete = False
+        # Recovering a prior incomplete session repairs storage only; it does not
+        # establish whether a nonzero command reached the device or was stopped.
+        self._recovery_requires_review = False
         self._finalization_started = False
         # Once any append fails, this session is write-disabled. STOP is still attempted.
         self._log_write_failed = False
@@ -101,6 +104,7 @@ class SequenceController:
         }
         if recovered_ids != set(pending_before):
             raise SequenceError("startup recovery result does not match discovered pending work")
+        self._recovery_requires_review = bool(recovered_ids)
         self._recovery_complete = True
         return result
 
@@ -109,6 +113,11 @@ class SequenceController:
             raise SequenceError("startup recovery has not completed")
         if self.state != SequenceState.READY:
             raise SequenceError("controller is not ready")
+        if self._recovery_requires_review:
+            raise SequenceError(
+                "recovered incomplete work requires command-outcome reconciliation; "
+                "automatic re-arm is prohibited"
+            )
         fields = dict(self.manifest_fields)
         now = self.clock.utc_now()
         fields.setdefault("schema_name", "mini4wd.rawlog")
