@@ -138,3 +138,59 @@ def test_protocol_session_evidence_torn_tail_fails_closed(tmp_path):
     path.write_bytes(path.read_bytes() + b'{"torn":')
     with pytest.raises(RuntimeError, match="torn final line"):
         journal.append("TWO", {"value": 2})
+
+
+def test_sequence_controller_uses_protocol_session_and_does_not_call_legacy_sender(tmp_path):
+    from datetime import datetime, timezone
+    from measurement_310.engine import SequenceController, SequenceState
+    from raw_log_v2 import RawLogV2Writer
+
+    class Clock:
+        def __init__(self):
+            self.ns = 1_000_000_000
+
+        def monotonic_ns(self):
+            return self.ns
+
+        def utc_now(self):
+            return "2026-11-04T14:00:00.000Z"
+
+    class Adapter:
+        def __init__(self):
+            self.calls = []
+            self.acks = [(0, "2026-11-04T14:00:00.010Z")]
+
+        def send_stage_pwm(self, pwm, stage_context_id, measurement_session_id, stage_index=None):
+            self.calls.append((pwm, stage_context_id, measurement_session_id, stage_index))
+            return "2026-11-04T14:00:00.000Z"
+
+        def poll_apply_ack(self, timeout_s=0.0):
+            return self.acks.pop(0) if self.acks else None
+
+    clock = Clock()
+    adapter = Adapter()
+    legacy_calls = []
+    fields = {
+        "log_id": "PROTOCOL-SESSION-TEST",
+        "measurement_session_id": "00000000-0000-4000-8000-000000000002",
+        "started_at_utc": clock.utc_now(),
+        "motor_instance_id": None,
+        "device": {"type": None, "model": None, "firmware_version": None,
+                   "firmware_build": None, "firmware_id": None, "adc_resolution_bits": None},
+        "measurement_conditions": {"direction": "UNKNOWN", "voltage_control_mode": "UNKNOWN",
+            "sweep_pwm_min": 0, "sweep_pwm_max": 30, "stage_duration_ms": 10000,
+            "schedule_owner": "PYTHON"},
+    }
+    controller = SequenceController(
+        RawLogV2Writer(tmp_path), fields,
+        lambda pwm: legacy_calls.append(pwm) or clock.utc_now(),
+        lambda: None, lambda: None, clock, protocol_session=adapter,
+    )
+    controller.startup_recover()
+    controller.start()
+    assert controller.state == SequenceState.WAITING_ACK
+    assert adapter.calls[0][0] == 0
+    assert adapter.calls[0][2] == fields["measurement_session_id"]
+    assert adapter.calls[0][3] == 0
+    assert legacy_calls == []
+    assert controller.poll() == SequenceState.RUNNING
