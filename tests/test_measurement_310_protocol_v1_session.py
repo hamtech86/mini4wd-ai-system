@@ -37,7 +37,7 @@ def ack_frame(codec, kind, *, session=37, epoch=None, command=0, payload):
     )
 
 
-def make_session(tmp_path, monkeypatch, incoming, stop_writer=None, transport=None):
+def make_session(tmp_path, monkeypatch, incoming, stop_writer=None, transport=None, utc_now=None):
     monkeypatch.setattr("measurement_310.protocol_v1_session.secrets.randbits",
                         lambda bits: NONCE)
     codec = ProtocolV1Codec(MAGIC_FIXTURE, VERSION_FIXTURE)
@@ -48,7 +48,7 @@ def make_session(tmp_path, monkeypatch, incoming, stop_writer=None, transport=No
     session = ProtocolV1HostSession(
         transport, codec, FixedAllocator(),
         DurableIntentJournal(tmp_path / "command-intent.jsonl"),
-        evidence, stop_writer=stop_writer, ack_timeout_s=0.2,
+        evidence, stop_writer=stop_writer, ack_timeout_s=0.2, utc_now=utc_now,
     )
     return session, transport, codec, evidence
 
@@ -96,6 +96,7 @@ def test_protocol_sequence_sends_normal_completion_stop_before_rawlog_finalize(
     session, transport, codec, evidence = make_session(
         tmp_path, monkeypatch, [hello, arm, *apply_acks],
         stop_writer=lambda frame: stop_frames.append(bytes(frame)),
+        utc_now=clock.utc_now,
     )
     fields = {
         "log_id": "PROTOCOL-310",
