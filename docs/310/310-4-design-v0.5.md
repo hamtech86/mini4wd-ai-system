@@ -119,7 +119,7 @@ All protocol messages use:
 
 COBS maximum for a decoded frame of N bytes is N + ceil(N/254). All current frames are below 254 bytes, so the COBS maximum is N+1. Wire maximum is COBS maximum + one delimiter.
 
-The 17-byte common header field allocation for this candidate is: magic uint16 (2), protocol_version uint8 (1), message_type uint8 (1), flags uint8 (1), measurement_session_tag uint32 (4), device_epoch_tag uint32 (4), command_id uint32 (4). Multi-byte integers are little-endian. The tags are correlation values only; they do not replace the full RawLog session UUID or boot identity.
+The adopted v1 17-byte common header field allocation is: magic uint16 (2), protocol_version uint8 (1), message_type uint8 (1), flags uint8 (1), measurement_session_tag uint32 (4), device_epoch_tag uint32 (4), command_id uint32 (4). Multi-byte integers are little-endian. The tags are correlation values only; they do not replace the full RawLog session UUID or boot identity.
 
 **Command-authority numeric assignment (2026-11-05):** `magic = 0x344D` (uint16; little-endian wire bytes `4D 34`, ASCII `M4`) and `protocol_version = 0x01` (uint8). These values are normative for this v1 wire contract. Any incompatible change requires a separately approved protocol revision. Host and firmware must use these exact values; no per-device or build-specific variation is permitted.
 
@@ -139,11 +139,11 @@ The 17-byte common header field allocation for this candidate is: magic uint16 (
 | ERROR | error_code u8 + offending_message_type u8 + detail_code u16 + related_command_id u32 | 8 B | 27 B | 28 B | 1 B | 29 B |
 | ADC_BATCH | payload defined in §4.2 | 173 B | 192 B | 193 B | 1 B | 194 B |
 
-All values are proposed v1 definitions, not accepted production wire compatibility. boot_id64 is uint64 little-endian. host_nonce64 is a host-generated fresh 64-bit challenge unique to each HELLO attempt; it is not a persistent identity. HELLO carries a nonzero measurement_session_tag and device_epoch_tag=0. HELLO_ACK echoes the session tag and carries the nonzero device epoch correlation tag derived from boot_id64. The payload echoes host_nonce64 exactly.
+All listed message types, payload layouts, enum meanings and field values are normative v1 definitions adopted by command authority on 2026-11-04 and amended by the explicit 2026-11-05 numeric assignments below. Production interoperability still requires a matching qualified firmware build. boot_id64 is uint64 little-endian. host_nonce64 is a host-generated fresh 64-bit challenge unique to each HELLO attempt; it is not a persistent identity. HELLO carries a nonzero measurement_session_tag and device_epoch_tag=0. HELLO_ACK echoes the session tag and carries the nonzero device epoch correlation tag derived from boot_id64. The payload echoes host_nonce64 exactly.
 
 ### 6.2.1 Message type codes and common header validation
 
-Candidate v1 message_type codes: HELLO=0x01, HELLO_ACK=0x02, ARM=0x03, ARM_ACK=0x04, PWM_SET=0x10, APPLY_ACK=0x11, STOP_REQ=0x20, STOP_ACK=0x21, STATUS=0x30, ERROR=0x31, ADC_BATCH=0x40. Other codes are rejected without output change. Header flags MUST be zero. magic and protocol_version require exact match. command_id=0 is reserved for HELLO/HELLO_ACK and unsolicited STATUS/ADC_BATCH/ERROR; command-bearing requests and ACKs require nonzero command_id.
+Normative v1 message_type codes: HELLO=0x01, HELLO_ACK=0x02, ARM=0x03, ARM_ACK=0x04, PWM_SET=0x10, APPLY_ACK=0x11, STOP_REQ=0x20, STOP_ACK=0x21, STATUS=0x30, ERROR=0x31, ADC_BATCH=0x40. Other codes are rejected without output change. Header flags MUST be zero. magic and protocol_version require exact match. command_id=0 is reserved for HELLO/HELLO_ACK and unsolicited STATUS/ADC_BATCH/ERROR; command-bearing requests and ACKs require nonzero command_id.
 
 device_epoch_tag is the low 32 bits of verified boot_id64; if that value is zero, use 0xFFFFFFFF only as the header correlation tag. The full boot_id64 remains the identity. measurement_session_tag is a nonzero host correlation tag allocated for one measurement_session_id and not reused within a host process. These tags are not security credentials and never replace full identifiers in RawLog or evidence.
 
