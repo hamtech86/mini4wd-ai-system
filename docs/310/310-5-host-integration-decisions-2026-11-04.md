@@ -92,7 +92,41 @@ python -m measurement_310.fsync_profile --output-dir /path/on/approved/storage -
 
 Replace the two uppercase placeholders with the approved numeric values; do not use invented defaults. Exit code 0 means the measured p99.9 and maximum plus margin are both below the remaining budget and no fsync failures were recorded; exit code 2 means the profile did not meet that condition.
 
-## 5. Verification and acceptance boundary
+## 5. Isolated host test execution — 2026-11-04
+
+A host-only isolated test harness was assembled from the candidate source/test files fetched through the GitHub repository API. The harness did not require serial devices and did not open hardware ports.
+
+Environment:
+- Python 3.13.5
+- pytest 9.0.2
+- Linux 6.18.57 x86_64 (glibc 2.41)
+
+Exact test command:
+```bash
+python -m pytest -q \
+  tests/test_measurement_310_rearm_gate.py \
+  tests/test_measurement_310_fsync_profile.py \
+  tests/test_measurement_310_command_intent.py \
+  tests/test_measurement_310_evidence_gate.py \
+  tests/test_measurement_310_loss_accounting.py \
+  tests/test_measurement_310_sequence_accounting.py \
+  tests/test_measurement_310_epoch_checkpoint.py \
+  tests/test_measurement_310_session_tag_allocator.py
+```
+
+Result: **125 passed, 0 failed in 0.41s**.
+
+The test set covers R01 re-arm gate, T18 percentile helpers, T04 durable intent and ACK correlation, T05 evidence gate, T11 loss accounting, uint16 sequence accounting, full-width boot-epoch checkpointing, and T01 session-tag allocation.
+
+Corrections made after execution exposed test-fixture defects:
+- R01 short-write test now matches a newline byte, not a literal backslash+n.
+- Sequence half-range test now expects accepted delta 32767 to advance the tracker, while ambiguous/stale deltas do not.
+- Session-tag allocator fixtures now explicitly provide trusted `initial_high_water=0` when creating a new journal; the dedicated missing-high-water test remains unchanged and must fail closed.
+- Durable intent journal now rejects command ID reuse found in persisted history, including after construction of a new journal object.
+
+**Scope limitation:** This was an isolated host harness, not a complete repository checkout. It does not validate the repository's complete package initializer/import graph, all 310 tests, RawLog v2 integration, production SequenceController/ProtocolClient integration, or the full project suite. It is not a CI run and does not change formal T01–T18 acceptance status. No CI was triggered.
+
+## 6. Verification and acceptance boundary
 
 - The R01 source and tests are on the independent host-integration candidate branch.
 - R01 isolated host regression: 25/25 passed after fixing the test sentinel; complete repository regression remains NOT RUN.
