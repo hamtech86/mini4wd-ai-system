@@ -188,3 +188,8 @@ The v0.5 `STOP_REQ.stop_reason` uint8 field is assigned as follows:
 `0x00` is reserved. This byte is diagnostic metadata and part of STOP request duplicate identity; it never changes the requirement to perform the STOP safety action for a syntactically valid STOP_REQ. Firmware must treat unrecognized values as unclassified for storage and still execute STOP. New codes require a command-authority decision.
 
 This decision does not qualify the injected host STOP writer, physical independence/boundedness, MCU behavior, driver cutoff or physical stopping. Hardware restrictions remain unchanged.
+
+
+### 2026-11-05 supplemental STOP reason — NORMAL_COMPLETION
+
+Assign `0x0A NORMAL_COMPLETION` to the host STOP_REQ sent after all 31 PWM stages have completed and before RawLog finalization. A successful 310 sequence must attempt STOP before writing the completed-session event/final manifest. If the STOP write outcome is unknown or fails, the host must not finalize the RawLog as completed; retain incomplete work and require reconciliation. This reason code does not prove the physical motor stopped.
