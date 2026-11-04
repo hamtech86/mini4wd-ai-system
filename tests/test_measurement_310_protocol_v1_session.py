@@ -80,6 +80,18 @@ def test_protocol_session_durable_intent_handshake_arm_and_exact_apply_ack(tmp_p
     assert names.count("FRAME_TX_INTENT") == 3
     assert names.count("FRAME_TX_COMPLETE") == 3
     assert names.count("ACK_MATCHED") == 2
+    required_common = {
+        "schema_version", "event_id", "event_type", "measurement_session_id",
+        "device_epoch_id", "host_received_at_utc", "host_received_monotonic_ns",
+        "host_event_at_utc", "host_event_monotonic_ns", "direction",
+    }
+    assert all(required_common.issubset(event) for event in events)
+    assert all(event["schema_version"] == "transport-evidence-v1" for event in events)
+    received_frames = [event for event in events if event["event_type"] == "frame_rx_received"]
+    assert len(received_frames) == 3
+    ack_events = [event for event in events if event["event"] == "ACK_MATCHED"]
+    assert all(event["payload"]["message"]["_raw_frame_base64"] for event in ack_events)
+    assert all(event["payload"]["message"]["_rx_evidence_event_id"] for event in ack_events)
     context_map = next(event["payload"] for event in events
                        if event["event"] == "STAGE_CONTEXT_MAP")
     assert context_map["command_id"] == 2
