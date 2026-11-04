@@ -50,7 +50,7 @@ def test_intent_is_fsynced_before_send_callback(tmp_path, monkeypatch):
         journal, identity(), "2026-11-03T11:00:00Z", send)
     assert len(digest) == 64
     assert result == "sent"
-    assert events == ["fsync", "send"]
+    assert events == ["fsync", "fsync", "send"]
 
 
 def test_intent_journal_hash_chain_and_torn_tail_fail_closed(tmp_path):
@@ -124,3 +124,24 @@ def test_correlator_rejects_non_ack_objects_without_advancing():
     correlator.register(identity())
     assert not correlator.correlate({"command_id": "cmd-001"})
     assert correlator.correlate(ack())
+
+
+
+def test_parent_directory_fsync_failure_prevents_send(tmp_path, monkeypatch):
+    journal = DurableIntentJournal(tmp_path / "intent.jsonl")
+    calls = []
+    sent = []
+
+    def fail_directory_fsync(fd):
+        calls.append(fd)
+        if len(calls) == 2:
+            raise OSError("directory fsync failure")
+
+    monkeypatch.setattr("measurement_310.command_intent.os.fsync", fail_directory_fsync)
+    with pytest.raises(IntentError, match="intent durability failed"):
+        commit_intent_then_send(
+            journal, identity(), "2026-11-03T11:00:00Z",
+            lambda command: sent.append(command),
+        )
+    assert len(calls) == 2
+    assert sent == []
