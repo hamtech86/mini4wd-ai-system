@@ -179,6 +179,8 @@ class ProtocolV1HostSession:
         self.boot_id64: Optional[int] = None
         self.epoch_tag: Optional[int] = None
         self._command_id = 0
+        self._stop_request_id = 0
+        self._used_stop_request_ids: set[int] = set()
         self._rx_buffer = bytearray()
         self._messages: list[dict] = []
         self._pending: Optional[dict] = None
