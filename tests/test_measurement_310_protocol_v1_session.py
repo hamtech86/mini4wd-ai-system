@@ -1,0 +1,138 @@
+import json
+import struct
+from types import SimpleNamespace
+
+import pytest
+
+from measurement_310.command_intent import DurableIntentJournal
+from measurement_310.protocol_v1 import MessageType, ProtocolV1Codec, epoch_tag_for_boot_id
+from measurement_310.protocol_v1_session import ProtocolV1HostSession, TransportEvidenceJournal
+from measurement_310.transport import MockTransport
+
+
+MAGIC_FIXTURE = 0x4D34
+VERSION_FIXTURE = 1
+BOOT_ID = 0x1122334455667788
+NONCE = 0xAABBCCDDEEFF0011
+
+
+class FixedAllocator:
+    def __init__(self, tag=37):
+        self.tag = tag
+        self.calls = 0
+
+    def allocate(self):
+        self.calls += 1
+        return SimpleNamespace(tag=self.tag)
+
+
+def ack_frame(codec, kind, *, session=37, epoch=None, command=0, payload):
+    return codec.encode_message(
+        kind, session_tag=session,
+        epoch_tag=epoch if epoch is not None else epoch_tag_for_boot_id(BOOT_ID),
+        command_id=command, payload=payload,
+    )
+
+
+def make_session(tmp_path, monkeypatch, incoming):
+    monkeypatch.setattr("measurement_310.protocol_v1_session.secrets.randbits",
+                        lambda bits: NONCE)
+    codec = ProtocolV1Codec(MAGIC_FIXTURE, VERSION_FIXTURE)
+    transport = MockTransport()
+    for frame in incoming:
+        transport.queue(frame)
+    evidence = TransportEvidenceJournal(tmp_path / "transport-evidence-v1.jsonl")
+    session = ProtocolV1HostSession(
+        transport, codec, FixedAllocator(),
+        DurableIntentJournal(tmp_path / "command-intent.jsonl"),
+        evidence, ack_timeout_s=0.2,
+    )
+    return session, transport, codec, evidence
+
+
+def handshake_frames(codec):
+    hello = ack_frame(codec, MessageType.HELLO_ACK,
+                      payload=struct.pack("<BQQ", 0, BOOT_ID, NONCE))
+    arm = ack_frame(codec, MessageType.ARM_ACK, command=1,
+                    payload=struct.pack("<BBH", 0, 1, 1))
+    return hello, arm
+
+
+def test_protocol_session_durable_intent_handshake_arm_and_exact_apply_ack(tmp_path, monkeypatch):
+    codec = ProtocolV1Codec(MAGIC_FIXTURE, VERSION_FIXTURE)
+    hello, arm = handshake_frames(codec)
+    apply = ack_frame(codec, MessageType.APPLY_ACK, command=2,
+                      payload=struct.pack("<BBH", 0, 0, 1))
+    session, transport, codec, evidence = make_session(tmp_path, monkeypatch, [hello, arm, apply])
+
+    sent_at = session.send_stage_pwm(0, "00000000-0000-4000-8000-000000000001",
+                                     "00000000-0000-4000-8000-000000000002", stage_index=0)
+    assert sent_at.endswith("Z")
+    assert session.poll_apply_ack(0.0)[0] == 0
+    assert len(transport.sent) == 3
+    sent_kinds = [codec.decode(frame).message["kind"] for frame in transport.sent]
+    assert sent_kinds == ["HELLO", "ARM", "PWM_SET"]
+
+    events, _ = evidence._read()
+    names = [event["event"] for event in events]
+    assert names.index("RX_BYTES") < names.index("HELLO_ACK_MATCHED")
+    assert names.index("STAGE_CONTEXT_MAP") < names.index("FRAME_TX_INTENT", names.index("STAGE_CONTEXT_MAP"))
+    assert names.count("FRAME_TX_INTENT") == 3
+    assert names.count("FRAME_TX_COMPLETE") == 3
+    assert names.count("ACK_MATCHED") == 2
+    assert "00000000-0000-4000-8000-000000000001" in json.dumps(events)
+
+
+def test_protocol_session_does_not_send_arm_if_durable_intent_fails(tmp_path, monkeypatch):
+    codec = ProtocolV1Codec(MAGIC_FIXTURE, VERSION_FIXTURE)
+    hello, arm = handshake_frames(codec)
+    session, transport, _, _ = make_session(tmp_path, monkeypatch, [hello, arm])
+
+    def fail_intent(*args, **kwargs):
+        raise OSError("intent fsync failed")
+
+    session.intent_journal.append_intent = fail_intent
+    with pytest.raises(OSError, match="intent fsync failed"):
+        session.send_stage_pwm(0, "stage-uuid", "session-uuid", stage_index=0)
+    sent_kinds = [codec.decode(frame).message["kind"] for frame in transport.sent]
+    assert sent_kinds == ["HELLO"]
+
+
+def test_protocol_session_does_not_send_pwm_if_tx_intent_evidence_fails(tmp_path, monkeypatch):
+    codec = ProtocolV1Codec(MAGIC_FIXTURE, VERSION_FIXTURE)
+    hello, arm = handshake_frames(codec)
+    session, transport, _, evidence = make_session(tmp_path, monkeypatch, [hello, arm])
+    original_append = evidence.append
+
+    def fail_pwm_intent(event, payload):
+        if event == "FRAME_TX_INTENT" and payload.get("kind") == "PWM_SET":
+            raise OSError("Evidence fsync failed")
+        return original_append(event, payload)
+
+    evidence.append = fail_pwm_intent
+    with pytest.raises(OSError, match="Evidence fsync failed"):
+        session.send_stage_pwm(0, "stage-uuid", "session-uuid", stage_index=0)
+    sent_kinds = [codec.decode(frame).message["kind"] for frame in transport.sent]
+    assert sent_kinds == ["HELLO", "ARM"]
+
+
+def test_protocol_session_rejects_wrong_command_ack_without_advancing(tmp_path, monkeypatch):
+    codec = ProtocolV1Codec(MAGIC_FIXTURE, VERSION_FIXTURE)
+    hello, arm = handshake_frames(codec)
+    wrong = ack_frame(codec, MessageType.APPLY_ACK, command=999,
+                      payload=struct.pack("<BBH", 0, 0, 1))
+    right = ack_frame(codec, MessageType.APPLY_ACK, command=2,
+                      payload=struct.pack("<BBH", 0, 0, 1))
+    session, _, _, _ = make_session(tmp_path, monkeypatch, [hello, arm, wrong, right])
+    session.send_stage_pwm(0, "stage-uuid", "session-uuid", stage_index=0)
+    assert session.poll_apply_ack(0.0) is None
+    assert session.poll_apply_ack(0.0)[0] == 0
+
+
+def test_protocol_session_evidence_torn_tail_fails_closed(tmp_path):
+    path = tmp_path / "evidence.jsonl"
+    journal = TransportEvidenceJournal(path)
+    journal.append("ONE", {"value": 1})
+    path.write_bytes(path.read_bytes() + b'{"torn":')
+    with pytest.raises(RuntimeError, match="torn final line"):
+        journal.append("TWO", {"value": 2})
