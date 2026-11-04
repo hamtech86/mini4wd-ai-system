@@ -160,7 +160,7 @@ class ProtocolV1Codec:
             raise ProtocolV1Error("command-bearing message requires nonzero command_id")
         if message_type == MessageType.HELLO and epoch_tag != 0:
             raise ProtocolV1Error("HELLO requires device_epoch_tag=0")
-        if message_type not in {MessageType.HELLO} and epoch_tag == 0:
+        if message_type not in {MessageType.HELLO, MessageType.HELLO_ACK} and epoch_tag == 0:
             raise ProtocolV1Error("message requires a verified nonzero epoch correlation tag")
 
     def encode_message(self, message_type: MessageType | int, *, session_tag: int,
