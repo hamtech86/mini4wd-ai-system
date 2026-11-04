@@ -111,3 +111,13 @@ an empty mock sent list does not establish whether bytes reached real hardware
 in an ambiguous write/flush failure. No retry semantics are selected; firmware
 duplicate handling and transport policy remain authority-level questions.
 Tests NOT RUN; no CI/hardware. T09/T15 remain NOT PASS.
+
+
+## T11 verification follow-up (2026-11-04)
+
+- Isolated local reproduction of the fetched candidate T11 implementation and its 17 parameterized test cases initially found one failure: `expected=True` raised `TypeError`, while the existing test contract requires `ValueError` for boolean/negative invalid counts.
+- Corrected `_validate_window()` to reject bool explicitly as an invalid sample-count value before the integer type check.
+- Fix commit: `8f87b9ea2fb2e5bd761dfa847d3850a3a41a29b4`.
+- Re-running the isolated reconstructed T11 suite after the correction: 17 passed. This was not a checkout-based run of the complete repository suite and is not represented as CI evidence.
+- Additional cross-window probe found an unresolved accounting contract issue: an observation with missing channel identity is counted as `unattributable=1` in each window that receives the same observation collection. Two channel windows therefore sum to 2 for one physical observation. A record with missing timestamp is likewise counted in every window because it cannot be temporally scoped.
+- T11 therefore remains NOT PASS until the caller/API contract guarantees globally unique attribution of unattributable records (or separates global unassignable diagnostics from per-window summaries) and tests cover multiple channels/epochs/windows. Do not sum per-window `unattributable` values without a defined deduplication/ownership rule.
