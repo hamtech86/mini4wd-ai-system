@@ -147,3 +147,10 @@ ARM前に対象host fingerprintごとのD_intent、D_evidence、D_serial_write�
 **Implementation status is separate:** Adoption authorizes implementation against this contract; it does not claim the codec, firmware, host integration, or acceptance tests are already complete. T04/T05 can now proceed against the adopted contract. T04/T05 remain NOT PASS until implementation and their required host/fault-injection tests are completed. Firmware identity, compiler/map/stack/SRAM evidence, physical STOP/cutoff, ADC reference qualification, EEPROM/BOD/fuse, and target-host fsync profile remain separate evidence gates.
 
 **Safety boundary unchanged:** This approval is not authorization to upload firmware, open a physical serial connection, energize a motor, perform physical STOP/cutoff tests, interrupt EEPROM power, read/write fuses/ISP, or conduct the 310-second measurement. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains in force. Each such activity still requires explicit separate authorization.
+
+
+## 2026-11-04 post-adoption implementation finding — wire constants
+
+The command authority adopted v0.5 as the production implementation contract on 2026-11-04. During host codec implementation, a specification completeness issue was confirmed: v0.5 assigns the 16-bit `magic` and 8-bit `protocol_version` header field positions and widths, but does not assign their numeric values. The host codec therefore requires both values as explicit constructor inputs and has no defaults. Synthetic values appear only in isolated tests and are not production configuration.
+
+This note does not change the adopted v0.5 contract or authorize an implementation-specific value. Before firmware/host interoperability or real serial use, the concrete firmware implementation/configuration must provide the exact two values and a matching build identity; the host must then pin and verify them. Until then, codec unit tests can validate algorithms and layout, but production-wire compatibility is **NOT QUALIFIED**. No firmware or physical device operation was performed.
