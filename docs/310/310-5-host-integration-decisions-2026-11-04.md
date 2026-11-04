@@ -160,7 +160,7 @@ This section supersedes earlier source snapshots in §§2–3 where they describ
 
 - `ProtocolV1HostSession.send_stop_best_effort()` now requires an injected STOP writer distinct from the normal command transport. It sends before Evidence fsync, so the host dispatch path does not wait for the command transport queue or evidence append.
 - Retry with the same `stop_request_id` and same reason reuses the retained byte-identical STOP_REQ frame and preserves both `command_id` and `stop_request_id`, consistent with 310-4 v0.5 §A6.3. Reuse of that ID with a different reason is rejected.
-- This is not proof that the injected writer uses an independent physical channel, is bounded, or can interrupt a hung OS/driver write. The production caller still has to supply and qualify the callback; the v0.5 numeric STOP reason registry is not assigned. No MCU/driver/physical STOP result is inferred.
+- This is not proof that the injected writer uses an independent physical channel, is bounded, or can interrupt a hung OS/driver write. The production caller still has to supply and qualify the callback; the v0.5 STOP reason registry is assigned by command authority on 2026-11-05. No MCU/driver/physical STOP result is inferred.
 - T09/T15 therefore remains NOT PASS. The host dispatch separation is a limited implementation improvement only.
 
 ### T10/T17 and T18 — unchanged authority boundaries
@@ -182,3 +182,10 @@ The previously open v0.5 header constants are now assigned by the command author
 The candidate codec now exposes these named normative constants and the protocol/session tests use them instead of synthetic fixture values. Constructor arguments remain explicit to prevent accidental implicit configuration. This closes the numeric-value decision only; it does not provide a concrete matching firmware build or prove physical interoperability.
 
 The 310-4 design source and decision register on branch `docs/310-4-design-v0.5` record the same assignment. Hardware authorization is unchanged.
+
+
+## 2026-11-05 command-authority STOP reason registry application
+
+The command authority assigned the `STOP_REQ.stop_reason` registry in the 310-4 v0.5 normative design. The candidate codec now exposes `StopReason` values: OPERATOR_REQUEST=0x01, ACK_TIMEOUT=0x02, ACK_IDENTITY_MISMATCH=0x03, COMMUNICATION_LOSS=0x04, EVIDENCE_DURABILITY_FAILURE=0x05, STAGE_DEADLINE_EXCEEDED=0x06, DEVICE_FAULT_REPORTED=0x07, HOST_PROCESS_SHUTDOWN=0x08, INTERNAL_HOST_FAULT=0x09, OTHER_UNCLASSIFIED=0xFF. Zero is reserved. This is diagnostic metadata; unknown values must not suppress a syntactically valid STOP action.
+
+This closes the host-side STOP reason numeric registry gap only. It does not qualify the injected writer's physical independence or boundedness, nor the MCU/driver/physical stop path.
