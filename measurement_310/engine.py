@@ -449,6 +449,14 @@ class SequenceController:
         finally:
             self._abort_lock.release()
         self._last_fault = fault
+        # Inhibit any later v1 command in memory only; never let journal I/O delay STOP.
+        if self.protocol_session is not None:
+            try:
+                latch = getattr(self.protocol_session, "latch_abort", None)
+                if callable(latch):
+                    latch(reason)
+            except Exception as exc:
+                self._last_fault = f"{self._last_fault or reason}; protocol latch failed: {exc}"
         # STOP transmission must be attempted before any RawLog append/fsync.
         # Logging is secondary evidence and must never delay the emergency command.
         try:
