@@ -147,3 +147,66 @@ def canonical_json(summary: LossSummary) -> str:
     """Stable serialization suitable for deterministic host fixtures."""
     return json.dumps(asdict(summary), sort_keys=True, separators=(",", ":"),
                       ensure_ascii=True)
+
+
+@dataclass(frozen=True)
+class BatchLossSummary:
+    """Window summaries plus one collection-wide unattributable count."""
+    summaries: tuple[LossSummary, ...]
+    unattributable: int
+
+
+def summarize_many(
+    windows: Iterable[Window], observations: Iterable[Observation]
+) -> BatchLossSummary:
+    """Attribute a collection once across non-overlapping windows.
+
+    An observation with incomplete/invalid identity or timestamp is counted
+    exactly once in the collection-wide unattributable field, never once per
+    window. Fully identified observations outside all supplied windows are
+    ignored. Overlapping windows for the same channel/epoch are rejected so
+    one observation cannot be assigned to multiple summaries.
+    """
+    window_list = tuple(windows)
+    items = tuple(observations)
+    for window in window_list:
+        _validate_window(window)
+    for i, left in enumerate(window_list):
+        for right in window_list[i + 1:]:
+            if (left.channel, left.boot_id64) == (right.channel, right.boot_id64):
+                if max(left.start_ns, right.start_ns) < min(left.end_ns, right.end_ns):
+                    raise ValueError("overlapping windows for the same channel/epoch")
+
+    assigned: list[list[Observation]] = [[] for _ in window_list]
+    unattributable = 0
+    for item in items:
+        if not isinstance(item, Observation):
+            raise TypeError("observations must contain Observation values")
+        if (not isinstance(item.channel, str) or not item.channel
+                or item.boot_id64 is None or item.timestamp_ns is None):
+            unattributable += 1
+            continue
+        try:
+            _integer(item.boot_id64, "observation boot_id64")
+            _integer(item.timestamp_ns, "timestamp_ns")
+        except TypeError:
+            unattributable += 1
+            continue
+        if not 0 <= item.boot_id64 <= 0xFFFFFFFFFFFFFFFF:
+            unattributable += 1
+            continue
+        matches = [
+            index for index, window in enumerate(window_list)
+            if (item.channel, item.boot_id64) == (window.channel, window.boot_id64)
+            and window.start_ns <= item.timestamp_ns < window.end_ns
+        ]
+        if len(matches) > 1:
+            raise ValueError("observation matches multiple windows")
+        if matches:
+            assigned[matches[0]].append(item)
+
+    summaries = tuple(
+        summarize(window, assigned[index])
+        for index, window in enumerate(window_list)
+    )
+    return BatchLossSummary(summaries, unattributable)
