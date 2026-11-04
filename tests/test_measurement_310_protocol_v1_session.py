@@ -125,10 +125,10 @@ def test_protocol_session_does_not_send_pwm_if_tx_intent_evidence_fails(tmp_path
     session, transport, _, evidence = make_session(tmp_path, monkeypatch, [hello, arm])
     original_append = evidence.append
 
-    def fail_pwm_intent(event, payload):
+    def fail_pwm_intent(event, payload, **kwargs):
         if event == "FRAME_TX_INTENT" and payload.get("kind") == "PWM_SET":
             raise OSError("Evidence fsync failed")
-        return original_append(event, payload)
+        return original_append(event, payload, **kwargs)
 
     evidence.append = fail_pwm_intent
     with pytest.raises(OSError, match="Evidence fsync failed"):
