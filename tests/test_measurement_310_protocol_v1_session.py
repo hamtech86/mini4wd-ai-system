@@ -96,6 +96,7 @@ def test_protocol_session_does_not_send_arm_if_durable_intent_fails(tmp_path, mo
         session.send_stage_pwm(0, "stage-uuid", "session-uuid", stage_index=0)
     sent_kinds = [codec.decode(frame).message["kind"] for frame in transport.sent]
     assert sent_kinds == ["HELLO"]
+    assert session._failed is True
 
 
 def test_protocol_session_does_not_send_pwm_if_tx_intent_evidence_fails(tmp_path, monkeypatch):
@@ -114,6 +115,7 @@ def test_protocol_session_does_not_send_pwm_if_tx_intent_evidence_fails(tmp_path
         session.send_stage_pwm(0, "stage-uuid", "session-uuid", stage_index=0)
     sent_kinds = [codec.decode(frame).message["kind"] for frame in transport.sent]
     assert sent_kinds == ["HELLO", "ARM"]
+    assert session._failed is True
 
 
 def test_protocol_session_rejects_wrong_command_ack_without_advancing(tmp_path, monkeypatch):
