@@ -229,7 +229,15 @@ class SequenceController:
                     index, self.stage_context_id,
                     self.session.state["measurement_session_id"], stage_index=index,
                 )
-            self.command_sent_ns = self.clock.monotonic_ns()
+            transport_sent_ns = (
+                getattr(self.protocol_session, "last_write_completed_monotonic_ns", None)
+                if self.protocol_session is not None else None
+            )
+            self.command_sent_ns = (
+                transport_sent_ns if isinstance(transport_sent_ns, int)
+                and not isinstance(transport_sent_ns, bool)
+                else self.clock.monotonic_ns()
+            )
         except Exception as exc:
             self.abort("communication_lost", fault=f"PWM send failed: {exc}")
             return
@@ -245,11 +253,14 @@ class SequenceController:
                 self.abort("communication_lost", fault=str(exc))
                 return self.state
             if ack is not None:
-                if not isinstance(ack, tuple) or len(ack) != 2:
+                if not isinstance(ack, tuple) or len(ack) not in {2, 3}:
                     self.abort("communication_lost", fault="malformed ACK object")
                     return self.state
-                pwm, ack_utc = ack
-                if not isinstance(pwm, int) or isinstance(pwm, bool) or not isinstance(ack_utc, str):
+                pwm, ack_utc = ack[:2]
+                ack_received_ns = ack[2] if len(ack) == 3 else self.clock.monotonic_ns()
+                if (not isinstance(pwm, int) or isinstance(pwm, bool) or not isinstance(ack_utc, str)
+                        or isinstance(ack_received_ns, bool) or not isinstance(ack_received_ns, int)
+                        or ack_received_ns < 0):
                     self.abort("communication_lost", fault="malformed ACK fields")
                     return self.state
                 if pwm != self.stage_index:
@@ -269,6 +280,9 @@ class SequenceController:
                                           "ack_received_host_monotonic_ns": self.stage_start_ns,
                                           "command_to_ack_delay_ms":
                                               (self.stage_start_ns - int(self.command_sent_ns)) / 1_000_000})
+                    if self.clock.monotonic_ns() >= self.next_deadline_ns:
+                        self.abort("storage_failure",
+                                   fault="durable ACK evidence/RawLog commit exceeded stage deadline")
                 except Exception as exc:
                     self.abort("storage_failure", fault=f"RawLog ACK record failed: {exc}")
             elif self.clock.monotonic_ns() - int(self.command_sent_ns) >= self.ack_timeout_ns:
