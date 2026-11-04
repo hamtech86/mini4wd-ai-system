@@ -315,25 +315,33 @@ class ProtocolV1HostSession:
                         measurement_session_id: str, stage_index: Optional[int] = None) -> str:
         if self._failed:
             raise ProtocolV1SessionError("host protocol session is fail-closed")
-        if not 0 <= pwm <= 30 or isinstance(pwm, bool):
+        if isinstance(pwm, bool) or not isinstance(pwm, int) or not 0 <= pwm <= 30:
             raise ValueError("PWM must be integer 0..30")
         if not isinstance(stage_context_id, str) or not stage_context_id:
             raise ValueError("stage_context_id is required")
         if stage_index is None:
             stage_index = pwm
-        if not 0 <= stage_index <= 30:
-            raise ValueError("stage_index must be 0..30")
+        if isinstance(stage_index, bool) or not isinstance(stage_index, int) or not 0 <= stage_index <= 30:
+            raise ValueError("stage_index must be integer 0..30")
         self.start_session(measurement_session_id)
         token = stage_index + 1
         if token in self._context_map:
             raise ProtocolV1SessionError("stage context token reuse prohibited")
-        self._context_map[token] = stage_context_id
-        self._append("STAGE_CONTEXT_MAP", measurement_session_id=measurement_session_id,
-                     boot_id64=self.boot_id64, stage_context_token=token,
-                     stage_context_id=stage_context_id, stage_id=f"PWM-{stage_index:02d}",
-                     intended_pwm=pwm)
+
+        # Reserve command IDs before persisting the context map so the durable
+        # mapping contains the exact PWM_SET command_id required by v0.5 §5.
+        arm_id = None
         if not self._armed:
             arm_id = self._next_command_id()
+        command_id = self._next_command_id()
+        self._context_map[token] = stage_context_id
+        self._append("STAGE_CONTEXT_MAP", measurement_session_id=measurement_session_id,
+                     measurement_session_tag=self.session_tag, boot_id64=self.boot_id64,
+                     stage_context_token=token, stage_context_id=stage_context_id,
+                     stage_id=f"PWM-{stage_index:02d}", intended_pwm=pwm,
+                     command_id=command_id)
+
+        if arm_id is not None:
             arm_identity = CommandIdentity(
                 command_id=str(arm_id), command_type="ARM",
                 session_id=measurement_session_id, boot_id64=int(self.boot_id64),
@@ -348,7 +356,7 @@ class ProtocolV1HostSession:
             if not self._accept_identity_ack(arm_ack, arm_identity, "ARM_ACK", token):
                 raise ProtocolV1SessionError("ARM_ACK identity mismatch")
             self._armed = True
-        command_id = self._next_command_id()
+
         identity = CommandIdentity(
             command_id=str(command_id), command_type="PWM_SET",
             session_id=measurement_session_id, boot_id64=int(self.boot_id64),
