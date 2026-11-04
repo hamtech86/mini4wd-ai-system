@@ -263,6 +263,9 @@ class SequenceController:
                         or ack_received_ns < 0):
                     self.abort("communication_lost", fault="malformed ACK fields")
                     return self.state
+                if self.command_sent_ns is not None and ack_received_ns < self.command_sent_ns:
+                    self.abort("communication_lost", fault="ACK receive timestamp precedes command write completion")
+                    return self.state
                 if pwm != self.stage_index:
                     self.abort("communication_lost", fault="ACK PWM mismatch")
                     return self.state
