@@ -56,7 +56,7 @@ Minimum profile:
 - Report the measured sequence's combined durability budget and compare it against the 10,000ms stage interval after reserving the approved STOP/abort budget.
 - Preserve raw sample output and a SHA-256 digest of the report and sample file.
 
-A reusable host-only runner is prepared at `measurement_310/fsync_profile.py`, with percentile helper tests at `tests/test_measurement_310_fsync_profile.py`. It requires at least 10,000 samples and explicit `--stop-reserve-ms` and `--margin-ms` inputs; it writes raw CSV, JSON summary, and SHA-256 sidecars. Fsync failures are recorded and force a non-passing result.
+A reusable host-only runner is prepared at `measurement_310/fsync_profile.py`, with percentile helper tests at `tests/test_measurement_310_fsync_profile.py`. It requires at least 10,000 samples and explicit `--stop-reserve-ms` and `--margin-ms` inputs; it writes raw CSV, JSON summary, and SHA-256 sidecars. Existing output names are opened exclusively so prior evidence is not overwritten. Fsync failures are recorded and force a non-passing result.
 
 No measurement is reported here: the full repository/target host and approved storage profile are not available in the current execution context. T18 remains **NOT RUN**. A profile from a different host must not be substituted. Run it only on the approved target storage after the reserve and margin values have been authorized, for example:
 
