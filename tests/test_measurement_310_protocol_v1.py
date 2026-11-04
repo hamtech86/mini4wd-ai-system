@@ -206,6 +206,14 @@ def test_codec_rejects_unassigned_stop_reason(invalid_reason, expected_error, co
         )
 
 
+def test_normal_completion_is_an_assigned_stop_reason(codec):
+    frame = codec.encode_stop_request(
+        session_tag=1, epoch_tag=1, command_id=7,
+        stop_reason=StopReason.NORMAL_COMPLETION, stop_request_id=1,
+    )
+    assert codec.decode(frame).message["stop_reason"] == StopReason.NORMAL_COMPLETION
+
+
 def test_stop_request_is_allowed_without_session_or_verified_epoch(codec):
     frame = codec.encode_stop_request(session_tag=0, epoch_tag=0, command_id=1,
                                       stop_reason=StopReason.OPERATOR_REQUEST, stop_request_id=1)
