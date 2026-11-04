@@ -249,9 +249,12 @@ class ProtocolV1Codec:
         if len(body) != expected_length:
             raise ProtocolV1Error(f"{kind.name} decoded length mismatch")
         message = self._decode_payload(kind, body[HEADER_SIZE:])
-        if kind == MessageType.HELLO_ACK and message["result"] == 0:
-            if epoch_tag_for_boot_id(message["boot_id64"]) != epoch_tag:
-                raise ProtocolV1Error("HELLO_ACK epoch tag does not match full boot_id64")
+        if kind == MessageType.HELLO_ACK:
+            if message["boot_id64"] != 0:
+                if epoch_tag_for_boot_id(message["boot_id64"]) != epoch_tag:
+                    raise ProtocolV1Error("HELLO_ACK epoch tag does not match full boot_id64")
+            elif epoch_tag != 0:
+                raise ProtocolV1Error("HELLO_ACK without valid boot identity requires epoch_tag=0")
         message.update({
             "kind": kind.name, "message_type": int(kind),
             "measurement_session_tag": session_tag,
@@ -270,8 +273,6 @@ class ProtocolV1Codec:
                 raise ProtocolV1Error("invalid HELLO_ACK result/nonce")
             if result == 0 and boot == 0:
                 raise ProtocolV1Error("successful HELLO_ACK requires nonzero boot_id64")
-            if result != 0 and boot == 0:
-                pass
         elif kind == MessageType.ARM:
             token, initial_pwm = struct.unpack("<HB", p)
             if token == 0 or initial_pwm != 0:
@@ -309,9 +310,9 @@ class ProtocolV1Codec:
             if error not in _ERROR_CODES:
                 raise ProtocolV1Error("invalid ERROR code")
         elif kind == MessageType.ADC_BATCH:
-            batch_seq, flags, count, _, = struct.unpack("<HBBB", p[:5])
-            if flags != 0 or count != 12:
-                raise ProtocolV1Error("ADC_BATCH requires zero flags and exactly 12 samples")
+            batch_seq, flags, count, loss_snapshot = struct.unpack("<HBBB", p[:5])
+            if count != 12:
+                raise ProtocolV1Error("ADC_BATCH requires exactly 12 samples")
             for offset in range(5, len(p), ADC_SAMPLE_SIZE):
                 sequence, timestamp, channel, adc_raw, token, status, sample_flags = struct.unpack(
                     "<HIBHHBH", p[offset:offset + ADC_SAMPLE_SIZE]
@@ -361,5 +362,19 @@ class ProtocolV1Codec:
             return {"error_code": error, "offending_message_type": offending,
                     "detail_code": detail, "related_command_id": related}
         if kind == MessageType.ADC_BATCH:
-            return {"raw_payload": p}
+            batch_sequence, batch_flags, sample_count, loss_snapshot = struct.unpack("<HBBB", p[:5])
+            samples = []
+            for offset in range(5, len(p), ADC_SAMPLE_SIZE):
+                sequence, timestamp, channel, adc_raw, token, status, sample_flags = struct.unpack(
+                    "<HIBHHBH", p[offset:offset + ADC_SAMPLE_SIZE]
+                )
+                samples.append({
+                    "sample_sequence": sequence, "timestamp_us_u32": timestamp,
+                    "channel_code": channel, "adc_raw": adc_raw,
+                    "stage_context_token": token, "acquisition_status": status,
+                    "sample_flags": sample_flags,
+                })
+            return {"batch_sequence": batch_sequence, "batch_flags": batch_flags,
+                    "sample_count": sample_count, "loss_counter_snapshot": loss_snapshot,
+                    "samples": samples, "raw_payload": p}
         raise ProtocolV1Error("unsupported message type")
