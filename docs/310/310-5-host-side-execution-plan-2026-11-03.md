@@ -133,3 +133,22 @@ Tests NOT RUN; no CI/hardware. T09/T15 remain NOT PASS.
 - Added coverage for missing channel across channels, missing timestamp across windows, attribution by channel/epoch/time, and overlapping-window rejection.
 - This closes the identified double-counting path for callers using the batch API. The original single-window API remains intentionally single-window; callers aggregating across windows must migrate to `summarize_many()`.
 - Execution of the updated test module is pending; T11 is not yet PASS.
+
+
+## R01 recovery/re-arm fail-closed correction (2026-11-04)
+
+- Inspection confirmed `SequenceController.startup_recover()` previously treated successful RawLog work-area recovery as sufficient to permit `start()`. This repaired storage state but did not reconcile whether the previous nonzero PWM intent was written, acknowledged, or stopped.
+- Changed the controller to latch `_recovery_requires_review` whenever one or more incomplete work items were recovered. `start()` now raises `SequenceError` and sends no PWM until command-outcome reconciliation exists. The latch is fail-closed for the lifetime of this controller instance.
+- Added a regression test that creates an interrupted work item, runs successful RawLog recovery, then asserts re-arm raises and the PWM send callback count remains zero.
+- Implementation commit: `f1c3fb593c8d7b9909ab0b6aaad0de06bdc9542a`.
+- Test commit: `82360713a38107d6d31cd22289d9b6a9d7d068cb`.
+- This is a conservative host-side containment correction, not full R01 acceptance: it blocks all re-arm after recovered incomplete work, including cases that might later be proven safe. It does not reconcile intent/write/flush/ACK/terminal evidence, and it does not prove physical PWM=0 or driver cutoff. Test execution remains pending.
+
+## Work accounting and stopping explanation (2026-11-04)
+
+- Scope: 37 original matrix entries plus independent R01 = 38 verification entries.
+- Previously reported matrix distribution: 4 limited software-scope PASS candidates (not formal PASS), 11 FAIL, 18 BLOCKED, 4 NOT RUN. R01 independently FAIL. T01-T18 formal PASS remains 0.
+- Thus 34 entries are not formally accepted: 12 provisional FAIL including R01, 18 BLOCKED, and 4 NOT RUN. Four limited-scope PASS candidates remain subject to evidence/scope confirmation.
+- Corrective actions recorded in this candidate branch: (1) T11 boolean expected-count exception classification; (2) T11 collection-wide attribution API and cross-window duplicate-count prevention; (3) R01 recovered-incomplete-work re-arm inhibition. These are three concrete corrective changes, affecting two verification entries (T11 and R01). They are not counted as formal PASS because the updated repository tests have not been run and remaining T11/R01 acceptance conditions are broader.
+- No full repository checkout or CI run was available in this work session. GitHub Actions dispatch, merge, and all hardware operations remain prohibited. Tests must not be described as executed merely because test code was added.
+- Prior premature stopping was a process error: work was reported after a bounded subtask/commit instead of continuing through the remaining authorized host-side scope. It was not caused by a new technical blocker or by a need for another user instruction. Continue the remaining host-side implementation, tests, and documentation in the current authorization; stop only at an actual authority/safety boundary or when the authorized scope is exhausted.
