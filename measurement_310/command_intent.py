@@ -48,6 +48,17 @@ class AckIdentity:
     boot_id64: int
     stage_context_id: str
 
+    def __post_init__(self):
+        # Validate untrusted ACK fields independently of the trusted command.
+        # In particular, bool is an int subclass and True == 1 in Python.
+        for name in ("command_id", "command_type", "session_id", "stage_context_id"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value:
+                raise ValueError(f"{name} must be a non-empty string")
+        if (not isinstance(self.boot_id64, int) or isinstance(self.boot_id64, bool)
+                or not 0 <= self.boot_id64 <= 0xFFFFFFFFFFFFFFFF):
+            raise ValueError("boot_id64 must be uint64")
+
 
 class DurableIntentJournal:
     """Append-only, fsynced intent journal; malformed/torn tails fail closed."""
@@ -130,6 +141,8 @@ class AckCorrelator:
         self._expired: set[str] = set()
 
     def register(self, identity: CommandIdentity) -> None:
+        if not isinstance(identity, CommandIdentity):
+            raise TypeError("identity must be CommandIdentity")
         if identity.command_id in self._pending or identity.command_id in self._expired:
             raise IntentError("command_id has already been used")
         self._pending[identity.command_id] = identity
@@ -140,6 +153,8 @@ class AckCorrelator:
         self._expired.add(command_id)
 
     def correlate(self, ack: AckIdentity) -> bool:
+        if not isinstance(ack, AckIdentity):
+            return False
         if ack.command_id in self._expired:
             return False
         expected = self._pending.get(ack.command_id)
