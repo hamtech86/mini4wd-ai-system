@@ -124,13 +124,16 @@ class DurableIntentJournal:
             os.close(fd)
         return digest
 
-    def _last_hash(self) -> str:
+    def _last_hash(self) -> tuple[str, set[str]]:
+        if self.path.is_symlink():
+            raise IntentUntrusted("intent journal must not be a symlink")
         if not self.path.exists():
-            return "0" * 64
+            return "0" * 64, set()
         raw = self.path.read_bytes()
-        if raw and not raw.endswith(b"\n"):
+        if raw and not raw.endswith(b"\\n"):
             raise IntentUntrusted("torn intent journal tail")
         previous = "0" * 64
+        seen_command_ids: set[str] = set()
         for number, line in enumerate(raw.splitlines(), 1):
             try:
                 envelope = json.loads(line.decode("utf-8"))
