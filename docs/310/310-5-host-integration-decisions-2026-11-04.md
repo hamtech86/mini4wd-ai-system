@@ -111,12 +111,13 @@ python -m pytest -q \
   tests/test_measurement_310_loss_accounting.py \
   tests/test_measurement_310_sequence_accounting.py \
   tests/test_measurement_310_epoch_checkpoint.py \
-  tests/test_measurement_310_session_tag_allocator.py
+  tests/test_measurement_310_session_tag_allocator.py \\
+  tests/test_measurement_310_safety_regressions_transport_only.py
 ```
 
-Result: **125 passed, 0 failed in 0.41s**.
+Result: **136 passed, 0 failed in 0.43s**.
 
-The test set covers R01 re-arm gate, T18 percentile helpers, T04 durable intent and ACK correlation, T05 evidence gate, T11 loss accounting, uint16 sequence accounting, full-width boot-epoch checkpointing, and T01 session-tag allocation.
+The test set covers R01 re-arm gate, T18 percentile helpers, T04 durable intent and ACK correlation, T05 evidence gate, T11 loss accounting, uint16 sequence accounting, full-width boot-epoch checkpointing, and T01 session-tag allocation, and the transport-only malformed-ACK / invalid-frame-length / receive-error / STOP-send-error / disconnect-cleanup regressions extracted from the 310 transport safety test source.
 
 Corrections made after execution exposed test-fixture defects:
 - R01 short-write test now matches a newline byte, not a literal backslash+n.
@@ -124,7 +125,7 @@ Corrections made after execution exposed test-fixture defects:
 - Session-tag allocator fixtures now explicitly provide trusted `initial_high_water=0` when creating a new journal; the dedicated missing-high-water test remains unchanged and must fail closed.
 - Durable intent journal now rejects command ID reuse found in persisted history, including after construction of a new journal object.
 
-**Scope limitation:** This was an isolated host harness, not a complete repository checkout. It does not validate the repository's complete package initializer/import graph, all 310 tests, RawLog v2 integration, production SequenceController/ProtocolClient integration, or the full project suite. It is not a CI run and does not change formal T01–T18 acceptance status. No CI was triggered.
+**Scope limitation:** This was a source-equivalent isolated host harness assembled from GitHub-fetched source and test logic; it was not a byte-for-byte complete repository checkout. The transport subset was isolated from the broader safety regression file; its two SequenceController/RawLog integration cases were not run in this harness. It does not validate the repository's complete package initializer/import graph, all 310 tests, RawLog v2 integration, production SequenceController/ProtocolClient integration, or the full project suite. It is not a CI run and does not change formal T01–T18 acceptance status. No CI was triggered.
 
 ## 6. Verification and acceptance boundary
 
