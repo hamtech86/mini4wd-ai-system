@@ -217,10 +217,23 @@ def test_protocol_session_rejects_wrong_ack_identity_fields_without_stage_releas
     session, _, _, _ = make_session(tmp_path, monkeypatch, [hello, arm, wrong, right])
     session.send_stage_pwm(0, "stage-uuid", "session-uuid", stage_index=0)
 
-    assert session.poll_apply_ack(0.0) is None
-    assert session._pending is not None
-    assert session.poll_apply_ack(0.0)[0] == 0
-    assert session._pending is None
+    if mismatch in {"context", "applied_pwm", "result"}:
+        # A matching command/session/epoch with a contradictory apply result
+        # is not an unrelated stale frame; fail closed and never recover on a
+        # later apparently-good ACK for the same pending command.
+        with pytest.raises(RuntimeError, match="APPLY_ACK rejected"):
+            session.poll_apply_ack(0.0)
+        assert session._failed is True
+        assert session._pending is not None
+        with pytest.raises(RuntimeError, match="fail-closed"):
+            session.poll_apply_ack(0.0)
+    else:
+        # Wrong session/epoch or wrong message type is unrelated traffic and
+        # may be ignored while the exact pending ACK remains unresolved.
+        assert session.poll_apply_ack(0.0) is None
+        assert session._pending is not None
+        assert session.poll_apply_ack(0.0)[0] == 0
+        assert session._pending is None
 
 
 def test_protocol_session_partial_pwm_write_is_unknown_and_fail_closed(tmp_path, monkeypatch):
