@@ -6,7 +6,7 @@ import pytest
 
 from measurement_310.command_intent import DurableIntentJournal
 from measurement_310.protocol_v1 import (MessageType, ProtocolV1Codec, PROTOCOL_V1_MAGIC,
-                                          PROTOCOL_V1_VERSION, epoch_tag_for_boot_id)
+                                          PROTOCOL_V1_VERSION, StopReason, epoch_tag_for_boot_id)
 from measurement_310.protocol_v1_session import ProtocolV1HostSession, TransportEvidenceJournal
 from measurement_310.transport import MockTransport
 
@@ -444,7 +444,7 @@ def test_protocol_session_latch_abort_prevents_pending_command_reuse(tmp_path, m
         return original_append(event, payload, **kwargs)
 
     session.evidence.append = traced_append
-    session.send_stop_best_effort(stop_reason=1, stop_request_id=7)
+    session.send_stop_best_effort(stop_reason=StopReason.OPERATOR_REQUEST, stop_request_id=7)
     assert order == ["STOP_WRITE", "STOP_EVIDENCE"]
     assert len(stop_frames) == 1
     assert session.codec.decode(stop_frames[0]).message["kind"] == "STOP_REQ"
@@ -476,9 +476,9 @@ def test_stop_request_retry_reuses_byte_identical_frame_and_both_ids(tmp_path, m
     session, _, _, evidence = make_session(tmp_path, monkeypatch, [], stop_writer=stop_writer)
     session.latch_abort("operator abort")
     with pytest.raises(RuntimeError, match="outcome unknown"):
-        session.send_stop_best_effort(stop_reason=1, stop_request_id=9)
+        session.send_stop_best_effort(stop_reason=StopReason.OPERATOR_REQUEST, stop_request_id=9)
 
-    session.send_stop_best_effort(stop_reason=1, stop_request_id=9)
+    session.send_stop_best_effort(stop_reason=StopReason.OPERATOR_REQUEST, stop_request_id=9)
     assert len(writes) == 2
     assert writes[0] == writes[1]
     decoded = codec.decode(writes[0]).message
@@ -498,9 +498,9 @@ def test_stop_request_id_cannot_be_reused_for_a_different_reason(tmp_path, monke
         tmp_path, monkeypatch, [], stop_writer=lambda frame: writes.append(bytes(frame))
     )
     session.latch_abort("operator abort")
-    session.send_stop_best_effort(stop_reason=1, stop_request_id=11)
+    session.send_stop_best_effort(stop_reason=StopReason.OPERATOR_REQUEST, stop_request_id=11)
     with pytest.raises(RuntimeError, match="different logical STOP"):
-        session.send_stop_best_effort(stop_reason=2, stop_request_id=11)
+        session.send_stop_best_effort(stop_reason=StopReason.ACK_TIMEOUT, stop_request_id=11)
     assert len(writes) == 1
     assert codec.decode(writes[0]).message["stop_reason"] == 1
 
