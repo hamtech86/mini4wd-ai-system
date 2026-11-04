@@ -84,7 +84,7 @@ Minimum profile:
 
 A reusable host-only runner is prepared at `measurement_310/fsync_profile.py`, with percentile helper tests at `tests/test_measurement_310_fsync_profile.py`. It requires at least 10,000 samples and explicit `--stop-reserve-ms` and `--margin-ms` inputs; it writes raw CSV, JSON summary, and SHA-256 sidecars. Existing output names are opened exclusively so prior evidence is not overwritten. Fsync failures are recorded and force a non-passing result.
 
-No measurement is reported here: the full repository/target host and approved storage profile are not available in the current execution context. T18 remains **NOT RUN**. A profile from a different host must not be substituted. Run it only on the approved target storage after the reserve and margin values have been authorized, for example:
+Host-side development smoke run: 10,000 file-fsync samples and 10,000 directory-fsync samples completed in the isolated execution environment (Python 3.13.5 / Linux 6.18.57 x86_64), with zero reported fsync failures. File fsync p50/p95/p99/p99.9/max = 189,581 / 349,377 / 549,022 / 2,133,141 / 5,551,282 ns; directory fsync = 194,017 / 377,669 / 719,685 / 1,985,888 / 4,678,851 ns; paired sum p50/p95/p99/p99.9/max = 410,907 / 659,986 / 1,182,099 / 2,799,541 / 5,697,528 ns. The smoke run used zero STOP reserve and zero margin solely to exercise the runner; those are **not approved timing values**, so its budget result is not an acceptance result. The local sample SHA-256 was `a29c5d50e9ff5f09b39a2f185714e68c28c480567781d39656f6f88e9c28e678`. This environment is not the approved target host/storage and is not a complete repository checkout. Therefore T18 formal target profile remains **NOT RUN**. A profile from a different host must not be substituted. Run it only on the approved target storage after the reserve and margin values have been authorized, for example:
 
 ```bash
 python -m measurement_310.fsync_profile --output-dir /path/on/approved/storage --samples 10000 --stage-ms 10000 --stop-reserve-ms APPROVED_VALUE --margin-ms APPROVED_VALUE
@@ -95,7 +95,8 @@ Replace the two uppercase placeholders with the approved numeric values; do not 
 ## 5. Verification and acceptance boundary
 
 - The R01 source and tests are on the independent host-integration candidate branch.
-- R01 tests are authored but NOT RUN; full repository test execution is still unavailable.
+- R01 isolated host regression: 25/25 passed after fixing the test sentinel; complete repository regression remains NOT RUN.
+- T18 helper tests: 3/3 passed in the same isolated harness; development-only 10,000-sample smoke run completed, but formal approved-host profile remains NOT RUN.
 - T04/T05 production integration remains blocked by missing concrete ACK/device-epoch identity.
 - T10/T17 remains FAIL pending a design-authority decision; no RawLog mutation was made.
 - T18 remains NOT RUN pending a 10,000-sample profile on the approved host/storage.
