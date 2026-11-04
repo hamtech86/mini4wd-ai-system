@@ -134,3 +134,16 @@ transport-evidence-v1.jsonlはpackage rootのrecords.jsonl sibling。manifest既
 
 ### fsync期限契約
 ARM前に対象host fingerprintごとのD_intent、D_evidence、D_serial_write、D_ack、D_scheduler、margin M、D_STOP_reserveを測定・設定。D_stageの直列最悪経路合計は10,000ms−D_STOP_reserve未満。D_intent/D_evidenceは各10,000回以上、cold/warm・normal/max batch・storage contentionを含む測定のmaxとp99.9の大きい方を基礎とする。設定欠落・上限超過・fsync不明・stage deadline missはARM拒否またはfail-closed。STOPはwriter lock/queue/fsyncを待たない。数値msは測定前に捏造しない。
+
+
+## 310-4 v0.5 production protocol contract adoption — 2026-11-04
+
+**Authority decision:** The 310 command authority explicitly approved adoption of the communication protocol proposal in PR #183 / `docs/310/310-4-design-v0.5.md` v0.5 as the production implementation contract on 2026-11-04.
+
+**Adopted contract scope:** The v0.5 message definitions and semantics are normative for implementation, including HELLO/HELLO_ACK identity and nonce correlation, full boot epoch identity, command_id correlation, stage-context token mapping, APPLY/STOP acknowledgement semantics, frame encoding/validation, and the state/sequence/loss/buffer rules specified by the v0.5 design and its linked acceptance-test document. Implementations must follow the exact field layouts, widths, byte order, validation rules, and state transitions in the v0.5 source documents; this decision does not authorize ad-hoc wire changes or incompatible host-only approximations.
+
+**Authority and compatibility:** This approval supersedes the earlier statement that the v0.5 proposal was draft-only and not an accepted production wire contract. PR #183's GitHub Draft/Open state is a review/workflow state and does not negate this explicit command-authority decision. The v0.5 source documents remain the normative reference until superseded by a separately approved revision. Existing RawLog v2 schema and 310-1 through 310-3 accepted contracts remain unchanged unless a separately approved change explicitly says otherwise.
+
+**Implementation status is separate:** Adoption authorizes implementation against this contract; it does not claim the codec, firmware, host integration, or acceptance tests are already complete. T04/T05 can now proceed against the adopted contract. T04/T05 remain NOT PASS until implementation and their required host/fault-injection tests are completed. Firmware identity, compiler/map/stack/SRAM evidence, physical STOP/cutoff, ADC reference qualification, EEPROM/BOD/fuse, and target-host fsync profile remain separate evidence gates.
+
+**Safety boundary unchanged:** This approval is not authorization to upload firmware, open a physical serial connection, energize a motor, perform physical STOP/cutoff tests, interrupt EEPROM power, read/write fuses/ISP, or conduct the 310-second measurement. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains in force. Each such activity still requires explicit separate authorization.
