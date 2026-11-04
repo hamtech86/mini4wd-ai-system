@@ -367,6 +367,35 @@ def test_protocol_session_latch_abort_prevents_pending_command_reuse(tmp_path, m
     ]
 
 
+def test_stop_request_retry_reuses_byte_identical_frame_and_both_ids(tmp_path, monkeypatch):
+    codec = ProtocolV1Codec(MAGIC_FIXTURE, VERSION_FIXTURE)
+    writes = []
+    fail_once = {"value": True}
+
+    def stop_writer(frame):
+        writes.append(bytes(frame))
+        if fail_once["value"]:
+            fail_once["value"] = False
+            raise OSError("uncertain partial STOP write")
+
+    session, _, _, evidence = make_session(tmp_path, monkeypatch, [], stop_writer=stop_writer)
+    session.latch_abort("operator abort")
+    with pytest.raises(RuntimeError, match="outcome unknown"):
+        session.send_stop_best_effort(stop_reason=1, stop_request_id=9)
+
+    session.send_stop_best_effort(stop_reason=1, stop_request_id=9)
+    assert len(writes) == 2
+    assert writes[0] == writes[1]
+    decoded = codec.decode(writes[0]).message
+    assert decoded["kind"] == "STOP_REQ"
+    assert codec.decode(writes[1]).message["command_id"] == decoded["command_id"]
+    assert codec.decode(writes[1]).message["stop_request_id"] == decoded["stop_request_id"] == 9
+
+    events, _ = evidence._read()
+    stop_events = [event["event"] for event in events if event["event"].startswith("STOP_TX")]
+    assert stop_events == ["STOP_TX_ERROR", "STOP_TX_ATTEMPT"]
+
+
 def test_stop_request_refuses_to_share_command_transport(tmp_path, monkeypatch):
     codec = ProtocolV1Codec(MAGIC_FIXTURE, VERSION_FIXTURE)
     session, transport, _, _ = make_session(tmp_path, monkeypatch, [])
