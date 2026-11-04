@@ -427,6 +427,10 @@ class ProtocolV1HostSession:
             stop_request_id = self._stop_request_id or 0xFFFF
         if isinstance(stop_request_id, bool) or not isinstance(stop_request_id, int) or not 1 <= stop_request_id <= 0xFFFF:
             raise ValueError("stop_request_id must be nonzero uint16")
+        if stop_request_id in self._used_stop_request_ids and not exhausted_id:
+            raise ProtocolV1SessionError("stop_request_id already used; retries must reuse the original frame")
+        self._used_stop_request_ids.add(stop_request_id)
+        self._stop_request_id = max(self._stop_request_id, stop_request_id)
         try:
             command_id = self._next_command_id()
             stale_command_id = False
