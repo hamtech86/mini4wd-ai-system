@@ -309,10 +309,10 @@ def test_protocol_session_latch_abort_prevents_pending_command_reuse(tmp_path, m
         order.append("STOP_WRITE")
         return original_send(frame)
 
-    def traced_append(event, payload):
+    def traced_append(event, payload, **kwargs):
         if event == "STOP_TX_ATTEMPT":
             order.append("STOP_EVIDENCE")
-        return original_append(event, payload)
+        return original_append(event, payload, **kwargs)
 
     transport.send = traced_send
     session.evidence.append = traced_append
