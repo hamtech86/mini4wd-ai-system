@@ -168,3 +168,23 @@ This note does not change the adopted v0.5 contract or authorize an implementati
 **Implementation rule:** Host and firmware must use these exact constants. The host codec may continue to require explicit constructor arguments; production composition must pass the named constants rather than inventing per-build values. A change to either value requires a separately approved protocol revision. Test fixtures must use the normative constants and must no longer label them synthetic.
 
 **Boundary:** This decision resolves only the numeric header constants. It does not qualify a concrete firmware build, MCU identity, compiler/map/stack/SRAM, BOD, ADC timing/reference, STOP path, physical cutoff, or any hardware behavior. No firmware upload, physical serial connection, motor energization, EEPROM/fuse operation, or 310-second measurement is authorized.
+
+
+## 2026-11-05 command-authority decision — STOP reason registry
+
+The v0.5 `STOP_REQ.stop_reason` uint8 field is assigned as follows:
+
+- `0x01 OPERATOR_REQUEST`
+- `0x02 ACK_TIMEOUT`
+- `0x03 ACK_IDENTITY_MISMATCH`
+- `0x04 COMMUNICATION_LOSS`
+- `0x05 EVIDENCE_DURABILITY_FAILURE`
+- `0x06 STAGE_DEADLINE_EXCEEDED`
+- `0x07 DEVICE_FAULT_REPORTED`
+- `0x08 HOST_PROCESS_SHUTDOWN`
+- `0x09 INTERNAL_HOST_FAULT`
+- `0xFF OTHER_UNCLASSIFIED`
+
+`0x00` is reserved. This byte is diagnostic metadata and part of STOP request duplicate identity; it never changes the requirement to perform the STOP safety action for a syntactically valid STOP_REQ. Firmware must treat unrecognized values as unclassified for storage and still execute STOP. New codes require a command-authority decision.
+
+This decision does not qualify the injected host STOP writer, physical independence/boundedness, MCU behavior, driver cutoff or physical stopping. Hardware restrictions remain unchanged.
