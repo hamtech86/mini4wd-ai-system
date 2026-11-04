@@ -5,10 +5,12 @@
 - Candidate branch: `safety/310-5-host-integration-candidate`.
 - Candidate base: PR #186 HEAD `a7491c8fd7d214e23a6f649d262f978710474d6e`.
 - Underlying 310-3 source base: `d9e718b607a873759fffd58fc75bf950af499095`.
-- Observed candidate HEAD immediately before this documentation update: `3ea0a508f5d83836c218c8e0d65753dd4c316848`. Re-read the branch ref before integration because this report commit advances it.
+- Current candidate HEAD at the latest source audit: `4bfdc5e051324bc891175ea53b92188dfaaaa59c`. Re-read the branch ref before any integration.
 - Firmware source reference: legacy `firmware/motor/MotoreRev.ino` at main snapshot `130e453ea3907f071209687a06c3e73535a8952d`, FW 3.03, declared build ID `ARM-STOP-ACK-ACS712-RAIL-20261023-01`.
 
-The firmware reference above is a legacy source identity only. It is **not** identified as the accepted 310-4 concrete implementation, and no HEX/map/size/stack artifact attributable to this candidate was established. No firmware source or build was changed or produced. The candidate branch is not a PR and has no CI run; a single Draft PR must wait until the candidate tests have actually been run on a complete checkout, as required by the upper-command sequence.
+The firmware reference above is a legacy source identity only. It is **not** identified as the accepted 310-4 concrete implementation, and no HEX/map/size/stack artifact attributable to this candidate was established. No firmware source or build was changed or produced.
+
+The candidate branch comparison against base `a7491c8fd7d214e23a6f649d262f978710474d6e` reports 108 commits ahead / 0 behind and 26 changed paths. The changed paths are confined to `docs/310/`, `measurement_310/`, and `tests/`; no `firmware/` or `raw_log_v2/` path is changed. The candidate branch is not a PR and has no CI run. The one Draft PR required by the upper-command sequence remains deferred until a complete-checkout test run is available; the 136-case isolated source-equivalent run does not satisfy that condition.
 
 ## 1. T10/T17 RawLog manifest compatibility — read-only finding
 
