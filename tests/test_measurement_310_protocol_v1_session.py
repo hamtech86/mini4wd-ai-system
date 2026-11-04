@@ -87,6 +87,9 @@ def test_protocol_session_durable_intent_handshake_arm_and_exact_apply_ack(tmp_p
     }
     assert all(required_common.issubset(event) for event in events)
     assert all(event["schema_version"] == "transport-evidence-v1" for event in events)
+    assert all(event["measurement_session_id"] == "00000000-0000-4000-8000-000000000002"
+               for event in events)
+    assert next(event for event in events if event["event"] == "ACK_MATCHED")["device_epoch_id"] == str(BOOT_ID)
     received_frames = [event for event in events if event["event_type"] == "frame_rx_received"]
     assert len(received_frames) == 3
     ack_events = [event for event in events if event["event"] == "ACK_MATCHED"]
