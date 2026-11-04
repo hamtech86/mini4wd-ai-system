@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 import secrets
 import time
+import uuid
 from datetime import datetime, timezone
 from typing import Callable, Optional
 
@@ -62,19 +63,60 @@ class TransportEvidenceJournal:
                 raise ProtocolV1SessionError(f"transport Evidence record {number} is untrusted: {exc}") from exc
         return events, previous
 
-    def append(self, event: str, payload: dict) -> str:
+    def append(self, event: str, payload: dict, *,
+               measurement_session_id: Optional[str] = None,
+               device_epoch_id: Optional[str] = None,
+               direction: str = "host_internal",
+               host_received_at_utc: Optional[str] = None,
+               host_received_monotonic_ns: Optional[int] = None) -> str:
         if not isinstance(event, str) or not event or not isinstance(payload, dict):
             raise ValueError("event and payload are required")
+        if direction not in {"host_to_device", "device_to_host", "host_internal"}:
+            raise ValueError("invalid Evidence direction")
+        if measurement_session_id is not None and not isinstance(measurement_session_id, str):
+            raise TypeError("measurement_session_id must be a string or null")
+        if device_epoch_id is not None and not isinstance(device_epoch_id, str):
+            raise TypeError("device_epoch_id must be a full-identity string or null")
+        if host_received_monotonic_ns is not None and (
+            isinstance(host_received_monotonic_ns, bool) or not isinstance(host_received_monotonic_ns, int)
+            or host_received_monotonic_ns < 0
+        ):
+            raise ValueError("host_received_monotonic_ns must be a nonnegative integer or null")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         lock_path = self.path.with_name(self.path.name + ".lock")
         lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
         try:
             fcntl.flock(lock_fd, fcntl.LOCK_EX)
             _, previous = self._read()
-            body = {"format": self.FORMAT, "event": event, "payload": payload,
-                    "previous_hash": previous}
+            event_id = str(uuid.uuid4())
+            event_type = {
+                "FRAME_TX_INTENT": "frame_tx_intent",
+                "FRAME_TX_COMPLETE": "frame_tx_complete",
+                "FRAME_TX_ERROR": "frame_tx_error",
+                "RX_BYTES": "frame_rx_fragment",
+                "RX_DECODE_ERROR": "protocol_error",
+                "HELLO_ACK_MATCHED": "hello_ack_match",
+                "STAGE_CONTEXT_MAP": "sample_context_map",
+                "ACK_MATCHED": "command_ack_match",
+                "RX_UNEXPECTED_MESSAGE": "unsolicited_message",
+                "ACK_IDENTITY_MISMATCH": "protocol_error",
+                "STOP_TX_ATTEMPT": "stop_request_tx",
+                "STOP_TX_ERROR": "stop_request_tx_error",
+            }.get(event, event.lower())
+            event_utc = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+            event_ns = time.monotonic_ns()
+            body = {
+                "format": self.FORMAT, "schema_version": self.FORMAT,
+                "event_id": event_id, "event": event, "event_type": event_type,
+                "measurement_session_id": measurement_session_id,
+                "device_epoch_id": device_epoch_id,
+                "host_received_at_utc": host_received_at_utc,
+                "host_received_monotonic_ns": host_received_monotonic_ns,
+                "host_event_at_utc": event_utc, "host_event_monotonic_ns": event_ns,
+                "direction": direction, "payload": payload, "previous_hash": previous,
+            }
             digest = hashlib.sha256(self._canonical(body)).hexdigest()
-            line = self._canonical({"body": body, "sha256": digest}) + b"\n"
+            line = self._canonical({"body": body, "sha256": digest}) + b"\\n"
             existed = self.path.exists()
             fd = os.open(str(self.path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
             try:
@@ -89,7 +131,7 @@ class TransportEvidenceJournal:
                     os.fsync(dir_fd)
                 finally:
                     os.close(dir_fd)
-            return digest
+            return event_id
         finally:
             fcntl.flock(lock_fd, fcntl.LOCK_UN)
             os.close(lock_fd)
@@ -137,8 +179,28 @@ class ProtocolV1HostSession:
     def _utc_now() -> str:
         return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
-    def _append(self, event: str, **payload) -> None:
-        self.evidence.append(event, {"recorded_at_utc": self.utc_now(), **payload})
+    def _append(self, event: str, *, direction: Optional[str] = None,
+                host_received_at_utc: Optional[str] = None,
+                host_received_monotonic_ns: Optional[int] = None, **payload) -> str:
+        if direction is None:
+            if event.startswith(("FRAME_TX", "STOP_TX")):
+                direction = "host_to_device"
+            elif event.startswith(("RX", "ACK_MATCHED", "HELLO_ACK")):
+                direction = "device_to_host"
+            else:
+                direction = "host_internal"
+        message = payload.get("message")
+        if isinstance(message, dict):
+            host_received_at_utc = host_received_at_utc or message.get("_host_received_at_utc")
+            if host_received_monotonic_ns is None:
+                host_received_monotonic_ns = message.get("_host_received_monotonic_ns")
+        return self.evidence.append(
+            event, {"recorded_at_utc": self.utc_now(), **payload},
+            measurement_session_id=self.measurement_session_id,
+            device_epoch_id=str(self.boot_id64) if self.boot_id64 is not None else None,
+            direction=direction, host_received_at_utc=host_received_at_utc,
+            host_received_monotonic_ns=host_received_monotonic_ns,
+        )
 
     def _next_command_id(self) -> int:
         if self._command_id >= 0xFFFFFFFF:
