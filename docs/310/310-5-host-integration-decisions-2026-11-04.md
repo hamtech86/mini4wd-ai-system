@@ -128,6 +128,8 @@ Corrections made after execution exposed test-fixture defects:
 - Session-tag allocator fixtures now explicitly provide trusted `initial_high_water=0` when creating a new journal; the dedicated missing-high-water test remains unchanged and must fail closed.
 - Durable intent journal now rejects command ID reuse found in persisted history, including after construction of a new journal object.
 
+Prior full-checkout baseline (not this candidate): GitHub Actions run #1290, merge commit `018c826e323e108fca9eb15cbdcbefbde7faa880` for PR #186, completed on 2026-11-02 with all four jobs successful; the full-suite job reports **326 passed in 9.20s** under Python 3.10.22 / Ubuntu 24.04. This confirms the repository's existing CI can create a complete checkout and run the full suite. It does **not** validate the 310-5 candidate commits added after PR #186's head. A new CI run has not been started because CI dispatch remains outside the current authorization.
+
 **Scope limitation:** This was a source-equivalent isolated host harness assembled from GitHub-fetched source and test logic; it was not a byte-for-byte complete repository checkout. The transport subset was isolated from the broader safety regression file; its two SequenceController/RawLog integration cases were not run in this harness. It does not validate the repository's complete package initializer/import graph, all 310 tests, RawLog v2 integration, production SequenceController/ProtocolClient integration, or the full project suite. It is not a CI run and does not change formal T01–T18 acceptance status. No CI was triggered.
 
 ## 6. Verification and acceptance boundary
