@@ -193,7 +193,7 @@ def test_command_id_zero_rules_and_session_tag_are_enforced(codec):
 
 @pytest.mark.parametrize("invalid_reason,expected_error", [
     (0, "assigned StopReason"),
-    (10, "assigned StopReason"),
+    (11, "assigned StopReason"),
     (254, "assigned StopReason"),
     (256, "uint8"),
     (True, "uint8"),
