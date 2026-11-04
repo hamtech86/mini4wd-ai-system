@@ -1,6 +1,7 @@
 """310-stage sequence orchestration and RawLog v2 adapter."""
 from __future__ import annotations
 
+import os
 import threading
 import uuid
 from datetime import datetime, timezone
@@ -94,6 +95,40 @@ class SequenceController:
             raise SequenceError("startup recovery must precede session start")
         # Explicitly discover, then recover. No measurement is permitted on failure.
         pending_before = self.writer.list_incomplete_work()
+        # Persist the re-arm inhibition BEFORE recovery removes the .work area.
+        # Otherwise a second process could see no pending work and silently
+        # re-arm after the first process recovered it.
+        inhibit_path = self.writer.root / ".310-rearm-inhibited"
+        if inhibit_path.is_symlink():
+            raise SequenceError("re-arm inhibition marker must not be a symlink")
+        if pending_before and not inhibit_path.exists():
+            self.writer.root.mkdir(parents=True, exist_ok=True)
+            try:
+                fd = os.open(str(inhibit_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            except FileExistsError:
+                fd = None
+            if fd is not None:
+                try:
+                    payload = (
+                        "Recovered incomplete 310 work requires explicit command-outcome "
+                        "reconciliation before re-arm. This marker is intentionally "
+                        "persistent and is not cleared automatically.\\n"
+                    ).encode("utf-8")
+                    written = os.write(fd, payload)
+                    if written != len(payload):
+                        raise OSError("short re-arm inhibition marker write")
+                    os.fsync(fd)
+                finally:
+                    os.close(fd)
+                dir_fd = os.open(str(self.writer.root), os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+                try:
+                    os.fsync(dir_fd)
+                finally:
+                    os.close(dir_fd)
+        if inhibit_path.exists():
+            if inhibit_path.is_symlink() or not inhibit_path.is_file():
+                raise SequenceError("re-arm inhibition marker is not a regular file")
+            self._recovery_requires_review = True
         result = self.writer.recover_pending()
         pending_after = self.writer.list_incomplete_work()
         if pending_after:
@@ -104,7 +139,7 @@ class SequenceController:
         }
         if recovered_ids != set(pending_before):
             raise SequenceError("startup recovery result does not match discovered pending work")
-        self._recovery_requires_review = bool(recovered_ids)
+        self._recovery_requires_review = self._recovery_requires_review or bool(recovered_ids)
         self._recovery_complete = True
         return result
 
