@@ -510,5 +510,5 @@ def test_stop_request_refuses_to_share_command_transport(tmp_path, monkeypatch):
     session, transport, _, _ = make_session(tmp_path, monkeypatch, [])
     session.latch_abort("operator abort")
     with pytest.raises(RuntimeError, match="independent STOP writer"):
-        session.send_stop_best_effort(stop_reason=1, stop_request_id=1)
+        session.send_stop_best_effort(stop_reason=StopReason.OPERATOR_REQUEST, stop_request_id=1)
     assert transport.sent == []
