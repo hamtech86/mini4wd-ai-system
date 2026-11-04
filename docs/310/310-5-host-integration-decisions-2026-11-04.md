@@ -56,7 +56,15 @@ Minimum profile:
 - Report the measured sequence's combined durability budget and compare it against the 10,000ms stage interval after reserving the approved STOP/abort budget.
 - Preserve raw sample output and a SHA-256 digest of the report and sample file.
 
-No measurement is reported here: the full repository/target host and approved storage profile are not available in the current execution context. T18 remains **NOT RUN**. A profile from a different host must not be substituted.
+A reusable host-only runner is prepared at `measurement_310/fsync_profile.py`, with percentile helper tests at `tests/test_measurement_310_fsync_profile.py`. It requires at least 10,000 samples and explicit `--stop-reserve-ms` and `--margin-ms` inputs; it writes raw CSV, JSON summary, and SHA-256 sidecars. Fsync failures are recorded and force a non-passing result.
+
+No measurement is reported here: the full repository/target host and approved storage profile are not available in the current execution context. T18 remains **NOT RUN**. A profile from a different host must not be substituted. Run it only on the approved target storage after the reserve and margin values have been authorized, for example:
+
+```bash
+python -m measurement_310.fsync_profile --output-dir /path/on/approved/storage --samples 10000 --stage-ms 10000 --stop-reserve-ms APPROVED_VALUE --margin-ms APPROVED_VALUE
+```
+
+Replace the two uppercase placeholders with the approved numeric values; do not use invented defaults. Exit code 0 means the measured p99.9 and maximum plus margin are both below the remaining budget and no fsync failures were recorded; exit code 2 means the profile did not meet that condition.
 
 ## 4. Verification and acceptance boundary
 
