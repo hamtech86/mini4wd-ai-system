@@ -46,7 +46,7 @@ class TransportEvidenceJournal:
         if not self.path.exists():
             return [], "0" * 64
         raw = self.path.read_bytes()
-        if raw and not raw.endswith(b"\n"):
+        if raw and not raw.endswith(b"\\n"):
             raise ProtocolV1SessionError("transport Evidence has a torn final line")
         events, previous = [], "0" * 64
         for number, line in enumerate(raw.splitlines(), 1):
@@ -54,9 +54,18 @@ class TransportEvidenceJournal:
                 envelope = json.loads(line.decode("utf-8"))
                 body = envelope["body"]
                 digest = hashlib.sha256(self._canonical(body)).hexdigest()
-                if (set(envelope) != {"body", "sha256"} or envelope["sha256"] != digest
-                        or body["previous_hash"] != previous or body["format"] != self.FORMAT):
-                    raise ValueError("hash chain/format mismatch")
+                required = {
+                    "format", "schema_version", "event_id", "event", "event_type",
+                    "measurement_session_id", "device_epoch_id", "host_received_at_utc",
+                    "host_received_monotonic_ns", "host_event_at_utc",
+                    "host_event_monotonic_ns", "direction", "payload", "previous_hash",
+                }
+                uuid.UUID(body["event_id"])
+                if (set(envelope) != {"body", "sha256"} or not required.issubset(body)
+                        or envelope["sha256"] != digest or body["previous_hash"] != previous
+                        or body["format"] != self.FORMAT or body["schema_version"] != self.FORMAT
+                        or body["direction"] not in {"host_to_device", "device_to_host", "host_internal"}):
+                    raise ValueError("hash chain/common schema mismatch")
                 events.append(body)
                 previous = digest
             except (ValueError, KeyError, TypeError, UnicodeError) as exc:
@@ -116,7 +125,7 @@ class TransportEvidenceJournal:
                 "direction": direction, "payload": payload, "previous_hash": previous,
             }
             digest = hashlib.sha256(self._canonical(body)).hexdigest()
-            line = self._canonical({"body": body, "sha256": digest}) + b"\\n"
+            line = self._canonical({"body": body, "sha256": digest}) + b"\n"
             existed = self.path.exists()
             fd = os.open(str(self.path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
             try:
@@ -258,9 +267,10 @@ class ProtocolV1HostSession:
             return
         received_utc = self.utc_now()
         received_ns = time.monotonic_ns()
-        self._append("RX_BYTES", raw_b64=base64.b64encode(raw).decode("ascii"),
-                     byte_count=len(raw), host_received_at_utc=received_utc,
-                     host_received_monotonic_ns=received_ns)
+        rx_evidence_event_id = self._append(
+            "RX_BYTES", raw_b64=base64.b64encode(raw).decode("ascii"),
+            byte_count=len(raw), host_received_at_utc=received_utc,
+            host_received_monotonic_ns=received_ns)
         self._rx_buffer.extend(raw)
         while b"\x00" in self._rx_buffer:
             try:
@@ -270,7 +280,10 @@ class ProtocolV1HostSession:
             except Exception as exc:
                 self._append("RX_DECODE_ERROR", buffered_byte_count=len(self._rx_buffer), error=str(exc))
                 raise ProtocolV1SessionError(f"RX frame rejected: {exc}") from exc
+            raw_frame = bytes(self._rx_buffer[:decoded.consumed_bytes])
             del self._rx_buffer[:decoded.consumed_bytes]
+            decoded.message["_raw_frame_base64"] = base64.b64encode(raw_frame).decode("ascii")
+            decoded.message["_rx_evidence_event_id"] = rx_evidence_event_id
             decoded.message["_host_received_at_utc"] = received_utc
             decoded.message["_host_received_monotonic_ns"] = received_ns
             self._messages.append(decoded.message)
