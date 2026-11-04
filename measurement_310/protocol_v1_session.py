@@ -408,6 +408,69 @@ class ProtocolV1HostSession:
         self._pending = None
         return pending["pwm"], self.utc_now()
 
+    def send_stop_best_effort(self, *, stop_reason: int, stop_request_id: Optional[int] = None) -> None:
+        """Send v0.5 STOP_REQ without waiting for Evidence fsync.
+
+        This is a synchronous best-effort write on the configured transport,
+        not an independent/bounded STOP channel or proof of device receipt.
+        The caller must supply a stop_reason because v0.5 does not assign its
+        numeric reason registry.
+        """
+        if isinstance(stop_reason, bool) or not isinstance(stop_reason, int) or not 0 <= stop_reason <= 0xFF:
+            raise ValueError("stop_reason must be an explicit uint8")
+        exhausted_id = False
+        if stop_request_id is None:
+            if self._stop_request_id < 0xFFFF:
+                self._stop_request_id += 1
+            else:
+                exhausted_id = True
+            stop_request_id = self._stop_request_id or 0xFFFF
+        if isinstance(stop_request_id, bool) or not isinstance(stop_request_id, int) or not 1 <= stop_request_id <= 0xFFFF:
+            raise ValueError("stop_request_id must be nonzero uint16")
+        try:
+            command_id = self._next_command_id()
+            stale_command_id = False
+        except ProtocolV1SessionError:
+            command_id = 0xFFFFFFFF
+            stale_command_id = True
+        session_tag = int(self.session_tag or 0)
+        epoch_tag = int(self.epoch_tag or 0)
+        frame = self.codec.encode_stop_request(
+            session_tag=session_tag, epoch_tag=epoch_tag, command_id=command_id,
+            stop_reason=stop_reason, stop_request_id=stop_request_id,
+        )
+        attempted_at = self.utc_now()
+        try:
+            # Safety STOP is deliberately transmitted before any journal fsync.
+            self.transport.send(frame)
+            outcome = "HOST_WRITE_COMPLETED"
+            error = None
+        except Exception as exc:
+            outcome = "HOST_WRITE_FAILED_UNKNOWN"
+            error = str(exc)
+            try:
+                self._append("STOP_TX_ERROR", frame_b64=base64.b64encode(frame).decode("ascii"),
+                             command_id=command_id, stop_request_id=stop_request_id,
+                             stop_reason=stop_reason, attempted_at_utc=attempted_at,
+                             outcome=outcome, error=error,
+                             stale_command_id=stale_command_id,
+                             stop_request_id_exhausted=exhausted_id)
+            except Exception:
+                pass
+            raise ProtocolV1SessionError(f"STOP_REQ write outcome unknown: {exc}") from exc
+        try:
+            self._append("STOP_TX_ATTEMPT", frame_b64=base64.b64encode(frame).decode("ascii"),
+                         byte_count=len(frame), command_id=command_id,
+                         stop_request_id=stop_request_id, stop_reason=stop_reason,
+                         measurement_session_tag=session_tag, device_epoch_tag=epoch_tag,
+                         attempted_at_utc=attempted_at, outcome=outcome,
+                         stale_command_id=stale_command_id,
+                         stop_request_id_exhausted=exhausted_id)
+        except Exception:
+            # The output-zero request has already been attempted; Evidence failure
+            # must not retroactively block or repeat the safety transmission.
+            pass
+
     def latch_abort(self, reason: str) -> None:
         """In-memory fail-closed latch; deliberately performs no storage or I/O."""
         self._failed = True
