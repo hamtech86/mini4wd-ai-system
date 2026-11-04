@@ -191,9 +191,15 @@ def test_command_id_zero_rules_and_session_tag_are_enforced(codec):
         codec.encode_hello(session_tag=0, host_nonce64=1)
 
 
-@pytest.mark.parametrize("invalid_reason", [0, 10, 254, 256, True])
-def test_codec_rejects_unassigned_stop_reason(invalid_reason, codec):
-    with pytest.raises(ProtocolV1Error, match="assigned StopReason"):
+@pytest.mark.parametrize("invalid_reason,expected_error", [
+    (0, "assigned StopReason"),
+    (10, "assigned StopReason"),
+    (254, "assigned StopReason"),
+    (256, "uint8"),
+    (True, "uint8"),
+])
+def test_codec_rejects_unassigned_stop_reason(invalid_reason, expected_error, codec):
+    with pytest.raises(ProtocolV1Error, match=expected_error):
         codec.encode_stop_request(
             session_tag=0, epoch_tag=0, command_id=1,
             stop_reason=invalid_reason, stop_request_id=1,
