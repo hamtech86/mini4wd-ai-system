@@ -332,8 +332,10 @@ def test_protocol_session_latch_abort_prevents_pending_command_reuse(tmp_path, m
         session.poll_apply_ack(0.0)
     with pytest.raises(RuntimeError, match="fail-closed"):
         session.send_stage_pwm(1, "next-stage-uuid", "session-uuid", stage_index=1)
+    # STOP was dispatched through the injected independent writer above;
+    # it must not be appended to the normal PWM/session transport.
     assert [session.codec.decode(frame).message["kind"] for frame in transport.sent] == [
-        "HELLO", "ARM", "PWM_SET", "STOP_REQ"
+        "HELLO", "ARM", "PWM_SET"
     ]
 
 
