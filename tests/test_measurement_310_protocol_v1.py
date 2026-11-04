@@ -123,10 +123,6 @@ def test_arm_requires_initial_pwm_zero_and_nonzero_context(codec):
 
 
 def test_ack_enum_and_rejected_pwm_rules(codec):
-    bad = codec.encode_message(
-        MessageType.APPLY_ACK, session_tag=3, epoch_tag=4, command_id=1,
-        payload=struct.pack("<BBH", 7, 2, 1),
-    ) if False else None
     with pytest.raises(ProtocolV1Error, match="applied_pwm"):
         codec.encode_message(
             MessageType.APPLY_ACK, session_tag=3, epoch_tag=4, command_id=1,
@@ -189,3 +185,12 @@ def test_command_id_zero_rules_and_session_tag_are_enforced(codec):
                              command_id=0, payload=struct.pack("<BH", 1, 1))
     with pytest.raises(ProtocolV1Error):
         codec.encode_hello(session_tag=0, host_nonce64=1)
+
+
+def test_stop_request_is_allowed_without_session_or_verified_epoch(codec):
+    frame = codec.encode_stop_request(session_tag=0, epoch_tag=0, command_id=1,
+                                      stop_reason=1, stop_request_id=1)
+    message = codec.decode(frame).message
+    assert message["kind"] == "STOP_REQ"
+    assert message["measurement_session_tag"] == 0
+    assert message["device_epoch_tag"] == 0
