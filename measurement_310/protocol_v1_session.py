@@ -156,7 +156,6 @@ class ProtocolV1HostSession:
                     session_tag: int, epoch_tag: int) -> str:
         self._record_frame_intent(frame, kind=kind, command_id=command_id,
                                   session_tag=session_tag, epoch_tag=epoch_tag)
-        sent_utc = self.utc_now()
         try:
             self.transport.send(frame)
         except Exception as exc:
@@ -166,6 +165,8 @@ class ProtocolV1HostSession:
                              error=str(exc), outcome="UNKNOWN")
             finally:
                 raise ProtocolV1SessionError(f"{kind} write/flush outcome unknown: {exc}") from exc
+        # Capture UTC immediately after the transport write/flush has completed.
+        sent_utc = self.utc_now()
         # This fsync is required before the caller can treat host transmission as complete.
         self._append("FRAME_TX_COMPLETE", kind=kind, command_id=command_id,
                      frame_b64=base64.b64encode(frame).decode("ascii"),
