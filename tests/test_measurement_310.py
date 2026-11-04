@@ -114,8 +114,9 @@ def test_complete_31_stage_sweep_creates_schema_valid_package(tmp_path):
     from raw_log_v2 import validate_package
     clock = FakeClock()
     pending = []
+    stop_calls = []
     ctl = SequenceController(RawLogV2Writer(tmp_path), manifest(tmp_path),
-        lambda pwm: clock.utc_now(), lambda: None,
+        lambda pwm: clock.utc_now(), lambda: stop_calls.append("STOP"),
         lambda: pending.pop(0) if pending else None, clock)
     ctl.startup_recover()
     ctl.start()
@@ -126,6 +127,7 @@ def test_complete_31_stage_sweep_creates_schema_valid_package(tmp_path):
         clock.advance_ms(10_000)
         ctl.poll()
     assert ctl.state == SequenceState.COMPLETED
+    assert stop_calls == ["STOP"]
     package = tmp_path / "TEST-310"
     import json
     mf = json.loads((package / "manifest.json").read_text())
@@ -133,6 +135,46 @@ def test_complete_31_stage_sweep_creates_schema_valid_package(tmp_path):
     assert validate_package(mf, records, raise_on_error=False) == []
     stages = [r for r in records if r["record_type"] == "PWM_STAGE"]
     assert [r["pwm_command"] for r in stages] == list(range(31))
+    completed = next(r for r in records if r.get("event") == "SESSION_COMPLETED")
+    assert completed["details"]["stop_transmission_attempted"] is True
+    assert completed["details"]["device_state"] == "unknown"
+
+
+def test_normal_completion_stop_failure_keeps_rawlog_incomplete_and_does_not_retry(
+    tmp_path,
+):
+    clock = FakeClock()
+    pending = []
+    stop_calls = []
+
+    def fail_stop():
+        stop_calls.append("STOP")
+        raise OSError("normal completion STOP write outcome unknown")
+
+    ctl = SequenceController(
+        RawLogV2Writer(tmp_path), manifest(tmp_path),
+        lambda pwm: clock.utc_now(), fail_stop,
+        lambda: pending.pop(0) if pending else None, clock,
+    )
+    ctl.startup_recover()
+    ctl.start()
+    for pwm in range(31):
+        pending.append((pwm, clock.utc_now()))
+        ctl.poll()
+        clock.advance_ms(10_000)
+        ctl.poll()
+
+    assert ctl.state == SequenceState.FAULT
+    assert stop_calls == ["STOP"]
+    assert "normal completion STOP failed" in (ctl._last_fault or "")
+    assert not (tmp_path / "TEST-310").exists()
+    work_records = [
+        json.loads(line) for line in
+        (tmp_path / ".work" / "TEST-310" / "records.jsonl").read_text().splitlines()
+    ]
+    assert not any(record.get("event") == "SESSION_COMPLETED" for record in work_records)
+    assert any(record.get("record_type") == "PWM_STAGE" and record.get("stage_index") == 30
+               for record in work_records)
 
 
 def test_recovery_failure_blocks_start(tmp_path, monkeypatch):
