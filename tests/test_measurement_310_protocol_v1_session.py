@@ -5,13 +5,14 @@ from types import SimpleNamespace
 import pytest
 
 from measurement_310.command_intent import DurableIntentJournal
-from measurement_310.protocol_v1 import MessageType, ProtocolV1Codec, epoch_tag_for_boot_id
+from measurement_310.protocol_v1 import (MessageType, ProtocolV1Codec, PROTOCOL_V1_MAGIC,
+                                          PROTOCOL_V1_VERSION, epoch_tag_for_boot_id)
 from measurement_310.protocol_v1_session import ProtocolV1HostSession, TransportEvidenceJournal
 from measurement_310.transport import MockTransport
 
 
-MAGIC_FIXTURE = 0x4D34
-VERSION_FIXTURE = 1
+MAGIC_FIXTURE = PROTOCOL_V1_MAGIC
+VERSION_FIXTURE = PROTOCOL_V1_VERSION
 BOOT_ID = 0x1122334455667788
 NONCE = 0xAABBCCDDEEFF0011
 
