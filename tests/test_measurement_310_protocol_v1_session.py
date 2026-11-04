@@ -35,11 +35,11 @@ def ack_frame(codec, kind, *, session=37, epoch=None, command=0, payload):
     )
 
 
-def make_session(tmp_path, monkeypatch, incoming, stop_writer=None):
+def make_session(tmp_path, monkeypatch, incoming, stop_writer=None, transport=None):
     monkeypatch.setattr("measurement_310.protocol_v1_session.secrets.randbits",
                         lambda bits: NONCE)
     codec = ProtocolV1Codec(MAGIC_FIXTURE, VERSION_FIXTURE)
-    transport = MockTransport()
+    transport = transport or MockTransport()
     for frame in incoming:
         transport.queue(frame)
     evidence = TransportEvidenceJournal(tmp_path / "transport-evidence-v1.jsonl")
@@ -181,6 +181,87 @@ def test_protocol_session_ack_evidence_failure_never_releases_stage(
     assert session._pending is not None
     with pytest.raises(RuntimeError, match="fail-closed"):
         session.send_stage_pwm(1, "next-stage", "session-uuid", stage_index=1)
+
+
+@pytest.mark.parametrize("mismatch", [
+    "session", "epoch", "context", "applied_pwm", "result", "message_type",
+])
+def test_protocol_session_rejects_wrong_ack_identity_fields_without_stage_release(
+    tmp_path, monkeypatch, mismatch
+):
+    codec = ProtocolV1Codec(MAGIC_FIXTURE, VERSION_FIXTURE)
+    hello, arm = handshake_frames(codec)
+    kind = MessageType.APPLY_ACK
+    session_tag = 37
+    epoch_tag = epoch_tag_for_boot_id(BOOT_ID)
+    payload = struct.pack("<BBH", 0, 0, 1)
+    if mismatch == "session":
+        session_tag = 38
+    elif mismatch == "epoch":
+        epoch_tag = (epoch_tag + 1) & 0xFFFFFFFF
+    elif mismatch == "context":
+        payload = struct.pack("<BBH", 0, 0, 2)
+    elif mismatch == "applied_pwm":
+        payload = struct.pack("<BBH", 0, 1, 1)
+    elif mismatch == "result":
+        payload = struct.pack("<BBH", 1, 0, 1)
+    elif mismatch == "message_type":
+        kind = MessageType.ARM_ACK
+        payload = struct.pack("<BBH", 0, 1, 1)
+    wrong = codec.encode_message(
+        kind, session_tag=session_tag, epoch_tag=epoch_tag,
+        command_id=2, payload=payload,
+    )
+    right = ack_frame(codec, MessageType.APPLY_ACK, command=2,
+                      payload=struct.pack("<BBH", 0, 0, 1))
+    session, _, _, _ = make_session(tmp_path, monkeypatch, [hello, arm, wrong, right])
+    session.send_stage_pwm(0, "stage-uuid", "session-uuid", stage_index=0)
+
+    assert session.poll_apply_ack(0.0) is None
+    assert session._pending is not None
+    assert session.poll_apply_ack(0.0)[0] == 0
+    assert session._pending is None
+
+
+def test_protocol_session_partial_pwm_write_is_unknown_and_fail_closed(tmp_path, monkeypatch):
+    codec = ProtocolV1Codec(MAGIC_FIXTURE, VERSION_FIXTURE)
+    hello, arm = handshake_frames(codec)
+    transport = MockTransport()
+    original_send = transport.send
+
+    def partial_pwm_send(frame):
+        message = codec.decode(frame).message
+        if message["kind"] == "PWM_SET":
+            transport.sent.append(bytes(frame[:3]))
+            raise OSError("injected partial write")
+        original_send(frame)
+
+    transport.send = partial_pwm_send
+    session, _, _, evidence = make_session(
+        tmp_path, monkeypatch, [hello, arm], transport=transport
+    )
+    with pytest.raises(RuntimeError, match="write/flush outcome unknown"):
+        session.send_stage_pwm(0, "stage-uuid", "session-uuid", stage_index=0)
+
+    assert session._failed is True
+    assert transport.sent[-1] and len(transport.sent[-1]) == 3
+    events, _ = evidence._read()
+    pwm_intent = next(
+        event for event in events
+        if event["event"] == "FRAME_TX_INTENT"
+        and event["payload"]["kind"] == "PWM_SET"
+    )
+    pwm_error = next(
+        event for event in events
+        if event["event"] == "FRAME_TX_ERROR"
+        and event["payload"]["kind"] == "PWM_SET"
+    )
+    assert pwm_intent["payload"]["intent_journal_sha256"]
+    assert pwm_error["payload"]["outcome"] == "UNKNOWN"
+    sent_before = list(transport.sent)
+    with pytest.raises(RuntimeError, match="fail-closed"):
+        session.send_stage_pwm(1, "next-stage", "session-uuid", stage_index=1)
+    assert transport.sent == sent_before
 
 
 def test_protocol_session_evidence_torn_tail_fails_closed(tmp_path):
