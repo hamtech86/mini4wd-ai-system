@@ -152,7 +152,7 @@ This section supersedes earlier source snapshots in §§2–3 where they describ
 
 - `ProtocolV1HostSession` implements the adopted v0.5 host-side HELLO/nonce/full boot identity check, ARM-before-PWM, durable command intent before exact frame transmission, raw RX evidence before decode, exact session/epoch/command/context ACK correlation, and durable ACK evidence before stage release.
 - `SequenceController.with_protocol_session(...)` provides an additive route through that adapter; legacy construction remains available and is not silently reinterpreted as v0.5.
-- The candidate does not assign production `magic` or `protocol_version` numeric values. Test fixtures are not production constants. No qualified concrete 310-4 firmware build/identity is available, so physical wire use remains gated.
+- Command authority assigned production `magic=0x344D` (wire bytes `4D 34`, ASCII `M4`) and `protocol_version=0x01` on 2026-11-05; candidate codec/tests use these normative constants. No qualified concrete 310-4 firmware build/identity is available, so physical wire use remains gated.
 - ACK evidence failure coverage now includes failures at RX_BYTES, FRAME_RX_DECODED, and ACK_MATCHED. The exact current complete-checkout CI is run #1364, HEAD `40b0e3f417f2d052f0458f849bb8fca881c33003`, 503 passed, all four jobs successful.
 - T04/T05 are advanced host implementation candidates, not formal PASS: remaining fault matrix, production firmware identity, and physical device correlation remain open.
 
