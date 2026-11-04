@@ -505,6 +505,18 @@ def test_stop_request_id_cannot_be_reused_for_a_different_reason(tmp_path, monke
     assert codec.decode(writes[0]).message["stop_reason"] == 1
 
 
+@pytest.mark.parametrize("invalid_reason", [0, 10, 254, 256, True])
+def test_stop_request_rejects_unassigned_reason_codes(tmp_path, monkeypatch, invalid_reason):
+    writes = []
+    session, _, _, _ = make_session(
+        tmp_path, monkeypatch, [], stop_writer=lambda frame: writes.append(bytes(frame))
+    )
+    session.latch_abort("operator abort")
+    with pytest.raises(ValueError, match="assigned StopReason"):
+        session.send_stop_best_effort(stop_reason=invalid_reason, stop_request_id=3)
+    assert writes == []
+
+
 def test_stop_request_refuses_to_share_command_transport(tmp_path, monkeypatch):
     codec = ProtocolV1Codec(MAGIC_FIXTURE, VERSION_FIXTURE)
     session, transport, _, _ = make_session(tmp_path, monkeypatch, [])
