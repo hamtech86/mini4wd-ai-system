@@ -180,6 +180,7 @@ class ProtocolV1HostSession:
         self.epoch_tag: Optional[int] = None
         self._command_id = 0
         self._stop_request_id = 0
+        self._last_stop_request_id: Optional[int] = None
         self._used_stop_request_ids: set[int] = set()
         self._stop_frames: dict[int, dict] = {}
         self._rx_buffer = bytearray()
@@ -504,13 +505,19 @@ class ProtocolV1HostSession:
         self._pending = None
         return pending["pwm"], self.utc_now()
 
-    def send_stop_best_effort(self, *, stop_reason: int, stop_request_id: Optional[int] = None) -> None:
+    @property
+    def last_stop_request_id(self) -> Optional[int]:
+        """Most recent logical STOP identity, including an unknown write outcome."""
+        return self._last_stop_request_id
+
+    def send_stop_best_effort(self, *, stop_reason: int, stop_request_id: Optional[int] = None) -> int:
         """Send v0.5 STOP_REQ without waiting for Evidence fsync.
 
         This requires a separately supplied STOP writer. It is not proof that
-        the writer is bounded or that the device physically stopped. The caller
-        must qualify that path independently and supply stop_reason because
-        v0.5 does not assign its numeric reason registry.
+        the writer is bounded or that the device physically stopped. The method
+        returns the logical stop_request_id on success. If the write outcome is
+        unknown, last_stop_request_id remains available; retry with that same
+        ID and reason to resend the byte-identical retained frame.
         """
         if self.stop_writer is None:
             raise ProtocolV1SessionError("independent STOP writer is not configured")
@@ -527,6 +534,7 @@ class ProtocolV1HostSession:
             stop_request_id = self._stop_request_id or 0xFFFF
         if isinstance(stop_request_id, bool) or not isinstance(stop_request_id, int) or not 1 <= stop_request_id <= 0xFFFF:
             raise ValueError("stop_request_id must be nonzero uint16")
+        self._last_stop_request_id = stop_request_id
 
         cached = self._stop_frames.get(stop_request_id)
         if cached is not None:
@@ -602,6 +610,7 @@ class ProtocolV1HostSession:
             # The output-zero request has already been attempted; Evidence failure
             # must not retroactively block or repeat the safety transmission.
             pass
+        return stop_request_id
 
     def latch_abort(self, reason: str) -> None:
         """In-memory fail-closed latch; deliberately performs no storage or I/O."""
