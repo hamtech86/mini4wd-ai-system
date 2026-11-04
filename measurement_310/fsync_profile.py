@@ -72,6 +72,7 @@ def run_profile(output_dir, samples, stage_ms, stop_reserve_ms, margin_ms):
     output_dir = Path(output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     file_latencies, dir_latencies = [], []
+    file_failures, dir_failures = [], []
     with tempfile.TemporaryDirectory(prefix=".310-fsync-profile-", dir=output_dir) as temp:
         root = Path(temp)
         file_path = root / "file-fsync.bin"
@@ -83,7 +84,10 @@ def run_profile(output_dir, samples, stage_ms, stop_reserve_ms, margin_ms):
                 if written != len(payload):
                     raise OSError("short write during fsync profile")
                 started = time.perf_counter_ns()
-                os.fsync(fd)
+                try:
+                    os.fsync(fd)
+                except OSError as exc:
+                    file_failures.append({"sample": index, "error": str(exc)})
                 file_latencies.append(time.perf_counter_ns() - started)
         finally:
             os.close(fd)
@@ -95,10 +99,16 @@ def run_profile(output_dir, samples, stage_ms, stop_reserve_ms, margin_ms):
                 entry_fd = os.open(str(entry), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
                 os.close(entry_fd)
                 started = time.perf_counter_ns()
-                os.fsync(dir_fd)
+                try:
+                    os.fsync(dir_fd)
+                except OSError as exc:
+                    dir_failures.append({"sample": index, "phase": "create", "error": str(exc)})
                 dir_latencies.append(time.perf_counter_ns() - started)
                 entry.unlink()
-                os.fsync(dir_fd)  # cleanup durability; not included in measured create latency
+                try:
+                    os.fsync(dir_fd)  # cleanup durability; not included in measured create latency
+                except OSError as exc:
+                    dir_failures.append({"sample": index, "phase": "cleanup", "error": str(exc)})
         finally:
             os.close(dir_fd)
 
@@ -124,8 +134,9 @@ def run_profile(output_dir, samples, stage_ms, stop_reserve_ms, margin_ms):
             "stop_reserve_ms": stop_reserve_ms,
             "margin_ms": margin_ms,
         },
-        "file_fsync": percentile_summary(file_latencies),
-        "directory_fsync": percentile_summary(dir_latencies),
+        "file_fsync": {**percentile_summary(file_latencies), "failure_count": len(file_failures)},
+        "directory_fsync": {**percentile_summary(dir_latencies), "failure_count": len(dir_failures)},
+        "fsync_failures": {"file": file_failures, "directory": dir_failures},
         "paired_file_plus_directory_fsync": percentile_summary(combined),
         "budget": {
             "available_ns": budget_ns,
@@ -133,7 +144,10 @@ def run_profile(output_dir, samples, stage_ms, stop_reserve_ms, margin_ms):
             "max_plus_margin_ns": max_total_ns,
             "p999_within_budget": p999_total_ns < budget_ns,
             "max_within_budget": max_total_ns < budget_ns,
-            "profile_within_budget": p999_total_ns < budget_ns and max_total_ns < budget_ns,
+            "profile_within_budget": (
+                not file_failures and not dir_failures
+                and p999_total_ns < budget_ns and max_total_ns < budget_ns
+            ),
         },
         "limitations": [
             "Host filesystem synthetic benchmark only; not a power-loss certification.",
