@@ -524,6 +524,8 @@ class ProtocolV1HostSession:
 
         cached = self._stop_frames.get(stop_request_id)
         if cached is not None:
+            session_tag = cached["session_tag"]
+            epoch_tag = cached["epoch_tag"]
             if cached["stop_reason"] != stop_reason:
                 raise ProtocolV1SessionError(
                     "stop_request_id already identifies a different logical STOP; allocate a new ID"
@@ -557,6 +559,8 @@ class ProtocolV1HostSession:
                 "frame": frame,
                 "command_id": command_id,
                 "stop_reason": stop_reason,
+                "session_tag": session_tag,
+                "epoch_tag": epoch_tag,
                 "stale_command_id": stale_command_id,
                 "stop_request_id_exhausted": exhausted_id,
             }
