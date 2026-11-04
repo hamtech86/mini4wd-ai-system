@@ -172,7 +172,6 @@ def test_protocol_session_rejects_wrong_command_ack_without_advancing(tmp_path, 
     assert session.poll_apply_ack(0.0)[0] == 0
 
 
-@pytest.mark.parametrize("failed_event", ["RX_BYTES", "FRAME_RX_DECODED", "ACK_MATCHED"])
 def test_protocol_session_stage_context_evidence_failure_suppresses_arm_and_pwm(
     tmp_path, monkeypatch
 ):
@@ -218,6 +217,7 @@ def test_protocol_session_pwm_write_complete_evidence_failure_is_unknown(
         session.send_stage_pwm(1, "next-stage", "session-uuid", stage_index=1)
 
 
+@pytest.mark.parametrize("failed_event", ["RX_BYTES", "FRAME_RX_DECODED", "ACK_MATCHED"])
 def test_protocol_session_ack_evidence_failure_never_releases_stage(
     tmp_path, monkeypatch, failed_event
 ):
