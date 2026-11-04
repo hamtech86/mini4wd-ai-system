@@ -64,6 +64,10 @@ def _validate_window(w: Window) -> None:
     if w.start_ns >= w.end_ns:
         raise ValueError("window must be non-empty [start, end)")
     if w.expected is not None:
+        # bool is an int subclass in Python, but it is never a valid sample count.
+        # Classify it as an invalid value (ValueError), consistently with negatives.
+        if isinstance(w.expected, bool):
+            raise ValueError("expected must be a non-negative integer or None")
         _integer(w.expected, "expected")
         if w.expected < 0:
             raise ValueError("expected must be non-negative or None")
