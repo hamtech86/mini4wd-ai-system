@@ -1,8 +1,7 @@
 """310-4 v0.5 wire codec primitives.
 
-The design fixes field layout and algorithms but does not assign the protocol
-magic or protocol_version numeric values. Callers MUST supply both from the
-matching firmware build/configuration; there are intentionally no defaults.
+The command authority assigns the normative v1 magic/version constants below.
+Callers MUST pass them explicitly; there are intentionally no constructor defaults.
 """
 from __future__ import annotations
 
@@ -31,6 +30,9 @@ class MessageType(IntEnum):
     ERROR = 0x31
     ADC_BATCH = 0x40
 
+
+PROTOCOL_V1_MAGIC = 0x344D
+PROTOCOL_V1_VERSION = 0x01
 
 HEADER = struct.Struct("<HBBBIII")
 CRC = struct.Struct("<H")
