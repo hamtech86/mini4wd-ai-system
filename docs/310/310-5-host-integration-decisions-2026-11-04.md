@@ -1,5 +1,15 @@
 # 310-5 host integration decisions and remaining gates — 2026-11-04
 
+## 0. Candidate lineage and firmware identity
+
+- Candidate branch: `safety/310-5-host-integration-candidate`.
+- Candidate base: PR #186 HEAD `a7491c8fd7d214e23a6f649d262f978710474d6e`.
+- Underlying 310-3 source base: `d9e718b607a873759fffd58fc75bf950af499095`.
+- Observed candidate HEAD immediately before this documentation update: `3ea0a508f5d83836c218c8e0d65753dd4c316848`. Re-read the branch ref before integration because this report commit advances it.
+- Firmware source reference: legacy `firmware/motor/MotoreRev.ino` at main snapshot `130e453ea3907f071209687a06c3e73535a8952d`, FW 3.03, declared build ID `ARM-STOP-ACK-ACS712-RAIL-20261023-01`.
+
+The firmware reference above is a legacy source identity only. It is **not** identified as the accepted 310-4 concrete implementation, and no HEX/map/size/stack artifact attributable to this candidate was established. No firmware source or build was changed or produced. The candidate branch is not a PR and has no CI run; a single Draft PR must wait until the candidate tests have actually been run on a complete checkout, as required by the upper-command sequence.
+
 ## 1. T10/T17 RawLog manifest compatibility — read-only finding
 
 ### Verified existing contract
