@@ -55,13 +55,20 @@ class SequenceController:
         self,
         writer: RawLogV2Writer,
         manifest_fields: dict[str, Any],
-        send_pwm: Callable[[int], str],
+        send_pwm: Optional[Callable[[int], str]],
         send_stop: Callable[[], None],
-        poll_ack: Callable[[], Optional[tuple[int, str]]],
+        poll_ack: Optional[Callable[[], Optional[tuple[int, str]]]],
         clock: Optional[Clock] = None,
         ack_timeout_ms: int = 2_000,
         protocol_session: Optional[object] = None,
     ) -> None:
+        if protocol_session is None and (not callable(send_pwm) or not callable(poll_ack)):
+            raise ValueError("legacy send_pwm and poll_ack callbacks are required without protocol_session")
+        if protocol_session is not None and (
+            not callable(getattr(protocol_session, "send_stage_pwm", None))
+            or not callable(getattr(protocol_session, "poll_apply_ack", None))
+        ):
+            raise ValueError("protocol_session must implement send_stage_pwm and poll_apply_ack")
         self.writer = writer
         self.manifest_fields = dict(manifest_fields)
         self.send_pwm = send_pwm
@@ -91,6 +98,22 @@ class SequenceController:
         self._log_write_failed = False
         # Non-blocking lock makes abort entry atomic and safe for callback re-entry.
         self._abort_lock = threading.Lock()
+
+    @classmethod
+    def with_protocol_session(
+        cls,
+        writer: RawLogV2Writer,
+        manifest_fields: dict[str, Any],
+        protocol_session: object,
+        send_stop: Callable[[], None],
+        clock: Optional[Clock] = None,
+        ack_timeout_ms: int = 2_000,
+    ) -> "SequenceController":
+        """Construct the v0.5 path without dummy legacy PWM/ACK callbacks."""
+        return cls(
+            writer, manifest_fields, None, send_stop, None, clock,
+            ack_timeout_ms=ack_timeout_ms, protocol_session=protocol_session,
+        )
 
     def startup_recover(self) -> list[dict[str, Any]]:
         if self.state != SequenceState.READY:
