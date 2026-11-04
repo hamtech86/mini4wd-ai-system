@@ -3,15 +3,15 @@ import struct
 import pytest
 
 from measurement_310.protocol_v1 import (
-    HEADER, MessageType, ProtocolV1Codec, ProtocolV1Error,
+    HEADER, MessageType, ProtocolV1Codec, ProtocolV1Error, PROTOCOL_V1_MAGIC, PROTOCOL_V1_VERSION,
     cobs_decode, cobs_encode, crc16_ccitt_false, epoch_tag_for_boot_id,
 )
 from measurement_310.transport import DecodedFrame, IncompleteMessage
 
 
-# Test-only fixture values. These are NOT production magic/version assignments.
-MAGIC_FIXTURE = 0x4D34
-VERSION_FIXTURE = 1
+# Normative 310-4 v0.5 production constants, assigned by command authority.
+MAGIC_FIXTURE = PROTOCOL_V1_MAGIC
+VERSION_FIXTURE = PROTOCOL_V1_VERSION
 
 
 @pytest.fixture
