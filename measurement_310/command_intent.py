@@ -86,7 +86,9 @@ class DurableIntentJournal:
                 os.close(lock_fd)
 
     def _append_locked(self, identity: CommandIdentity, created_utc: str) -> str:
-        previous = self._last_hash()
+        previous, seen_command_ids = self._last_hash()
+        if identity.command_id in seen_command_ids:
+            raise IntentError("command_id has already been used in durable history")
         body = {
             "record_type": "COMMAND_INTENT",
             "command_id": identity.command_id,
@@ -138,10 +140,16 @@ class DurableIntentJournal:
                     raise ValueError("hash chain mismatch")
                 if body.get("record_type") != "COMMAND_INTENT":
                     raise ValueError("unexpected record type")
+                command_id = body.get("command_id")
+                if not isinstance(command_id, str) or not command_id:
+                    raise ValueError("missing command_id")
+                if command_id in seen_command_ids:
+                    raise ValueError("duplicate command_id in durable history")
+                seen_command_ids.add(command_id)
                 previous = digest
             except (ValueError, KeyError, TypeError, UnicodeError) as exc:
                 raise IntentUntrusted(f"invalid intent journal record {number}: {exc}") from exc
-        return previous
+        return previous, seen_command_ids
 
 
 class AckCorrelator:
