@@ -99,20 +99,19 @@ def test_protocol_sequence_sends_normal_completion_stop_before_rawlog_finalize(
     )
     fields = {
         "log_id": "PROTOCOL-310",
-        "measurement_session_id": "00000000-0000-4000-8000-000000000002",
-        "started_at_utc": clock.utc_now(),
+        "measurement_session_id": "SESSION-310",
+        "started_at_utc": "2026-11-01T00:00:00.000Z",
         "motor_instance_id": None,
         "device": {
-            "type": "MOTOR", "model": "MOTOR_BREAKIN_V3",
-            "firmware_version": "test", "firmware_build": "test",
-            "firmware_id": "test", "adc_resolution_bits": 10,
+            "type": None, "model": None, "firmware_version": None,
+            "firmware_build": None, "firmware_id": None,
+            "adc_resolution_bits": None,
         },
         "measurement_conditions": {
-            "direction": "FWD", "voltage_control_mode": "INPUT",
+            "direction": "UNKNOWN", "voltage_control_mode": "UNKNOWN",
             "sweep_pwm_min": 0, "sweep_pwm_max": 30,
             "stage_duration_ms": 10000, "schedule_owner": "PYTHON",
         },
-        "metadata_warnings": [],
     }
     controller = SequenceController.with_protocol_session(
         RawLogV2Writer(tmp_path), fields, session,
