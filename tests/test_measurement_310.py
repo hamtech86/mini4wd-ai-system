@@ -117,8 +117,9 @@ def test_complete_31_stage_sweep_creates_schema_valid_package(tmp_path):
     pending = []
     stop_calls = []
     ctl = SequenceController(RawLogV2Writer(tmp_path), manifest(tmp_path),
-        lambda pwm: clock.utc_now(), lambda: stop_calls.append("STOP"),
-        lambda: pending.pop(0) if pending else None, clock)
+        lambda pwm: clock.utc_now(), lambda: stop_calls.append("ABORT_STOP"),
+        lambda: pending.pop(0) if pending else None, clock,
+        send_normal_stop=lambda: stop_calls.append("NORMAL_STOP"))
     ctl.startup_recover()
     ctl.start()
     for pwm in range(31):
@@ -128,7 +129,7 @@ def test_complete_31_stage_sweep_creates_schema_valid_package(tmp_path):
         clock.advance_ms(10_000)
         ctl.poll()
     assert ctl.state == SequenceState.COMPLETED
-    assert stop_calls == ["STOP"]
+    assert stop_calls == ["NORMAL_STOP"]
     package = tmp_path / "TEST-310"
     import json
     mf = json.loads((package / "manifest.json").read_text())
