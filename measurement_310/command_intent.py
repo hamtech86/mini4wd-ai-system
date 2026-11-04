@@ -130,7 +130,7 @@ class DurableIntentJournal:
         if not self.path.exists():
             return "0" * 64, set()
         raw = self.path.read_bytes()
-        if raw and not raw.endswith(b"\\n"):
+        if raw and not raw.endswith(b"\n"):
             raise IntentUntrusted("torn intent journal tail")
         previous = "0" * 64
         seen_command_ids: set[str] = set()
