@@ -202,3 +202,57 @@ def test_sequence_controller_uses_protocol_session_and_does_not_call_legacy_send
     assert adapter.calls[0][3] == 0
     assert legacy_calls == []
     assert controller.poll() == SequenceState.RUNNING
+
+
+@pytest.mark.parametrize("ack_ns,now_ns,expected_fault", [
+    (1_000_000_000, 1_020_000_000, "ACK receive timestamp precedes command write completion"),
+    (1_020_000_000, 12_000_000_000, "durable ACK evidence/RawLog commit exceeded stage deadline"),
+])
+def test_sequence_controller_fails_closed_on_invalid_or_late_ack_timing(
+    tmp_path, ack_ns, now_ns, expected_fault
+):
+    from measurement_310.engine import SequenceController, SequenceState
+    from raw_log_v2 import RawLogV2Writer
+
+    class Clock:
+        ns = 1_000_000_000
+
+        def monotonic_ns(self):
+            return self.ns
+
+        def utc_now(self):
+            return "2026-11-04T14:00:00.000Z"
+
+    class Adapter:
+        last_write_completed_monotonic_ns = 1_010_000_000
+
+        def send_stage_pwm(self, pwm, stage_context_id, measurement_session_id, stage_index=None):
+            return "2026-11-04T14:00:00.000Z"
+
+        def poll_apply_ack(self, timeout_s=0.0):
+            clock.ns = now_ns
+            return 0, "2026-11-04T14:00:00.010Z", ack_ns
+
+    clock = Clock()
+    stops = []
+    fields = {
+        "log_id": "PROTOCOL-TIMING-FAIL",
+        "measurement_session_id": "00000000-0000-4000-8000-000000000003",
+        "started_at_utc": clock.utc_now(),
+        "motor_instance_id": None,
+        "device": {"type": None, "model": None, "firmware_version": None,
+                   "firmware_build": None, "firmware_id": None, "adc_resolution_bits": None},
+        "measurement_conditions": {"direction": "UNKNOWN", "voltage_control_mode": "UNKNOWN",
+            "sweep_pwm_min": 0, "sweep_pwm_max": 30, "stage_duration_ms": 10000,
+            "schedule_owner": "PYTHON"},
+    }
+    controller = SequenceController(
+        RawLogV2Writer(tmp_path), fields, lambda pwm: clock.utc_now(),
+        lambda: stops.append("STOP"), lambda: None, clock,
+        protocol_session=Adapter(),
+    )
+    controller.startup_recover()
+    controller.start()
+    assert controller.poll() == SequenceState.FAULT
+    assert stops == ["STOP"]
+    assert expected_fault in str(controller._last_fault)
