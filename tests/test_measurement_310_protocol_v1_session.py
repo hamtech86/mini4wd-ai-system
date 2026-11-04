@@ -132,7 +132,7 @@ def test_protocol_sequence_sends_normal_completion_stop_before_rawlog_finalize(
         state = controller.poll()
         assert state == (
             SequenceState.COMPLETED if index == 30 else SequenceState.WAITING_ACK
-        )
+        ), controller._last_fault
 
     assert len(stop_frames) == 1
     stop_message = codec.decode(stop_frames[0]).message
