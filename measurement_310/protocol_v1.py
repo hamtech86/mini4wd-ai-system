@@ -151,8 +151,10 @@ class ProtocolV1Codec:
         ):
             if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= maximum:
                 raise ProtocolV1Error(f"{name} must be uint32")
-        if session_tag == 0:
-            raise ProtocolV1Error("measurement_session_tag must be nonzero")
+        if message_type in {MessageType.HELLO, MessageType.HELLO_ACK, MessageType.ARM,
+                            MessageType.ARM_ACK, MessageType.PWM_SET, MessageType.APPLY_ACK,
+                            MessageType.ADC_BATCH} and session_tag == 0:
+            raise ProtocolV1Error("message type requires nonzero measurement_session_tag")
         if message_type in _ZERO_COMMAND_TYPES:
             if command_id != 0:
                 raise ProtocolV1Error("message type requires command_id=0")
@@ -160,7 +162,8 @@ class ProtocolV1Codec:
             raise ProtocolV1Error("command-bearing message requires nonzero command_id")
         if message_type == MessageType.HELLO and epoch_tag != 0:
             raise ProtocolV1Error("HELLO requires device_epoch_tag=0")
-        if message_type not in {MessageType.HELLO, MessageType.HELLO_ACK} and epoch_tag == 0:
+        if message_type not in {MessageType.HELLO, MessageType.HELLO_ACK, MessageType.STOP_REQ,
+                                MessageType.STOP_ACK, MessageType.STATUS, MessageType.ERROR} and epoch_tag == 0:
             raise ProtocolV1Error("message requires a verified nonzero epoch correlation tag")
 
     def encode_message(self, message_type: MessageType | int, *, session_tag: int,
@@ -246,6 +249,9 @@ class ProtocolV1Codec:
         if len(body) != expected_length:
             raise ProtocolV1Error(f"{kind.name} decoded length mismatch")
         message = self._decode_payload(kind, body[HEADER_SIZE:])
+        if kind == MessageType.HELLO_ACK and message["result"] == 0:
+            if epoch_tag_for_boot_id(message["boot_id64"]) != epoch_tag:
+                raise ProtocolV1Error("HELLO_ACK epoch tag does not match full boot_id64")
         message.update({
             "kind": kind.name, "message_type": int(kind),
             "measurement_session_tag": session_tag,
@@ -272,7 +278,7 @@ class ProtocolV1Codec:
                 raise ProtocolV1Error("ARM requires nonzero context token and initial_pwm=0")
         elif kind == MessageType.ARM_ACK:
             result, state, token = struct.unpack("<BBH", p)
-            if result not in _ARM_RESULTS or state not in _STATE_NAMES or token == 0:
+            if result not in _ARM_RESULTS or state not in _STATE_NAMES:
                 raise ProtocolV1Error("invalid ARM_ACK fields")
             if result == 0 and (state != 1 or token == 0):
                 raise ProtocolV1Error("successful ARM_ACK must report ARMED and echo token")
