@@ -175,3 +175,12 @@ Tests NOT RUN; no CI/hardware. T09/T15 remain NOT PASS.
 - Additional corrective actions since the previous ledger entry: ACK identity runtime validation (T04) and persistent re-arm inhibition across process restarts (R01).
 - Total concrete corrective actions now recorded: five (two T11 accounting corrections, two R01 recovery/re-arm corrections, one T04 ACK-validation correction), affecting three verification entries: T04, T11, R01.
 - These are implementation changes, not formal verification passes. Updated repository tests remain unexecuted in this environment; no full checkout, CI run, or hardware test is claimed.
+
+
+## T05 intent durability follow-up (2026-11-04)
+
+- Further durability review found that the intent journal fsynced the file contents but did not fsync the containing directory after first creation. A successful file fsync alone does not guarantee persistence of the new directory entry across power loss.
+- Added parent-directory fsync after the journal file fsync. Any file or directory fsync error is surfaced as an intent durability failure before the send callback can run.
+- Implementation commit: `df83ae65af57492d848e032eb9eb7af0e8661220`.
+- Updated send-order assertion and added a directory-fsync failure regression that requires zero send callbacks: `f6b4e3a69aedf54c86530d863991e65511525ee3`.
+- This remains a standalone primitive; it is not wired into the production `SequenceController._begin_stage()` path. Also, newly created parent-directory ancestors are not individually fsynced; deployment must use a pre-existing durable state directory or this limitation must be addressed before claiming crash durability for newly created directory trees. T05 remains NOT PASS and tests remain NOT RUN.
