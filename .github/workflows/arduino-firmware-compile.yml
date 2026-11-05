@@ -75,8 +75,8 @@ jobs:
           mkdir -p "$build_dir"
           arduino-cli compile --export-binaries --fqbn arduino:avr:uno \
             --build-path "$build_dir" \
-            --build-property "compiler.cpp.extra_flags=-DSERIAL_RX_BUFFER_SIZE=32 -DSERIAL_TX_BUFFER_SIZE=32 -fstack-usage -fno-lto" \
-            --build-property "compiler.c.extra_flags=-fstack-usage -fno-lto" \
+            --build-property "compiler.cpp.extra_flags=-DSERIAL_RX_BUFFER_SIZE=32 -DSERIAL_TX_BUFFER_SIZE=32 -fstack-usage -fcallgraph-info=su -fno-lto" \
+            --build-property "compiler.c.extra_flags=-fstack-usage -fcallgraph-info=su -fno-lto" \
             --build-property "compiler.c.elf.extra_flags=-fno-lto -Wl,-Map=$build_dir/MotoreRevV2.map" \
             "$sketch_dir"
           v2_hex_file="$(find "$sketch_dir" -type f -name '*.hex' -print -quit)"
@@ -110,6 +110,12 @@ jobs:
             exit 1
           fi
           (cd "$build_dir" && find . -type f -name '*.su' -print0 | tar --null -czf "$artifact_dir/MotoreRevV2-stack-usage.tar.gz" --files-from -)
+          callgraph_files="$(find "$build_dir" -type f -name '*.ci' -print | wc -l)"
+          if [[ "$callgraph_files" -eq 0 ]]; then
+            echo "ERROR: -fcallgraph-info=su did not produce call graph files"
+            exit 1
+          fi
+          (cd "$build_dir" && find . -type f -name '*.ci' -print0 | tar --null -czf "$artifact_dir/MotoreRevV2-callgraph.tar.gz" --files-from -)
           python3 - "$build_dir" "$artifact_dir" <<'PY'
           from pathlib import Path
           import sys
