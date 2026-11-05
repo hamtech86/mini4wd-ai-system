@@ -258,7 +258,20 @@ class ProtocolV2HostSession:
             return canonical_id
         self.measurement_session_id = canonical_id
         nonce = secrets.randbits(64) or 1
-        self.transport.connect()
+        stop_connect = getattr(self.stop_writer, "connect", None)
+        try:
+            if callable(stop_connect):
+                stop_connect()
+            self.transport.connect()
+        except Exception as exc:
+            self._failed = True
+            stop_disconnect = getattr(self.stop_writer, "disconnect", None)
+            if callable(stop_disconnect):
+                try:
+                    stop_disconnect()
+                except Exception:
+                    pass
+            raise ProtocolV2SessionError(f"serial session startup failed closed: {exc}") from exc
         frame = self.codec.encode_hello(session_id=canonical_id, host_nonce64=nonce)
         self._send_frame(frame, kind="HELLO", command_id=0)
         ack = self._wait_for("HELLO_ACK")
@@ -650,4 +663,9 @@ class ProtocolV2HostSession:
             self._pending = None
 
     def disconnect(self) -> None:
-        self.transport.disconnect()
+        try:
+            self.transport.disconnect()
+        finally:
+            stop_disconnect = getattr(self.stop_writer, "disconnect", None)
+            if callable(stop_disconnect):
+                stop_disconnect()
