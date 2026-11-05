@@ -118,7 +118,7 @@ jobs:
           all_rows = []
           for path in build_dir.rglob("*.su"):
               for line in path.read_text(errors="replace").splitlines():
-                  parts = line.rsplit("\\t", 2)
+                  parts = line.rsplit("\t", 2)
                   if len(parts) != 3:
                       continue
                   try:
@@ -130,10 +130,10 @@ jobs:
           if not rows:
               raise SystemExit("ERROR: no non-empty GCC stack-usage records")
           (artifact_dir / "MotoreRevV2-stack-usage-all.txt").write_text(
-              "".join(f"{frame}\\t{qualifier}\\t{name}\\n" for frame, name, qualifier in rows)
+              "".join(f"{frame}\t{qualifier}\t{name}\n" for frame, name, qualifier in rows)
           )
           (artifact_dir / "MotoreRevV2-stack-usage-top30.txt").write_text(
-              "".join(f"{frame}\\t{qualifier}\\t{name}\\n" for frame, name, qualifier in rows[:30])
+              "".join(f"{frame}\t{qualifier}\t{name}\n" for frame, name, qualifier in rows[:30])
           )
           largest = rows[0][0]
           print(f"Largest individual stack frame: {largest} bytes (not a call-chain proof)")
