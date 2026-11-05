@@ -71,6 +71,7 @@ jobs:
           cp firmware/motor/BootIdentityJournal.h "$sketch_dir/"
           cp firmware/motor/ProtocolV2Device.h "$sketch_dir/"
           cp firmware/motor/ProtocolV2TxScheduler.h "$sketch_dir/"
+          cp firmware/motor/ProtocolV2AdcScheduler.h "$sketch_dir/"
           build_dir="${RUNNER_TEMP}/MotoreRevV2-build"
           mkdir -p "$build_dir"
           arduino-cli compile --export-binaries --fqbn arduino:avr:uno \
