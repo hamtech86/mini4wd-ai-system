@@ -1263,3 +1263,68 @@ def test_sequence_controller_persists_protocol_v2_adc_batch_to_rawlog(tmp_path):
     assert not_acquired["stage_id"] is None
     assert all(record["stage_assignment"] == "confirmed" for i, record in enumerate(adc) if i != 1)
     ctl.abort("test_end")
+
+
+class FakeFinalizableRawLogSession:
+    def __init__(self, package_dir):
+        self.package_dir = package_dir
+        self.finalized = False
+
+    def finalize(self, *args):
+        self.finalized = True
+        return self.package_dir
+
+
+class FakeEvidenceBundleSession(FakeV2StageSession):
+    def __init__(self, clock, fail=False):
+        super().__init__(clock)
+        self.fail_bundle = fail
+        self.bundle_calls = []
+
+    def finalize_evidence_bundle(self, package_dir):
+        self.bundle_calls.append(package_dir)
+        if self.fail_bundle:
+            raise OSError("simulated companion-manifest fsync failure")
+
+
+def test_normal_completion_writes_evidence_bundle_after_rawlog_finalize(tmp_path):
+    clock = FakeClock()
+    protocol = FakeEvidenceBundleSession(clock)
+    ctl = SequenceController(
+        RawLogV2Writer(tmp_path), manifest(tmp_path), None, lambda: None, None, clock,
+        protocol_session=protocol,
+    )
+    package_dir = tmp_path / "final-package"
+    package_dir.mkdir()
+    ctl.session = FakeFinalizableRawLogSession(package_dir)
+    ctl._append = lambda *args, **kwargs: None
+    ctl._complete()
+    assert ctl.session.finalized is True
+    assert protocol.bundle_calls == [package_dir]
+    assert ctl.state == SequenceState.COMPLETED
+    assert not (tmp_path / ".310-evidence-reconciliation-required").exists()
+
+
+def test_evidence_bundle_failure_persists_rearm_inhibition(tmp_path):
+    clock = FakeClock()
+    protocol = FakeEvidenceBundleSession(clock, fail=True)
+    ctl = SequenceController(
+        RawLogV2Writer(tmp_path), manifest(tmp_path), None, lambda: None, None, clock,
+        protocol_session=protocol,
+    )
+    package_dir = tmp_path / "final-package"
+    package_dir.mkdir()
+    ctl.session = FakeFinalizableRawLogSession(package_dir)
+    ctl._append = lambda *args, **kwargs: None
+    with pytest.raises(SequenceError, match="Evidence bundle is untrusted"):
+        ctl._complete()
+    marker = tmp_path / ".310-evidence-reconciliation-required"
+    assert marker.is_file()
+    assert ctl.state == SequenceState.FAULT
+
+    restarted = SequenceController(
+        RawLogV2Writer(tmp_path), manifest(tmp_path), None, lambda: None, None, clock,
+    )
+    restarted.startup_recover()
+    with pytest.raises(SequenceError, match="reconciliation"):
+        restarted.start()
