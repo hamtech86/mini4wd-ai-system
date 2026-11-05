@@ -163,3 +163,27 @@ def test_symlinked_intent_journal_fails_closed(tmp_path):
     link.symlink_to(target)
     with pytest.raises(IntentUntrusted, match="symlink"):
         DurableIntentJournal(link).append_intent(identity(command_id="cmd-002"), "2026-11-03T11:00:01Z")
+
+
+def test_for_session_creates_durable_rawlog_sidecar_path(tmp_path):
+    import uuid
+    session_id = str(uuid.uuid4())
+    journal = DurableIntentJournal.for_session(tmp_path, session_id)
+    assert journal.path == (
+        tmp_path / ".command-intents" / session_id / "command-intents-v1.jsonl"
+    )
+    journal.append_intent(
+        identity(session_id=session_id), "2026-11-05T18:00:00Z"
+    )
+    assert journal.path.is_file()
+    assert journal.path.read_text().endswith("\\n")
+
+
+def test_for_session_rejects_symlinked_intent_directory(tmp_path):
+    import uuid
+    session_id = str(uuid.uuid4())
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (tmp_path / ".command-intents").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(IntentUntrusted, match="symlink"):
+        DurableIntentJournal.for_session(tmp_path, session_id)
