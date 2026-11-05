@@ -178,3 +178,19 @@ int main() {
   test_disarm_keeps_session_and_allows_direction_change();
   return 0;
 }
+
+static void test_sample_sequence_allocator_is_monotonic_and_fails_closed() {
+  FakeOutput output;
+  ProtocolV2Device<FakeOutput> device(output, 21, 0);
+  uint64_t value = 99;
+  assert(device.allocate_sample_sequence64(&value));
+  assert(value == 0 && device.next_sample_sequence64() == 1);
+  assert(device.allocate_sample_sequence64(&value));
+  assert(value == 1 && device.next_sample_sequence64() == 2);
+
+  FakeOutput exhausted_output;
+  ProtocolV2Device<FakeOutput> exhausted(exhausted_output, 22, UINT64_MAX);
+  assert(!exhausted.allocate_sample_sequence64(&value));
+  assert(exhausted.state() == DEVICE_FAULT_STOP);
+  assert(exhausted_output.pwm == 0 && exhausted_output.direction_low);
+}
