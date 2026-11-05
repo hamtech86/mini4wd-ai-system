@@ -66,6 +66,23 @@ def test_checksum_detects_payload_tampering():
         decode_checkpoint(raw)
 
 
+@pytest.mark.xfail(strict=True, reason="T03 blocker: checkpoint checksum has no independent freshness witness")
+def test_authentic_older_checkpoint_for_same_boot_is_not_accepted_after_rollback():
+    boot = 0x1234567800000001
+    older = encode_checkpoint(cp(boot=boot, extended=65537))
+    newer = encode_checkpoint(cp(boot=boot, extended=131074))
+
+    # Both checkpoints are authentic and checksum-valid. Simulate restoring
+    # the older persisted bytes after the newer checkpoint had been committed.
+    assert decode_checkpoint(newer).extended_sequence > decode_checkpoint(older).extended_sequence
+    resolution = resolve_checkpoint(older, boot)
+
+    # Correct behavior must reject/unresolve the stale checkpoint unless an
+    # independent high-water witness proves it current. Current resolver
+    # returns RESUME_SAME_EPOCH and rewinds to 65537.
+    assert resolution.status is not S.RESUME_SAME_EPOCH
+
+
 @pytest.mark.parametrize("fault", [
     "after_temp_write", "after_file_fsync", "after_replace", "before_dir_fsync"
 ])
