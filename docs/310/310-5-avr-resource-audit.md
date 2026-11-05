@@ -106,3 +106,36 @@ The command/ACK path remains the larger bound at 292 bytes (see above). The norm
 `2048 - 895 - 292 = 861 bytes`
 
 This leaves 413 bytes above the required 448-byte reserve. Therefore the **currently linked ADC-helper code path** meets the static and conservative stack arithmetic limits in this compile-only audit image. This does not qualify a scheduler, six-channel acquisition cadence, batch deadlines, loss accounting, sustained UART load, or hardware behavior. The audit macro's volatile gate is false and no conversion was executed. Any later scheduler/state additions require a fresh linked audit.
+
+
+## 2026-11-05 integrated ADC scheduler / STATUS image
+
+Exact code/test HEAD: 04669f877c3973a6c955277dca1bffbcf4ec15c0
+Arduino Uno Firmware Compile workflow #196 / run ID 42038018027
+Artifact ID: 13418962974 (expires 2026-11-19)
+
+The compile-only ADC audit macro retains the complete scheduler, ADC conversion helper, NOT_ACQUIRED path, ADC_BATCH producer, and STATUS emission path. It is not a hardware execution image.
+
+### Static SRAM
+
+| Image | .data | .bss | Static total | Margin below 900 |
+|---|---:|---:|---:|---:|
+| Production integrated sketch | 146 | 615 | 761 | 139 |
+| ADC audit image | 146 | 616 | 762 | 138 |
+
+RX workspace is 48 bytes (largest host command wire frame 41 bytes); TX workspace is 188 bytes. UART RX/TX rings remain 32 bytes each.
+
+### Stack inventory and conservative call-chain bound
+
+GCC .su reports 171 bytes for loop(), 12 bytes for capture_adc_attempt(), 25 bytes for append_adc_attempt(), 25 bytes for encode_frame_in_place(), 17 bytes for validate_payload(), 74 bytes for cached_or_error(), and 19 bytes for find_cached(). The largest active ISR is UART TX at 17 bytes; HardwareSerial::_tx_udr_empty_irq() is 2 bytes. ATmega328P interrupt entry pushes a 2-byte PC; the ISR call adds a 2-byte return address. The sketch does not enable nested interrupts from an ISR.
+
+The deepest command-processing chain remains the conservative bound:
+2 (main frame) + 171 (loop) + 74 (cached_or_error) + 19 (find_cached) + 6 (three call return addresses) + 17 (UART TX ISR) + 2 (TX ISR helper frame) + 2 (ISR helper return address) + 2 (hardware-pushed PC) = **295 bytes**.
+
+The deepest ADC acquisition/encode chain is bounded by:
+2 + 171 + 12 + 25 + 25 + 17 + 10 (five call return addresses) + 17 + 2 + 2 + 2 = **285 bytes**.
+
+The STATUS encode chain is below the command path. Therefore the conservative maximum remains **295 bytes**, below the 700-byte stack ceiling. Using the larger static image:
+2048 - 762 - 295 = **991 bytes remaining**, which is 543 bytes above the required 448-byte reserve.
+
+This is a compiler/disassembly bound for the exact image, not an on-board stack watermark. It qualifies the software memory arithmetic only; it does not qualify physical STOP, current limiting, direction polarity, BOD, EEPROM power-fail behavior, analog accuracy, or sustained physical UART behavior.
