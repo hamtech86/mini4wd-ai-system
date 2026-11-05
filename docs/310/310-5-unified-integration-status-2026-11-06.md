@@ -109,3 +109,13 @@ Code/test HEAD 16add01e3d72440cfd019c0a59f78dc616944470:
 - The protocol-v2 session constructor itself now enforces the distinct bounded STOP endpoint for any transport exposing a real serial port; callers cannot bypass the factory guard by constructing the session directly.
 - Unified code/test HEAD 4e79c4ff5cb76a5defe87f8420301826f1890112: all four host jobs passed; full suite **600 passed, 2 xfailed in 20.04s**. Native protocol-v2 and Arduino Uno compile/resource jobs also passed on that head.
 - This is an OS/pySerial software integration test with PTYs. It does not emulate the external safety controller's electronics, the Uno UART parser, L298N enable gate, or physical motor cutoff.
+
+
+## Latest verification superseding earlier 600-test count
+
+The PTY regression was tightened to send and decode an actual protocol-v2 STOP_REQ frame through the separate STOP endpoint after the command PTY write timeout. A direct-constructor bypass regression was also added. The subsequent code/test HEAD e35d70cb2025e39e9b8b2a2de6d1476c0cc7d588 passed:
+- Break-in/Battery run 42093964984: **601 passed, 2 xfailed**; all four jobs succeeded.
+- Native protocol-v2 run 42093964831: success.
+- Arduino Uno compile/resource run 42093964736: success.
+
+The current branch head c8549c2c35cecdd26d5be8048ea713deee848074 adds documentation only; its corresponding full suite run 42094107820 also passed **601 passed, 2 xfailed**, native run 42094107595 passed, and Arduino compile/resource run 42094107676 passed.
