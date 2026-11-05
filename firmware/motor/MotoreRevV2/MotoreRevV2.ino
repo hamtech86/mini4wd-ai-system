@@ -215,7 +215,7 @@ void setup() {
 void loop() {
   service_rx();
   tx_scheduler.service(Serial);
-  // ADC scheduling and ADC_BATCH production are intentionally not enabled
-  // until the normative 12-slot sample layout and timestamp/context capture
-  // are implemented and independently tested.
+  // No ADC cadence is enabled here. A separately qualified foreground
+  // scheduler may call capture_adc_attempt(channel_code); the design cadence
+  // remains unapproved and ADC acquisition therefore stays inactive.
 }
