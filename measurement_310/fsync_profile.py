@@ -18,6 +18,12 @@ import time
 from pathlib import Path
 
 
+MIN_SAMPLES = 10000
+REQUIRED_STAGE_MS = 10000
+MIN_STOP_RESERVE_MS = 1000
+MIN_MARGIN_MS = 1000
+
+
 def nearest_rank(values, percentile):
     if not values:
         raise ValueError("values cannot be empty")
@@ -62,10 +68,14 @@ def percentile_summary(values):
 
 
 def run_profile(output_dir, samples, stage_ms, stop_reserve_ms, margin_ms):
-    if samples < 10000:
+    if samples < MIN_SAMPLES:
         raise ValueError("T18 requires at least 10,000 samples")
-    if stage_ms <= 0 or stop_reserve_ms < 0 or margin_ms < 0:
-        raise ValueError("invalid timing budget")
+    if stage_ms != REQUIRED_STAGE_MS:
+        raise ValueError("T18 stage budget is fixed at 10,000 ms")
+    if stop_reserve_ms < MIN_STOP_RESERVE_MS:
+        raise ValueError("T18 STOP reserve must be at least 1,000 ms")
+    if margin_ms < MIN_MARGIN_MS:
+        raise ValueError("T18 additional margin must be at least 1,000 ms")
     if stop_reserve_ms >= stage_ms:
         raise ValueError("STOP reserve must be less than stage duration")
 
@@ -194,10 +204,10 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", required=True,
                         help="directory on the approved target storage")
-    parser.add_argument("--samples", type=int, default=10000)
-    parser.add_argument("--stage-ms", type=int, default=10000)
-    parser.add_argument("--stop-reserve-ms", type=int, required=True)
-    parser.add_argument("--margin-ms", type=int, required=True)
+    parser.add_argument("--samples", type=int, default=MIN_SAMPLES)
+    parser.add_argument("--stage-ms", type=int, default=REQUIRED_STAGE_MS)
+    parser.add_argument("--stop-reserve-ms", type=int, default=MIN_STOP_RESERVE_MS)
+    parser.add_argument("--margin-ms", type=int, default=MIN_MARGIN_MS)
     args = parser.parse_args(argv)
     result = run_profile(
         args.output_dir, args.samples, args.stage_ms,
