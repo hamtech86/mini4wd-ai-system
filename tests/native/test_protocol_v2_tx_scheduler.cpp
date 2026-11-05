@@ -49,6 +49,34 @@ static void test_large_adc_batch_is_built_directly_in_tx_workspace(){
   assert(s.bytes==std::vector<uint8_t>(encoded,encoded+encoded_length));
 }
 
+static void test_adc_batch_preserves_failed_attempt_status_slots(){
+  ProtocolV2TxScheduler tx; FakeSerial s(64);
+  const uint8_t session[16]={1,3,5,7,9,11,13,15,2,4,6,8,10,12,14,16};
+  const uint32_t epoch=epoch_tag_for_boot_id(19);
+  assert(tx.begin_adc_batch(500,7));
+  for(uint8_t i=0;i<12;++i){
+    const uint8_t status = (i % 4 == 0) ? ADC_ACQ_OK :
+      (i % 4 == 1) ? ADC_PRECONDITION_INVALID :
+      (i % 4 == 2) ? ADC_CONVERSION_TIMEOUT : ADC_NOT_ACQUIRED;
+    const uint16_t raw = status == ADC_ACQ_OK ? 0 : 0xFFFF;
+    assert(tx.append_adc_sample(5000U+i*100U,(uint8_t)(i%6),raw,
+                                static_cast<uint16_t>(i/6+1),status,0));
+  }
+  assert(tx.finish_adc_batch(session,epoch));
+  drain(tx,s);
+  FrameView decoded;
+  assert(decode_frame_in_place(s.bytes.data(),static_cast<uint16_t>(s.bytes.size()-1),&decoded));
+  assert(decoded.message_type==ADC_BATCH && decoded.payload[9]==12);
+  for(uint8_t i=0;i<12;++i){
+    const uint8_t* sample=decoded.payload+11+(uint16_t)i*12;
+    const uint8_t expected_status = (i % 4 == 0) ? ADC_ACQ_OK :
+      (i % 4 == 1) ? ADC_PRECONDITION_INVALID :
+      (i % 4 == 2) ? ADC_CONVERSION_TIMEOUT : ADC_NOT_ACQUIRED;
+    assert(sample[9]==expected_status);
+    assert(read_u16(sample+5)==(expected_status==ADC_ACQ_OK?0:0xFFFF));
+  }
+}
+
 static void test_stop_ack_preempts_adc_batch_workspace(){
   ProtocolV2TxScheduler tx; FakeSerial s(64);
   DeviceReplyV2 stop; memset(&stop,0,sizeof(stop));
@@ -68,6 +96,7 @@ static void test_stop_ack_preempts_adc_batch_workspace(){
 
 int main(){
   test_large_adc_batch_is_built_directly_in_tx_workspace();
+  test_adc_batch_preserves_failed_attempt_status_slots();
   test_stop_ack_preempts_adc_batch_workspace();
   ProtocolV2TxScheduler tx; FakeSerial s(5);
   DeviceReplyV2 first; memset(&first,0,sizeof(first));
