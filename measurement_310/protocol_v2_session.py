@@ -375,6 +375,10 @@ class ProtocolV2HostSession:
         if not isinstance(samples, list) or len(samples) != 12:
             raise ProtocolV2SessionError("ADC_BATCH must contain exactly 12 sample slots")
         first = samples[0].get("sample_sequence64")
+        if (isinstance(first, bool) or not isinstance(first, int)
+                or not 0 <= first <= 0xFFFFFFFFFFFFFFFF - len(samples)):
+            self._failed = True
+            raise ProtocolV2SessionError("ADC_BATCH first sequence is invalid or would exhaust uint64")
         if first < self.next_sample_sequence64:
             self._failed = True
             raise ProtocolV2SessionError("stale or duplicate ADC_BATCH sequence")
