@@ -146,6 +146,55 @@ jobs:
           if largest > 700:
               raise SystemExit("ERROR: one stack frame exceeds 700 bytes")
           PY
+          # Compile-only second image: link the otherwise dormant ADC capture
+          # helper chain so its SRAM/stack cost is measured. Never uploaded.
+          audit_build_dir="${RUNNER_TEMP}/MotoreRevV2-adc-audit-build"
+          mkdir -p "$audit_build_dir"
+          arduino-cli compile --fqbn arduino:avr:uno \\
+            --build-path "$audit_build_dir" \\
+            --build-property "compiler.cpp.extra_flags=-DSERIAL_RX_BUFFER_SIZE=32 -DSERIAL_TX_BUFFER_SIZE=32 -fstack-usage -fno-lto -DM4WD_ADC_RESOURCE_AUDIT" \\
+            --build-property "compiler.c.extra_flags=-fstack-usage -fno-lto" \\
+            --build-property "compiler.c.elf.extra_flags=-fno-lto -Wl,-Map=$audit_build_dir/MotoreRevV2-adc-audit.map" \\
+            "$sketch_dir"
+          audit_elf="$(find "$audit_build_dir" -type f -name '*.elf' -print -quit)"
+          if [[ -z "$audit_elf" ]]; then
+            echo "ERROR: ADC helper resource-audit ELF missing"
+            exit 1
+          fi
+          cp "$audit_elf" "$artifact_dir/MotoreRevV2-adc-audit.elf"
+          cp "$audit_build_dir/MotoreRevV2-adc-audit.map" "$artifact_dir/MotoreRevV2-adc-audit.map"
+          "$avr_size" "$audit_elf" | tee "$artifact_dir/MotoreRevV2-adc-audit-avr-size.txt"
+          awk 'NR == 2 { if (($2 + $3) > 900) { print "ERROR: ADC-helper linked .data + .bss exceeds 900-byte static SRAM budget"; exit 1 } }' "$artifact_dir/MotoreRevV2-adc-audit-avr-size.txt"
+          (cd "$audit_build_dir" && find . -type f -name '*.su' -print0 | tar --null -czf "$artifact_dir/MotoreRevV2-adc-audit-stack-usage.tar.gz" --files-from -)
+          python3 - "$audit_build_dir" "$artifact_dir" <<'PY'
+          from pathlib import Path
+          import sys
+          build_dir, artifact_dir = map(Path, sys.argv[1:])
+          rows = []
+          for path in build_dir.rglob("*.su"):
+              for line in path.read_text(errors="replace").splitlines():
+                  parts = line.rsplit("\\t", 2)
+                  if len(parts) != 3:
+                      continue
+                  try:
+                      frame = int(parts[1])
+                  except ValueError:
+                      continue
+                  rows.append((frame, parts[0], parts[2]))
+          rows.sort(reverse=True)
+          if not rows:
+              raise SystemExit("ERROR: ADC audit produced no GCC stack-usage records")
+          (artifact_dir / "MotoreRevV2-adc-audit-stack-usage-all.txt").write_text(
+              "".join(f"{frame}\\t{qualifier}\\t{name}\\n" for frame, name, qualifier in rows)
+          )
+          (artifact_dir / "MotoreRevV2-adc-audit-stack-usage-top30.txt").write_text(
+              "".join(f"{frame}\\t{qualifier}\\t{name}\\n" for frame, name, qualifier in rows[:30])
+          )
+          print(f"ADC helper image largest individual stack frame: {rows[0][0]} bytes")
+          if rows[0][0] > 700:
+              raise SystemExit("ERROR: ADC helper image contains a frame over 700 bytes")
+          PY
+          "$avr_objdump" -Cd "$audit_elf" > "$artifact_dir/MotoreRevV2-adc-audit-disassembly.txt"
           {
             echo "sketch=MotoreRevV2"
             echo "fqbn=arduino:avr:uno"
