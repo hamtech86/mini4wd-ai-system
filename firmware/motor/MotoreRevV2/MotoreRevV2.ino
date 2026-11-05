@@ -117,8 +117,7 @@ static volatile bool adc_resource_audit_link = false;
 #endif
 
 static void add_adc_loss_count(uint32_t count) {
-  if (count > UINT32_MAX - adc_loss_counter) adc_loss_counter = UINT32_MAX;
-  else adc_loss_counter += count;
+  adc_loss_counter = saturating_add_u32(adc_loss_counter, count);
   // UINT32_MAX is the saturated sentinel; never wrap the transport counter.
 }
 
