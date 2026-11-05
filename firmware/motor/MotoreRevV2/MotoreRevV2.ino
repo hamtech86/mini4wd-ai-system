@@ -164,10 +164,15 @@ static void service_rx() {
   }
 }
 
-// Called by the separately qualified sampling scheduler for each scheduled
-// channel attempt. No fixed sampling cadence is selected in this sketch.
-static bool capture_adc_attempt(uint8_t channel_code) {
-  if (channel_code > 5 || !device || !device->session_bound() ||
+// ADC reference is AVCC. The foreground conversion routine has an explicit
+// 2 ms bound (nominal 104 us at 16 MHz / 128 prescaler); it never calls the
+// unbounded Arduino analogRead() implementation.
+static bool adc_ready = false;
+static const uint32_t kAdcConversionTimeoutUs = 2000UL;
+
+static bool append_adc_attempt(uint8_t channel_code, uint32_t timestamp_us,
+                               uint16_t raw, uint8_t acquisition_status) {
+  if (!device || !device->session_bound() ||
       (device->state() != DEVICE_ARMED && device->state() != DEVICE_RUNNING))
     return false;
 
@@ -180,25 +185,19 @@ static bool capture_adc_attempt(uint8_t channel_code) {
       return false;
     }
   } else if (!tx_scheduler.batch_building()) {
-    // A control ACK/STOP preempted the in-progress batch.
+    // A control reply preempted an incomplete batch. This scheduled attempt
+    // is consumed as a gap too; the next complete batch starts after it.
     adc_batch_count = 0;
     increment_adc_loss_counter();
     return false;
   }
 
-  // Stage identity is sampled immediately before the individual conversion.
   const uint16_t stage_token = device->active_context_token();
-  const uint32_t conversion_start_us = micros();
-  const uint16_t raw = static_cast<uint16_t>(analogRead(A0 + channel_code));
-  const uint32_t conversion_end_us = micros();
-  const uint32_t midpoint_us = conversion_start_us +
-      static_cast<uint32_t>(conversion_end_us - conversion_start_us) / 2UL;
-
-  if (!tx_scheduler.append_adc_sample(midpoint_us, channel_code, raw,
-                                      stage_token, 0, 0)) {
+  if (!tx_scheduler.append_adc_sample(timestamp_us, channel_code, raw,
+                                      stage_token, acquisition_status, 0)) {
     tx_scheduler.abort_adc_batch();
     adc_batch_count = 0;
-    ++adc_loss_counter;
+    increment_adc_loss_counter();
     return false;
   }
   ++adc_batch_count;
@@ -208,11 +207,43 @@ static bool capture_adc_attempt(uint8_t channel_code) {
         device->session_uuid(), epoch_tag_for_boot_id(device->boot_id64()));
     adc_batch_count = 0;
     if (!queued) {
-      ++adc_loss_counter;
+      increment_adc_loss_counter();
       return false;
     }
   }
   return true;
+}
+
+// Called by the separately qualified scheduler for one actual conversion
+// attempt. PRECONDITION_INVALID and CONVERSION_TIMEOUT are explicit wire slots.
+static bool capture_adc_attempt(uint8_t channel_code) {
+  if (channel_code > 5) return false;
+  const uint32_t attempt_start_us = micros();
+  if (!adc_ready) {
+    return append_adc_attempt(channel_code, attempt_start_us, 0xFFFF, 1);
+  }
+
+  ADMUX = static_cast<uint8_t>((ADMUX & 0xF0) | (channel_code & 0x0F));
+  ADCSRA |= _BV(ADSC);
+  const uint32_t conversion_start_us = micros();
+  while (ADCSRA & _BV(ADSC)) {
+    if (static_cast<uint32_t>(micros() - conversion_start_us) >=
+        kAdcConversionTimeoutUs) {
+      return append_adc_attempt(channel_code, micros(), 0xFFFF, 2);
+    }
+  }
+  const uint16_t raw = ADC;
+  const uint32_t conversion_end_us = micros();
+  const uint32_t midpoint_us = conversion_start_us +
+      static_cast<uint32_t>(conversion_end_us - conversion_start_us) / 2UL;
+  return append_adc_attempt(channel_code, midpoint_us, raw, 0);
+}
+
+// The scheduler calls this only when it can identify an intentional missed
+// acquisition slot. It is not used for host-side frame loss or UART backpressure.
+static bool record_not_acquired_attempt(uint8_t channel_code, uint32_t scheduled_us) {
+  if (channel_code > 5) return false;
+  return append_adc_attempt(channel_code, scheduled_us, 0xFFFF, 3);
 }
 
 } // namespace
@@ -221,6 +252,11 @@ void setup() {
   // Establish electrically non-driving GPIO before constructing protocol state.
   output_adapter.safe_outputs();
   Serial.begin(SERIAL_BAUD);
+  ADMUX = _BV(REFS0); // AVCC reference, ADC0 selected
+  ADCSRA = _BV(ADEN) | _BV(ADPS2) | _BV(ADPS1) | _BV(ADPS0); // prescaler 128
+  DIDR0 = 0x3F; // disable digital input buffers on A0..A5
+  delay(2); // AVCC reference settling before declaring ADC preconditions valid
+  adc_ready = (ADCSRA & _BV(ADEN)) != 0;
 
   const BootIdentityResult identity = boot_journal.begin();
   device = new (device_storage) Device(output_adapter, 0, 0);
