@@ -217,3 +217,39 @@ def test_concurrent_stop_write_is_rejected_without_frame_interleaving(monkeypatc
     worker.join(0.5)
     assert not worker.is_alive()
     assert fake.writes == [b"FIRST-STOP"]
+
+
+def test_independent_stop_tty_survives_command_tty_tx_timeout():
+    import os
+    import pty
+    import select
+
+    pytest.importorskip("serial")
+    command_master, command_slave = pty.openpty()
+    stop_master, stop_slave = pty.openpty()
+    command_path = os.ttyname(command_slave)
+    stop_path = os.ttyname(stop_slave)
+    os.close(command_slave)
+    os.close(stop_slave)
+    command = PySerialTransport(
+        command_path, 57600, timeout_s=0, write_timeout_s=0.02
+    )
+    stop = IndependentPySerialStopWriter(
+        stop_path, 57600, write_timeout_s=0.05, flush_timeout_s=0.05
+    )
+    try:
+        command.connect()
+        stop.connect()
+        with pytest.raises(TransportError):
+            command.send(b"C" * 1_000_000)
+        # The command tty is now fail-closed after its timed-out write. The
+        # separate STOP tty must still accept and deliver its short frame.
+        stop(b"INDEPENDENT-STOP")
+        ready, _, _ = select.select([stop_master], [], [], 0.5)
+        assert ready
+        assert os.read(stop_master, 128) == b"INDEPENDENT-STOP"
+    finally:
+        command.disconnect()
+        stop.disconnect()
+        os.close(command_master)
+        os.close(stop_master)
