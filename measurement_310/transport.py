@@ -128,6 +128,7 @@ class IndependentPySerialStopWriter:
         self.worst_case_s = write_timeout_s + flush_timeout_s
         self._serial = None
         self._failed = False
+        self._write_lock = threading.Lock()
 
     def connect(self) -> None:
         if self._serial is not None:
@@ -145,34 +146,39 @@ class IndependentPySerialStopWriter:
             raise TransportError(f"independent STOP serial connect failed: {exc}") from exc
 
     def __call__(self, payload: bytes) -> None:
-        if self._serial is None:
-            raise TransportError("independent STOP serial endpoint is not connected")
-        if self._failed:
-            raise TransportError("independent STOP writer is fail-closed")
+        if not self._write_lock.acquire(blocking=False):
+            raise TransportError("independent STOP write already in progress; outcome unresolved")
         try:
-            written = self._serial.write(payload)
-            if written != len(payload):
-                raise TransportError("short independent STOP write; outcome unknown")
-            finished = threading.Event()
-            errors = []
-            def flush_worker():
-                try:
-                    self._serial.flush()
-                except Exception as exc:
-                    errors.append(exc)
-                finally:
-                    finished.set()
-            worker = threading.Thread(
-                target=flush_worker, name="310-independent-stop-flush", daemon=True
-            )
-            worker.start()
-            if not finished.wait(self.flush_timeout_s):
-                raise TimeoutError("independent STOP flush deadline expired; outcome unknown")
-            if errors:
-                raise TransportError(f"independent STOP flush failed: {errors[0]}")
-        except Exception as exc:
-            self._failed = True
-            raise TransportError(f"independent STOP write outcome unknown: {exc}") from exc
+            if self._serial is None:
+                raise TransportError("independent STOP serial endpoint is not connected")
+            if self._failed:
+                raise TransportError("independent STOP writer is fail-closed")
+            try:
+                written = self._serial.write(payload)
+                if written != len(payload):
+                    raise TransportError("short independent STOP write; outcome unknown")
+                finished = threading.Event()
+                errors = []
+                def flush_worker():
+                    try:
+                        self._serial.flush()
+                    except Exception as exc:
+                        errors.append(exc)
+                    finally:
+                        finished.set()
+                worker = threading.Thread(
+                    target=flush_worker, name="310-independent-stop-flush", daemon=True
+                )
+                worker.start()
+                if not finished.wait(self.flush_timeout_s):
+                    raise TimeoutError("independent STOP flush deadline expired; outcome unknown")
+                if errors:
+                    raise TransportError(f"independent STOP flush failed: {errors[0]}")
+            except Exception as exc:
+                self._failed = True
+                raise TransportError(f"independent STOP write outcome unknown: {exc}") from exc
+        finally:
+            self._write_lock.release()
 
     def disconnect(self) -> None:
         if self._serial is not None:
