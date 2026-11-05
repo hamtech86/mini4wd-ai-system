@@ -228,3 +228,12 @@ Arduino Uno compile workflow run #113 / run ID 42010177306 completed success at 
 ### Reproducible v2 build artifact — 2026-11-05
 
 The Uno workflow was extended to retain the separately compiled `MotoreRevV2.ino.hex` and `MotoreRevV2-build-manifest.txt` in the workflow artifact alongside the legacy firmware artifact. At exact workflow HEAD `42740e7653883e09a03dcd56eb7e8b14123d8361`, Arduino Uno Firmware Compile run #115 / ID 42011003509 succeeded, including the v2 compile step and artifact upload. Artifact ID: 13406986860 (expires 2026-11-19). Break-in and Battery run #1470 / ID 42011002691 completed with all four jobs successful. The artifact is compile output, not an AVR resource qualification or authorization to upload it to a board.
+
+
+### AVR static SRAM gate — 2026-11-05
+
+The first resource-audit attempt found 1,026 bytes of global SRAM, above the 900-byte limit. The command-result cache was then reduced by removing a redundant per-entry 16-byte session UUID: all cache lookups occur only after the current full session UUID has already been validated, and the cache is cleared whenever a new session binds. The Uno UART RX/TX ring sizes were changed to 32 bytes each using global `compiler.cpp.extra_flags`, so the sketch and Arduino HardwareSerial core share identical compile-time array bounds. A sketch-only macro override was rejected after CI exposed the class-layout mismatch warning; the override was moved to the global compile property.
+
+At exact HEAD `91bb1d50ca42a6939a8b780283c594b082daff46`, Arduino Uno Firmware Compile run #122 / ID 42012147999 succeeded. `avr-size` reported text=10670, data=146, bss=752; therefore `.data + .bss = 898 bytes`, within the 900-byte static SRAM ceiling. The CI job also retained the HEX, ELF, linker map, size report and SHA-256 manifest in artifact ID 13408055659 (expires 2026-11-19). Native protocol v2 workflow #71 / ID 42012148002 succeeded. Break-in/Battery workflow #1477 / ID 42012148043 completed with all four jobs successful.
+
+This closes only the static SRAM-size check for this exact build. Worst-case stack <=700 bytes, reserve >=448 bytes under the required execution paths, ISR/call nesting, UART overflow behavior under sustained traffic, and full ADC-enabled sketch memory are NOT yet proven. At 898 bytes there is only 2 bytes of headroom against the static limit; the ADC scheduler must not be added without a renewed resource budget and optimization review.
