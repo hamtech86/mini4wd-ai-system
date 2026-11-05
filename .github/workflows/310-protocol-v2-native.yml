@@ -1,0 +1,45 @@
+name: 310 protocol v2 native codec
+
+on:
+  push:
+    branches:
+      - firmware/310-4-protocol-v2-integration
+  pull_request:
+    paths:
+      - "firmware/motor/ProtocolV2Codec.h"
+      - "tests/native/test_protocol_v2_codec.cpp"
+      - "firmware/motor/BootIdentityJournal.h"
+      - "tests/native/test_boot_identity_journal.cpp"
+      - "firmware/motor/ProtocolV2Device.h"
+      - "tests/native/test_protocol_v2_device.cpp"
+      - "firmware/motor/ProtocolV2TxScheduler.h"
+      - "firmware/motor/ProtocolV2AdcScheduler.h"
+      - "tests/native/test_protocol_v2_tx_scheduler.cpp"
+      - "tests/native/test_protocol_v2_adc_scheduler.cpp"
+      - ".github/workflows/310-protocol-v2-native.yml"
+
+jobs:
+  native-codec:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile fixed-memory codec
+        run: g++ -std=c++11 -Wall -Wextra -Werror -pedantic tests/native/test_protocol_v2_codec.cpp -o /tmp/test_protocol_v2_codec
+      - name: Run protocol vectors
+        run: /tmp/test_protocol_v2_codec
+      - name: Compile EEPROM boot journal model
+        run: g++ -std=c++11 -Wall -Wextra -Werror -pedantic tests/native/test_boot_identity_journal.cpp -o /tmp/test_boot_identity_journal
+      - name: Run EEPROM fault-boundary vectors
+        run: /tmp/test_boot_identity_journal
+      - name: Compile protocol v2 device state machine
+        run: g++ -std=c++11 -Wall -Wextra -Werror -pedantic tests/native/test_protocol_v2_device.cpp -o /tmp/test_protocol_v2_device
+      - name: Run protocol v2 device safety vectors
+        run: /tmp/test_protocol_v2_device
+      - name: Compile bounded protocol v2 TX scheduler
+        run: g++ -std=c++11 -Wall -Wextra -Werror -pedantic tests/native/test_protocol_v2_tx_scheduler.cpp -o /tmp/test_protocol_v2_tx_scheduler
+      - name: Run bounded TX and STOP priority vectors
+        run: /tmp/test_protocol_v2_tx_scheduler
+      - name: Compile fixed-memory ADC cadence scheduler
+        run: g++ -std=c++11 -Wall -Wextra -Werror -pedantic tests/native/test_protocol_v2_adc_scheduler.cpp -o /tmp/test_protocol_v2_adc_scheduler
+      - name: Run ADC cadence, overrun and wrap vectors
+        run: /tmp/test_protocol_v2_adc_scheduler
