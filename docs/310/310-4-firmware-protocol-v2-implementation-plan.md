@@ -296,3 +296,10 @@ The normal production build at code HEAD `6c3492d28d08ed146e0e51dbf0e368bd85cbf2
 The v2 payload currently carries only the low 8 bits of loss_counter in ADC_BATCH and the design says counter saturation must set a SATURATED flag. However, v2 batch_flags and sample_flags are reserved-zero, and the 16-byte STATUS payload has no defined saturation flag field. Firmware now saturates at UINT32_MAX and does not wrap, but it does NOT claim to emit the separate SATURATED flag or full counter in STATUS; the wire-level flag representation and STATUS emission remain explicit unresolved design/integration work. RX overflow, COBS failure, oversize, and TX backpressure reason counters are also not yet implemented.
 
 No sampling cadence or loop scheduler has been enabled. The linked ADC audit is compile-only and does not exercise conversion or physical hardware. No hardware interaction occurred.
+
+
+### Saturating counter helper and regression — 2026-11-05
+
+The saturating uint32 addition used by the firmware transport loss counter was moved into the shared codec utility layer as `saturating_add_u32()` and covered by native boundary tests (normal increment, exact UINT32_MAX arrival, overflow, and already-saturated input). Native protocol v2 workflow #135 / run ID `42029806922` passed at code HEAD `89546dec41e283c248abf55ff8c4b731cb6a4a33`. Arduino Uno Firmware Compile workflow #186 / run ID `42029806781` passed at the same code HEAD. The normal production image remains 893 static bytes; the compile-only ADC-helper image remains 895 static bytes; both are under the 900-byte cap, with the ADC audit stack arithmetic documented in `310-5-avr-resource-audit.md`. Full Break-in/Battery workflow #1543 / run ID `42029806831` passed all four jobs.
+
+The SATURATED wire flag and STATUS reporting remain unresolved as described above; a saturating counter implementation alone does not satisfy those protocol-level requirements.
