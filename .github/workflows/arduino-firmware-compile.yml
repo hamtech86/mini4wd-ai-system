@@ -75,7 +75,8 @@ jobs:
           mkdir -p "$build_dir"
           arduino-cli compile --export-binaries --fqbn arduino:avr:uno \
             --build-path "$build_dir" \
-            --build-property "compiler.cpp.extra_flags=-DSERIAL_RX_BUFFER_SIZE=32 -DSERIAL_TX_BUFFER_SIZE=32" \
+            --build-property "compiler.cpp.extra_flags=-DSERIAL_RX_BUFFER_SIZE=32 -DSERIAL_TX_BUFFER_SIZE=32 -fstack-usage" \
+            --build-property "compiler.c.extra_flags=-fstack-usage" \
             --build-property "compiler.c.elf.extra_flags=-Wl,-Map=$build_dir/MotoreRevV2.map" \
             "$sketch_dir"
           v2_hex_file="$(find "$sketch_dir" -type f -name '*.hex' -print -quit)"
@@ -103,6 +104,53 @@ jobs:
           fi
           "$avr_size" "$elf_file" | tee "$artifact_dir/MotoreRevV2-avr-size.txt"
           awk 'NR == 2 { if (($2 + $3) > 900) { print "ERROR: .data + .bss exceeds 900-byte static SRAM budget"; exit 1 } }' "$artifact_dir/MotoreRevV2-avr-size.txt"
+          stack_files="$(find "$build_dir" -type f -name '*.su' -print | wc -l)"
+          if [[ "$stack_files" -eq 0 ]]; then
+            echo "ERROR: -fstack-usage did not produce any .su files"
+            exit 1
+          fi
+          (cd "$build_dir" && find . -type f -name '*.su' -print0 | tar --null -czf "$artifact_dir/MotoreRevV2-stack-usage.tar.gz" --files-from -)
+          find "$build_dir" -type f -name '*.su' -exec cat {} + | sort -t           {
+            echo "sketch=MotoreRevV2"
+            echo "fqbn=arduino:avr:uno"
+            echo "arduino_avr_core=1.8.8"
+            echo "checked_out_sha=$GITHUB_SHA"
+            sha256sum "$artifact_dir/MotoreRevV2.ino.hex" "$artifact_dir/MotoreRevV2.elf" "$artifact_dir/MotoreRevV2.map"
+          } > "$artifact_dir/MotoreRevV2-build-manifest.txt"
+
+      - name: Verify firmware CAL and host-owned control contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          source = Path("firmware/motor/MotoreRev.ino").read_text()
+          loop = source[source.index("void loop()"):source.index("* FUNC-151 : setState()")]
+          command = source[source.index("void processCommand(const char *cmd)"):source.index("SECTION 19 : Response Functions")]
+          assert "voltageControlUpdate();" not in loop, "host owns normal voltage feedback"
+          assert 'Serial.print(F("CAL,ACS1_ZERO="))' in source, "CAL output missing"
+          assert "calibrateACS712(false);" in command, "ARM must refresh offsets after STOP/READY"
+          for direction, starter in (("START", None), ("FWD", "startForward"), ("REV", "startReverse")):
+              pos = command.index('if (strcmp(command, "' + direction + '") == 0)')
+              block = command[pos:pos + 220]
+              assert "sendCalibration();" in block, f"missing CAL snapshot on {direction}"
+              if starter:
+                  assert block.index("sendCalibration();") < block.index(starter + "();"), f"CAL must precede {direction}"
+          resume_pos = command.index('if (strcmp(command, "RESUME") == 0)')
+          resume_block = command[resume_pos:resume_pos + 800]
+          assert "sendCalibration();" in resume_block and resume_block.index("sendCalibration();") < resume_block.index("setState(STATE_RUN);")
+          assert "sendLog(" not in source[source.index("void sendCalibration()"):source.index("void sendInfo()")], "CAL must not enter DATA serialization"
+          print("Firmware CAL/host-control source contract checks passed")
+          PY
+
+      - name: Upload compiled Uno firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: motor-arduino-uno-firmware
+          path: ${{ runner.temp }}/firmware-artifact/*
+          if-no-files-found: error
+          retention-days: 14
+\\t' -k2,2nr | head -30 > "$artifact_dir/MotoreRevV2-stack-usage-top30.txt"
           {
             echo "sketch=MotoreRevV2"
             echo "fqbn=arduino:avr:uno"
