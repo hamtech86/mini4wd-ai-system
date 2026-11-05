@@ -27,6 +27,8 @@ class ProtocolV2SessionError(RuntimeError):
 class ProtocolV2HostSession:
     """Strict v2 host adapter. No persistent session-tag allocator is used."""
 
+    supports_stage_direction = True
+
     def __init__(
         self,
         transport: SerialTransport,
