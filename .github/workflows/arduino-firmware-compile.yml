@@ -166,6 +166,13 @@ jobs:
           "$avr_size" "$audit_elf" | tee "$artifact_dir/MotoreRevV2-adc-audit-avr-size.txt"
           awk 'NR == 2 { if (($2 + $3) > 900) { print "ERROR: ADC-helper linked .data + .bss exceeds 900-byte static SRAM budget"; exit 1 } }' "$artifact_dir/MotoreRevV2-adc-audit-avr-size.txt"
           (cd "$audit_build_dir" && find . -type f -name '*.su' -print0 | tar --null -czf "$artifact_dir/MotoreRevV2-adc-audit-stack-usage.tar.gz" --files-from -)
+          stack_files="$(find "$audit_build_dir" -type f -name '*.su' -print | wc -l)"
+          echo "ADC audit GCC .su files: $stack_files"
+          if [[ "$stack_files" -eq 0 ]]; then
+            find "$audit_build_dir" -type f -maxdepth 5 -print | head -80
+            echo "ERROR: ADC audit compiler emitted no .su files"
+            exit 1
+          fi
           python3 - "$audit_build_dir" "$artifact_dir" <<'PY'
           from pathlib import Path
           import sys
@@ -173,17 +180,17 @@ jobs:
           rows = []
           for path in build_dir.rglob("*.su"):
               for line in path.read_text(errors="replace").splitlines():
-                  parts = line.rsplit("\\t", 2)
-                  if len(parts) != 3:
+                  parts = line.split()
+                  if len(parts) < 3:
                       continue
                   try:
-                      frame = int(parts[1])
+                      frame = int(parts[-2])
                   except ValueError:
                       continue
-                  rows.append((frame, parts[0], parts[2]))
+                  rows.append((frame, parts[0], parts[-1]))
           rows.sort(reverse=True)
           if not rows:
-              raise SystemExit("ERROR: ADC audit produced no GCC stack-usage records")
+              raise SystemExit("ERROR: ADC audit .su files contain no parseable GCC stack-usage records")
           (artifact_dir / "MotoreRevV2-adc-audit-stack-usage-all.txt").write_text(
               "".join(f"{frame}\\t{qualifier}\\t{name}\\n" for frame, name, qualifier in rows)
           )
