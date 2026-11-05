@@ -83,11 +83,36 @@ static void test_reject_zero_session_and_wrong_version() {
                                 sizeof(tx), &wire_length));
 }
 
+
+static void test_arm_direction_and_disarm_wire_contract() {
+  uint8_t session[16] = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16};
+  uint8_t tx[kMaxWireSize] = {0};
+  uint8_t* p = tx + 1 + kHeaderSize;
+  write_u16(p, 9); p[2] = 0; p[3] = DIRECTION_REV;
+  uint16_t n = 0;
+  assert(encode_frame_in_place(ARM, session, 1, 1, tx, 4, sizeof(tx), &n));
+  uint8_t rx[kMaxWireSize] = {0}; memcpy(rx, tx, n - 1);
+  FrameView f; assert(decode_frame_in_place(rx, n - 1, &f));
+  assert(f.message_type == ARM && f.payload_length == 4);
+  assert(read_u16(f.payload) == 9 && f.payload[3] == DIRECTION_REV);
+
+  memset(tx, 0, sizeof(tx)); p = tx + 1 + kHeaderSize; write_u16(p, 9);
+  assert(encode_frame_in_place(DISARM, session, 1, 2, tx, 2, sizeof(tx), &n));
+  memset(rx, 0, sizeof(rx)); memcpy(rx, tx, n - 1);
+  assert(decode_frame_in_place(rx, n - 1, &f));
+  assert(f.message_type == DISARM && read_u16(f.payload) == 9);
+
+  memset(tx, 0, sizeof(tx)); p = tx + 1 + kHeaderSize;
+  p[0] = 0; p[1] = DEVICE_ARMED; write_u16(p + 2, 9); p[4] = DIRECTION_REV;
+  assert(encode_frame_in_place(ARM_ACK, session, 1, 1, tx, 5, sizeof(tx), &n));
+}
+
 int main() {
   test_crc_vector();
   test_hello_round_trip();
   test_adc_batch_round_trip_and_size();
   test_reject_uint64_exhaustion_batch();
   test_reject_zero_session_and_wrong_version();
+  test_arm_direction_and_disarm_wire_contract();
   return 0;
 }
