@@ -119,3 +119,24 @@ The PTY regression was tightened to send and decode an actual protocol-v2 STOP_R
 - Arduino Uno compile/resource run 42093964736: success.
 
 The current branch head c8549c2c35cecdd26d5be8048ea713deee848074 adds documentation only; its corresponding full suite run 42094107820 also passed **601 passed, 2 xfailed**, native run 42094107595 passed, and Arduino compile/resource run 42094107676 passed.
+
+
+## 2026-11-06 upper-command continuation — T18 host fsync profile limited acceptance
+
+The approved target Linux host/storage run has now completed. This supersedes the earlier T18 `NOT RUN` statements above **only for the host-filesystem synthetic fsync profile**.
+
+- Profile: `310-5-T18-fsync-v1`; 10,000 file fsync + 10,000 directory fsync samples; 10,000 paired samples.
+- Host: Linux x86_64, kernel `5.15.0-190-generic`, Python 3.10.12.
+- Storage: `/dev/sda3`, ext4, mount point `/`, options `rw,relatime,errors=remount-ro`.
+- Output: `~/mini4wd-ai-system/artifacts/310-t18-run/`.
+- Script exit code 0; wall time 14m44.746s; file and directory fsync failures both 0.
+- Paired latency: p50 66.155738 ms; p95 72.162060 ms; p99 110.172843 ms; p99.9 261.742767 ms; maximum 684.258623 ms.
+- Available profile budget 9,000 ms. p99.9 + 1,000 ms margin = 1,261.742767 ms; maximum + 1,000 ms margin = 1,684.258623 ms. Both are below budget; `profile_within_budget=true`.
+- CSV: 10,001 lines including header; SHA-256 `1a0891adc4d68905d30ac190f833bb94244cc031c061c3fdd4ff47e8bfaaa420`, matching the JSON report. `sha256sum -c 310-fsync-report.sha256` returned OK.
+- Formal record: `docs/310/310-5-t18-host-fsync-profile-acceptance-2026-11-06.md`.
+
+Upper-command disposition: **limited PASS for the synthetic host-filesystem fsync profile only**. This does not prove the complete production RawLog save/finalize/recovery pipeline meets the 10-second stage budget, nor power-loss durability. The benchmark's paired sum is a profile estimate, not a guarantee for a different journal workload. Its 14m44.746s runtime is the time to run the benchmark, not the duration of a production stage.
+
+T09/T15 physical STOP independence, MCU/driver cutoff and measured stop latency remain unqualified. EEPROM brownout/power-fail, BOD/voltage monitor, current limit, direction polarity, analog calibration/settling, physical serial interoperability and physical 310-second measurement remain NOT RUN. No Arduino upload, serial hardware connection, motor energization, EEPROM/fuse operation or physical test occurred. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains unchanged.
+
+Formal 310-5 acceptance and stage handoff remain pending. PR #190 remains Draft/Open/Unmerged; no merge or hardware authorization is granted.
