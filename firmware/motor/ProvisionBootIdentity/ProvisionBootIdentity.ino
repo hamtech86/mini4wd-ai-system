@@ -43,17 +43,6 @@ static bool journal_region_erased() {
   return true;
 }
 
-static void expected_record(uint8_t record[4]) {
-  record[0] = 0x50;
-  record[1] = 0x52;
-  record[2] = 0x01;
-  record[3] = crc8_atm(record, 3);
-}
-
-static bool record_valid(const uint8_t record[4]) {
-  return record[0] == 0x50 && record[1] == 0x52 &&
-         record[2] == 0x01 && record[3] == crc8_atm(record, 3);
-}
 
 static void report(const __FlashStringHelper* message) {
   Serial.println(message);
@@ -66,9 +55,9 @@ static void provision_once() {
   }
   uint8_t expected[4];
   uint8_t current[4];
-  expected_record(expected);
+  make_boot_provision_record(expected);
   for (uint8_t i = 0; i < 4; ++i) current[i] = EEPROM.read(kProvisionBase + i);
-  if (record_valid(current)) {
+  if (boot_provision_record_valid(current)) {
     report(F("ALREADY_PROVISIONED: no EEPROM writes performed"));
     return;
   }
@@ -82,7 +71,7 @@ static void provision_once() {
   }
   for (uint8_t i = 0; i < 4; ++i) EEPROM.update(kProvisionBase + i, expected[i]);
   for (uint8_t i = 0; i < 4; ++i) current[i] = EEPROM.read(kProvisionBase + i);
-  if (!record_valid(current)) {
+  if (!boot_provision_record_valid(current)) {
     report(F("FAIL: provisioning record readback mismatch"));
     return;
   }
