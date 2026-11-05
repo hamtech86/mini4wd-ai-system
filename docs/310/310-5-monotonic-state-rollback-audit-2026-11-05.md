@@ -110,3 +110,17 @@ This audit is a source-level finding and a test-gap analysis. It is not a comple
 4. Re-run complete repository CI against the exact resulting code/test HEAD and report exact run IDs and counts.
 
 No Arduino upload, physical serial connection, motor energization, 310-second measurement, fuse/EEPROM operation, or hardware test was performed. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains in force.
+
+
+## CI evidence for the audit commit
+
+The audit document commit `eeab6869f5f26cd558fa7179e4c4a62bb47fd03b` triggered GitHub Actions run #1411:
+https://github.com/hamtech86/mini4wd-ai-system/actions/runs/41945548129
+
+All four repository jobs completed successfully:
+- `test-breakin`: success
+- `test-battery`: success
+- `test-raw-log-and-sequence`: success
+- `test-full-suite`: success; **528 passed in 12.59s**
+
+This run verifies the repository checkout and existing test suite at the audit commit. It does not execute the adversarial paired-rollback reproducer described above, so it does not close T01/T03. No T01/T03 PASS is inferred from this CI result.
