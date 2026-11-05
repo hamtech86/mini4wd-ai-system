@@ -95,7 +95,12 @@ jobs:
           fi
           cp "$elf_file" "$artifact_dir/MotoreRevV2.elf"
           cp "$map_file" "$artifact_dir/MotoreRevV2.map"
-          avr-size "$elf_file" | tee "$artifact_dir/MotoreRevV2-avr-size.txt"
+          avr_size="$(find "$HOME/.arduino15/packages/arduino/tools/avr-gcc" -type f -name avr-size -print -quit)"
+          if [[ -z "$avr_size" ]]; then
+            echo "ERROR: avr-size not found in the installed Arduino AVR toolchain"
+            exit 1
+          fi
+          "$avr_size" "$elf_file" | tee "$artifact_dir/MotoreRevV2-avr-size.txt"
           awk 'NR == 2 { if (($2 + $3) > 900) { print "ERROR: .data + .bss exceeds 900-byte static SRAM budget"; exit 1 } }' "$artifact_dir/MotoreRevV2-avr-size.txt"
           {
             echo "sketch=MotoreRevV2"
