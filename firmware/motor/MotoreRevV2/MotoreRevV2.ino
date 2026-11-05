@@ -28,12 +28,16 @@
 #include "BootIdentityJournal.h"
 #include "ProtocolV2Device.h"
 #include "ProtocolV2TxScheduler.h"
+#include "ProtocolV2AdcScheduler.h"
 
 namespace {
 
 using namespace mini4wd310;
 
 static_assert(kMaxV2WireSize == 188, "v2 wire-size change requires an SRAM review");
+static const uint8_t kMaxHostCommandWireSize = 41;
+static const uint8_t kRxWorkspaceSize = 48;
+static_assert(kRxWorkspaceSize >= kMaxHostCommandWireSize, "RX workspace too small for the largest host command");
 
 static const uint8_t PIN_PWM = 5;
 static const uint8_t PIN_IN3 = 7;
@@ -96,6 +100,7 @@ static UnoOutputAdapter output_adapter;
 static UnoEepromStorage eeprom_storage;
 static BootIdentityJournal<UnoEepromStorage> boot_journal(eeprom_storage);
 static ProtocolV2TxScheduler tx_scheduler;
+static AdcCadenceScheduler adc_scheduler;
 
 // Construct the device only after setup() has initialized safe GPIO states.
 // Placement construction uses static storage; no heap allocation is used.
@@ -105,7 +110,7 @@ static Device* device = 0;
 
 // RX owns its one frame workspace. ADC_BATCH assembly is owned directly by
 // the TX scheduler's one TX workspace; no second payload/frame shadow exists.
-static uint8_t rx_buffer[kMaxV2WireSize];
+static uint8_t rx_buffer[kRxWorkspaceSize];
 static uint16_t rx_length = 0;
 static bool rx_discard_until_delimiter = false;
 static uint8_t adc_batch_count = 0;
@@ -163,7 +168,10 @@ static void handle_rx_byte(uint8_t value) {
 }
 
 static void service_rx() {
-  while (Serial.available() > 0) {
+  // Bound foreground RX work so a continuous stream cannot starve STOP or
+  // the cadence scheduler. The Uno RX ring is 32 bytes; 32 reads drain one
+  // full ring while guaranteeing the loop returns to safety work.
+  for (uint8_t budget = 0; budget < 32 && Serial.available() > 0; ++budget) {
     const int value = Serial.read();
     if (value >= 0) handle_rx_byte(static_cast<uint8_t>(value));
   }
@@ -259,8 +267,10 @@ static bool capture_adc_attempt(uint8_t channel_code) {
 // acquisition slot. It is not used for host-side frame loss or UART backpressure.
 static bool record_not_acquired_attempt(uint8_t channel_code, uint32_t scheduled_us) {
   if (channel_code > 5) return false;
-  const uint16_t stage_token = device ? device->active_context_token() : 0;
-  return append_adc_attempt(channel_code, scheduled_us, 0xFFFF, stage_token, ADC_NOT_ACQUIRED);
+  // A missed slot is timestamped in the past; its stage may have changed
+  // before this loop could account for it. Zero deliberately leaves context
+  // unresolved rather than assigning it to a later stage.
+  return append_adc_attempt(channel_code, scheduled_us, 0xFFFF, 0, ADC_NOT_ACQUIRED);
 }
 
 } // namespace
@@ -285,14 +295,31 @@ void setup() {
 
 void loop() {
   service_rx();
+
+  const bool acquisition_state = device &&
+      (device->state() == DEVICE_ARMED || device->state() == DEVICE_RUNNING);
+  if (!acquisition_state) {
+    adc_scheduler.stop();
+  } else {
+    if (!adc_scheduler.active()) adc_scheduler.start(micros());
+    uint8_t channel_code = 0;
+    uint32_t scheduled_us = 0;
+    bool not_acquired = false;
+    if (adc_scheduler.take_due(micros(), &channel_code, &scheduled_us,
+                               &not_acquired)) {
+      if (not_acquired) {
+        (void)record_not_acquired_attempt(channel_code, scheduled_us);
+      } else {
+        (void)capture_adc_attempt(channel_code);
+      }
+    }
+  }
+
 #if defined(M4WD_ADC_RESOURCE_AUDIT)
-  if (adc_resource_audit_link) {
+  if (adc_resource_audit_link && !acquisition_state) {
     (void)capture_adc_attempt(0);
     (void)record_not_acquired_attempt(0, micros());
   }
 #endif
   tx_scheduler.service(Serial);
-  // No ADC cadence is enabled here. A separately qualified foreground
-  // scheduler may call capture_adc_attempt(channel_code); the design cadence
-  // remains unapproved and ADC acquisition therefore stays inactive.
 }
