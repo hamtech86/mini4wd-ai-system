@@ -79,8 +79,12 @@ def run_profile(output_dir, samples, stage_ms, stop_reserve_ms, margin_ms):
     if stop_reserve_ms >= stage_ms:
         raise ValueError("STOP reserve must be less than stage duration")
 
-    output_dir = Path(output_dir).resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
+    requested_output_dir = Path(output_dir)
+    if requested_output_dir.is_symlink():
+        raise ValueError("T18 output directory must not be a symlink")
+    if not requested_output_dir.exists() or not requested_output_dir.is_dir():
+        raise ValueError("T18 output directory must pre-exist on the approved target storage")
+    output_dir = requested_output_dir.resolve()
     file_latencies, dir_latencies = [], []
     file_failures, dir_failures = [], []
     with tempfile.TemporaryDirectory(prefix=".310-fsync-profile-", dir=output_dir) as temp:
