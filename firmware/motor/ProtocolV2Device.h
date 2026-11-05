@@ -241,7 +241,7 @@ class ProtocolV2Device {
   DeviceReplyV2 handle_arm(const FrameView& f) {
     if (!session_bound_ || !same_session(session_uuid_, f.session_uuid) ||
         f.device_epoch_tag != epoch_tag_for_boot_id(boot_id64_))
-      return arm_ack(f, 2, state_, 0, false);
+      return arm_ack(f, 2, state_, 0, 0xFF, false);
     if (f.payload[2] != 0 || read_u16(f.payload) == 0 || f.payload[3] > DIRECTION_REV)
       return arm_ack(f, 3, state_, 0, 0xFF, false);
     uint8_t old_type = 0, old_payload[5] = {0}, old_length = 0;
@@ -314,7 +314,7 @@ class ProtocolV2Device {
     if (!session_bound_ || !same_session(session_uuid_, f.session_uuid) ||
         f.device_epoch_tag != epoch_tag_for_boot_id(boot_id64_))
       return apply_ack(f, 2, 0, read_u16(f.payload + 1), false);
-    uint8_t old_type = 0, old_payload[4] = {0}, old_length = 0;
+    uint8_t old_type = 0, old_payload[5] = {0}, old_length = 0;
     bool conflict = false;
     if (find_cached(f, &old_type, old_payload, &old_length, &conflict))
       return cached_or_error(f, APPLY_ACK);
