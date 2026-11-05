@@ -281,7 +281,10 @@ void setup() {
 void loop() {
   service_rx();
 #if defined(M4WD_ADC_RESOURCE_AUDIT)
-  if (adc_resource_audit_link) (void)capture_adc_attempt(0);
+  if (adc_resource_audit_link) {
+    (void)capture_adc_attempt(0);
+    (void)record_not_acquired_attempt(0, micros());
+  }
 #endif
   tx_scheduler.service(Serial);
   // No ADC cadence is enabled here. A separately qualified foreground
