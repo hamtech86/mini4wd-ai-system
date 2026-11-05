@@ -62,6 +62,8 @@ class DeviceLossWindowAccumulator:
         self._counts = self._empty_counts()
         self._unattributable = False
         self._unattributable_slots = 0
+        self._unattributable_windows: set[int] = set()
+        self._gap_slots_by_window: dict[int, int] = {}
         self._closed = False
 
     @staticmethod
@@ -110,18 +112,22 @@ class DeviceLossWindowAccumulator:
             if gap_slots:
                 first_window = previous_elapsed // WINDOW_US
                 last_window = self._elapsed // WINDOW_US
-                if first_window <= self._window_index <= last_window:
-                    self._unattributable = True
-                    self._unattributable_slots += gap_slots
+                for index in range(first_window, last_window + 1):
+                    self._unattributable_windows.add(index)
+                self._gap_slots_by_window[first_window] = (
+                    self._gap_slots_by_window.get(first_window, 0) + gap_slots
+                )
                 gap_slots = 0
 
             target_window = self._elapsed // WINDOW_US
             while self._window_index < target_window:
+                self._unattributable = self._window_index in self._unattributable_windows
+                self._unattributable_slots = self._gap_slots_by_window.get(self._window_index, 0)
                 completed.append(self._finish_current())
                 self._window_index += 1
                 self._counts = self._empty_counts()
-                self._unattributable = False
-                self._unattributable_slots = 0
+            self._unattributable = self._window_index in self._unattributable_windows
+            self._unattributable_slots = self._gap_slots_by_window.get(self._window_index, 0)
 
             name = CHANNEL_NAMES[sample["channel_code"]]
             counts = self._counts[name]
