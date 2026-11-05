@@ -46,8 +46,8 @@ class ProtocolV2Device {
   ProtocolV2Device(Output& output, uint64_t boot_id64, uint64_t next_sample_sequence64)
       : output_(output), boot_id64_(boot_id64), next_sample_sequence64_(next_sample_sequence64),
         state_(boot_id64 ? DEVICE_IDLE : DEVICE_BOOT_ID_INVALID),
-        session_bound_(false), active_token_(0), command_high_water_(0),
-        command_cache_next_(0), stop_history_next_(0) {
+        session_bound_(false), active_token_(0), active_pwm_(0), command_high_water_(0),
+        command_cache_next_(0) {
     memset(session_uuid_, 0, sizeof(session_uuid_));
     memset(command_cache_, 0, sizeof(command_cache_));
     memset(stop_history_, 0, sizeof(stop_history_));
@@ -106,7 +106,6 @@ class ProtocolV2Device {
   CommandCacheEntry command_cache_[4];
   uint8_t command_cache_next_;
   StopHistoryEntry stop_history_[4];
-  uint8_t stop_history_next_;
 
   static bool same_session(const uint8_t* a, const uint8_t* b) {
     return memcmp(a, b, 16) == 0;
@@ -152,13 +151,18 @@ class ProtocolV2Device {
       result = 1; // BOOT_ID_INVALID / unavailable
     } else if (nonce == 0 || zero_session(f.session_uuid)) {
       result = 2;
-    } else {
-      // HELLO may bind a new session while stopped, but never clears STOP.
+    } else if (session_bound_ && same_session(session_uuid_, f.session_uuid)) {
+      // Idempotent HELLO retry must not reset command freshness/cache.
+    } else if (state_ == DEVICE_IDLE || state_ == DEVICE_STOP_LATCHED ||
+               state_ == DEVICE_STOPPED) {
+      // A new UUID may bind only while output is already non-driving.
       memcpy(session_uuid_, f.session_uuid, 16);
       session_bound_ = true;
       command_high_water_ = 0;
       memset(command_cache_, 0, sizeof(command_cache_));
       command_cache_next_ = 0;
+    } else {
+      result = 3; // SESSION_BUSY; do not orphan an active/armed run.
     }
     r.epoch_tag = result == 0 ? epoch_tag_for_boot_id(boot_id64_) : 0;
     r.payload[0] = result;
@@ -294,11 +298,13 @@ class ProtocolV2Device {
   }
   DeviceReplyV2 handle_stop(const FrameView& f) {
     // Safety action is first: it is independent of session freshness/history capacity.
+    const bool prior_fault = state_ == DEVICE_FAULT || state_ == DEVICE_FAULT_STOP ||
+        state_ == DEVICE_BOOT_ID_INVALID;
     const bool safe = outputs_safe();
-    if (!safe) state_ = DEVICE_FAULT_STOP;
+    if (!safe || prior_fault) state_ = DEVICE_FAULT_STOP;
     else state_ = DEVICE_STOPPED;
-    const uint8_t relation = zero_session(f.session_uuid) ? 2 :
-        ((session_bound_ && same_session(session_uuid_, f.session_uuid)) ? 0 : 1);
+    const uint8_t relation = !session_bound_ ? 2 :
+        (same_session(session_uuid_, f.session_uuid) ? 0 : 1);
     const uint8_t reason = f.payload[0];
     const uint16_t request_id = read_u16(f.payload + 1);
     uint8_t outcome = 0; // NEW_RECORDED
@@ -326,7 +332,7 @@ class ProtocolV2Device {
     DeviceReplyV2 r = blank_reply(f, STOP_ACK);
     r.payload[0] = relation;
     r.payload[1] = outcome;
-    r.payload[2] = safe ? 2 : 1; // STOPPED / FAULT_STOP
+    r.payload[2] = (!safe || prior_fault) ? 1 : 2; // FAULT_STOP / STOPPED
     r.payload_length = 3;
     return r;
   }
