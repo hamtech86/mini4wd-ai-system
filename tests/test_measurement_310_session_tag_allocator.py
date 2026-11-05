@@ -39,11 +39,34 @@ def test_old_backup_is_not_used_as_recovery_source(tmp_path):
     backup = tmp_path / "tags.old"
     backup.write_bytes(path.read_bytes())
     allocator.allocate()
-    # Without an external monotonic anchor, restoring an old valid journal is
-    # not detectable by a hash chain stored only inside that journal.
+    # This exercises partial rollback only: the journal is restored while
+    # the newer sibling anchor remains in place. Both files share a rollback
+    # domain, so this test does not establish paired-backup rollback safety.
     path.write_bytes(backup.read_bytes())
     with pytest.raises(JournalUntrusted):
         SessionTagAllocator(path, "fixed", initial_high_water=0).allocate()
+
+@pytest.mark.xfail(strict=True, reason="T01 blocker: journal and sibling anchor have no independent monotonic witness")
+def test_paired_backup_rollback_does_not_reissue_a_previously_allocated_tag(tmp_path):
+    path = tmp_path / "tags.jsonl"
+    allocator = SessionTagAllocator(path, "fixed", initial_high_water=0)
+    assert allocator.allocate().tag == 1
+
+    # Preserve a mutually consistent older snapshot of both local files.
+    old_journal = path.read_bytes()
+    anchor_path = path.with_name(path.name + ".anchor")
+    old_anchor = anchor_path.read_bytes()
+
+    assert allocator.allocate().tag == 2
+
+    # Roll back the entire local persistence pair, not just one member.
+    path.write_bytes(old_journal)
+    anchor_path.write_bytes(old_anchor)
+
+    recovered = SessionTagAllocator(path, "fixed").allocate()
+    # Correct behavior must fail closed or continue above 2. Current code
+    # returns 2, demonstrating reuse after authentic paired rollback.
+    assert recovered.tag > 2
 
 def test_exhaustion_never_wraps(tmp_path, monkeypatch):
     import measurement_310.session_tag_allocator as allocator_module
