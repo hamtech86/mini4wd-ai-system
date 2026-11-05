@@ -124,7 +124,20 @@ static void test_write_failure_boundaries_do_not_reuse_committed_id() {
   }
 }
 
+static void test_provision_record_format_is_shared_and_exact() {
+  uint8_t record[4] = {0, 0, 0, 0};
+  make_boot_provision_record(record);
+  assert(record[0] == 0x50);
+  assert(record[1] == 0x52);
+  assert(record[2] == 0x01);
+  assert(record[3] == 0x05); // CRC-8/ATM over 50 52 01
+  assert(boot_provision_record_valid(record));
+  record[3] ^= 0x01;
+  assert(!boot_provision_record_valid(record));
+}
+
 int main() {
+  test_provision_record_format_is_shared_and_exact();
   test_first_and_normal_boot_increment();
   test_no_auto_provisioning_or_repair();
   test_corrupt_all_slots_is_invalid();
