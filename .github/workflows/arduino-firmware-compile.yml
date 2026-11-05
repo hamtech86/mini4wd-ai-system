@@ -110,7 +110,7 @@ jobs:
             exit 1
           fi
           (cd "$build_dir" && find . -type f -name '*.su' -print0 | tar --null -czf "$artifact_dir/MotoreRevV2-stack-usage.tar.gz" --files-from -)
-          find "$build_dir" -type f -name '*.su' -exec cat {} + | sort -t $'\\t' -k2,2nr | head -30 > "$artifact_dir/MotoreRevV2-stack-usage-top30.txt"
+          find "$build_dir" -type f -name '*.su' -exec cat {} + | sort -k2,2nr | head -30 > "$artifact_dir/MotoreRevV2-stack-usage-top30.txt"
           {
             echo "sketch=MotoreRevV2"
             echo "fqbn=arduino:avr:uno"
