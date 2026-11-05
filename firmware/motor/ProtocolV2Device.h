@@ -47,12 +47,13 @@ class ProtocolV2Device {
       : output_(output), boot_id64_(boot_id64), next_sample_sequence64_(next_sample_sequence64),
         state_(boot_id64 ? DEVICE_IDLE : DEVICE_BOOT_ID_INVALID),
         session_bound_(false), active_token_(0), active_pwm_(0), command_high_water_(0),
-        command_cache_next_(0) {
+        command_cache_next_(0), output_healthy_(false) {
     memset(session_uuid_, 0, sizeof(session_uuid_));
     memset(command_cache_, 0, sizeof(command_cache_));
     memset(stop_history_, 0, sizeof(stop_history_));
     // Safe outputs are requested before this object may process any frame.
-    if (!output_.safe_outputs()) state_ = DEVICE_FAULT;
+    output_healthy_ = output_.safe_outputs();
+    if (!output_healthy_) state_ = DEVICE_FAULT;
   }
 
   DeviceStateV2 state() const { return state_; }
@@ -60,6 +61,15 @@ class ProtocolV2Device {
   uint16_t active_context_token() const { return active_token_; }
   uint64_t boot_id64() const { return boot_id64_; }
   uint64_t next_sample_sequence64() const { return next_sample_sequence64_; }
+
+  bool initialize_identity(uint64_t boot_id64, uint64_t next_sample_sequence64) {
+    if (!output_healthy_ || boot_id64 == 0 || state_ != DEVICE_BOOT_ID_INVALID)
+      return false;
+    boot_id64_ = boot_id64;
+    next_sample_sequence64_ = next_sample_sequence64;
+    state_ = DEVICE_IDLE;
+    return true;
+  }
 
   void set_next_sample_sequence64(uint64_t next) {
     if (next >= next_sample_sequence64_) next_sample_sequence64_ = next;
@@ -105,6 +115,7 @@ class ProtocolV2Device {
   uint32_t command_high_water_;
   CommandCacheEntry command_cache_[4];
   uint8_t command_cache_next_;
+  bool output_healthy_;
   StopHistoryEntry stop_history_[4];
 
   static bool same_session(const uint8_t* a, const uint8_t* b) {
@@ -129,6 +140,7 @@ class ProtocolV2Device {
   }
   DeviceReplyV2 error_reply(const FrameView& f, uint8_t code) const {
     DeviceReplyV2 r = blank_reply(f, ERROR_MSG);
+    r.command_id = 0; // ERROR uses command_id=0; related ID is in its payload.
     r.payload[0] = code;
     r.payload[1] = f.message_type;
     write_u16(r.payload + 2, 0);
