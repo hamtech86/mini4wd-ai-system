@@ -57,6 +57,9 @@ static inline void write_u32(uint8_t* p, uint32_t v) {
 static inline void write_u64(uint8_t* p, uint64_t v) {
   write_u32(p, (uint32_t)v); write_u32(p + 4, (uint32_t)(v >> 32));
 }
+static inline uint32_t saturating_add_u32(uint32_t value, uint32_t increment) {
+  return increment > UINT32_MAX - value ? UINT32_MAX : value + increment;
+}
 
 static inline uint16_t crc16_ccitt_false(const uint8_t* data, uint16_t length) {
   uint16_t crc = 0xFFFF;
