@@ -176,3 +176,20 @@ Exact code HEAD `0fb8dbb8c5ea34421dfd31c30b78a7a47ce29bf6`:
 - DB Path Safety #580 / 41963694424: success.
 
 The branch later advanced by documentation-only commits to `c0ad824277cb15c376f8bb20173087ee75664d77`; firmware code did not change after the tested code HEAD. These CI results do not establish v2 AVR compilation, SRAM/stack limits, hardware behavior or formal T01–T18 acceptance.
+
+
+## 9. 2026-11-05 per-stage direction and DISARM increment
+
+The wire and device-state implementation now follows the command-authority amendment in PR #183:
+
+- ARM payload is now 4 bytes: stage_context_token:uint16, initial_pwm=0, direction enum FWD=0 / REV=1. ARM_ACK is 5 bytes and echoes direction; rejected ARM_ACK may use 0xFF (NONE), while successful ACK must echo FWD or REV.
+- DISARM (2-byte active context token) and DISARM_ACK (result/state/token, 4 bytes) are separate message types. Successful DISARM calls the synchronous safe-output adapter, clears active context and returns to IDLE while retaining the session UUID, boot epoch, sequence and command high-water.
+- Same-session next-stage ARM is allowed only after normal DISARM. STOP remains terminal for the current boot and cannot be cleared by DISARM or a new HELLO; a reset/new boot identity is required before a fresh execution.
+- Native device tests cover FWD → DISARM → REV within one session, PWM zero/direction LOW during stage transition, and STOP terminal behavior. Codec vectors cover ARM direction and DISARM wire formats, including NONE sentinel validation.
+- The current Output adapter interface now requires set_direction(direction) in addition to safe_outputs() and set_pwm(). No production Arduino adapter or sketch is implemented yet.
+
+Verification status at this document update:
+- An initial native run exposed a missing ARM_ACK helper argument; corrected.
+- A subsequent native run exposed an outdated STOP test that expected a new HELLO to clear STOP; corrected to assert terminal STOP semantics.
+- The next exact-HEAD native run is the acceptance evidence for this increment; do not count the failed runs as passes.
+- No v2 sketch, AVR build/map, SRAM/stack proof, physical output test or hardware qualification is claimed.
