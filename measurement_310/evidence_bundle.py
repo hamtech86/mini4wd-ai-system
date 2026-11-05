@@ -42,6 +42,8 @@ def write_evidence_bundle_manifest(
         raise EvidenceBundleError("RawLog package must be a real directory")
     if not isinstance(measurement_session_id, str) or not measurement_session_id:
         raise EvidenceBundleError("measurement_session_id is required")
+    if {item.name for item in package.iterdir()} != set(PACKAGE_FILES):
+        raise EvidenceBundleError("RawLog package must contain exactly manifest.json and records.jsonl")
     files = {name: _read_regular(package / name) for name in PACKAGE_FILES}
     try:
         rawlog_manifest = json.loads(files["manifest.json"].decode("utf-8"))
@@ -66,7 +68,7 @@ def write_evidence_bundle_manifest(
         "evidence_chain_head": chain_head,
         "evidence_event_count": len(events),
     }
-    encoded = (json.dumps(body, sort_keys=True, separators=(",", ":")) + "\\n").encode("utf-8")
+    encoded = (json.dumps(body, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
     parent = evidence_path.parent
     if parent.is_symlink() or not parent.is_dir():
         raise EvidenceBundleError("Evidence sidecar directory must be a real directory")
