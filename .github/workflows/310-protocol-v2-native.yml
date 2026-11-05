@@ -1,0 +1,21 @@
+name: 310 protocol v2 native codec
+
+on:
+  push:
+    branches:
+      - firmware/310-4-protocol-v2-integration
+  pull_request:
+    paths:
+      - "firmware/motor/ProtocolV2Codec.h"
+      - "tests/native/test_protocol_v2_codec.cpp"
+      - ".github/workflows/310-protocol-v2-native.yml"
+
+jobs:
+  native-codec:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile fixed-memory codec
+        run: g++ -std=c++11 -Wall -Wextra -Werror -pedantic tests/native/test_protocol_v2_codec.cpp -o /tmp/test_protocol_v2_codec
+      - name: Run protocol vectors
+        run: /tmp/test_protocol_v2_codec
