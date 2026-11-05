@@ -145,7 +145,7 @@ Added `firmware/motor/ProtocolV2TxScheduler.h` and `tests/native/test_protocol_v
 - A pending STOP_ACK supersedes a lower-priority pending reply and is emitted at the next frame boundary. The active frame is not corrupted or interleaved.
 - A second lower-priority pending reply is rejected rather than overwriting the pending item or growing a queue.
 - This scheduler does not itself perform STOP output actions. The device state machine performs safe_outputs synchronously when STOP_REQ is handled; scheduler only prioritizes the best-effort ACK.
-- Native CI for the scheduler increment is running at current code HEAD `74ac55f1f04725f0399c36fef3ae8d5da2765723`; record the exact run conclusion before treating it as verified.
+- Native workflow run #36 / run ID 41963637848 completed success at exact code HEAD `74ac55f1f04725f0399c36fef3ae8d5da2765723`. All five compile/run steps passed: codec, EEPROM journal, device state machine and bounded TX scheduler.
 
 ### Direction contract discrepancy — must be resolved before sketch drive integration
 
@@ -159,6 +159,6 @@ FW2-01 codec: implemented; native CI passing.
 FW2-02 EEPROM journal: implemented as a native model; native CI passing. Actual Uno EEPROM adapter/provisioning remains open.
 FW2-03 sample sequence: core HELLO/STATUS storage fields exist in codec/device object; ADC scheduler and sequence consumption on every scheduled attempt remain open.
 FW2-04 command state machine: native implementation/tests added; native CI passing through HEAD `a20337655b637ea459e79b39ea734776eacaece9`.
-FW2-05 STOP: synchronous safe-output adapter and native command-state tests added; bounded TX scheduler added; scheduler CI pending at HEAD `74ac55f1f04725f0399c36fef3ae8d5da2765723`. Physical STOP remains unqualified.
+FW2-05 STOP: synchronous safe-output adapter and native command-state tests added; bounded TX scheduler added; scheduler native CI passing at exact HEAD `74ac55f1f04725f0399c36fef3ae8d5da2765723`. Physical STOP remains unqualified.
 FW2-06 ADC: not implemented; 20 Hz remains NOT ADOPTED, so no cadence is invented.
 FW2-07 AVR build/resource proof: not started for v2 sketch.
