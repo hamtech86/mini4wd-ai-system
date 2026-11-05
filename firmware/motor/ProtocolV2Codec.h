@@ -23,6 +23,10 @@ enum MessageType : uint8_t {
 };
 
 enum DriveDirectionV2 : uint8_t { DIRECTION_FWD = 0, DIRECTION_REV = 1 };
+enum AcquisitionStatusV2 : uint8_t {
+  ADC_ACQ_OK = 0, ADC_PRECONDITION_INVALID = 1,
+  ADC_CONVERSION_TIMEOUT = 2, ADC_NOT_ACQUIRED = 3
+};
 
 struct FrameView {
   uint8_t message_type;
