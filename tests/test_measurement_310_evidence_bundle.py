@@ -68,3 +68,12 @@ def test_companion_manifest_rejects_extra_rawlog_package_files(tmp_path):
     (package / "unexpected.bin").write_bytes(b"not part of RawLog v2")
     with pytest.raises(EvidenceBundleError, match="exactly manifest.json"):
         write_evidence_bundle_manifest(package, journal, session_id)
+
+
+def test_companion_verifier_detects_evidence_sidecar_tampering(tmp_path):
+    session_id, package, journal = make_bundle(tmp_path)
+    write_evidence_bundle_manifest(package, journal, session_id)
+    with journal.path.open("ab") as stream:
+        stream.write(b"{}\\n")
+    with pytest.raises(EvidenceBundleError, match="Evidence sidecar checksum"):
+        verify_evidence_bundle(package, journal, session_id)
