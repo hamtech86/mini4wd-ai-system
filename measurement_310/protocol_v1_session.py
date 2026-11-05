@@ -37,6 +37,41 @@ class TransportEvidenceJournal:
         self.path = Path(path)
 
     @staticmethod
+    def _fsync_directory(path: Path) -> None:
+        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(str(path), flags)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+
+    @classmethod
+    def for_session(cls, rawlog_root: os.PathLike | str,
+                    measurement_session_id: str) -> "TransportEvidenceJournal":
+        """Create the deterministic external Evidence sidecar path durably."""
+        try:
+            parsed = uuid.UUID(measurement_session_id)
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise ProtocolV1SessionError("measurement_session_id must be a canonical UUID") from exc
+        if str(parsed) != measurement_session_id:
+            raise ProtocolV1SessionError("measurement_session_id must be a canonical UUID")
+        root = Path(rawlog_root)
+        if root.is_symlink() or not root.is_dir():
+            raise ProtocolV1SessionError("RawLog root must be an existing real directory")
+        evidence_root = root / ".transport-evidence"
+        session_root = evidence_root / measurement_session_id
+        for parent, child in ((root, evidence_root), (evidence_root, session_root)):
+            if child.is_symlink():
+                raise ProtocolV1SessionError("transport Evidence directory must not be a symlink")
+            if not child.exists():
+                child.mkdir(mode=0o700)
+                cls._fsync_directory(parent)
+            if not child.is_dir():
+                raise ProtocolV1SessionError("transport Evidence path component is not a directory")
+            cls._fsync_directory(child)
+        return cls(session_root / "transport-evidence-v1.jsonl")
+
+    @staticmethod
     def _canonical(value: dict) -> bytes:
         return json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
