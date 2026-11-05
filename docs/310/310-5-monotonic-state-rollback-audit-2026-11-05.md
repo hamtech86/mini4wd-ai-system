@@ -124,3 +124,24 @@ All four repository jobs completed successfully:
 - `test-full-suite`: success; **528 passed in 12.59s**
 
 This run verifies the repository checkout and existing test suite at the audit commit. It does not execute the adversarial paired-rollback reproducer described above, so it does not close T01/T03. No T01/T03 PASS is inferred from this CI result.
+
+
+## Adversarial rollback fixtures executed — Actions run #1413
+
+The two adversarial fixtures described above were added to the candidate tests and executed in a complete repository checkout at PR #187 HEAD `48506b941529d7cf82a12f2710c94f400f4dda0b`.
+
+Workflow: https://github.com/hamtech86/mini4wd-ai-system/actions/runs/41945899970
+
+All four jobs completed successfully:
+- `test-breakin`: success
+- `test-battery`: success
+- `test-raw-log-and-sequence`: success
+- `test-full-suite`: success; **528 passed, 2 xfailed in 11.85s**
+
+The two expected failures are the explicit rollback fixtures:
+- `test_paired_backup_rollback_does_not_reissue_a_previously_allocated_tag`: XFAIL (T01)
+- `test_authentic_older_checkpoint_for_same_boot_is_not_accepted_after_rollback`: XFAIL (T03)
+
+Both are marked `xfail(strict=True)` because the safe behavior is not implemented. Their XFAIL status confirms the current implementation does not meet the asserted rollback-safe behavior; it does not count as a passing acceptance test. CI green therefore means the repository suite completed with the known T01/T03 blockers explicitly exposed, not that T01/T03 are closed.
+
+The PR remains Draft/Open/Unmerged. No firmware, RawLog v2 schema/writer/validator, merge, CI dispatch, physical serial connection, motor energization, 310-second measurement, or hardware test was performed. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains in force.
