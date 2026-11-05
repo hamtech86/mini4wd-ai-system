@@ -237,3 +237,12 @@ The first resource-audit attempt found 1,026 bytes of global SRAM, above the 900
 At exact HEAD `91bb1d50ca42a6939a8b780283c594b082daff46`, Arduino Uno Firmware Compile run #122 / ID 42012147999 succeeded. `avr-size` reported text=10670, data=146, bss=752; therefore `.data + .bss = 898 bytes`, within the 900-byte static SRAM ceiling. The CI job also retained the HEX, ELF, linker map, size report and SHA-256 manifest in artifact ID 13408055659 (expires 2026-11-19). Native protocol v2 workflow #71 / ID 42012148002 succeeded. Break-in/Battery workflow #1477 / ID 42012148043 completed with all four jobs successful.
 
 This closes only the static SRAM-size check for this exact build. Worst-case stack <=700 bytes, reserve >=448 bytes under the required execution paths, ISR/call nesting, UART overflow behavior under sustained traffic, and full ADC-enabled sketch memory are NOT yet proven. At 898 bytes there is only 2 bytes of headroom against the static limit; the ADC scheduler must not be added without a renewed resource budget and optimization review.
+
+
+### Reduced v2 RX/TX workspace — 2026-11-05
+
+The v2 protocol maximum wire frame is 188 bytes (155-byte ADC_BATCH payload + 29-byte header + 2-byte CRC, worst-case COBS overhead and delimiter). Added `kMaxV2WireSize=188`; the v2 TX scheduler and sketch RX workspace now use this exact bound instead of the shared 194-byte legacy ceiling. `encode_frame_in_place` now validates the caller's actual capacity against the encoded frame requirement rather than requiring the larger shared ceiling. The native TX scheduler test now allocates the exact v2 buffer.
+
+At exact HEAD `91f4f76e2ef7d74ec29c9f27a0f1cc7b96c70cb3`, Arduino Uno compile run #125 / ID 42012704575 succeeded; `avr-size` reports text=10670, data=146, bss=740, hence `.data + .bss = 886 bytes`. Native protocol v2 run #74 / ID 42012704567 succeeded. Break-in/Battery run #1480 / ID 42012704547 completed with all four jobs successful. Artifact ID 13407238519 contains the v2 HEX, ELF, map, size report and SHA-256 manifest (expires 2026-11-19).
+
+The previous 898-byte static footprint was reduced by another 12 bytes using the exact v2 frame ceiling. This leaves 14 bytes below the 900-byte static cap. Worst-case stack and reserve proofs remain open; static size alone is not full SRAM qualification.
