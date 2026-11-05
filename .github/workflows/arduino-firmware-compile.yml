@@ -207,7 +207,8 @@ jobs:
             echo "sketch=MotoreRevV2"
             echo "fqbn=arduino:avr:uno"
             echo "arduino_avr_core=1.8.8"
-            echo "checked_out_sha=$GITHUB_SHA"
+            echo "github_event_sha=$GITHUB_SHA"
+            echo "checked_out_sha=$(git rev-parse HEAD)"
             sha256sum "$artifact_dir/MotoreRevV2.ino.hex" "$artifact_dir/MotoreRevV2.elf" "$artifact_dir/MotoreRevV2.map"
           } > "$artifact_dir/MotoreRevV2-build-manifest.txt"
 
