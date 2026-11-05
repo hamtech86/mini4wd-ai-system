@@ -60,6 +60,20 @@ jobs:
           echo "HEX artifact staged at $artifact_dir/MotoreRev.ino.hex"
           cat "$artifact_dir/build-manifest.txt"
 
+      - name: Compile isolated protocol v2 sketch for Arduino Uno
+        shell: bash
+        run: |
+          set -euo pipefail
+          sketch_dir="${RUNNER_TEMP}/MotoreRevV2"
+          mkdir -p "$sketch_dir"
+          cp firmware/motor/MotoreRevV2/MotoreRevV2.ino "$sketch_dir/MotoreRevV2.ino"
+          cp firmware/motor/ProtocolV2Codec.h "$sketch_dir/"
+          cp firmware/motor/BootIdentityJournal.h "$sketch_dir/"
+          cp firmware/motor/ProtocolV2Device.h "$sketch_dir/"
+          cp firmware/motor/ProtocolV2TxScheduler.h "$sketch_dir/"
+          arduino-cli compile --export-binaries --fqbn arduino:avr:uno "$sketch_dir"
+          test -n "$(find "$sketch_dir" -type f -name '*.hex' -print -quit)"
+
       - name: Verify firmware CAL and host-owned control contract
         shell: bash
         run: |
