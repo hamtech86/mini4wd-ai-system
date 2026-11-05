@@ -85,3 +85,24 @@ This is a static compiler/disassembly audit for the exact command-only image, no
 - physical motor stop, direction polarity, current limit, or BOD behavior.
 
 Any change that links additional functions, changes compiler/core flags, changes UART buffer sizes, or changes the device state machine requires a new size and stack audit. Do not enable ADC acquisition until the scheduler is implemented, the actual ADC-enabled image is rebuilt, and the SRAM/stack budget is requalified.
+
+
+## ADC-helper link-audit image (compile-only, not a release HEX)
+
+A second compile uses `M4WD_ADC_RESOURCE_AUDIT` to retain both `capture_adc_attempt()` and `record_not_acquired_attempt()` in the linked image through a volatile, false-by-default audit gate. The macro is absent from the normal build; the audit HEX is not uploaded or used on hardware. This allows the compiler to emit stack frames for the ADC helper path without enabling a sampling cadence in the production sketch.
+
+- Source/workflow commit: `c04039e67652bc1947e593588524183a5742be69`
+- Arduino Uno Firmware Compile workflow #176 / run ID `42028404448`
+- Artifact ID `13414014656` (expires 2026-11-19)
+- ADC audit image: text=12520, data=146, bss=749; static allocation **895 bytes**, 5 bytes below the 900-byte cap; 1153 bytes remain before stack.
+- GCC emitted 25 `.su` files for the audit build. ADC-related frames: `loop()` 168 bytes and `append_adc_attempt()` 23 bytes; `encode_frame_in_place()` 25 bytes and `validate_payload()` 17 bytes are the deepest encoding branch. The audit image's largest individual frame remains 168 bytes.
+
+Conservative ADC branch including main/loop, append, encode, validation, call return addresses, and the largest active UART TX ISR is 266 bytes:
+
+`2 + 168 + 23 + 25 + 17 + 8 + 23 = 266 bytes`
+
+The command/ACK path remains the larger bound at 292 bytes (see above). Using the larger bound with the ADC audit image:
+
+`2048 - 895 - 292 = 861 bytes`
+
+This leaves 413 bytes above the required 448-byte reserve. Therefore the **currently linked ADC-helper code path** meets the static and conservative stack arithmetic limits in this compile-only audit image. This does not qualify a scheduler, six-channel acquisition cadence, batch deadlines, loss accounting, sustained UART load, or hardware behavior. The audit macro's volatile gate is false and no conversion was executed. Any later scheduler/state additions require a fresh linked audit.
