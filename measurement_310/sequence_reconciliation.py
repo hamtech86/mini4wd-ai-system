@@ -72,6 +72,11 @@ def reconcile_device_sequence(
         if host_next_sequence64 is not None:
             return unresolved(SequenceReconciliationStatus.UNRESOLVED_IDENTITY,
                               "host sequence high-water has no verified boot identity")
+        if device_next_sequence64 == 0:
+            return SequenceReconciliation(
+                SequenceReconciliationStatus.CONTIGUOUS, device_boot_id64, 0,
+                None, None, "new epoch has no samples before this handshake",
+            )
         return SequenceReconciliation(
             SequenceReconciliationStatus.GAP_UNATTRIBUTABLE,
             device_boot_id64, device_next_sequence64, 0, device_next_sequence64,
@@ -79,13 +84,20 @@ def reconcile_device_sequence(
         )
 
     if host_boot_id64 != device_boot_id64:
+        gap_start = 0 if device_next_sequence64 > 0 else None
+        gap_end = device_next_sequence64 if device_next_sequence64 > 0 else None
         return SequenceReconciliation(
             SequenceReconciliationStatus.NEW_DEVICE_EPOCH, device_boot_id64,
-            device_next_sequence64, None, None,
-            "verified full boot identity changed; sequence is scoped to the new device epoch",
+            device_next_sequence64, gap_start, gap_end,
+            "verified full boot identity changed; any samples before this handshake in the new epoch are unattributable",
         )
 
     if host_next_sequence64 is None:
+        if device_next_sequence64 == 0:
+            return SequenceReconciliation(
+                SequenceReconciliationStatus.CONTIGUOUS, device_boot_id64, 0,
+                None, None, "same epoch has no samples before this handshake",
+            )
         return SequenceReconciliation(
             SequenceReconciliationStatus.GAP_UNATTRIBUTABLE, device_boot_id64,
             device_next_sequence64, 0, device_next_sequence64,
