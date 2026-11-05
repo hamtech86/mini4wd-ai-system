@@ -14,7 +14,7 @@
 #include <Arduino.h>
 #include <EEPROM.h>
 #include <string.h>
-#include "../BootIdentityJournal.h"
+#include "BootIdentityJournal.h"
 
 namespace {
 using namespace mini4wd310;
