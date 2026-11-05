@@ -19,7 +19,33 @@ static void drain(ProtocolV2TxScheduler& tx,FakeSerial& s){
   for(int i=0;i<100 && tx.busy();++i) tx.service(s);
   assert(!tx.busy());
 }
-int main(){
+
+static void test_large_adc_batch_uses_tx_workspace_without_pending_copy(){
+  ProtocolV2TxScheduler tx; FakeSerial s(64);
+  const uint8_t session[16]={1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16};
+  uint8_t payload[kAdcBatchPayloadSize]={0};
+  write_u64(payload,100); payload[8]=0; payload[9]=12; payload[10]=3;
+  for(uint8_t i=0;i<12;++i){
+    uint8_t* sample=payload+11+(uint16_t)i*12;
+    write_u32(sample,1000U+i*100U);
+    sample[4]=(uint8_t)(i%6);
+    write_u16(sample+5,500);
+    write_u16(sample+7,static_cast<uint16_t>(i/6+1));
+    sample[9]=0; write_u16(sample+10,0);
+  }
+  assert(tx.enqueue_frame(ADC_BATCH,session,epoch_tag_for_boot_id(9),0,
+                          payload,kAdcBatchPayloadSize));
+  assert(tx.busy());
+  assert(!tx.enqueue_frame(ADC_BATCH,session,epoch_tag_for_boot_id(9),0,
+                           payload,kAdcBatchPayloadSize));
+  uint8_t encoded[kMaxV2WireSize]={0}; uint16_t encoded_length=0;
+  memcpy(encoded+1+kHeaderSize,payload,kAdcBatchPayloadSize);
+  assert(encode_frame_in_place(ADC_BATCH,session,epoch_tag_for_boot_id(9),0,
+                               encoded,kAdcBatchPayloadSize,sizeof(encoded),&encoded_length));
+  drain(tx,s);
+  assert(s.bytes==std::vector<uint8_t>(encoded,encoded+encoded_length));
+}
+\nint main(){
   ProtocolV2TxScheduler tx; FakeSerial s(5);
   DeviceReplyV2 first; memset(&first,0,sizeof(first));
   first.valid=true; first.message_type=ERROR_MSG; first.command_id=0;
