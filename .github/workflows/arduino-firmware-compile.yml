@@ -211,6 +211,18 @@ jobs:
             sha256sum "$artifact_dir/MotoreRevV2.ino.hex" "$artifact_dir/MotoreRevV2.elf" "$artifact_dir/MotoreRevV2.map"
           } > "$artifact_dir/MotoreRevV2-build-manifest.txt"
 
+      - name: Compile guarded boot identity provisioner (compile-only; never upload)
+        shell: bash
+        run: |
+          set -euo pipefail
+          provision_root="${RUNNER_TEMP}/boot-id-provisioner"
+          provision_dir="$provision_root/ProvisionBootIdentity"
+          mkdir -p "$provision_dir"
+          cp firmware/motor/ProvisionBootIdentity/ProvisionBootIdentity.ino "$provision_dir/ProvisionBootIdentity.ino"
+          cp firmware/motor/BootIdentityJournal.h "$provision_root/BootIdentityJournal.h"
+          arduino-cli compile --fqbn arduino:avr:uno "$provision_dir"
+          echo "Guarded boot identity provisioner compiled; no EEPROM operation or upload was performed."
+
       - name: Verify firmware CAL and host-owned control contract
         shell: bash
         run: |
