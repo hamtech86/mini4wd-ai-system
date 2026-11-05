@@ -15,9 +15,12 @@ static const uint16_t kAdcBatchPayloadSize = 155;
 
 enum MessageType : uint8_t {
   HELLO = 0x01, HELLO_ACK = 0x02, ARM = 0x03, ARM_ACK = 0x04,
+  DISARM = 0x05, DISARM_ACK = 0x06,
   PWM_SET = 0x10, APPLY_ACK = 0x11, STOP_REQ = 0x20, STOP_ACK = 0x21,
   STATUS = 0x30, ERROR_MSG = 0x31, ADC_BATCH = 0x40
 };
+
+enum DriveDirectionV2 : uint8_t { DIRECTION_FWD = 0, DIRECTION_REV = 1 };
 
 struct FrameView {
   uint8_t message_type;
@@ -70,8 +73,10 @@ static inline uint16_t expected_payload_length(uint8_t type) {
   switch (type) {
     case HELLO: return 8;
     case HELLO_ACK: return 25;
-    case ARM: return 3;
-    case ARM_ACK: return 4;
+    case ARM: return 4;
+    case ARM_ACK: return 5;
+    case DISARM: return 2;
+    case DISARM_ACK: return 4;
     case PWM_SET: return 3;
     case APPLY_ACK: return 4;
     case STOP_REQ: return 3;
@@ -121,10 +126,15 @@ static inline bool validate_payload(uint8_t type, const uint8_t* p, uint16_t n,
       return true;
     }
     case ARM:
-      return read_u16(p) != 0 && p[2] == 0;
+      return read_u16(p) != 0 && p[2] == 0 && p[3] <= DIRECTION_REV;
     case ARM_ACK:
-      return p[0] <= 6 && p[1] <= 7 &&
+      return p[0] <= 6 && p[1] <= 7 && p[4] <= DIRECTION_REV &&
              (p[0] != 0 || (p[1] == 1 && read_u16(p + 2) != 0));
+    case DISARM:
+      return read_u16(p) != 0;
+    case DISARM_ACK:
+      return p[0] <= 2 && p[1] <= 7 && read_u16(p + 2) != 0 &&
+             (p[0] != 0 || p[1] == 0);
     case PWM_SET:
       return p[0] <= 30 && read_u16(p + 1) != 0;
     case APPLY_ACK:
