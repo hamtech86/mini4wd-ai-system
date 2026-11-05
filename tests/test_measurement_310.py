@@ -1118,3 +1118,61 @@ def test_recovery_rearm_inhibition_survives_a_new_controller_process(tmp_path):
     with pytest.raises(SequenceError, match="automatic re-arm is prohibited"):
         second.start()
     assert sent == []
+
+
+class FakeV2StageSession:
+    supports_stage_direction = True
+
+    def __init__(self, clock):
+        self.clock = clock
+        self.calls = []
+        self.pending = None
+        self.last_write_completed_monotonic_ns = None
+
+    def send_stage_pwm(self, pwm, stage_context_id, measurement_session_id, stage_index=None, direction=0):
+        self.calls.append(("ARM_PWM", stage_index, direction, stage_context_id))
+        self.pending = (pwm, direction)
+        self.last_write_completed_monotonic_ns = self.clock.monotonic_ns()
+        return self.clock.utc_now()
+
+    def poll_apply_ack(self, timeout_s=0.0):
+        if self.pending is None:
+            return None
+        pwm, _direction = self.pending
+        self.pending = None
+        return pwm, self.clock.utc_now(), self.clock.monotonic_ns()
+
+    def disarm_stage(self):
+        self.calls.append(("DISARM",))
+        return self.clock.utc_now()
+
+    def latch_abort(self, reason):
+        self.calls.append(("ABORT", reason))
+
+
+def test_sequence_controller_disarms_each_stage_and_passes_direction(tmp_path):
+    clock = FakeClock()
+    protocol = FakeV2StageSession(clock)
+    ctl = SequenceController(
+        RawLogV2Writer(tmp_path), manifest(tmp_path), None, lambda: None, None, clock,
+        protocol_session=protocol,
+        stage_direction=lambda index: 1 if index == 1 else 0,
+    )
+    ctl.startup_recover()
+    ctl.start()
+    assert ctl.state == SequenceState.WAITING_ACK
+    assert protocol.calls[0][0:3] == ("ARM_PWM", 0, 0)
+    ctl.poll()
+    assert ctl.state == SequenceState.RUNNING
+    clock.advance_ms(10_000)
+    ctl.poll()
+    assert ctl.state == SequenceState.WAITING_ACK
+    assert protocol.calls[1] == ("DISARM",)
+    assert protocol.calls[2][0:3] == ("ARM_PWM", 1, 1)
+    assert ctl.current_stage_direction == 1
+    ctl.poll()
+    assert ctl.state == SequenceState.RUNNING
+    clock.advance_ms(10_000)
+    ctl.poll()
+    assert protocol.calls[3] == ("DISARM",)
+    assert protocol.calls[4][0:3] == ("ARM_PWM", 2, 0)
