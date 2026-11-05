@@ -70,6 +70,43 @@ class DurableIntentJournal:
     def _canonical(value: dict) -> bytes:
         return json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
 
+    @classmethod
+    def for_session(cls, rawlog_root: os.PathLike | str,
+                    measurement_session_id: str) -> "DurableIntentJournal":
+        """Create a deterministic intent journal beside the RawLog, durably."""
+        import uuid
+        try:
+            parsed = uuid.UUID(measurement_session_id)
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise ValueError("measurement_session_id must be a canonical UUID") from exc
+        if str(parsed) != measurement_session_id or parsed.int == 0:
+            raise ValueError("measurement_session_id must be a canonical nonzero UUID")
+        root = Path(rawlog_root)
+        if root.is_symlink() or not root.is_dir():
+            raise IntentError("RawLog root must be an existing real directory")
+        intent_root = root / ".command-intents"
+        session_root = intent_root / measurement_session_id
+        for parent, child in ((root, intent_root), (intent_root, session_root)):
+            if child.is_symlink():
+                raise IntentUntrusted("command intent directory must not be a symlink")
+            if not child.exists():
+                child.mkdir(mode=0o700)
+                flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+                fd = os.open(str(parent), flags)
+                try:
+                    os.fsync(fd)
+                finally:
+                    os.close(fd)
+            if not child.is_dir():
+                raise IntentUntrusted("command intent path component is not a directory")
+            flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+            fd = os.open(str(child), flags)
+            try:
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+        return cls(session_root / "command-intents-v1.jsonl")
+
     def append_intent(self, identity: CommandIdentity, created_utc: str) -> str:
         if not isinstance(created_utc, str) or not created_utc:
             raise ValueError("created_utc is required")
