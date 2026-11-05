@@ -1,0 +1,220 @@
+# 310-5 host integration decisions and remaining gates — 2026-11-04
+
+## 0. Candidate lineage and firmware identity
+
+- Candidate branch: `safety/310-5-host-integration-candidate`.
+- Candidate base: PR #186 HEAD `a7491c8fd7d214e23a6f649d262f978710474d6e`.
+- Underlying 310-3 source base: `d9e718b607a873759fffd58fc75bf950af499095`.
+- Latest code-source snapshot audited before this report refresh: `4bfdc5e051324bc891175ea53b92188dfaaaa59c`. This documentation refresh advances the branch; re-read the branch ref before any integration.
+- Firmware source reference: legacy `firmware/motor/MotoreRev.ino` at main snapshot `130e453ea3907f071209687a06c3e73535a8952d`, FW 3.03, declared build ID `ARM-STOP-ACK-ACS712-RAIL-20261023-01`.
+
+The firmware reference above is a legacy source identity only. It is **not** identified as the accepted 310-4 concrete implementation, and no HEX/map/size/stack artifact attributable to this candidate was established. No firmware source or build was changed or produced.
+
+The candidate branch comparison against base `a7491c8fd7d214e23a6f649d262f978710474d6e` reports 108 commits ahead / 0 behind and 26 changed paths. The changed paths are confined to `docs/310/`, `measurement_310/`, and `tests/`; no `firmware/` or `raw_log_v2/` path is changed. The candidate branch is not a PR and has no CI run. The one Draft PR required by the upper-command sequence remains deferred until a complete-checkout test run is available; the 136-case isolated source-equivalent run does not satisfy that condition.
+
+## 1. T10/T17 RawLog manifest compatibility — read-only finding
+
+### Verified existing contract
+
+The 310-2 RawLog v2 implementation and its documentation explicitly define the public package as exactly:
+- `manifest.json`
+- `records.jsonl`
+
+The writer's final package publication allows only those two public files (plus its temporary staging names while publishing). The validator's record type set is fixed to `SESSION_EVENT`, `PWM_STAGE`, `ADC_SAMPLE`, `CALIBRATION`, `EVENT`, and `DERIVED`. The private `.work` and `.recovery` trees are recovery implementation state, not public package extensions.
+
+### Compatibility conclusion
+
+Under the current authorization (no RawLog schema, writer, or validator changes), a third `transport-evidence.jsonl` file cannot be placed inside the RawLog package and claimed as a valid v2 package. Adding a new public record type or a new manifest inventory field would also require a contract decision and is not performed here.
+
+A non-mutating external-sibling concept can be described, but it does **not** satisfy T17's requirement that the RawLog manifest inventory/hash/count the transport Evidence artifact:
+
+- Keep the RawLog package byte-for-byte as the existing two-file package.
+- Store transport Evidence in a separate sibling evidence bundle, not inside the RawLog package.
+- The sibling bundle would need its own manifest containing the exact `log_id`, `measurement_session_id`, RawLog `manifest.json` SHA-256, RawLog `records.jsonl` SHA-256, Evidence file inventory/hash/count, and a versioned relationship identifier.
+- Consumers must treat the two artifacts as separate objects and reject missing, mismatched, or untrusted cross-links. The RawLog package alone must never imply that companion Evidence exists or is valid.
+
+This is only a compatibility proposal. Without a higher-level collection manifest or a separately approved RawLog contract revision, the sibling is not cryptographically inventoried by the RawLog manifest and cannot be represented as a completed T17 package.
+
+### Decision
+
+- Do not add a third file to a RawLog v2 package.
+- Do not change `manifest.json`, the writer, validator, or record types.
+- Keep L04/T17 **FAIL / unresolved contract mismatch**.
+- Request a separate design-authority decision on whether a versioned outer collection manifest is acceptable or whether a future RawLog contract revision is required. Neither option is implemented or assumed.
+
+## 2. T04/T05 production-path integration — protocol boundary
+
+The current `SequenceController` production interface accepts `send_pwm(pwm)` and receives a two-field ACK result `(pwm, ack_utc)`. It does not expose a trustworthy command ID, session identity, full device boot epoch, or stage-context echo in the ACK path. The existing T04/T05 primitives can persist a host intent and compare a full five-field identity, but they cannot manufacture missing device-side identity.
+
+Required integration sequence once the protocol authority supplies the concrete identity contract:
+1. Allocate a unique command ID and bind it to the active measurement session, confirmed full device boot ID, and stage context.
+2. Durably append and fsync the intent before entering the transport send callback.
+3. Record the actual write/flush result, preserving UNKNOWN for partial/uncertain delivery.
+4. Accept only an ACK that echoes and exactly matches the full identity tuple.
+5. Durably append ACK Evidence before advancing the stage.
+6. Keep the independent actuation re-arm gate latched on uncertain delivery, missing/mismatched ACK, Evidence failure, or unknown terminal state.
+
+Until the firmware/wire contract provides a real full boot identity and matching ACK fields, production integration must not substitute a constant, zero, truncated boot ID, PWM-only ACK, or host-generated token as proof of device identity. No firmware or wire change is made in this branch. T04/T05 primitives remain candidate building blocks, not production-path PASS.
+
+## 3. T09/T15 STOP transport — source-level confirmation
+
+The candidate branch source was re-read at the current host-integration candidate ref:
+
+- `measurement_310/transport.py::PySerialTransport.connect()` opens pySerial with a read `timeout`, but does not configure `write_timeout`.
+- `PySerialTransport.send()` performs synchronous `write(payload)` followed by `flush()`; it checks for a short write only after flush returns.
+- `ProtocolClient.send_stop()` delegates to the same `transport.send()` method used by `send_pwm()`. There is no independent STOP transport, queue, or bounded STOP deadline.
+- `SequenceController.abort()` now attempts STOP before RawLog abort logging, but that changes call order only. If the shared write/flush is already blocked, the STOP call can still block behind it.
+- `SequenceController._begin_stage()` still calls `send_pwm(index)` before recording a durable command intent. The host-only T04/T05 primitives are not wired into this production path.
+
+Disposition:
+- S01 STOP-before-log: limited host ordering improvement retained; not a delivery/physical-stop PASS.
+- S02/S03 independent bounded STOP path: **FAIL**.
+- T09/T15 hung shared write/flush, unknown partial delivery, and independent STOP behavior: **FAIL / NOT RUN** as applicable.
+- No write-timeout, independent transport, firmware STOP latch, driver cutoff, or hardware behavior is implemented or claimed here. These are outside the current change scope and require separate design/authorization.
+
+## 4. T18 host fsync profile — execution plan
+
+The required measurement is host/storage-specific and must be collected on the actual approved host and storage target, not inferred from a cloud or development environment.
+
+Minimum profile:
+- At least 10,000 samples per measured operation.
+- Separate file-fsync and directory-fsync latency distributions.
+- Report p50, p95, p99, p99.9, maximum, sample count, and failures.
+- Record OS/kernel, Python version, filesystem type/mount, storage device identity where available, mount options, and test path.
+- Report the measured sequence's combined durability budget and compare it against the 10,000ms stage interval after reserving the approved STOP/abort budget.
+- Preserve raw sample output and a SHA-256 digest of the report and sample file.
+
+A reusable host-only runner is prepared at `measurement_310/fsync_profile.py`, with percentile helper tests at `tests/test_measurement_310_fsync_profile.py`. It requires at least 10,000 samples and explicit `--stop-reserve-ms` and `--margin-ms` inputs; it writes raw CSV, JSON summary, and SHA-256 sidecars. Existing output names are opened exclusively so prior evidence is not overwritten. Fsync failures are recorded and force a non-passing result.
+
+Host-side development smoke run: 10,000 file-fsync samples and 10,000 directory-fsync samples completed in the isolated execution environment (Python 3.13.5 / Linux 6.18.57 x86_64), with zero reported fsync failures. File fsync p50/p95/p99/p99.9/max = 189,581 / 349,377 / 549,022 / 2,133,141 / 5,551,282 ns; directory fsync = 194,017 / 377,669 / 719,685 / 1,985,888 / 4,678,851 ns; paired sum p50/p95/p99/p99.9/max = 410,907 / 659,986 / 1,182,099 / 2,799,541 / 5,697,528 ns. The smoke run used zero STOP reserve and zero margin solely to exercise the runner; those are **not approved timing values**, so its budget result is not an acceptance result. The local sample SHA-256 was `a29c5d50e9ff5f09b39a2f185714e68c28c480567781d39656f6f88e9c28e678`. This environment is not the approved target host/storage and is not a complete repository checkout. Therefore T18 formal target profile remains **NOT RUN**. A profile from a different host must not be substituted. Run it only on the approved target storage after the reserve and margin values have been authorized, for example:
+
+```bash
+python -m measurement_310.fsync_profile --output-dir /path/on/approved/storage --samples 10000 --stage-ms 10000 --stop-reserve-ms APPROVED_VALUE --margin-ms APPROVED_VALUE
+```
+
+Replace the two uppercase placeholders with the approved numeric values; do not use invented defaults. Exit code 0 means the measured p99.9 and maximum plus margin are both below the remaining budget and no fsync failures were recorded; exit code 2 means the profile did not meet that condition.
+
+## 5. Isolated host test execution — 2026-11-04
+
+A host-only isolated test harness was assembled from the candidate source/test files fetched through the GitHub repository API. The harness did not require serial devices and did not open hardware ports.
+
+Environment:
+- Python 3.13.5
+- pytest 9.0.2
+- Linux 6.18.57 x86_64 (glibc 2.41)
+- This is not the previously confirmed target host environment (Linux Mint 21.2 / Python 3.10.12); Python 3.10 compatibility and target-host filesystem behavior remain unverified.
+
+Exact test command:
+```bash
+python -m pytest -q \
+  tests/test_measurement_310_rearm_gate.py \
+  tests/test_measurement_310_fsync_profile.py \
+  tests/test_measurement_310_command_intent.py \
+  tests/test_measurement_310_evidence_gate.py \
+  tests/test_measurement_310_loss_accounting.py \
+  tests/test_measurement_310_sequence_accounting.py \
+  tests/test_measurement_310_epoch_checkpoint.py \
+  tests/test_measurement_310_session_tag_allocator.py \
+  tests/test_measurement_310_safety_regressions_transport_only.py
+```
+
+Result: **136 passed, 0 failed in 0.43s**.
+
+The test set covers R01 re-arm gate, T18 percentile helpers, T04 durable intent and ACK correlation, T05 evidence gate, T11 loss accounting, uint16 sequence accounting, full-width boot-epoch checkpointing, and T01 session-tag allocation, and the transport-only malformed-ACK / invalid-frame-length / receive-error / STOP-send-error / disconnect-cleanup regressions extracted from the 310 transport safety test source.
+
+Corrections made after execution exposed test-fixture defects:
+- R01 short-write test now matches a newline byte, not a literal backslash+n.
+- Sequence half-range test now expects accepted delta 32767 to advance the tracker, while ambiguous/stale deltas do not.
+- Session-tag allocator fixtures now explicitly provide trusted `initial_high_water=0` when creating a new journal; the dedicated missing-high-water test remains unchanged and must fail closed.
+- Durable intent journal now rejects command ID reuse found in persisted history, including after construction of a new journal object.
+
+Prior full-checkout baseline (not this candidate): GitHub Actions run #1290, merge commit `018c826e323e108fca9eb15cbdcbefbde7faa880` for PR #186, completed on 2026-11-02 with all four jobs successful; the full-suite job reports **326 passed in 9.20s** under Python 3.10.22 / Ubuntu 24.04. This confirms the repository's existing CI can create a complete checkout and run the full suite. It does **not** validate the 310-5 candidate commits added after PR #186's head. A new CI run has not been started because CI dispatch remains outside the current authorization.
+
+**Scope limitation:** This was a source-equivalent isolated host harness assembled from GitHub-fetched source and test logic; it was not a byte-for-byte complete repository checkout. The transport subset was isolated from the broader safety regression file; its two SequenceController/RawLog integration cases were not run in this harness. It does not validate the repository's complete package initializer/import graph, all 310 tests, RawLog v2 integration, production SequenceController/ProtocolClient integration, or the full project suite. It is not a CI run and does not change formal T01–T18 acceptance status. No CI was triggered.
+
+## 6. Verification and acceptance boundary
+
+- The R01 source and tests are on the independent host-integration candidate branch.
+- R01 isolated host regression: 25/25 passed after fixing the test sentinel; complete repository regression remains NOT RUN.
+- T18 helper tests: 3/3 passed in the same isolated harness; development-only 10,000-sample smoke run completed, but formal approved-host profile remains NOT RUN.
+- T04/T05 production integration remains blocked by missing concrete ACK/device-epoch identity.
+- T10/T17 remains FAIL pending a design-authority decision; no RawLog mutation was made.
+- T18 remains NOT RUN pending a 10,000-sample profile on the approved host/storage.
+- No CI dispatch, PR merge, firmware modification, RawLog schema/writer/validator change, hardware operation, or stage transition was performed.
+- Formal T01–T18 PASS remains 0. R01 remains FAIL. 310-5 acceptance remains pending.
+
+
+## 2026-11-05 superseding implementation status
+
+This section supersedes earlier source snapshots in §§2–3 where they describe the host candidate before the v0.5 adapter integration.
+
+### T04/T05 — optional v0.5 host path now integrated
+
+- `ProtocolV1HostSession` implements the adopted v0.5 host-side HELLO/nonce/full boot identity check, ARM-before-PWM, durable command intent before exact frame transmission, raw RX evidence before decode, exact session/epoch/command/context ACK correlation, and durable ACK evidence before stage release.
+- `SequenceController.with_protocol_session(...)` provides an additive route through that adapter; legacy construction remains available and is not silently reinterpreted as v0.5.
+- Command authority assigned production `magic=0x344D` (wire bytes `4D 34`, ASCII `M4`) and `protocol_version=0x01` on 2026-11-05; candidate codec/tests use these normative constants. No qualified concrete 310-4 firmware build/identity is available, so physical wire use remains gated.
+- ACK evidence failure coverage now includes failures at RX_BYTES, FRAME_RX_DECODED, and ACK_MATCHED. The exact current complete-checkout CI is run #1364, HEAD `40b0e3f417f2d052f0458f849bb8fca881c33003`, 503 passed, all four jobs successful.
+- T04/T05 are advanced host implementation candidates, not formal PASS: remaining fault matrix, production firmware identity, and physical device correlation remain open.
+
+### T09/T15 — independent dispatch injection and exact retry
+
+- `ProtocolV1HostSession.send_stop_best_effort()` now requires an injected STOP writer distinct from the normal command transport. It sends before Evidence fsync, so the host dispatch path does not wait for the command transport queue or evidence append.
+- Retry with the same `stop_request_id` and same reason reuses the retained byte-identical STOP_REQ frame and preserves both `command_id` and `stop_request_id`, consistent with 310-4 v0.5 §A6.3. Reuse of that ID with a different reason is rejected.
+- This is not proof that the injected writer uses an independent physical channel, is bounded, or can interrupt a hung OS/driver write. The production caller still has to supply and qualify the callback; the v0.5 STOP reason registry is assigned by command authority on 2026-11-05. No MCU/driver/physical STOP result is inferred.
+- T09/T15 therefore remains NOT PASS. The host dispatch separation is a limited implementation improvement only.
+
+### T10/T17 and T18 — unchanged authority boundaries
+
+- T10/T17 remains unresolved. The public RawLog v2 package stays exactly `manifest.json` + `records.jsonl`; this branch does not change its schema, writer, validator, or package contents. The external collection-manifest concept remains a proposal, not an adopted replacement for the stated RawLog-manifest inventory requirement.
+- T18 remains NOT RUN on the approved target host/storage. The development-host 10,000-sample smoke profile with zero STOP reserve/margin is not acceptance evidence. Numeric STOP reserve and margin remain unapproved.
+
+### Safety boundary
+
+No firmware build/upload, physical serial connection, motor energization, hardware STOP/cutoff test, EEPROM/fuse operation or 310-second measurement occurred. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains in force. PR #187 remains Draft/Open/Unmerged; 310-5 formal acceptance remains NOT COMPLETE.
+
+
+## 2026-11-05 command-authority wire constant assignment
+
+The previously open v0.5 header constants are now assigned by the command authority in the 310-4 design branch:
+- `PROTOCOL_V1_MAGIC = 0x344D` (uint16, little-endian wire bytes `4D 34`, ASCII `M4`).
+- `PROTOCOL_V1_VERSION = 0x01` (uint8).
+
+The candidate codec now exposes these named normative constants and the protocol/session tests use them instead of synthetic fixture values. Constructor arguments remain explicit to prevent accidental implicit configuration. This closes the numeric-value decision only; it does not provide a concrete matching firmware build or prove physical interoperability.
+
+The 310-4 design source and decision register on branch `docs/310-4-design-v0.5` record the same assignment. Hardware authorization is unchanged.
+
+
+## 2026-11-05 command-authority STOP reason registry application
+
+The command authority assigned the `STOP_REQ.stop_reason` registry in the 310-4 v0.5 normative design. The candidate codec now exposes `StopReason` values: OPERATOR_REQUEST=0x01, ACK_TIMEOUT=0x02, ACK_IDENTITY_MISMATCH=0x03, COMMUNICATION_LOSS=0x04, EVIDENCE_DURABILITY_FAILURE=0x05, STAGE_DEADLINE_EXCEEDED=0x06, DEVICE_FAULT_REPORTED=0x07, HOST_PROCESS_SHUTDOWN=0x08, INTERNAL_HOST_FAULT=0x09, OTHER_UNCLASSIFIED=0xFF. Zero is reserved. This is diagnostic metadata; unknown values must not suppress a syntactically valid STOP action.
+
+This closes the host-side STOP reason numeric registry gap only. It does not qualify the injected writer's physical independence or boundedness, nor the MCU/driver/physical stop path.
+
+
+## 2026-11-05 latest protocol registry and codec verification
+
+- Exact code/test HEAD: `cc1da3647978e9bec7ae7433c6f9315eb4f7d776`.
+- GitHub Actions run #1380: https://github.com/hamtech86/mini4wd-ai-system/actions/runs/41928585613.
+- Full suite: **515 passed in 12.73s**.
+- Battery, Break-in, Raw Log/Sequence and full-suite jobs: all success.
+
+The command-authority decisions for `magic=0x344D`, `protocol_version=0x01`, and the STOP reason registry are now applied in the host codec. The codec rejects non-normative magic/version values. Host STOP requests reject unassigned reason values and use the `StopReason` enum. Tests cover assigned/unassigned values, exact STOP retry, same-ID/different-reason rejection, ACK identity/result mismatches, partial PWM write unknown outcome, and fail-closed behavior at RX_BYTES / FRAME_RX_DECODED / ACK_MATCHED Evidence boundaries.
+
+This remains host software evidence only. No matching firmware build or physical interoperability is qualified. T09/T15 physical independence/boundedness, T10/T17 RawLog manifest integration, T18 approved target-host/storage profile, and all hardware qualification gates remain open. PR #187 remains Draft/Open/Unmerged; 310-5 formal acceptance remains NOT COMPLETE.
+
+
+## 2026-11-05 latest fault-boundary verification — exact STOP retry identity
+
+- Exact code/test HEAD: `60af8447e03809b5d1cc3a14118e4e7ce349a7b3`.
+- GitHub Actions run #1390: https://github.com/hamtech86/mini4wd-ai-system/actions/runs/41929644465.
+- Full suite: **525 passed in 14.15s**.
+- Battery, Break-in, Raw Log/Sequence and full-suite jobs: all success.
+
+Additional verified host-side controls:
+1. A new PWM stage is blocked while the prior command ACK is unresolved; attempting to advance latches the session fail-closed.
+2. A duplicate prior-stage ACK cannot release the next stage.
+3. A durable STAGE_CONTEXT_MAP Evidence failure suppresses ARM and PWM transmission.
+4. A PWM write that succeeds at transport level but whose FRAME_TX_COMPLETE Evidence fsync fails is treated as unknown; no pending ACK is released and no later stage can be sent.
+5. An auto-allocated STOP request ID remains available through `last_stop_request_id` after an unknown write outcome; the caller can retry with the same ID/reason and the retained byte-identical frame. Successful send returns that ID.
+
+This is host-side regression evidence only. It does not prove a bounded physical STOP channel, MCU execution, driver cutoff, target-host fsync budget, or RawLog Evidence inventory. T09/T15, T10/T17, T18 and hardware qualification remain open. No hardware action occurred; `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains in force. PR #187 remains Draft/Open/Unmerged; 310-5 formal acceptance remains NOT COMPLETE.

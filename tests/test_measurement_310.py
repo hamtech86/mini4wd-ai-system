@@ -1,9 +1,11 @@
+import json
 from pathlib import Path
+import threading
 
 import pytest
 
 from measurement_310.engine import SequenceController, SequenceError, SequenceState
-from measurement_310.transport import MockTransport
+from measurement_310.transport import MockTransport, PySerialTransport, TransportError
 from raw_log_v2 import RawLogV2Writer
 
 
@@ -113,9 +115,11 @@ def test_complete_31_stage_sweep_creates_schema_valid_package(tmp_path):
     from raw_log_v2 import validate_package
     clock = FakeClock()
     pending = []
+    stop_calls = []
     ctl = SequenceController(RawLogV2Writer(tmp_path), manifest(tmp_path),
-        lambda pwm: clock.utc_now(), lambda: None,
-        lambda: pending.pop(0) if pending else None, clock)
+        lambda pwm: clock.utc_now(), lambda: stop_calls.append("ABORT_STOP"),
+        lambda: pending.pop(0) if pending else None, clock,
+        send_normal_stop=lambda: stop_calls.append("NORMAL_STOP"))
     ctl.startup_recover()
     ctl.start()
     for pwm in range(31):
@@ -125,6 +129,7 @@ def test_complete_31_stage_sweep_creates_schema_valid_package(tmp_path):
         clock.advance_ms(10_000)
         ctl.poll()
     assert ctl.state == SequenceState.COMPLETED
+    assert stop_calls == ["NORMAL_STOP"]
     package = tmp_path / "TEST-310"
     import json
     mf = json.loads((package / "manifest.json").read_text())
@@ -132,6 +137,46 @@ def test_complete_31_stage_sweep_creates_schema_valid_package(tmp_path):
     assert validate_package(mf, records, raise_on_error=False) == []
     stages = [r for r in records if r["record_type"] == "PWM_STAGE"]
     assert [r["pwm_command"] for r in stages] == list(range(31))
+    completed = next(r for r in records if r.get("event") == "SESSION_COMPLETED")
+    assert completed["details"]["stop_transmission_attempted"] is True
+    assert completed["details"]["device_state"] == "unknown"
+
+
+def test_normal_completion_stop_failure_keeps_rawlog_incomplete_and_does_not_retry(
+    tmp_path,
+):
+    clock = FakeClock()
+    pending = []
+    stop_calls = []
+
+    def fail_stop():
+        stop_calls.append("STOP")
+        raise OSError("normal completion STOP write outcome unknown")
+
+    ctl = SequenceController(
+        RawLogV2Writer(tmp_path), manifest(tmp_path),
+        lambda pwm: clock.utc_now(), fail_stop,
+        lambda: pending.pop(0) if pending else None, clock,
+    )
+    ctl.startup_recover()
+    ctl.start()
+    for pwm in range(31):
+        pending.append((pwm, clock.utc_now()))
+        ctl.poll()
+        clock.advance_ms(10_000)
+        ctl.poll()
+
+    assert ctl.state == SequenceState.FAULT
+    assert stop_calls == ["STOP"]
+    assert "normal completion STOP failed" in (ctl._last_fault or "")
+    assert not (tmp_path / "TEST-310").exists()
+    work_records = [
+        json.loads(line) for line in
+        (tmp_path / ".work" / "TEST-310" / "records.jsonl").read_text().splitlines()
+    ]
+    assert not any(record.get("event") == "SESSION_COMPLETED" for record in work_records)
+    assert any(record.get("record_type") == "PWM_STAGE" and record.get("stage_index") == 30
+               for record in work_records)
 
 
 def test_recovery_failure_blocks_start(tmp_path, monkeypatch):
@@ -321,20 +366,24 @@ def test_ack_mismatch_stops_without_advancing_or_auto_restarting(tmp_path):
     assert sent == [0]
 
 
-def test_startup_recovery_checks_every_discovered_work_item(tmp_path):
+def test_startup_recovery_checks_every_discovered_work_item_and_blocks_rearm(tmp_path):
     writer = RawLogV2Writer(tmp_path)
     previous = manifest(tmp_path)
     previous["log_id"] = "PENDING-OLD"
     previous["measurement_session_id"] = "SESSION-OLD"
     writer.begin(previous)  # Simulate an interrupted prior process.
     clock = FakeClock()
-    ctl = SequenceController(writer, manifest(tmp_path), lambda pwm: clock.utc_now(),
+    sent = []
+    ctl = SequenceController(writer, manifest(tmp_path),
+                             lambda pwm: sent.append(pwm) or clock.utc_now(),
                              lambda: None, lambda: None, clock)
     recovered = ctl.startup_recover()
     assert [item["log_id"] for item in recovered] == ["PENDING-OLD"]
     assert writer.list_incomplete_work() == []
-    ctl.start()
-    assert ctl.state == SequenceState.WAITING_ACK
+    with pytest.raises(SequenceError, match="automatic re-arm is prohibited"):
+        ctl.start()
+    assert sent == []
+    assert ctl.state == SequenceState.READY
 
 
 @pytest.mark.parametrize("method,args", [
@@ -787,3 +836,496 @@ def test_ack_timeout_excludes_blocking_command_send_duration(tmp_path):
     ctl.poll()
     assert ctl.state == SequenceState.FAULT
     assert stops == ["STOP"]
+
+
+@pytest.mark.parametrize("stop_fails", [False, True])
+def test_abort_attempts_stop_before_any_abort_record_append(tmp_path, monkeypatch, stop_fails):
+    """Host ordering only: STOP callback precedes abort evidence append."""
+    clock = FakeClock()
+    trace = []
+
+    def send_stop():
+        trace.append("stop_attempt")
+        if stop_fails:
+            raise OSError("injected STOP transport failure")
+
+    ctl = SequenceController(
+        RawLogV2Writer(tmp_path), manifest(tmp_path),
+        lambda pwm: clock.utc_now(), send_stop, lambda: None, clock,
+    )
+    ctl.startup_recover()
+    ctl.start()
+    original_append = ctl.session.append
+
+    def traced_append(record):
+        if record.get("event") in {"COMMUNICATION_LOST", "SESSION_ABORTED"} or record.get("record_type") == "PWM_STAGE":
+            trace.append("abort_evidence_append")
+        return original_append(record)
+
+    monkeypatch.setattr(ctl.session, "append", traced_append)
+    ctl.abort("user_stop")
+
+    assert trace[0] == "stop_attempt"
+    assert "abort_evidence_append" in trace[1:]
+    if stop_fails:
+        assert ctl.state == SequenceState.FAULT
+        assert "STOP send failed" in (ctl._last_fault or "")
+    else:
+        assert ctl.state == SequenceState.ABORTED
+
+
+def test_stop_callback_failure_does_not_prevent_best_effort_abort_logging(tmp_path):
+    clock = FakeClock()
+    append_seen = []
+    ctl = SequenceController(
+        RawLogV2Writer(tmp_path), manifest(tmp_path),
+        lambda pwm: clock.utc_now(),
+        lambda: (_ for _ in ()).throw(OSError("STOP failed")),
+        lambda: None, clock,
+    )
+    ctl.startup_recover()
+    ctl.start()
+    original_append = ctl.session.append
+
+    def tracked_append(record):
+        append_seen.append(record)
+        return original_append(record)
+
+    ctl.session.append = tracked_append
+    ctl.abort("communication_lost", fault="test fault")
+    assert append_seen
+    assert ctl.state == SequenceState.FAULT
+    assert "STOP send failed" in (ctl._last_fault or "")
+
+
+def test_reentrant_abort_during_stop_callback_is_latched_once(tmp_path):
+    clock = FakeClock()
+    stops = []
+    holder = {}
+
+    def stop_callback():
+        stops.append("STOP")
+        # Simulate a second abort source firing synchronously while STOP is in flight.
+        holder["controller"].abort("safety_stop")
+
+    ctl = SequenceController(
+        RawLogV2Writer(tmp_path), manifest(tmp_path),
+        lambda pwm: clock.utc_now(), stop_callback, lambda: None, clock,
+    )
+    holder["controller"] = ctl
+    ctl.startup_recover()
+    ctl.start()
+    ctl.abort("user_stop")
+
+    assert stops == ["STOP"]
+    assert ctl.state == SequenceState.ABORTED
+    # Later sources cannot trigger a second STOP or duplicate abort evidence.
+    ctl.abort("communication_lost", fault="late source")
+    assert stops == ["STOP"]
+
+
+def test_repeated_abort_after_success_does_not_repeat_stop_or_append(tmp_path, monkeypatch):
+    clock = FakeClock()
+    stops = []
+    ctl = SequenceController(
+        RawLogV2Writer(tmp_path), manifest(tmp_path),
+        lambda pwm: clock.utc_now(), lambda: stops.append("STOP"),
+        lambda: None, clock,
+    )
+    ctl.startup_recover()
+    ctl.start()
+    append_count = []
+    original_append = ctl.session.append
+
+    def count_append(record):
+        append_count.append(record)
+        return original_append(record)
+
+    monkeypatch.setattr(ctl.session, "append", count_append)
+    ctl.abort("user_stop")
+    count_after_first = len(append_count)
+    ctl.abort("safety_stop")
+    assert ctl.state == SequenceState.ABORTED
+    assert stops == ["STOP"]
+    assert len(append_count) == count_after_first
+
+
+
+def test_concurrent_abort_callers_latch_exactly_one_stop(tmp_path):
+    clock = FakeClock()
+    stop_entered = threading.Event()
+    release_stop = threading.Event()
+    stop_calls = []
+
+    def blocking_stop():
+        stop_calls.append("STOP")
+        stop_entered.set()
+        assert release_stop.wait(timeout=2)
+
+    ctl = SequenceController(
+        RawLogV2Writer(tmp_path), manifest(tmp_path),
+        lambda pwm: clock.utc_now(), blocking_stop, lambda: None, clock,
+    )
+    ctl.startup_recover()
+    ctl.start()
+
+    first = threading.Thread(target=lambda: ctl.abort("user_stop"))
+    first.start()
+    assert stop_entered.wait(timeout=2)
+
+    # A second thread enters while the first caller is blocked in STOP transport.
+    second = threading.Thread(target=lambda: ctl.abort("safety_stop"))
+    second.start()
+    second.join(timeout=2)
+    assert not second.is_alive()
+    assert stop_calls == ["STOP"]
+
+    release_stop.set()
+    first.join(timeout=2)
+    assert not first.is_alive()
+    assert ctl.state == SequenceState.ABORTED
+    assert stop_calls == ["STOP"]
+
+
+
+class _FakeSerial:
+    def __init__(self, *, write_result=None, write_error=None, flush_error=None, block_flush=False):
+        import threading
+        self.write_result = write_result
+        self.write_error = write_error
+        self.flush_error = flush_error
+        self.block_flush = block_flush
+        self.flush_started = threading.Event()
+        self.release_flush = threading.Event()
+        self.calls = []
+
+    def write(self, payload):
+        self.calls.append(("write", bytes(payload)))
+        if self.write_error:
+            raise self.write_error
+        return len(payload) if self.write_result is None else self.write_result
+
+    def flush(self):
+        self.calls.append(("flush",))
+        self.flush_started.set()
+        if self.block_flush:
+            self.release_flush.wait()
+        if self.flush_error:
+            raise self.flush_error
+
+
+def _connected_pyserial(monkeypatch, fake):
+    import sys
+    import types
+    monkeypatch.setitem(sys.modules, "serial", types.SimpleNamespace(
+        Serial=lambda *args, **kwargs: fake
+    ))
+    transport = PySerialTransport("FAKE-PORT", 57600)
+    transport.connect()
+    return transport
+
+
+def test_pyserial_write_exception_is_reported_as_uncertain_send(monkeypatch):
+    fake = _FakeSerial(write_error=OSError("write failed after unknown progress"))
+    transport = _connected_pyserial(monkeypatch, fake)
+    with pytest.raises(TransportError, match="serial send failed"):
+        transport.send(b"STOP")
+    assert fake.calls == [("write", b"STOP")]
+    # A write exception cannot establish whether zero, some, or all bytes escaped.
+
+
+def test_pyserial_short_write_is_rejected_before_flush(monkeypatch):
+    fake = _FakeSerial(write_result=2)
+    transport = _connected_pyserial(monkeypatch, fake)
+    with pytest.raises(TransportError, match="short serial write"):
+        transport.send(b"STOP")
+    assert fake.calls == [("write", b"STOP")]
+
+
+def test_pyserial_flush_exception_is_reported_as_uncertain_send(monkeypatch):
+    fake = _FakeSerial(flush_error=OSError("flush failed"))
+    transport = _connected_pyserial(monkeypatch, fake)
+    with pytest.raises(TransportError, match="serial send failed"):
+        transport.send(b"STOP")
+    assert fake.calls == [("write", b"STOP"), ("flush",)]
+
+
+def test_pyserial_flush_timeout_is_bounded_and_latches_transport(monkeypatch):
+    fake = _FakeSerial(block_flush=True)
+    import sys
+    import types
+    monkeypatch.setitem(sys.modules, "serial", types.SimpleNamespace(
+        Serial=lambda *args, **kwargs: fake
+    ))
+    transport = PySerialTransport("FAKE-PORT", 57600, write_timeout_s=0.01)
+    transport.connect()
+    with pytest.raises(TransportError, match="unknown"):
+        transport.send(b"STOP")
+    assert fake.flush_started.is_set()
+    assert fake.calls == [("write", b"STOP"), ("flush",)]
+    fake.release_flush.set()
+    with pytest.raises(TransportError, match="previously timed out"):
+        transport.send(b"PWM")
+    assert fake.calls == [("write", b"STOP"), ("flush",)]
+
+
+def test_pyserial_success_requires_full_write_and_flush(monkeypatch):
+    fake = _FakeSerial()
+    transport = _connected_pyserial(monkeypatch, fake)
+    transport.send(b"STOP")
+    assert fake.calls == [("write", b"STOP"), ("flush",)]
+
+
+
+def test_uncertain_protocol_stop_failure_latches_fault_and_records_unknown_device_state(tmp_path):
+    """A transport error is ambiguous delivery, not proof that STOP was not received."""
+    import json
+    from measurement_310.transport import ProtocolClient
+
+    class Codec:
+        def encode_pwm(self, pwm):
+            return f"PWM:{pwm}".encode()
+        def encode_stop(self):
+            return b"STOP"
+        def decode(self, payload):
+            return {"kind": "PWM_ACK", "pwm": 0}
+
+    clock = FakeClock()
+    transport = MockTransport(fail_send=True)
+    client = ProtocolClient(transport, Codec())
+    client.connect()
+    ctl = SequenceController(
+        RawLogV2Writer(tmp_path), manifest(tmp_path),
+        lambda pwm: clock.utc_now(), client.send_stop, lambda: None, clock,
+    )
+    ctl.startup_recover()
+    ctl.start()
+    ctl.abort("user_stop")
+
+    assert ctl.state == SequenceState.FAULT
+    assert "STOP command send failed" in (ctl._last_fault or "")
+    records = [json.loads(line) for line in
+               (tmp_path / ".work" / "TEST-310" / "records.jsonl").read_text().splitlines()]
+    event = next(r for r in records if r.get("event") == "SESSION_ABORTED")
+    assert event["details"]["stop_transmission_attempted"] is True
+    assert event["details"]["device_state"] == "unknown"
+    assert "STOP command send failed" in event["details"]["fault"]
+    assert transport.sent == []
+    # Mock failure does not model wire delivery; no retry is attempted.
+
+
+
+def test_recovery_rearm_inhibition_survives_a_new_controller_process(tmp_path):
+    writer = RawLogV2Writer(tmp_path)
+    previous = manifest(tmp_path)
+    previous["log_id"] = "PENDING-RESTART"
+    previous["measurement_session_id"] = "SESSION-RESTART"
+    writer.begin(previous)
+
+    clock = FakeClock()
+    first = SequenceController(
+        writer, manifest(tmp_path), lambda pwm: clock.utc_now(),
+        lambda: None, lambda: None, clock,
+    )
+    recovered = first.startup_recover()
+    assert [item["log_id"] for item in recovered] == ["PENDING-RESTART"]
+    marker = tmp_path / ".310-rearm-inhibited"
+    assert marker.is_file()
+    assert writer.list_incomplete_work() == []
+
+    sent = []
+    second = SequenceController(
+        RawLogV2Writer(tmp_path), manifest(tmp_path),
+        lambda pwm: sent.append(pwm) or clock.utc_now(),
+        lambda: None, lambda: None, clock,
+    )
+    assert second.startup_recover() == []
+    with pytest.raises(SequenceError, match="automatic re-arm is prohibited"):
+        second.start()
+    assert sent == []
+
+
+class FakeV2StageSession:
+    supports_stage_direction = True
+
+    def __init__(self, clock):
+        self.clock = clock
+        self.calls = []
+        self.pending = None
+        self.last_write_completed_monotonic_ns = None
+
+    def send_stage_pwm(self, pwm, stage_context_id, measurement_session_id, stage_index=None, direction=0):
+        self.calls.append(("ARM_PWM", stage_index, direction, stage_context_id))
+        self.pending = (pwm, direction)
+        self.last_write_completed_monotonic_ns = self.clock.monotonic_ns()
+        return self.clock.utc_now()
+
+    def poll_apply_ack(self, timeout_s=0.0):
+        if self.pending is None:
+            return None
+        pwm, _direction = self.pending
+        self.pending = None
+        return pwm, self.clock.utc_now(), self.clock.monotonic_ns()
+
+    def disarm_stage(self):
+        self.calls.append(("DISARM",))
+        return self.clock.utc_now()
+
+    def latch_abort(self, reason):
+        self.calls.append(("ABORT", reason))
+
+
+def test_sequence_controller_disarms_each_stage_and_passes_direction(tmp_path):
+    clock = FakeClock()
+    protocol = FakeV2StageSession(clock)
+    ctl = SequenceController(
+        RawLogV2Writer(tmp_path), manifest(tmp_path), None, lambda: None, None, clock,
+        protocol_session=protocol,
+        stage_direction=lambda index: 1 if index == 1 else 0,
+    )
+    ctl.startup_recover()
+    ctl.start()
+    assert ctl.state == SequenceState.WAITING_ACK
+    assert protocol.calls[0][0:3] == ("ARM_PWM", 0, 0)
+    ctl.poll()
+    assert ctl.state == SequenceState.RUNNING
+    clock.advance_ms(10_000)
+    ctl.poll()
+    assert ctl.state == SequenceState.WAITING_ACK
+    assert protocol.calls[1] == ("DISARM",)
+    assert protocol.calls[2][0:3] == ("ARM_PWM", 1, 1)
+    assert ctl.current_stage_direction == 1
+    ctl.poll()
+    assert ctl.state == SequenceState.RUNNING
+    clock.advance_ms(10_000)
+    ctl.poll()
+    assert protocol.calls[3] == ("DISARM",)
+    assert protocol.calls[4][0:3] == ("ARM_PWM", 2, 0)
+
+
+class FakeV2TelemetrySession(FakeV2StageSession):
+    def __init__(self, clock):
+        super().__init__(clock)
+        self.boot_id64 = 0x123456789ABCDEF0
+        self.telemetry_sent = False
+
+    def poll_adc_batch(self, timeout_s=0.0):
+        if self.telemetry_sent:
+            return None
+        self.telemetry_sent = True
+        channels = (0, 1, 4, 5, 2, 3) * 2
+        samples = []
+        for index, channel in enumerate(channels):
+            status = 3 if index == 1 else 0
+            samples.append({
+                "sample_sequence64": index,
+                "timestamp_us_u32": 1000 + index * 100,
+                "device_elapsed_us": index * 100,
+                "channel_code": channel,
+                "adc_raw": 0xFFFF if status else 512,
+                "stage_context_token": 0 if status else 1,
+                "acquisition_status": status,
+            })
+        return samples
+
+
+def test_sequence_controller_persists_protocol_v2_adc_batch_to_rawlog(tmp_path):
+    clock = FakeClock()
+    protocol = FakeV2TelemetrySession(clock)
+    ctl = SequenceController(
+        RawLogV2Writer(tmp_path), manifest(tmp_path), None, lambda: None, None, clock,
+        protocol_session=protocol,
+    )
+    ctl.startup_recover()
+    ctl.start()
+    ctl.poll()  # Matching ARM/APPLY acknowledgement moves controller to RUNNING.
+    assert ctl.state == SequenceState.RUNNING
+    ctl.poll()  # Drain one ADC_BATCH and persist its twelve original sample slots.
+
+    records = [
+        json.loads(line)
+        for line in (tmp_path / ".work" / "TEST-310" / "records.jsonl").read_text().splitlines()
+    ]
+    adc = [record for record in records if record["record_type"] == "ADC_SAMPLE"]
+    assert len(adc) == 12
+    assert [record["device_sample_sequence"] for record in adc] == list(range(12))
+    assert [record["channel"] for record in adc] == [
+        "A0", "A1", "A4", "A5", "A2", "A3",
+        "A0", "A1", "A4", "A5", "A2", "A3",
+    ]
+    assert all(record["device_epoch_id"] == "123456789ABCDEF0" for record in adc)
+    assert [record["device_elapsed_us"] for record in adc] == [i * 100 for i in range(12)]
+    not_acquired = adc[1]
+    assert not_acquired["validity"] == "invalid"
+    assert not_acquired["invalid_reason"] == "NOT_ACQUIRED"
+    assert not_acquired["stage_assignment"] == "unresolved"
+    assert not_acquired["stage_context_id"] is None
+    assert not_acquired["stage_id"] is None
+    assert all(record["stage_assignment"] == "confirmed" for i, record in enumerate(adc) if i != 1)
+    ctl.abort("test_end")
+
+
+class FakeFinalizableRawLogSession:
+    def __init__(self, package_dir):
+        self.package_dir = package_dir
+        self.finalized = False
+
+    def finalize(self, *args):
+        self.finalized = True
+        return self.package_dir
+
+
+class FakeEvidenceBundleSession(FakeV2StageSession):
+    def __init__(self, clock, fail=False):
+        super().__init__(clock)
+        self.fail_bundle = fail
+        self.bundle_calls = []
+
+    def finalize_evidence_bundle(self, package_dir):
+        self.bundle_calls.append(package_dir)
+        if self.fail_bundle:
+            raise OSError("simulated companion-manifest fsync failure")
+
+
+def test_normal_completion_writes_evidence_bundle_after_rawlog_finalize(tmp_path):
+    clock = FakeClock()
+    protocol = FakeEvidenceBundleSession(clock)
+    ctl = SequenceController(
+        RawLogV2Writer(tmp_path), manifest(tmp_path), None, lambda: None, None, clock,
+        protocol_session=protocol,
+    )
+    package_dir = tmp_path / "final-package"
+    package_dir.mkdir()
+    ctl.session = FakeFinalizableRawLogSession(package_dir)
+    ctl._append = lambda *args, **kwargs: None
+    ctl._complete()
+    assert ctl.session.finalized is True
+    assert protocol.bundle_calls == [package_dir]
+    assert ctl.state == SequenceState.COMPLETED
+    assert not (tmp_path / ".310-evidence-reconciliation-required").exists()
+
+
+def test_evidence_bundle_failure_persists_rearm_inhibition(tmp_path):
+    clock = FakeClock()
+    protocol = FakeEvidenceBundleSession(clock, fail=True)
+    ctl = SequenceController(
+        RawLogV2Writer(tmp_path), manifest(tmp_path), None, lambda: None, None, clock,
+        protocol_session=protocol,
+    )
+    package_dir = tmp_path / "final-package"
+    package_dir.mkdir()
+    ctl.session = FakeFinalizableRawLogSession(package_dir)
+    ctl._append = lambda *args, **kwargs: None
+    with pytest.raises(SequenceError, match="Evidence bundle is untrusted"):
+        ctl._complete()
+    marker = tmp_path / ".310-evidence-reconciliation-required"
+    assert marker.is_file()
+    assert ctl.state == SequenceState.FAULT
+
+    restarted = SequenceController(
+        RawLogV2Writer(tmp_path), manifest(tmp_path),
+        lambda pwm: clock.utc_now(), lambda: None, lambda: None, clock,
+    )
+    restarted.startup_recover()
+    with pytest.raises(SequenceError, match="reconciliation"):
+        restarted.start()

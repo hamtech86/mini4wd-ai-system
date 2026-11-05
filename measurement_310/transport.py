@@ -1,6 +1,7 @@
 """Transport abstraction. Wire format is deliberately injected, not specified here."""
 from __future__ import annotations
 from dataclasses import dataclass
+import threading
 from typing import Optional, Protocol
 
 class TransportError(RuntimeError):
@@ -34,18 +35,24 @@ class SerialTransport(Protocol):
 
 class PySerialTransport:
     """Lazy pySerial adapter; construction never opens a port."""
-    def __init__(self, port: str, baudrate: int, timeout_s: float = 0.1):
-        if not port or baudrate <= 0 or timeout_s < 0:
+    def __init__(self, port: str, baudrate: int, timeout_s: float = 0.1,
+                 write_timeout_s: float = 0.25):
+        if (not port or baudrate <= 0 or timeout_s < 0
+                or write_timeout_s <= 0):
             raise ValueError("invalid serial configuration")
         self.port, self.baudrate, self.timeout_s = port, baudrate, timeout_s
+        self.write_timeout_s = write_timeout_s
         self._serial = None
+        self._flush_failed = False
 
     def connect(self) -> None:
         if self._serial is not None:
             return
         try:
             import serial
-            self._serial = serial.Serial(self.port, self.baudrate, timeout=self.timeout_s)
+            self._serial = serial.Serial(self.port, self.baudrate, timeout=self.timeout_s,
+                                         write_timeout=self.write_timeout_s)
+            self._flush_failed = False
         except Exception as exc:
             raise TransportError(f"serial connect failed: {exc}") from exc
 
@@ -59,11 +66,32 @@ class PySerialTransport:
     def send(self, payload: bytes) -> None:
         if self._serial is None:
             raise TransportError("serial port is not connected")
+        if self._flush_failed:
+            raise TransportError("serial TX flush previously timed out; delivery outcome unknown")
         try:
             written = self._serial.write(payload)
-            self._serial.flush()
             if written != len(payload):
-                raise TransportError("short serial write")
+                raise TransportError("short serial write; delivery outcome unknown")
+            # pySerial.flush() has no timeout parameter. Run the real flush in
+            # a daemon worker and bound the caller's wait. If it does not finish
+            # by the deadline, delivery remains UNKNOWN and this transport is
+            # permanently fail-closed; no later PWM may be sent through it.
+            finished = threading.Event()
+            flush_errors = []
+            def flush_worker():
+                try:
+                    self._serial.flush()
+                except Exception as exc:
+                    flush_errors.append(exc)
+                finally:
+                    finished.set()
+            worker = threading.Thread(target=flush_worker, name="310-serial-flush", daemon=True)
+            worker.start()
+            if not finished.wait(self.write_timeout_s):
+                self._flush_failed = True
+                raise TransportError("serial flush deadline expired; delivery outcome unknown")
+            if flush_errors:
+                raise TransportError(f"serial flush failed; delivery outcome unknown: {flush_errors[0]}")
         except Exception as exc:
             raise TransportError(f"serial send failed: {exc}") from exc
 

@@ -1,6 +1,8 @@
 """310-stage sequence orchestration and RawLog v2 adapter."""
 from __future__ import annotations
 
+import os
+import threading
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
@@ -53,17 +55,31 @@ class SequenceController:
         self,
         writer: RawLogV2Writer,
         manifest_fields: dict[str, Any],
-        send_pwm: Callable[[int], str],
+        send_pwm: Optional[Callable[[int], str]],
         send_stop: Callable[[], None],
-        poll_ack: Callable[[], Optional[tuple[int, str]]],
+        poll_ack: Optional[Callable[[], Optional[tuple[int, str]]]],
         clock: Optional[Clock] = None,
         ack_timeout_ms: int = 2_000,
+        protocol_session: Optional[object] = None,
+        send_normal_stop: Optional[Callable[[], None]] = None,
+        stage_direction: Optional[Callable[[int], int]] = None,
     ) -> None:
+        if protocol_session is None and (not callable(send_pwm) or not callable(poll_ack)):
+            raise ValueError("legacy send_pwm and poll_ack callbacks are required without protocol_session")
+        if protocol_session is not None and (
+            not callable(getattr(protocol_session, "send_stage_pwm", None))
+            or not callable(getattr(protocol_session, "poll_apply_ack", None))
+        ):
+            raise ValueError("protocol_session must implement send_stage_pwm and poll_apply_ack")
         self.writer = writer
         self.manifest_fields = dict(manifest_fields)
         self.send_pwm = send_pwm
         self.send_stop = send_stop
+        self.send_normal_stop = send_normal_stop or send_stop
         self.poll_ack = poll_ack
+        self.protocol_session = protocol_session
+        self.stage_direction = stage_direction or (lambda _index: 0)
+        self.current_stage_direction = 0
         self.clock = clock or SystemClock()
         self.ack_timeout_ns = ack_timeout_ms * 1_000_000
         self.state = SequenceState.READY
@@ -79,15 +95,81 @@ class SequenceController:
         self.next_deadline_ns: Optional[int] = None
         self._last_fault: Optional[str] = None
         self._recovery_complete = False
+        # Recovering a prior incomplete session repairs storage only; it does not
+        # establish whether a nonzero command reached the device or was stopped.
+        self._recovery_requires_review = False
         self._finalization_started = False
+        self._stop_attempted = False
         # Once any append fails, this session is write-disabled. STOP is still attempted.
         self._log_write_failed = False
+        # Non-blocking lock makes abort entry atomic and safe for callback re-entry.
+        self._abort_lock = threading.Lock()
+
+    @classmethod
+    def with_protocol_session(
+        cls,
+        writer: RawLogV2Writer,
+        manifest_fields: dict[str, Any],
+        protocol_session: object,
+        send_stop: Callable[[], None],
+        clock: Optional[Clock] = None,
+        ack_timeout_ms: int = 2_000,
+        send_normal_stop: Optional[Callable[[], None]] = None,
+        stage_direction: Optional[Callable[[int], int]] = None,
+    ) -> "SequenceController":
+        """Construct the v0.5 path without dummy legacy PWM/ACK callbacks."""
+        return cls(
+            writer, manifest_fields, None, send_stop, None, clock,
+            ack_timeout_ms=ack_timeout_ms, protocol_session=protocol_session,
+            send_normal_stop=send_normal_stop, stage_direction=stage_direction,
+        )
 
     def startup_recover(self) -> list[dict[str, Any]]:
         if self.state != SequenceState.READY:
             raise SequenceError("startup recovery must precede session start")
         # Explicitly discover, then recover. No measurement is permitted on failure.
         pending_before = self.writer.list_incomplete_work()
+        # Persist the re-arm inhibition BEFORE recovery removes the .work area.
+        # Otherwise a second process could see no pending work and silently
+        # re-arm after the first process recovered it.
+        inhibit_path = self.writer.root / ".310-rearm-inhibited"
+        if inhibit_path.is_symlink():
+            raise SequenceError("re-arm inhibition marker must not be a symlink")
+        if pending_before and not inhibit_path.exists():
+            self.writer.root.mkdir(parents=True, exist_ok=True)
+            try:
+                fd = os.open(str(inhibit_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            except FileExistsError:
+                fd = None
+            if fd is not None:
+                try:
+                    payload = (
+                        "Recovered incomplete 310 work requires explicit command-outcome "
+                        "reconciliation before re-arm. This marker is intentionally "
+                        "persistent and is not cleared automatically.\n"
+                    ).encode("utf-8")
+                    written = os.write(fd, payload)
+                    if written != len(payload):
+                        raise OSError("short re-arm inhibition marker write")
+                    os.fsync(fd)
+                finally:
+                    os.close(fd)
+                dir_fd = os.open(str(self.writer.root), os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+                try:
+                    os.fsync(dir_fd)
+                finally:
+                    os.close(dir_fd)
+        if inhibit_path.exists():
+            if inhibit_path.is_symlink() or not inhibit_path.is_file():
+                raise SequenceError("re-arm inhibition marker is not a regular file")
+            self._recovery_requires_review = True
+        evidence_marker = self.writer.root / ".310-evidence-reconciliation-required"
+        if evidence_marker.is_symlink():
+            raise SequenceError("Evidence reconciliation marker must not be a symlink")
+        if evidence_marker.exists():
+            if not evidence_marker.is_file():
+                raise SequenceError("Evidence reconciliation marker is not a regular file")
+            self._recovery_requires_review = True
         result = self.writer.recover_pending()
         pending_after = self.writer.list_incomplete_work()
         if pending_after:
@@ -98,6 +180,7 @@ class SequenceController:
         }
         if recovered_ids != set(pending_before):
             raise SequenceError("startup recovery result does not match discovered pending work")
+        self._recovery_requires_review = self._recovery_requires_review or bool(recovered_ids)
         self._recovery_complete = True
         return result
 
@@ -106,6 +189,11 @@ class SequenceController:
             raise SequenceError("startup recovery has not completed")
         if self.state != SequenceState.READY:
             raise SequenceError("controller is not ready")
+        if self._recovery_requires_review:
+            raise SequenceError(
+                "recovered incomplete work requires command-outcome reconciliation; "
+                "automatic re-arm is prohibited"
+            )
         fields = dict(self.manifest_fields)
         now = self.clock.utc_now()
         fields.setdefault("schema_name", "mini4wd.rawlog")
@@ -173,8 +261,36 @@ class SequenceController:
             # send_pwm returns UTC after transport write/flush completes.
             # Capture monotonic time immediately afterwards so ACK timeout and
             # send-to-ACK delay exclude time spent inside the blocking send.
-            self.command_sent_utc = self.send_pwm(index)
-            self.command_sent_ns = self.clock.monotonic_ns()
+            if self.protocol_session is None:
+                self.command_sent_utc = self.send_pwm(index)
+            else:
+                direction = self.stage_direction(index)
+                if isinstance(direction, bool) or not isinstance(direction, int) or direction not in {0, 1}:
+                    raise SequenceError("stage_direction must return FWD(0) or REV(1)")
+                self.current_stage_direction = direction
+                send_stage = self.protocol_session.send_stage_pwm
+                if getattr(self.protocol_session, "supports_stage_direction", False):
+                    self.command_sent_utc = send_stage(
+                        index, self.stage_context_id,
+                        self.session.state["measurement_session_id"], stage_index=index,
+                        direction=direction,
+                    )
+                else:
+                    if direction != 0:
+                        raise SequenceError("protocol session does not support per-stage REV direction")
+                    self.command_sent_utc = send_stage(
+                        index, self.stage_context_id,
+                        self.session.state["measurement_session_id"], stage_index=index,
+                    )
+            transport_sent_ns = (
+                getattr(self.protocol_session, "last_write_completed_monotonic_ns", None)
+                if self.protocol_session is not None else None
+            )
+            self.command_sent_ns = (
+                transport_sent_ns if isinstance(transport_sent_ns, int)
+                and not isinstance(transport_sent_ns, bool)
+                else self.clock.monotonic_ns()
+            )
         except Exception as exc:
             self.abort("communication_lost", fault=f"PWM send failed: {exc}")
             return
@@ -184,24 +300,31 @@ class SequenceController:
         """Advance using injected clock; caller controls polling cadence."""
         if self.state == SequenceState.WAITING_ACK:
             try:
-                ack = self.poll_ack()
+                ack = (self.poll_ack() if self.protocol_session is None
+                       else self.protocol_session.poll_apply_ack(timeout_s=0.0))
             except Exception as exc:
                 self.abort("communication_lost", fault=str(exc))
                 return self.state
             if ack is not None:
-                if not isinstance(ack, tuple) or len(ack) != 2:
+                if not isinstance(ack, tuple) or len(ack) not in {2, 3}:
                     self.abort("communication_lost", fault="malformed ACK object")
                     return self.state
-                pwm, ack_utc = ack
-                if not isinstance(pwm, int) or isinstance(pwm, bool) or not isinstance(ack_utc, str):
+                pwm, ack_utc = ack[:2]
+                ack_received_ns = ack[2] if len(ack) == 3 else self.clock.monotonic_ns()
+                if (not isinstance(pwm, int) or isinstance(pwm, bool) or not isinstance(ack_utc, str)
+                        or isinstance(ack_received_ns, bool) or not isinstance(ack_received_ns, int)
+                        or ack_received_ns < 0):
                     self.abort("communication_lost", fault="malformed ACK fields")
+                    return self.state
+                if self.command_sent_ns is not None and ack_received_ns < self.command_sent_ns:
+                    self.abort("communication_lost", fault="ACK receive timestamp precedes command write completion")
                     return self.state
                 if pwm != self.stage_index:
                     self.abort("communication_lost", fault="ACK PWM mismatch")
                     return self.state
                 self.ack_utc = ack_utc
                 self.stage_start_utc = ack_utc
-                self.stage_start_ns = self.clock.monotonic_ns()
+                self.stage_start_ns = ack_received_ns
                 self.next_deadline_ns = self.stage_start_ns + self.STAGE_DURATION_MS * 1_000_000
                 self.state = SequenceState.RUNNING
                 try:
@@ -213,11 +336,58 @@ class SequenceController:
                                           "ack_received_host_monotonic_ns": self.stage_start_ns,
                                           "command_to_ack_delay_ms":
                                               (self.stage_start_ns - int(self.command_sent_ns)) / 1_000_000})
+                    if self.clock.monotonic_ns() >= self.next_deadline_ns:
+                        self.abort("storage_failure",
+                                   fault="durable ACK evidence/RawLog commit exceeded stage deadline")
                 except Exception as exc:
                     self.abort("storage_failure", fault=f"RawLog ACK record failed: {exc}")
             elif self.clock.monotonic_ns() - int(self.command_sent_ns) >= self.ack_timeout_ns:
                 self.abort("communication_lost", fault="PWM ACK timeout")
         elif self.state == SequenceState.RUNNING:
+            if self.protocol_session is not None:
+                poll_telemetry = getattr(self.protocol_session, "poll_adc_batch", None)
+                if callable(poll_telemetry):
+                    try:
+                        samples = poll_telemetry(timeout_s=0.0)
+                        if samples:
+                            channel_names = {
+                                0: "A0", 1: "A1", 2: "A2", 3: "A3", 4: "A4", 5: "A5"
+                            }
+                            boot_id = int(self.protocol_session.boot_id64)
+                            for sample in samples:
+                                status = int(sample["acquisition_status"])
+                                channel = channel_names[int(sample["channel_code"])]
+                                valid = status == 0
+                                reason = {
+                                    1: "PRECONDITION_INVALID",
+                                    2: "CONVERSION_TIMEOUT",
+                                    3: "NOT_ACQUIRED",
+                                }.get(status)
+                                self.record_adc_sample(
+                                    channel=channel,
+                                    adc_raw=int(sample["adc_raw"]) if valid else None,
+                                    adc_resolution_bits=10,
+                                    device_timestamp_us_u32=int(sample["timestamp_us_u32"]),
+                                    device_timestamp_point=(
+                                        "scheduled_slot_start" if status == 3
+                                        else "conversion_midpoint" if valid
+                                        else "attempt_timestamp"
+                                    ),
+                                    device_epoch_id=f"{boot_id:016X}",
+                                    device_elapsed_us=int(sample["device_elapsed_us"]),
+                                    device_sample_sequence=int(sample["sample_sequence64"]),
+                                    validity="valid" if valid else "invalid",
+                                    invalid_reason=reason,
+                                    stage_assignment_override=(
+                                        "unresolved" if status == 3 else "confirmed"
+                                    ),
+                                    stage_context_id_override=(
+                                        None if status == 3 else self.stage_context_id
+                                    ),
+                                )
+                    except Exception as exc:
+                        self.abort("communication_lost", fault=f"ADC telemetry processing failed: {exc}")
+                        return self.state
             if self.clock.monotonic_ns() >= int(self.next_deadline_ns):
                 try:
                     self._finish_stage()
@@ -232,6 +402,17 @@ class SequenceController:
     def _finish_stage(self) -> None:
         end_ns = self.clock.monotonic_ns()
         end_utc = self.clock.utc_now()
+        disarm = getattr(self.protocol_session, "disarm_stage", None)
+        if callable(disarm):
+            # Normal stage boundary: wait for DISARM_ACK before any next-stage ARM.
+            disarm()
+            self._append(
+                "SESSION_EVENT", event="OTHER", host_monotonic_ns=end_ns,
+                details={"kind": "STAGE_DISARM_ACKNOWLEDGED",
+                         "stage_index": self.stage_index,
+                         "stage_context_id": self.stage_context_id,
+                         "direction": self.current_stage_direction},
+            )
         self._append("PWM_STAGE", stage_id=f"PWM-{self.stage_index:02d}",
                      stage_index=self.stage_index, pwm_command=self.stage_index,
                      planned_duration_ms=self.STAGE_DURATION_MS, stage_status="completed",
@@ -250,6 +431,8 @@ class SequenceController:
         device_epoch_id: str, device_elapsed_us: Optional[int] = None,
         device_sample_sequence: Optional[int] = None, validity: str = "valid",
         invalid_reason: Optional[str] = None,
+        stage_assignment_override: Optional[str] = None,
+        stage_context_id_override: Optional[str] = None,
     ) -> None:
         """Persist one channel observation without merging or re-timing ADC samples."""
         from raw_log_v2.validator import CHANNELS
@@ -259,7 +442,16 @@ class SequenceController:
             raise ValueError("adc_resolution_bits must be 1..32")
         sensor, role = CHANNELS[channel]
         now_ns = self.clock.monotonic_ns()
-        confirmed = self.state == SequenceState.RUNNING and self.stage_context_id is not None
+        if stage_assignment_override is None:
+            confirmed = self.state == SequenceState.RUNNING and self.stage_context_id is not None
+            assigned_context_id = self.stage_context_id if confirmed else None
+        else:
+            if stage_assignment_override not in {"confirmed", "unresolved"}:
+                raise ValueError("stage_assignment_override must be confirmed or unresolved")
+            confirmed = stage_assignment_override == "confirmed"
+            assigned_context_id = stage_context_id_override if confirmed else None
+            if confirmed and not assigned_context_id:
+                raise ValueError("confirmed sample requires stage_context_id_override")
         try:
             self._append(
                 "ADC_SAMPLE", sample_id=str(uuid.uuid4()), channel=channel,
@@ -271,7 +463,7 @@ class SequenceController:
                 device_sample_sequence=device_sample_sequence,
                 host_received_at_utc=self.clock.utc_now(),
                 host_received_monotonic_ns=now_ns,
-                stage_context_id=self.stage_context_id if confirmed else None,
+                stage_context_id=assigned_context_id,
                 stage_id=f"PWM-{self.stage_index:02d}" if confirmed else None,
                 stage_assignment="confirmed" if confirmed else "unresolved",
                 calibration_id=None, validity=validity, invalid_reason=invalid_reason,
@@ -301,12 +493,69 @@ class SequenceController:
             raise SequenceError("visual event storage failed; sequence stopped") from exc
 
     def _complete(self) -> None:
-        self._append("SESSION_EVENT", event="SESSION_COMPLETED",
-                     host_monotonic_ns=self.clock.monotonic_ns(), details={"stages_completed": 31})
+        # The final PWM_SET has no device-side duration field. Therefore normal
+        # completion must request STOP before recording/finalizing completion.
         self.state = SequenceState.FINALIZING
+        self._stop_attempted = True
+        try:
+            self.send_normal_stop()
+        except Exception as exc:
+            self._last_fault = f"normal completion STOP failed: {exc}"
+            self.state = SequenceState.FAULT
+            raise SequenceError(
+                "normal completion STOP failed; RawLog remains incomplete"
+            ) from exc
+        self._append(
+            "SESSION_EVENT", event="SESSION_COMPLETED",
+            host_monotonic_ns=self.clock.monotonic_ns(),
+            details={
+                "stages_completed": 31,
+                "stop_transmission_attempted": True,
+                "device_state": "unknown",
+            },
+        )
         self._finalization_started = True
-        self.session.finalize({"record_counts": {}}, "completed", self.clock.utc_now())
+        final_dir = self.session.finalize({"record_counts": {}}, "completed", self.clock.utc_now())
+        if self.protocol_session is not None:
+            finalize_bundle = getattr(self.protocol_session, "finalize_evidence_bundle", None)
+            if callable(finalize_bundle):
+                try:
+                    finalize_bundle(final_dir)
+                except Exception as exc:
+                    self._last_fault = f"Evidence companion-manifest finalization failed: {exc}"
+                    self._recovery_requires_review = True
+                    try:
+                        self._mark_evidence_reconciliation_required(str(exc))
+                    except Exception as marker_exc:
+                        self._last_fault += f"; re-arm marker write failed: {marker_exc}"
+                    self.state = SequenceState.FAULT
+                    raise SequenceError(
+                        "RawLog package finalized but Evidence bundle is untrusted; re-arm is inhibited"
+                    ) from exc
         self.state = SequenceState.COMPLETED
+
+    def _mark_evidence_reconciliation_required(self, reason: str) -> None:
+        marker = self.writer.root / ".310-evidence-reconciliation-required"
+        if marker.is_symlink():
+            raise SequenceError("Evidence reconciliation marker must not be a symlink")
+        if not marker.exists():
+            payload = (
+                "Protocol Evidence companion finalization failed; verify the RawLog package "
+                "and external Evidence sidecar before any re-arm. Reason: " + str(reason) + "\n"
+            ).encode("utf-8")
+            fd = os.open(str(marker), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            try:
+                written = os.write(fd, payload)
+                if written != len(payload):
+                    raise OSError("short Evidence reconciliation marker write")
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+            dir_fd = os.open(str(self.writer.root), os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
 
     def _record_aborted_stage(self, reason: str) -> None:
         if self.session is None or self.stage_index < 0 or self.stage_context_id is None or self._stage_recorded:
@@ -340,17 +589,35 @@ class SequenceController:
         )
 
     def abort(self, reason: str, fault: Optional[str] = None) -> None:
-        if self.state in {SequenceState.ABORTED, SequenceState.COMPLETED}:
+        # A non-blocking acquisition avoids deadlock on same-thread callback
+        # re-entry and makes the state check/latch atomic across caller threads.
+        if not self._abort_lock.acquire(blocking=False):
             return
-        previous = self.state
-        self.state = SequenceState.STOPPING
+        try:
+            if self.state in {SequenceState.STOPPING, SequenceState.ABORTED,
+                             SequenceState.FAULT, SequenceState.COMPLETED}:
+                return
+            previous = self.state
+            self.state = SequenceState.STOPPING
+        finally:
+            self._abort_lock.release()
         self._last_fault = fault
+        # Inhibit any later v1 command in memory only; never let journal I/O delay STOP.
+        if self.protocol_session is not None:
+            try:
+                latch = getattr(self.protocol_session, "latch_abort", None)
+                if callable(latch):
+                    latch(reason)
+            except Exception as exc:
+                self._last_fault = f"{self._last_fault or reason}; protocol latch failed: {exc}"
         # STOP transmission must be attempted before any RawLog append/fsync.
         # Logging is secondary evidence and must never delay the emergency command.
-        try:
-            self.send_stop()
-        except Exception as exc:
-            self._last_fault = f"{self._last_fault or reason}; STOP send failed: {exc}"
+        if not self._stop_attempted:
+            self._stop_attempted = True
+            try:
+                self.send_stop()
+            except Exception as exc:
+                self._last_fault = f"{self._last_fault or reason}; STOP send failed: {exc}"
         if not self._finalization_started and not self._log_write_failed:
             try:
                 self._record_aborted_stage(reason)
