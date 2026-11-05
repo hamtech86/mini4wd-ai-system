@@ -246,3 +246,8 @@ The v2 protocol maximum wire frame is 188 bytes (155-byte ADC_BATCH payload + 29
 At exact HEAD `91f4f76e2ef7d74ec29c9f27a0f1cc7b96c70cb3`, Arduino Uno compile run #125 / ID 42012704575 succeeded; `avr-size` reports text=10670, data=146, bss=740, hence `.data + .bss = 886 bytes`. Native protocol v2 run #74 / ID 42012704567 succeeded. Break-in/Battery run #1480 / ID 42012704547 completed with all four jobs successful. Artifact ID 13407238519 contains the v2 HEX, ELF, map, size report and SHA-256 manifest (expires 2026-11-19).
 
 The previous 898-byte static footprint was reduced by another 12 bytes using the exact v2 frame ceiling. This leaves 14 bytes below the 900-byte static cap. Worst-case stack and reserve proofs remain open; static size alone is not full SRAM qualification.
+
+
+### Stack-usage instrumentation — 2026-11-05
+
+The Uno compile workflow now passes `-fstack-usage` to C++ and C compilation and stages compiler `.su` records plus a top-30 frame report in the build artifact. This is intended to support, but does not itself complete, the worst-case stack call-chain/ISR analysis. At the latest check, no Arduino workflow run was returned for the new instrumentation commit; therefore the `.su` artifact has not yet been verified. The last successful Uno build remains run #125 / ID 42012704575 at HEAD `91f4f76e2ef7d74ec29c9f27a0f1cc7b96c70cb3`, with static `.data + .bss = 886 bytes`. The current instrumentation and compile guard/comment changes are not yet covered by a newer Arduino CI result. Native protocol v2 run #78 / ID 42013704106 and Break-in/Battery run #1484 / ID 42013704193 both succeeded; all four repository test jobs passed.
