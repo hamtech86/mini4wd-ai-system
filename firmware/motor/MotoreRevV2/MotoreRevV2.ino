@@ -182,6 +182,10 @@ static bool append_adc_attempt(uint8_t channel_code, uint32_t timestamp_us,
       (device->state() != DEVICE_ARMED && device->state() != DEVICE_RUNNING))
     return false;
 
+  if (adc_batch_count == 0 && !device->can_begin_adc_batch()) {
+    device->latch_sample_sequence_exhaustion();
+    return false;
+  }
   uint64_t sequence = 0;
   if (!device->allocate_sample_sequence64(&sequence)) return false;
 
