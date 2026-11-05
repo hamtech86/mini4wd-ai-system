@@ -72,7 +72,21 @@ jobs:
           cp firmware/motor/ProtocolV2Device.h "$sketch_dir/"
           cp firmware/motor/ProtocolV2TxScheduler.h "$sketch_dir/"
           arduino-cli compile --export-binaries --fqbn arduino:avr:uno "$sketch_dir"
-          test -n "$(find "$sketch_dir" -type f -name '*.hex' -print -quit)"
+          v2_hex_file="$(find "$sketch_dir" -type f -name '*.hex' -print -quit)"
+          if [[ -z "$v2_hex_file" ]]; then
+            echo "ERROR: v2 compile succeeded but no HEX file was found under $sketch_dir"
+            find "$sketch_dir" -maxdepth 5 -type f -print
+            exit 1
+          fi
+          artifact_dir="${RUNNER_TEMP}/firmware-artifact"
+          mkdir -p "$artifact_dir"
+          cp "$v2_hex_file" "$artifact_dir/MotoreRevV2.ino.hex"
+          {
+            echo "sketch=MotoreRevV2"
+            echo "fqbn=arduino:avr:uno"
+            echo "arduino_avr_core=1.8.8"
+            sha256sum "$artifact_dir/MotoreRevV2.ino.hex"
+          } > "$artifact_dir/MotoreRevV2-build-manifest.txt"
 
       - name: Verify firmware CAL and host-owned control contract
         shell: bash
