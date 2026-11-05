@@ -10,6 +10,7 @@ from measurement_310.protocol_v2 import (
     DriveDirection, epoch_tag_for_boot_id,
 )
 from measurement_310.protocol_v2_session import ProtocolV2HostSession, ProtocolV2SessionError
+from measurement_310.device_loss_accounting import DeviceLossWindowAccumulator
 
 
 BOOT = 0x123456789ABCDEF0
@@ -125,9 +126,13 @@ def test_v2_adc_batch_advances_full_width_sequence_and_rejects_replay(tmp_path):
     transport = ScriptedTransport(session_id, next_sequence=0)
     session = make_session(tmp_path, transport)
     session.start_session(session_id)
+    session._active_stage = {"token": 1, "stage_context_id": "stage-1"}
+    session._loss_accumulator = DeviceLossWindowAccumulator(BOOT, 1)
     payload = bytearray(struct.pack("<QBBB", 0, 0, 12, 0))
+    channel_order = (0, 1, 4, 5, 2, 3)
+    timestamps = (0, 100, 200, 300, 400, 500, 25000, 25100, 25200, 25300, 25400, 25500)
     for i in range(12):
-        payload.extend(struct.pack("<IBHHBH", i, i % 6, 512, 1, 0, 0))
+        payload.extend(struct.pack("<IBHHBH", timestamps[i], channel_order[i % 6], 512, 1, 0, 0))
     batch = CODEC.decode(CODEC.encode_message(
         MessageType.ADC_BATCH, session_id=session_id,
         epoch_tag=epoch_tag_for_boot_id(BOOT), payload=bytes(payload),
