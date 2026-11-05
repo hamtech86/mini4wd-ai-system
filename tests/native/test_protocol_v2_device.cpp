@@ -194,3 +194,4 @@ static void test_sample_sequence_allocator_is_monotonic_and_fails_closed() {
   assert(exhausted.state() == DEVICE_FAULT_STOP);
   assert(exhausted_output.pwm == 0 && exhausted_output.direction_low);
 }
+
