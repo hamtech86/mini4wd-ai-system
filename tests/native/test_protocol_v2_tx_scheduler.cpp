@@ -11,7 +11,7 @@ struct FakeSerial {
   size_t write(const uint8_t* p,size_t n){chunks.push_back(n);bytes.insert(bytes.end(),p,p+n);return n;}
 };
 static std::vector<uint8_t> expected(const DeviceReplyV2& r){
-  uint8_t b[kMaxWireSize]={0}; memcpy(b+1+kHeaderSize,r.payload,r.payload_length);
+  uint8_t b[kMaxV2WireSize]={0}; memcpy(b+1+kHeaderSize,r.payload,r.payload_length);
   uint16_t n=0; assert(encode_frame_in_place(r.message_type,r.session_uuid,r.epoch_tag,r.command_id,b,r.payload_length,sizeof(b),&n));
   return std::vector<uint8_t>(b,b+n);
 }
