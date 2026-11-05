@@ -100,3 +100,12 @@ Code/test HEAD 16add01e3d72440cfd019c0a59f78dc616944470:
 - Native protocol-v2 workflow 42092849183: success.
 - Arduino Uno Firmware Compile workflow 42092849215: success.
 - The source/test head is newer than the earlier 588-test run. The later changes are host STOP endpoint validation and strict T18 profile guards/tests; firmware source is unchanged.
+
+
+## 2026-11-06 continuation — real pySerial PTY STOP separation test
+
+- Added a Linux PTY integration test using real pySerial objects rather than only mocked serial ports.
+- The command PTY is deliberately filled until its bounded write times out. The test then sends a real protocol-v2 STOP_REQ through the independent STOP PTY and decodes the received frame, verifying that the STOP endpoint remains usable when the command endpoint is blocked.
+- The protocol-v2 session constructor itself now enforces the distinct bounded STOP endpoint for any transport exposing a real serial port; callers cannot bypass the factory guard by constructing the session directly.
+- Unified code/test HEAD 4e79c4ff5cb76a5defe87f8420301826f1890112: all four host jobs passed; full suite **600 passed, 2 xfailed in 20.04s**. Native protocol-v2 and Arduino Uno compile/resource jobs also passed on that head.
+- This is an OS/pySerial software integration test with PTYs. It does not emulate the external safety controller's electronics, the Uno UART parser, L298N enable gate, or physical motor cutoff.
