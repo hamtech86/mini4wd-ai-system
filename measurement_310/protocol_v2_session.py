@@ -86,7 +86,18 @@ class ProtocolV2HostSession:
         monotonic: Callable[[], float] = time.monotonic,
         utc_now: Optional[Callable[[], str]] = None,
     ) -> "ProtocolV2HostSession":
-        """Bind intent and Evidence sidecars to one canonical RawLog session."""
+        """Bind sidecars and require a distinct STOP endpoint for real serial transports."""
+        command_port = getattr(transport, "port", None)
+        if command_port is not None:
+            stop_port = getattr(stop_writer, "port", None)
+            worst_case = getattr(stop_writer, "worst_case_s", None)
+            if stop_writer is None or not stop_port:
+                raise ValueError("real serial transport requires a dedicated independent STOP endpoint")
+            if os.path.realpath(str(command_port)) == os.path.realpath(str(stop_port)):
+                raise ValueError("STOP endpoint must be physically distinct from command serial port")
+            if (isinstance(worst_case, bool) or not isinstance(worst_case, (int, float))
+                    or worst_case <= 0 or worst_case >= stop_timeout_s):
+                raise ValueError("independent STOP writer worst-case bound must be below STOP caller deadline")
         intent = DurableIntentJournal.for_session(rawlog_root, measurement_session_id)
         evidence = TransportEvidenceJournal.for_session(rawlog_root, measurement_session_id)
         session = cls(
