@@ -116,16 +116,18 @@ static uint32_t adc_loss_counter = 0;
 static volatile bool adc_resource_audit_link = false;
 #endif
 
-static void increment_adc_loss_counter() {
-  if (adc_loss_counter != UINT32_MAX) ++adc_loss_counter;
+static void add_adc_loss_count(uint32_t count) {
+  if (count > UINT32_MAX - adc_loss_counter) adc_loss_counter = UINT32_MAX;
+  else adc_loss_counter += count;
   // UINT32_MAX is the saturated sentinel; never wrap the transport counter.
 }
 
 static void discard_partial_adc_batch() {
   if (tx_scheduler.batch_building()) {
+    const uint8_t dropped_attempts = adc_batch_count;
     tx_scheduler.abort_adc_batch();
     adc_batch_count = 0;
-    increment_adc_loss_counter();
+    add_adc_loss_count(dropped_attempts);
   }
 }
 
@@ -140,11 +142,10 @@ static void handle_rx_byte(uint8_t value) {
     FrameView frame;
     if (decode_frame_in_place(rx_buffer, rx_length, &frame)) {
       const DeviceReplyV2 reply = device->handle(frame);
-      // STOP's output-safe action has already happened synchronously. Drop an
-      // incomplete telemetry batch at session/stage boundaries before ACK
-      // enqueue; never let telemetry ownership delay a control reply.
-      if (frame.message_type == STOP_REQ || frame.message_type == DISARM ||
-          frame.message_type == HELLO) {
+      // STOP's output-safe action has already happened synchronously. Any
+      // control reply preempts an incomplete telemetry batch; count all
+      // sample attempts already written to TX workspace as lost.
+      if (reply.valid && tx_scheduler.batch_building()) {
         discard_partial_adc_batch();
       }
       tx_scheduler.enqueue(reply);
@@ -191,22 +192,23 @@ static bool append_adc_attempt(uint8_t channel_code, uint32_t timestamp_us,
 
   if (adc_batch_count == 0) {
     if (!tx_scheduler.begin_adc_batch(sequence, static_cast<uint8_t>(adc_loss_counter))) {
-      increment_adc_loss_counter();
+      add_adc_loss_count(1);
       return false;
     }
   } else if (!tx_scheduler.batch_building()) {
-    // A control reply preempted an incomplete batch. This scheduled attempt
-    // is consumed as a gap too; the next complete batch starts after it.
+    // A prior partial batch and this scheduled attempt are both lost.
+    const uint8_t dropped_attempts = static_cast<uint8_t>(adc_batch_count + 1);
     adc_batch_count = 0;
-    increment_adc_loss_counter();
+    add_adc_loss_count(dropped_attempts);
     return false;
   }
 
   if (!tx_scheduler.append_adc_sample(timestamp_us, channel_code, raw,
                                       stage_token, acquisition_status, 0)) {
+    const uint8_t dropped_attempts = static_cast<uint8_t>(adc_batch_count + 1);
     tx_scheduler.abort_adc_batch();
     adc_batch_count = 0;
-    increment_adc_loss_counter();
+    add_adc_loss_count(dropped_attempts);
     return false;
   }
   ++adc_batch_count;
@@ -216,7 +218,7 @@ static bool append_adc_attempt(uint8_t channel_code, uint32_t timestamp_us,
         device->session_uuid(), epoch_tag_for_boot_id(device->boot_id64()));
     adc_batch_count = 0;
     if (!queued) {
-      increment_adc_loss_counter();
+      add_adc_loss_count(12);
       return false;
     }
   }
