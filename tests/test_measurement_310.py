@@ -1201,3 +1201,65 @@ def test_sequence_controller_disarms_each_stage_and_passes_direction(tmp_path):
     ctl.poll()
     assert protocol.calls[3] == ("DISARM",)
     assert protocol.calls[4][0:3] == ("ARM_PWM", 2, 0)
+
+
+class FakeV2TelemetrySession(FakeV2StageSession):
+    def __init__(self, clock):
+        super().__init__(clock)
+        self.boot_id64 = 0x123456789ABCDEF0
+        self.telemetry_sent = False
+
+    def poll_adc_batch(self, timeout_s=0.0):
+        if self.telemetry_sent:
+            return None
+        self.telemetry_sent = True
+        channels = (0, 1, 4, 5, 2, 3) * 2
+        samples = []
+        for index, channel in enumerate(channels):
+            status = 3 if index == 1 else 0
+            samples.append({
+                "sample_sequence64": index,
+                "timestamp_us_u32": 1000 + index * 100,
+                "device_elapsed_us": index * 100,
+                "channel_code": channel,
+                "adc_raw": 0xFFFF if status else 512,
+                "stage_context_token": 0 if status else 1,
+                "acquisition_status": status,
+            })
+        return samples
+
+
+def test_sequence_controller_persists_protocol_v2_adc_batch_to_rawlog(tmp_path):
+    clock = FakeClock()
+    protocol = FakeV2TelemetrySession(clock)
+    ctl = SequenceController(
+        RawLogV2Writer(tmp_path), manifest(tmp_path), None, lambda: None, None, clock,
+        protocol_session=protocol,
+    )
+    ctl.startup_recover()
+    ctl.start()
+    ctl.poll()  # Matching ARM/APPLY acknowledgement moves controller to RUNNING.
+    assert ctl.state == SequenceState.RUNNING
+    ctl.poll()  # Drain one ADC_BATCH and persist its twelve original sample slots.
+
+    records = [
+        json.loads(line)
+        for line in (tmp_path / ".work" / "TEST-310" / "records.jsonl").read_text().splitlines()
+    ]
+    adc = [record for record in records if record["record_type"] == "ADC_SAMPLE"]
+    assert len(adc) == 12
+    assert [record["device_sample_sequence"] for record in adc] == list(range(12))
+    assert [record["channel"] for record in adc] == [
+        "A0", "A1", "A4", "A5", "A2", "A3",
+        "A0", "A1", "A4", "A5", "A2", "A3",
+    ]
+    assert all(record["device_epoch_id"] == "123456789ABCDEF0" for record in adc)
+    assert [record["device_elapsed_us"] for record in adc] == [i * 100 for i in range(12)]
+    not_acquired = adc[1]
+    assert not_acquired["validity"] == "invalid"
+    assert not_acquired["invalid_reason"] == "NOT_ACQUIRED"
+    assert not_acquired["stage_assignment"] == "unresolved"
+    assert not_acquired["stage_context_id"] is None
+    assert not_acquired["stage_id"] is None
+    assert all(record["stage_assignment"] == "confirmed" for i, record in enumerate(adc) if i != 1)
+    ctl.abort("test_end")
