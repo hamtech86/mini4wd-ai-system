@@ -103,7 +103,7 @@ static void test_arm_direction_and_disarm_wire_contract() {
   assert(f.message_type == DISARM && read_u16(f.payload) == 9);
 
   memset(tx, 0, sizeof(tx)); p = tx + 1 + kHeaderSize;
-  p[0] = 0; p[1] = DEVICE_ARMED; write_u16(p + 2, 9); p[4] = DIRECTION_REV;
+  p[0] = 0; p[1] = 1; write_u16(p + 2, 9); p[4] = DIRECTION_REV;
   assert(encode_frame_in_place(ARM_ACK, session, 1, 1, tx, 5, sizeof(tx), &n));
 }
 
