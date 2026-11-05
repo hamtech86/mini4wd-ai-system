@@ -12,7 +12,7 @@ from .command_intent import AckCorrelator, AckIdentity, CommandIdentity, Durable
 from .epoch_checkpoint import CheckpointStatus
 from .protocol_v1_session import TransportEvidenceJournal
 from .protocol_v2 import (
-    MessageType, ProtocolV2Codec, ProtocolV2Error, StopReason, epoch_tag_for_boot_id,
+    DriveDirection, MessageType, ProtocolV2Codec, ProtocolV2Error, StopReason, epoch_tag_for_boot_id,
 )
 from .sequence_reconciliation import (
     SequenceReconciliationStatus, reconcile_device_sequence,
@@ -65,6 +65,7 @@ class ProtocolV2HostSession:
         self._correlator = AckCorrelator()
         self._context_map: dict[int, str] = {}
         self._armed = False
+        self._active_stage: Optional[dict] = None
         self._failed = False
 
     @staticmethod
@@ -271,15 +272,22 @@ class ProtocolV2HostSession:
                                 identity=identity, intent_hash=digest)
 
     def _accept_ack(self, message: dict, identity: CommandIdentity,
-                    expected_kind: str, token: int, pwm: Optional[int] = None) -> bool:
+                    expected_kind: str, token: int, pwm: Optional[int] = None,
+                    direction: Optional[int] = None) -> bool:
         if (message.get("kind") != expected_kind
                 or message.get("measurement_session_id") != self.measurement_session_id
                 or message.get("device_epoch_tag") != self.epoch_tag
                 or message.get("command_id") != int(identity.command_id)):
             return False
         if expected_kind == "ARM_ACK":
-            if message.get("result") != 0 or message.get("state") != "ARMED" or message.get("active_context_token") != token:
-                raise ProtocolV2SessionError("ARM_ACK rejected or context mismatch")
+            if (message.get("result") != 0 or message.get("state") != "ARMED"
+                    or message.get("active_context_token") != token
+                    or (direction is not None and message.get("direction_code") != int(direction))):
+                raise ProtocolV2SessionError("ARM_ACK rejected or context/direction mismatch")
+        elif expected_kind == "DISARM_ACK":
+            if (message.get("result") != 0 or message.get("state") != "IDLE"
+                    or message.get("stage_context_token") != token):
+                raise ProtocolV2SessionError("DISARM_ACK rejected or context mismatch")
         elif (message.get("result") != 0 or message.get("applied_pwm") != pwm
               or message.get("stage_context_token") != token):
             raise ProtocolV2SessionError("APPLY_ACK rejected or PWM/context mismatch")
@@ -297,12 +305,17 @@ class ProtocolV2HostSession:
     def send_stage_pwm(self, pwm: int, stage_context_id: str, measurement_session_id: str,
                        stage_index: Optional[int] = None, *,
                        host_boot_id64: Optional[int] = None,
-                       host_next_sequence64: Optional[int] = None) -> str:
+                       host_next_sequence64: Optional[int] = None,
+                       direction: int = DriveDirection.FWD) -> str:
         try:
             if self._failed:
                 raise ProtocolV2SessionError("host protocol session is fail-closed")
             if self._pending is not None:
                 raise ProtocolV2SessionError("previous PWM outcome unresolved")
+            if self._armed:
+                raise ProtocolV2SessionError("previous stage must complete DISARM before the next ARM")
+            if isinstance(direction, bool) or not isinstance(direction, int) or direction not in {0, 1}:
+                raise ValueError("direction must be DriveDirection.FWD(0) or REV(1)")
             if isinstance(pwm, bool) or not isinstance(pwm, int) or not 0 <= pwm <= 30:
                 raise ValueError("PWM must be integer 0..30")
             if not isinstance(stage_context_id, str) or not stage_context_id:
@@ -327,10 +340,10 @@ class ProtocolV2HostSession:
                                                int(self.boot_id64), stage_context_id)
                 arm_frame = self.codec.encode_arm(session_id=self.measurement_session_id,
                                                   epoch_tag=int(self.epoch_tag), command_id=arm_id,
-                                                  stage_context_token=token)
+                                                  stage_context_token=token, direction=direction)
                 self._register_and_send(arm_identity, arm_frame, "ARM")
                 arm_ack = self._wait_for("ARM_ACK")
-                if not self._accept_ack(arm_ack, arm_identity, "ARM_ACK", token):
+                if not self._accept_ack(arm_ack, arm_identity, "ARM_ACK", token, direction=direction):
                     raise ProtocolV2SessionError("ARM_ACK identity mismatch")
                 self._armed = True
             identity = CommandIdentity(str(command_id), "PWM_SET", self.measurement_session_id,
@@ -340,6 +353,8 @@ class ProtocolV2HostSession:
                                               pwm=pwm, stage_context_token=token)
             sent = self._register_and_send(identity, frame, "PWM_SET")
             self._pending = {"identity": identity, "token": token, "pwm": pwm}
+            self._active_stage = {"token": token, "stage_context_id": stage_context_id,
+                                  "direction": direction, "stage_index": stage_index}
             return sent
         except Exception:
             self._failed = True
@@ -363,6 +378,38 @@ class ProtocolV2HostSession:
             return None
         self._pending = None
         return pending["pwm"], self.utc_now()
+
+
+    def disarm_stage(self) -> str:
+        """End the active stage safely while retaining the HELLO session."""
+        try:
+            if self._failed:
+                raise ProtocolV2SessionError("host protocol session is fail-closed")
+            if self._pending is not None:
+                raise ProtocolV2SessionError("cannot DISARM while PWM outcome is unresolved")
+            if not self._armed or self._active_stage is None:
+                raise ProtocolV2SessionError("no armed stage is available to DISARM")
+            token = int(self._active_stage["token"])
+            stage_context_id = str(self._active_stage["stage_context_id"])
+            command_id = self._next_command_id()
+            identity = CommandIdentity(str(command_id), "DISARM", self.measurement_session_id,
+                                       int(self.boot_id64), stage_context_id)
+            frame = self.codec.encode_disarm(
+                session_id=self.measurement_session_id, epoch_tag=int(self.epoch_tag),
+                command_id=command_id, stage_context_token=token)
+            sent = self._register_and_send(identity, frame, "DISARM")
+            ack = self._wait_for("DISARM_ACK")
+            if not self._accept_ack(ack, identity, "DISARM_ACK", token):
+                raise ProtocolV2SessionError("DISARM_ACK identity mismatch")
+            self._armed = False
+            self._active_stage = None
+            self._append("STAGE_DISARMED", stage_context_token=token,
+                         stage_context_id=stage_context_id, command_id=command_id,
+                         direction=int(identity.command_type == "DISARM"))
+            return sent
+        except Exception:
+            self._failed = True
+            raise
 
     def accept_adc_batch(self, message: dict) -> list[dict]:
         if self._failed or self.boot_id64 is None or self.next_sample_sequence64 is None:
