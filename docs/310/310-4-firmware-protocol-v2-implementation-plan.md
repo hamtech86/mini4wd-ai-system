@@ -124,7 +124,7 @@ Native test coverage:
 CI:
 - Native protocol v2 workflow run #22, run ID 41963370586, exact HEAD `cec01535717d901552cb99da9b368623379eb59d`: success. Both original codec/journal targets and the new device-state-machine compile/run steps passed.
 - Native workflow at subsequent exact HEAD `88b777f7c23577b79e1d2794424bb9d66da40c42`, run ID 41963453353: success. Includes codec, EEPROM journal fault-boundary suite and device safety vectors.
-- Additional duplicate-command/active-session regression tests were added at HEAD `a20337655b637ea459e79b39ea734776eacaece9`; exact-HEAD CI is pending and must be checked before counting those latest tests as verified.
+- Additional duplicate-command/active-session regression tests were added at HEAD `a20337655b637ea459e79b39ea734776eacaece9`; native workflow run ID 41963506495 completed success and included the state-machine compile/run steps.
 
 Not yet implemented/qualified:
 - No `MotoreRevV2.ino` binary parser/TX scheduler integration.
@@ -133,3 +133,32 @@ Not yet implemented/qualified:
 - No ADC scheduler/cadence adoption or 12-slot batch producer.
 - No AVR v2 sketch compile, .elf/.hex/map, SRAM/stack proof.
 - No Arduino upload, serial hardware connection, motor energization, EEPROM/fuse operation, physical test, or hardware qualification.
+
+
+## 7. 2026-11-05 bounded TX scheduler increment
+
+Added `firmware/motor/ProtocolV2TxScheduler.h` and `tests/native/test_protocol_v2_tx_scheduler.cpp`.
+
+- TX uses one 194-byte wire workspace; pending replies are retained as decoded fields only, not a second full-frame buffer.
+- A frame remains TX-owned until all bytes are accepted by the serial writer; frame bytes are never interleaved.
+- Each service pass writes at most 16 bytes and returns to the caller, allowing the main loop to parse incoming STOP between chunks.
+- A pending STOP_ACK supersedes a lower-priority pending reply and is emitted at the next frame boundary. The active frame is not corrupted or interleaved.
+- A second lower-priority pending reply is rejected rather than overwriting the pending item or growing a queue.
+- This scheduler does not itself perform STOP output actions. The device state machine performs safe_outputs synchronously when STOP_REQ is handled; scheduler only prioritizes the best-effort ACK.
+- Native CI for the scheduler increment is running at current code HEAD `74ac55f1f04725f0399c36fef3ae8d5da2765723`; record the exact run conclusion before treating it as verified.
+
+### Direction contract discrepancy — must be resolved before sketch drive integration
+
+The adopted Issue #35 / Issue #172 contract requires explicit FWD/REV direction and records direction with each measurement. The v2 wire contract currently defines ARM as only `stage_context_token + initial_pwm=0` and PWM_SET as only `pwm + stage_context_token`; there is no direction command or direction field. The legacy firmware explicitly drives D7/D8 differently for FWD and REV. Therefore the current v2 device state machine cannot safely select the required direction, and a sketch that silently assumes FWD would not satisfy the authoritative contract.
+
+Before nonzero PWM integration into `MotoreRevV2.ino`, amend v2 so ARM binds a session direction (recommended: add a direction enum to ARM and echo it in ARM_ACK/STATUS), then update host codec/session, test vectors and firmware together. Until that wire-contract amendment is reviewed, do not set either direction pin HIGH and do not claim functional PWM drive integration.
+
+### Current status
+
+FW2-01 codec: implemented; native CI passing.
+FW2-02 EEPROM journal: implemented as a native model; native CI passing. Actual Uno EEPROM adapter/provisioning remains open.
+FW2-03 sample sequence: core HELLO/STATUS storage fields exist in codec/device object; ADC scheduler and sequence consumption on every scheduled attempt remain open.
+FW2-04 command state machine: native implementation/tests added; native CI passing through HEAD `a20337655b637ea459e79b39ea734776eacaece9`.
+FW2-05 STOP: synchronous safe-output adapter and native command-state tests added; bounded TX scheduler added; scheduler CI pending at HEAD `74ac55f1f04725f0399c36fef3ae8d5da2765723`. Physical STOP remains unqualified.
+FW2-06 ADC: not implemented; 20 Hz remains NOT ADOPTED, so no cadence is invented.
+FW2-07 AVR build/resource proof: not started for v2 sketch.
