@@ -111,6 +111,19 @@ static bool rx_discard_until_delimiter = false;
 static uint8_t adc_batch_count = 0;
 static uint32_t adc_loss_counter = 0;
 
+static void increment_adc_loss_counter() {
+  if (adc_loss_counter != UINT32_MAX) ++adc_loss_counter;
+  // UINT32_MAX is the saturated sentinel; never wrap the transport counter.
+}
+
+static void discard_partial_adc_batch() {
+  if (tx_scheduler.batch_building()) {
+    tx_scheduler.abort_adc_batch();
+    adc_batch_count = 0;
+    increment_adc_loss_counter();
+  }
+}
+
 static void handle_rx_byte(uint8_t value) {
   if (value == 0) {
     if (rx_discard_until_delimiter) {
@@ -122,8 +135,13 @@ static void handle_rx_byte(uint8_t value) {
     FrameView frame;
     if (decode_frame_in_place(rx_buffer, rx_length, &frame)) {
       const DeviceReplyV2 reply = device->handle(frame);
-      // STOP output action already occurred synchronously inside handle().
-      // The scheduler only queues the best-effort ACK.
+      // STOP's output-safe action has already happened synchronously. Drop an
+      // incomplete telemetry batch at session/stage boundaries before ACK
+      // enqueue; never let telemetry ownership delay a control reply.
+      if (frame.message_type == STOP_REQ || frame.message_type == DISARM ||
+          frame.message_type == HELLO) {
+        discard_partial_adc_batch();
+      }
       tx_scheduler.enqueue(reply);
     }
     rx_length = 0;
@@ -158,13 +176,13 @@ static bool capture_adc_attempt(uint8_t channel_code) {
 
   if (adc_batch_count == 0) {
     if (!tx_scheduler.begin_adc_batch(sequence, static_cast<uint8_t>(adc_loss_counter))) {
-      ++adc_loss_counter;
+      increment_adc_loss_counter();
       return false;
     }
   } else if (!tx_scheduler.batch_building()) {
     // A control ACK/STOP preempted the in-progress batch.
     adc_batch_count = 0;
-    ++adc_loss_counter;
+    increment_adc_loss_counter();
     return false;
   }
 
