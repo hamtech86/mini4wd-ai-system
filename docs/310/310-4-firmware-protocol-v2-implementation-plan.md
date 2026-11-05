@@ -165,3 +165,14 @@ FW2-07 AVR build/resource proof: not started for v2 sketch.
 
 
 Exact current branch HEAD `0fb8dbb8c5ea34421dfd31c30b78a7a47ce29bf6` was rechecked by native workflow run #40 / ID 41963694506: success. All codec, EEPROM journal, device state-machine and bounded TX scheduler compile/run steps passed at this exact HEAD.
+
+
+## 8. Repository CI snapshot (2026-11-05)
+
+Exact code HEAD `0fb8dbb8c5ea34421dfd31c30b78a7a47ce29bf6`:
+- Native v2 workflow #40 / 41963694506: success; codec, EEPROM journal, state machine and TX scheduler compile/run passed.
+- Break-in and Battery #1446 / 41963694468: all four jobs succeeded; full pytest **259 passed in 9.93s**.
+- Arduino Uno compile #100 / 41963694486: success, but it compiles only legacy `MotoreRev.ino`, not a v2 sketch.
+- DB Path Safety #580 / 41963694424: success.
+
+The branch later advanced by documentation-only commits to `c0ad824277cb15c376f8bb20173087ee75664d77`; firmware code did not change after the tested code HEAD. These CI results do not establish v2 AVR compilation, SRAM/stack limits, hardware behavior or formal T01–T18 acceptance.
