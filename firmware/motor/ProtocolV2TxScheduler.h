@@ -45,6 +45,26 @@ class ProtocolV2TxScheduler {
     return reply.message_type == STOP_ACK && pending_.message_type == STOP_ACK;
   }
 
+  // Large telemetry frames are accepted only when the TX path is completely
+  // idle. This prevents ADC_BATCH from displacing or delaying a control ACK.
+  bool enqueue_frame(uint8_t type, const uint8_t* session, uint32_t epoch_tag,
+                     uint32_t command_id, const uint8_t* payload, uint16_t length) {
+    if (busy() || failed_ || !session || (!payload && length) ||
+        length > kAdcBatchPayloadSize ||
+        expected_payload_length(type) != length ||
+        !validate_header(type, session, epoch_tag, command_id) ||
+        !validate_payload(type, payload, length, epoch_tag)) return false;
+    DeviceReplyV2 reply;
+    memset(&reply, 0, sizeof(reply));
+    reply.message_type = type;
+    memcpy(reply.session_uuid, session, 16);
+    reply.epoch_tag = epoch_tag;
+    reply.command_id = command_id;
+    reply.payload_length = (uint8_t)length;
+    reply.valid = true;
+    return encode_fields(type, session, epoch_tag, command_id, payload, length);
+  }
+
   template <typename SerialLike>
   void service(SerialLike& serial) {
     if (failed_) return;
@@ -84,12 +104,16 @@ class ProtocolV2TxScheduler {
   bool failed_;
 
   bool encode(const DeviceReplyV2& reply) {
+    return encode_fields(reply.message_type, reply.session_uuid, reply.epoch_tag,
+                         reply.command_id, reply.payload, reply.payload_length);
+  }
+
+  bool encode_fields(uint8_t type, const uint8_t* session, uint32_t epoch_tag,
+                     uint32_t command_id, const uint8_t* payload, uint16_t length) {
     memset(tx_buffer_, 0, sizeof(tx_buffer_));
-    memcpy(tx_buffer_ + 1 + kHeaderSize, reply.payload, reply.payload_length);
-    if (!encode_frame_in_place(reply.message_type, reply.session_uuid,
-                               reply.epoch_tag, reply.command_id,
-                               tx_buffer_, reply.payload_length,
-                               sizeof(tx_buffer_), &tx_length_)) {
+    memcpy(tx_buffer_ + 1 + kHeaderSize, payload, length);
+    if (!encode_frame_in_place(type, session, epoch_tag, command_id,
+                               tx_buffer_, length, sizeof(tx_buffer_), &tx_length_)) {
       tx_length_ = tx_offset_ = 0;
       failed_ = true;
       return false;
