@@ -68,11 +68,13 @@ class ProtocolV2Device {
   // Allocate exactly one scheduled ADC-attempt identity. UINT64_MAX is a
   // terminal boundary: it is never emitted and the device fails closed.
   bool allocate_sample_sequence64(uint64_t* allocated) {
-    if (!allocated || next_sample_sequence64_ == UINT64_MAX ||
+    // A batch must reserve a representable exclusive next-sequence boundary
+    // (first + 12). Do not start a batch that the v2 host cannot represent.
+    if (!allocated || next_sample_sequence64_ > UINT64_MAX - 12ULL ||
         state_ == DEVICE_STOP_LATCHED || state_ == DEVICE_STOPPED ||
         state_ == DEVICE_FAULT || state_ == DEVICE_FAULT_STOP ||
         state_ == DEVICE_BOOT_ID_INVALID) {
-      if (next_sample_sequence64_ == UINT64_MAX) {
+      if (next_sample_sequence64_ > UINT64_MAX - 12ULL) {
         outputs_safe();
         state_ = DEVICE_FAULT_STOP;
       }
