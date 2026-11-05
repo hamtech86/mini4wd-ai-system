@@ -192,7 +192,7 @@ jobs:
           if not rows:
               raise SystemExit("ERROR: ADC audit .su files contain no parseable GCC stack-usage records")
           (artifact_dir / "MotoreRevV2-adc-audit-stack-usage-all.txt").write_text(
-              "".join(f"{frame}\\t{qualifier}\\t{name}\\n" for frame, name, qualifier in rows)
+              "".join(str(frame) + chr(9) + qualifier + chr(9) + name + chr(10) for frame, name, qualifier in rows)
           )
           (artifact_dir / "MotoreRevV2-adc-audit-stack-usage-top30.txt").write_text(
               "".join(f"{frame}\\t{qualifier}\\t{name}\\n" for frame, name, qualifier in rows[:30])
