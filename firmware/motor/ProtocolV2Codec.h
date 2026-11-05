@@ -10,7 +10,8 @@ static const uint16_t kMagic = 0x344D;
 static const uint8_t kVersion = 0x02;
 static const uint16_t kHeaderSize = 29;
 static const uint16_t kCrcSize = 2;
-static const uint16_t kMaxWireSize = 194;
+static const uint16_t kMaxWireSize = 194; // legacy/shared workspace ceiling
+static const uint16_t kMaxV2WireSize = 188; // v2 ADC_BATCH maximum including delimiter
 static const uint16_t kAdcBatchPayloadSize = 155;
 
 enum MessageType : uint8_t {
@@ -211,7 +212,7 @@ static inline bool encode_frame_in_place(uint8_t type, const uint8_t* session,
                                          uint32_t epoch_tag, uint32_t command_id,
                                          uint8_t* buffer, uint16_t payload_length,
                                          uint16_t capacity, uint16_t* wire_length) {
-  if (!buffer || !session || !wire_length || capacity < kMaxWireSize) return false;
+  if (!buffer || !session || !wire_length || capacity < 2) return false;
   if (!validate_header(type, session, epoch_tag, command_id) ||
       !validate_payload(type, buffer + 1 + kHeaderSize, payload_length, epoch_tag)) return false;
   const uint16_t raw_length = kHeaderSize + payload_length + kCrcSize;
