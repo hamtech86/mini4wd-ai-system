@@ -22,7 +22,7 @@ struct FakeOutput {
     direction_low = false; reverse = direction == DIRECTION_REV; return true;
   }
   bool set_pwm(uint8_t value) {
-    if (!direction_low) return false;
+    if (direction_low) return false;
     pwm = value;
     return true;
   }
@@ -59,7 +59,7 @@ static void test_boot_hello_arm_pwm_and_stop_preemption() {
 
   uint8_t arm_payload[4] = {0};
   write_u16(arm_payload, 1); arm_payload[2] = 0; arm_payload[3] = DIRECTION_FWD;
-  DeviceReplyV2 arm = device.handle(frame(ARM, session_a, epoch, 1, arm_payload, 3));
+  DeviceReplyV2 arm = device.handle(frame(ARM, session_a, epoch, 1, arm_payload, 4));
   assert(arm.message_type == ARM_ACK && arm.payload[0] == 0);
   assert(arm.payload[1] == DEVICE_ARMED && read_u16(arm.payload + 2) == 1);
   assert(arm.payload[4] == DIRECTION_FWD && !output.direction_low && !output.reverse);
