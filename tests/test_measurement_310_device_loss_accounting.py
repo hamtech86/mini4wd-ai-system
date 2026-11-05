@@ -83,7 +83,9 @@ def test_sequence_gap_marks_affected_window_unattributable():
     assert window.status == "UNATTRIBUTABLE"
     assert all(item.status == "UNATTRIBUTABLE" for item in window.channels)
     assert all(item.missing is None for item in window.channels)
-    assert sum(item.unattributable_slots for item in window.channels) == 12
+    # The window-global gap total is repeated on each channel record for context;
+    # it is not a per-channel count and must not be summed across channels.
+    assert all(item.unattributable_slots == 12 for item in window.channels)
 
 
 def test_micros_wrap_is_extended_within_arm_epoch():
