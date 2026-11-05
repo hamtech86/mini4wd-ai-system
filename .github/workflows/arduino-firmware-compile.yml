@@ -71,7 +71,12 @@ jobs:
           cp firmware/motor/BootIdentityJournal.h "$sketch_dir/"
           cp firmware/motor/ProtocolV2Device.h "$sketch_dir/"
           cp firmware/motor/ProtocolV2TxScheduler.h "$sketch_dir/"
-          arduino-cli compile --export-binaries --fqbn arduino:avr:uno "$sketch_dir"
+          build_dir="${RUNNER_TEMP}/MotoreRevV2-build"
+          mkdir -p "$build_dir"
+          arduino-cli compile --export-binaries --fqbn arduino:avr:uno \
+            --build-path "$build_dir" \
+            --build-property "compiler.c.elf.extra_flags=-Wl,-Map=$build_dir/MotoreRevV2.map" \
+            "$sketch_dir"
           v2_hex_file="$(find "$sketch_dir" -type f -name '*.hex' -print -quit)"
           if [[ -z "$v2_hex_file" ]]; then
             echo "ERROR: v2 compile succeeded but no HEX file was found under $sketch_dir"
@@ -81,11 +86,23 @@ jobs:
           artifact_dir="${RUNNER_TEMP}/firmware-artifact"
           mkdir -p "$artifact_dir"
           cp "$v2_hex_file" "$artifact_dir/MotoreRevV2.ino.hex"
+          elf_file="$(find "$build_dir" -type f -name '*.elf' -print -quit)"
+          map_file="$build_dir/MotoreRevV2.map"
+          if [[ -z "$elf_file" || ! -s "$map_file" ]]; then
+            echo "ERROR: expected v2 ELF and linker map were not produced"
+            find "$build_dir" -maxdepth 4 -type f -print
+            exit 1
+          fi
+          cp "$elf_file" "$artifact_dir/MotoreRevV2.elf"
+          cp "$map_file" "$artifact_dir/MotoreRevV2.map"
+          avr-size "$elf_file" | tee "$artifact_dir/MotoreRevV2-avr-size.txt"
+          awk 'NR == 2 { if (($2 + $3) > 900) { print "ERROR: .data + .bss exceeds 900-byte static SRAM budget"; exit 1 } }' "$artifact_dir/MotoreRevV2-avr-size.txt"
           {
             echo "sketch=MotoreRevV2"
             echo "fqbn=arduino:avr:uno"
             echo "arduino_avr_core=1.8.8"
-            sha256sum "$artifact_dir/MotoreRevV2.ino.hex"
+            echo "checked_out_sha=$GITHUB_SHA"
+            sha256sum "$artifact_dir/MotoreRevV2.ino.hex" "$artifact_dir/MotoreRevV2.elf" "$artifact_dir/MotoreRevV2.map"
           } > "$artifact_dir/MotoreRevV2-build-manifest.txt"
 
       - name: Verify firmware CAL and host-owned control contract
