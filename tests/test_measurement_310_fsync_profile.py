@@ -52,3 +52,16 @@ def test_t18_cli_defaults_use_adopted_reserve_and_margin(monkeypatch, tmp_path):
         "samples": 10000, "stage_ms": 10000,
         "stop_reserve_ms": 1000, "margin_ms": 1000,
     }
+
+
+def test_t18_requires_preexisting_non_symlink_target_directory(tmp_path):
+    from measurement_310.fsync_profile import run_profile
+
+    with pytest.raises(ValueError, match="must pre-exist"):
+        run_profile(tmp_path / "missing-target", 10000, 10000, 1000, 1000)
+    target = tmp_path / "real-target"
+    target.mkdir()
+    link = tmp_path / "target-link"
+    link.symlink_to(target, target_is_directory=True)
+    with pytest.raises(ValueError, match="must not be a symlink"):
+        run_profile(link, 10000, 10000, 1000, 1000)
