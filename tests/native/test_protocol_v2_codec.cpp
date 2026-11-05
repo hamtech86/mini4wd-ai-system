@@ -107,6 +107,19 @@ static void test_arm_direction_and_disarm_wire_contract() {
   assert(encode_frame_in_place(ARM_ACK, session, 1, 1, tx, 5, sizeof(tx), &n));
 }
 
+
+static void test_arm_ack_direction_sentinel_is_error_only() {
+  uint8_t session[16] = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16};
+  uint8_t tx[kMaxWireSize] = {0};
+  uint8_t* p = tx + 1 + kHeaderSize;
+  p[0] = 4; p[1] = 0; write_u16(p + 2, 0); p[4] = 0xFF;
+  uint16_t n = 0;
+  assert(encode_frame_in_place(ARM_ACK, session, 1, 1, tx, 5, sizeof(tx), &n));
+  memset(tx, 0, sizeof(tx)); p = tx + 1 + kHeaderSize;
+  p[0] = 0; p[1] = 1; write_u16(p + 2, 9); p[4] = 0xFF;
+  assert(!encode_frame_in_place(ARM_ACK, session, 1, 1, tx, 5, sizeof(tx), &n));
+}
+
 int main() {
   test_crc_vector();
   test_hello_round_trip();
@@ -114,5 +127,6 @@ int main() {
   test_reject_uint64_exhaustion_batch();
   test_reject_zero_session_and_wrong_version();
   test_arm_direction_and_disarm_wire_contract();
+  test_arm_ack_direction_sentinel_is_error_only();
   return 0;
 }
