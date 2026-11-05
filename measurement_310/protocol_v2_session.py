@@ -33,6 +33,32 @@ class ProtocolV2HostSession:
 
     supports_stage_direction = True
 
+    @staticmethod
+    def _validate_stop_writer_binding(transport, stop_writer, stop_timeout_s: float) -> None:
+        command_port = getattr(transport, "port", None)
+        if command_port is None:
+            return
+        stop_port = getattr(stop_writer, "port", None)
+        worst_case = getattr(stop_writer, "worst_case_s", None)
+        if stop_writer is None or not callable(stop_writer) or not stop_port:
+            raise ValueError("real serial transport requires a dedicated independent STOP endpoint")
+        command_real = os.path.realpath(str(command_port))
+        stop_real = os.path.realpath(str(stop_port))
+        if command_real == stop_real:
+            raise ValueError("STOP endpoint must be physically distinct from command serial port")
+        try:
+            command_stat = os.stat(command_real)
+            stop_stat = os.stat(stop_real)
+        except FileNotFoundError:
+            command_stat = stop_stat = None
+        if (command_stat is not None and stop_stat is not None
+                and stat.S_ISCHR(command_stat.st_mode) and stat.S_ISCHR(stop_stat.st_mode)
+                and command_stat.st_rdev == stop_stat.st_rdev):
+            raise ValueError("STOP endpoint resolves to the same character device as command serial")
+        if (isinstance(worst_case, bool) or not isinstance(worst_case, (int, float))
+                or worst_case <= 0 or worst_case >= stop_timeout_s):
+            raise ValueError("independent STOP writer worst-case bound must be below STOP caller deadline")
+
     def __init__(
         self,
         transport: SerialTransport,
@@ -48,6 +74,7 @@ class ProtocolV2HostSession:
     ):
         if ack_timeout_s <= 0 or stop_timeout_s <= 0:
             raise ValueError("ACK and STOP timeouts must be positive")
+        self._validate_stop_writer_binding(transport, stop_writer, stop_timeout_s)
         self.transport = transport
         self.codec = codec
         self.intent_journal = intent_journal
@@ -89,28 +116,7 @@ class ProtocolV2HostSession:
         utc_now: Optional[Callable[[], str]] = None,
     ) -> "ProtocolV2HostSession":
         """Bind sidecars and require a distinct STOP endpoint for real serial transports."""
-        command_port = getattr(transport, "port", None)
-        if command_port is not None:
-            stop_port = getattr(stop_writer, "port", None)
-            worst_case = getattr(stop_writer, "worst_case_s", None)
-            if stop_writer is None or not callable(stop_writer) or not stop_port:
-                raise ValueError("real serial transport requires a dedicated independent STOP endpoint")
-            command_real = os.path.realpath(str(command_port))
-            stop_real = os.path.realpath(str(stop_port))
-            if command_real == stop_real:
-                raise ValueError("STOP endpoint must be physically distinct from command serial port")
-            try:
-                command_stat = os.stat(command_real)
-                stop_stat = os.stat(stop_real)
-            except FileNotFoundError:
-                command_stat = stop_stat = None
-            if (command_stat is not None and stop_stat is not None
-                    and stat.S_ISCHR(command_stat.st_mode) and stat.S_ISCHR(stop_stat.st_mode)
-                    and command_stat.st_rdev == stop_stat.st_rdev):
-                raise ValueError("STOP endpoint resolves to the same character device as command serial")
-            if (isinstance(worst_case, bool) or not isinstance(worst_case, (int, float))
-                    or worst_case <= 0 or worst_case >= stop_timeout_s):
-                raise ValueError("independent STOP writer worst-case bound must be below STOP caller deadline")
+        cls._validate_stop_writer_binding(transport, stop_writer, stop_timeout_s)
         intent = DurableIntentJournal.for_session(rawlog_root, measurement_session_id)
         evidence = TransportEvidenceJournal.for_session(rawlog_root, measurement_session_id)
         session = cls(
