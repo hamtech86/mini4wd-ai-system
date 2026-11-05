@@ -45,7 +45,8 @@ static void test_large_adc_batch_uses_tx_workspace_without_pending_copy(){
   drain(tx,s);
   assert(s.bytes==std::vector<uint8_t>(encoded,encoded+encoded_length));
 }
-\nint main(){
+int main(){
+  test_large_adc_batch_uses_tx_workspace_without_pending_copy();
   ProtocolV2TxScheduler tx; FakeSerial s(5);
   DeviceReplyV2 first; memset(&first,0,sizeof(first));
   first.valid=true; first.message_type=ERROR_MSG; first.command_id=0;
