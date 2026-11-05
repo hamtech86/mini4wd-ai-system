@@ -54,14 +54,6 @@ class ProtocolV2TxScheduler {
         expected_payload_length(type) != length ||
         !validate_header(type, session, epoch_tag, command_id) ||
         !validate_payload(type, payload, length, epoch_tag)) return false;
-    DeviceReplyV2 reply;
-    memset(&reply, 0, sizeof(reply));
-    reply.message_type = type;
-    memcpy(reply.session_uuid, session, 16);
-    reply.epoch_tag = epoch_tag;
-    reply.command_id = command_id;
-    reply.payload_length = (uint8_t)length;
-    reply.valid = true;
     return encode_fields(type, session, epoch_tag, command_id, payload, length);
   }
 
