@@ -140,3 +140,24 @@ Upper-command disposition: **limited PASS for the synthetic host-filesystem fsyn
 T09/T15 physical STOP independence, MCU/driver cutoff and measured stop latency remain unqualified. EEPROM brownout/power-fail, BOD/voltage monitor, current limit, direction polarity, analog calibration/settling, physical serial interoperability and physical 310-second measurement remain NOT RUN. No Arduino upload, serial hardware connection, motor energization, EEPROM/fuse operation or physical test occurred. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains unchanged.
 
 Formal 310-5 acceptance and stage handoff remain pending. PR #190 remains Draft/Open/Unmerged; no merge or hardware authorization is granted.
+
+
+## 2026-11-06 continuation — production append-path benchmark added
+
+The source-level T18 review identified that one production ADC_SAMPLE append performs:
+- one fsync of `records.jsonl`;
+- one fsync of the temporary `work_state.json`;
+- one directory fsync after replacing `work_state.json`.
+
+The adopted acquisition workload is 12 sample slots per ADC_BATCH and 100 batches per 10-second stage, or 1,200 ADC_SAMPLE records per stage. The protocol Evidence journal also fsyncs RX_BYTES, FRAME_RX_DECODED and ADC_BATCH_ACCEPTED events per batch, plus loss-window summaries.
+
+Added `measurement_310/rawlog_stage_profile.py`, which uses the actual RawLogV2Session.append and TransportEvidenceJournal.append implementations with synthetic ADC_BATCH contents, 10,008 ADC_SAMPLE commits, 834 batches, per-batch timing and eight complete 1,200-sample stage groups. Added unit tests in `tests/test_measurement_310_rawlog_stage_profile.py`.
+
+Exact code/test HEAD `d8a1e6af1c2a33d1508f7cd47bf237792249a743`:
+- Full suite: **608 passed, 2 xfailed in 10.61s**.
+- Break-in: 19 passed.
+- RawLog/Sequence: 38 passed.
+- Battery: 9 passed.
+- Arduino Uno compile/resource workflow: success.
+
+The benchmark has **not yet been run on the target host**. It excludes final package publication, crash recovery and backup/restore timing. T18 remains incomplete beyond the limited synthetic host-fsync profile PASS. PR #190 remains Draft/Open/Unmerged; no hardware action is authorized.
