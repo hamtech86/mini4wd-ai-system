@@ -7,7 +7,7 @@ from measurement_310.command_intent import DurableIntentJournal
 from measurement_310.protocol_v1_session import TransportEvidenceJournal
 from measurement_310.protocol_v2 import (
     MessageType, ProtocolV2Codec, PROTOCOL_V2_MAGIC, PROTOCOL_V2_VERSION,
-    epoch_tag_for_boot_id,
+    DriveDirection, epoch_tag_for_boot_id,
 )
 from measurement_310.protocol_v2_session import ProtocolV2HostSession, ProtocolV2SessionError
 
@@ -46,7 +46,13 @@ class ScriptedTransport:
             token = request["stage_context_token"]
             self.incoming.append(CODEC.encode_message(
                 MessageType.ARM_ACK, session_id=session, epoch_tag=epoch,
-                command_id=request["command_id"], payload=struct.pack("<BBH", 0, 1, token),
+                command_id=request["command_id"], payload=struct.pack("<BBHB", 0, 1, token, request["direction_code"]),
+            ))
+        elif kind == "DISARM":
+            token = request["stage_context_token"]
+            self.incoming.append(CODEC.encode_message(
+                MessageType.DISARM_ACK, session_id=session, epoch_tag=epoch,
+                command_id=request["command_id"], payload=struct.pack("<BBH", 0, 0, token),
             ))
         elif kind == "PWM_SET":
             token = request["stage_context_token"]
@@ -89,9 +95,19 @@ def test_v2_session_stage_requires_exact_arm_and_apply_ack(tmp_path):
     ack = session.poll_apply_ack(0.0)
     assert ack is not None and ack[0] == 10
     assert ack[1] >= sent_utc
-    assert [CODEC.decode(x).message["kind"] for x in transport.sent] == [
-        "HELLO", "ARM", "PWM_SET"
+    session.disarm_stage()
+    sent_utc_2 = session.send_stage_pwm(
+        12, str(uuid.uuid4()), session_id, stage_index=1, direction=DriveDirection.REV
+    )
+    ack2 = session.poll_apply_ack(0.0)
+    assert ack2 is not None and ack2[0] == 12 and ack2[1] >= sent_utc_2
+    session.disarm_stage()
+    messages = [CODEC.decode(x).message for x in transport.sent]
+    assert [m["kind"] for m in messages] == [
+        "HELLO", "ARM", "PWM_SET", "DISARM", "ARM", "PWM_SET", "DISARM"
     ]
+    assert messages[1]["direction"] == "FWD"
+    assert messages[4]["direction"] == "REV"
     assert session._failed is False
 
 
