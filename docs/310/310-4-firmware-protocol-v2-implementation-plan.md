@@ -193,3 +193,24 @@ Verification status at this document update:
 - A subsequent native run exposed an outdated STOP test that expected a new HELLO to clear STOP; corrected to assert terminal STOP semantics.
 - The next exact-HEAD native run is the acceptance evidence for this increment; do not count the failed runs as passes.
 - No v2 sketch, AVR build/map, SRAM/stack proof, physical output test or hardware qualification is claimed.
+
+
+## 10. 2026-11-05 isolated Uno v2 sketch increment
+
+Added `firmware/motor/MotoreRevV2/MotoreRevV2.ino` as a separate protocol-v2 sketch; the legacy `MotoreRev.ino` remains unchanged.
+
+Implemented in this increment:
+- Initializes D5 PWM and D7/D8 direction outputs to non-driving LOW before constructing protocol state.
+- Uses a static-storage placement-constructed `ProtocolV2Device`; no heap allocation is used.
+- Connects the existing `BootIdentityJournal` to the Uno EEPROM API through a read/update/readback adapter. The sketch never writes the provisioning record. An absent/invalid provisioning record or invalid journal leaves the device fail-closed and unable to complete HELLO/ARM.
+- Connects `ProtocolV2Device` to a GPIO output adapter: FWD maps to D7 HIGH/D8 LOW, REV maps to D7 LOW/D8 HIGH, and PWM is limited to the protocol's 0..30 range. Safe output requests set PWM=0 and both direction pins LOW.
+- Receives delimiter-framed COBS data in a fixed 194-byte workspace, invokes the existing CRC/protocol decoder, passes valid frames to the device state machine, and sends replies through the existing bounded 16-byte-per-service TX scheduler.
+- No text/debug output is emitted on the binary protocol serial channel.
+- Added an Arduino Uno CI compile step for this isolated sketch, copying its four required protocol headers into the sketch build directory.
+
+Not implemented by this increment:
+- ADC acquisition scheduler, per-conversion `micros()` timestamps, context/epoch capture, 12-slot ADC_BATCH producer, or sequence consumption for failed acquisition attempts.
+- STATUS/telemetry production, v2 AVR resource proof (.elf/.hex/map with SRAM/stack audit), and host/firmware serial interoperability.
+- Physical direction polarity confirmation, current-limit confirmation, BOD/EEPROM power-fail qualification, upload, or motor energization.
+
+The GPIO adapter's `true` return means only that the software issued the pin writes; it is not physical feedback. This sketch is an implementation candidate, not an accepted or hardware-qualified firmware release. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains in force.
