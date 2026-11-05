@@ -1323,7 +1323,8 @@ def test_evidence_bundle_failure_persists_rearm_inhibition(tmp_path):
     assert ctl.state == SequenceState.FAULT
 
     restarted = SequenceController(
-        RawLogV2Writer(tmp_path), manifest(tmp_path), None, lambda: None, None, clock,
+        RawLogV2Writer(tmp_path), manifest(tmp_path),
+        lambda pwm: clock.utc_now(), lambda: None, lambda: None, clock,
     )
     restarted.startup_recover()
     with pytest.raises(SequenceError, match="reconciliation"):
