@@ -18,11 +18,8 @@
  * - Software output writes are not proof of physical current cessation.
  */
 
-// Keep AVR UART rings bounded; the main loop drains RX continuously and TX is
-// emitted in 16-byte scheduler slices. This saves 64 bytes of static SRAM.
-#define SERIAL_RX_BUFFER_SIZE 32
-#define SERIAL_TX_BUFFER_SIZE 32
-
+// UART ring sizes are set as global compiler properties in the Uno workflow
+// so the sketch and HardwareSerial core are built with identical class layouts.
 #include <Arduino.h>
 #include <EEPROM.h>
 #include <new>
