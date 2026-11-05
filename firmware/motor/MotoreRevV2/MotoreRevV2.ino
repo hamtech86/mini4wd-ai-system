@@ -110,6 +110,11 @@ static uint16_t rx_length = 0;
 static bool rx_discard_until_delimiter = false;
 static uint8_t adc_batch_count = 0;
 static uint32_t adc_loss_counter = 0;
+#if defined(M4WD_ADC_RESOURCE_AUDIT)
+// Build-only volatile gate retains the otherwise unreferenced ADC helper call
+// chain for AVR resource analysis. The macro is absent from production builds.
+static volatile bool adc_resource_audit_link = false;
+#endif
 
 static void increment_adc_loss_counter() {
   if (adc_loss_counter != UINT32_MAX) ++adc_loss_counter;
@@ -275,6 +280,9 @@ void setup() {
 
 void loop() {
   service_rx();
+#if defined(M4WD_ADC_RESOURCE_AUDIT)
+  if (adc_resource_audit_link) (void)capture_adc_attempt(0);
+#endif
   tx_scheduler.service(Serial);
   // No ADC cadence is enabled here. A separately qualified foreground
   // scheduler may call capture_adc_attempt(channel_code); the design cadence
