@@ -11,6 +11,7 @@ from typing import Callable, Optional
 
 from .command_intent import AckCorrelator, AckIdentity, CommandIdentity, DurableIntentJournal
 from .epoch_checkpoint import CheckpointStatus
+from .device_loss_accounting import DeviceLossAccountingError, DeviceLossWindowAccumulator
 from .protocol_v1_session import TransportEvidenceJournal
 from .protocol_v2 import (
     DriveDirection, MessageType, ProtocolV2Codec, ProtocolV2Error, StopReason, epoch_tag_for_boot_id,
@@ -71,6 +72,7 @@ class ProtocolV2HostSession:
         self._context_map: dict[int, str] = {}
         self._armed = False
         self._active_stage: Optional[dict] = None
+        self._loss_accumulator: Optional[DeviceLossWindowAccumulator] = None
         self._failed = False
 
     @staticmethod
@@ -351,6 +353,9 @@ class ProtocolV2HostSession:
                 if not self._accept_ack(arm_ack, arm_identity, "ARM_ACK", token, direction=direction):
                     raise ProtocolV2SessionError("ARM_ACK identity mismatch")
                 self._armed = True
+                self._loss_accumulator = DeviceLossWindowAccumulator(
+                    int(self.boot_id64), token
+                )
             identity = CommandIdentity(str(command_id), "PWM_SET", self.measurement_session_id,
                                        int(self.boot_id64), stage_context_id)
             frame = self.codec.encode_pwm_set(session_id=self.measurement_session_id,
@@ -411,6 +416,7 @@ class ProtocolV2HostSession:
             self._append("STAGE_DISARMED", direction="host_internal",
                          stage_context_token=token, stage_context_id=stage_context_id,
                          command_id=command_id)
+            self._finalize_adc_loss_window()
             return sent
         except Exception:
             self._failed = True
@@ -443,12 +449,44 @@ class ProtocolV2HostSession:
             if sample.get("sample_sequence64") != first + i:
                 self._failed = True
                 raise ProtocolV2SessionError("ADC_BATCH sample sequence is not contiguous")
+        if self._active_stage is None or self._loss_accumulator is None:
+            self._failed = True
+            raise ProtocolV2SessionError("ADC_BATCH received outside an active ARM epoch")
+        active_token = int(self._active_stage["token"])
+        for sample in samples:
+            status = sample.get("acquisition_status")
+            token = sample.get("stage_context_token")
+            if status == 3:
+                if token != 0:
+                    self._failed = True
+                    raise ProtocolV2SessionError("NOT_ACQUIRED slot must have unresolved context token zero")
+            elif token != active_token:
+                self._failed = True
+                raise ProtocolV2SessionError("ADC sample stage context does not match active ARM epoch")
+        gap_slots = first - self.next_sample_sequence64
+        try:
+            completed_windows = self._loss_accumulator.add_batch(samples, gap_slots=gap_slots)
+        except DeviceLossAccountingError as exc:
+            self._failed = True
+            raise ProtocolV2SessionError(f"ADC loss accounting rejected batch: {exc}") from exc
         self._append("ADC_BATCH_ACCEPTED", first_sample_sequence64=first,
                      next_sample_sequence64=first + len(samples),
                      sample_count=len(samples),
+                     device_elapsed_us=samples[-1].get("device_elapsed_us"),
                      raw_frame_base64=message.get("_raw_frame_base64"))
+        for window in completed_windows:
+            self._append("ADC_LOSS_WINDOW_SUMMARY", summary=asdict(window), terminal=False)
         self.next_sample_sequence64 = first + len(samples)
         return samples
+
+    def _finalize_adc_loss_window(self) -> None:
+        accumulator = self._loss_accumulator
+        self._loss_accumulator = None
+        if accumulator is None:
+            return
+        summary = accumulator.finalize()
+        if summary is not None:
+            self._append("ADC_LOSS_WINDOW_SUMMARY", summary=asdict(summary), terminal=True)
 
     @property
     def last_stop_request_id(self) -> Optional[int]:
@@ -518,6 +556,7 @@ class ProtocolV2HostSession:
                          outcome="HOST_WRITE_COMPLETED")
         except Exception:
             pass
+        self._finalize_adc_loss_window()
         return stop_request_id
 
     def latch_abort(self, reason: str) -> None:
