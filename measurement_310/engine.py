@@ -405,10 +405,6 @@ class SequenceController:
         # The final PWM_SET has no device-side duration field. Therefore normal
         # completion must request STOP before recording/finalizing completion.
         self.state = SequenceState.FINALIZING
-        if self.protocol_session is not None:
-            latch = getattr(self.protocol_session, "latch_abort", None)
-            if callable(latch):
-                latch("normal completion")
         self._stop_attempted = True
         try:
             self.send_normal_stop()
