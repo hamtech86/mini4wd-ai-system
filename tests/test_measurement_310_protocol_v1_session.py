@@ -142,7 +142,7 @@ def test_protocol_sequence_sends_normal_completion_stop_before_rawlog_finalize(
     sent_kinds = [codec.decode(frame).message["kind"] for frame in transport.sent]
     assert sent_kinds == ["HELLO", "ARM"] + ["PWM_SET"] * 31
     assert controller.state == SequenceState.COMPLETED
-    assert session._failed is True
+    assert session._failed is False
     assert session.last_stop_request_id == 1
 
     package = tmp_path / "PROTOCOL-310"
