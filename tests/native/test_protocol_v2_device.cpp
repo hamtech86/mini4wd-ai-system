@@ -171,15 +171,6 @@ static void test_disarm_keeps_session_and_allows_direction_change() {
   assert(output.pwm == 0 && output.direction_low);
 }
 
-int main() {
-  test_boot_hello_arm_pwm_and_stop_preemption();
-  test_duplicate_and_conflicting_stop_history();
-  test_invalid_boot_never_arms();
-  test_disarm_keeps_session_and_allows_direction_change();
-  test_sample_sequence_allocator_is_monotonic_and_fails_closed();
-  return 0;
-}
-
 static void test_sample_sequence_allocator_is_monotonic_and_fails_closed() {
   FakeOutput output;
   ProtocolV2Device<FakeOutput> device(output, 21, 0);
@@ -196,3 +187,12 @@ static void test_sample_sequence_allocator_is_monotonic_and_fails_closed() {
   assert(exhausted_output.pwm == 0 && exhausted_output.direction_low);
 }
 
+
+int main() {
+  test_boot_hello_arm_pwm_and_stop_preemption();
+  test_duplicate_and_conflicting_stop_history();
+  test_invalid_boot_never_arms();
+  test_disarm_keeps_session_and_allows_direction_change();
+  test_sample_sequence_allocator_is_monotonic_and_fails_closed();
+  return 0;
+}
