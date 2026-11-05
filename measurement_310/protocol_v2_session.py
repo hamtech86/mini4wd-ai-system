@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 from dataclasses import asdict
 import os
+import stat
 import secrets
 import time
 import threading
@@ -92,10 +93,21 @@ class ProtocolV2HostSession:
         if command_port is not None:
             stop_port = getattr(stop_writer, "port", None)
             worst_case = getattr(stop_writer, "worst_case_s", None)
-            if stop_writer is None or not stop_port:
+            if stop_writer is None or not callable(stop_writer) or not stop_port:
                 raise ValueError("real serial transport requires a dedicated independent STOP endpoint")
-            if os.path.realpath(str(command_port)) == os.path.realpath(str(stop_port)):
+            command_real = os.path.realpath(str(command_port))
+            stop_real = os.path.realpath(str(stop_port))
+            if command_real == stop_real:
                 raise ValueError("STOP endpoint must be physically distinct from command serial port")
+            try:
+                command_stat = os.stat(command_real)
+                stop_stat = os.stat(stop_real)
+            except FileNotFoundError:
+                command_stat = stop_stat = None
+            if (command_stat is not None and stop_stat is not None
+                    and stat.S_ISCHR(command_stat.st_mode) and stat.S_ISCHR(stop_stat.st_mode)
+                    and command_stat.st_rdev == stop_stat.st_rdev):
+                raise ValueError("STOP endpoint resolves to the same character device as command serial")
             if (isinstance(worst_case, bool) or not isinstance(worst_case, (int, float))
                     or worst_case <= 0 or worst_case >= stop_timeout_s):
                 raise ValueError("independent STOP writer worst-case bound must be below STOP caller deadline")
