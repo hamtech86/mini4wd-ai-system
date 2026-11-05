@@ -1030,3 +1030,127 @@ ATmega328/P ADCは10-bit、single-ended 0..VREF。AVCCはVCCから±0.3V以内�
 - D_intent/D_evidenceは各10,000回以上の対象環境測定で得たmaxとp99.9の大きい方を基礎にmarginを適用する。cold/warm、通常/最大batch、storage contentionを含む。観測maxは将来の絶対保証とは呼ばない。
 - profile、上限、margin、STOP reserveのいずれかが未設定/無効、または合計が不等式を満たさない場合ARM禁止。実行中に上限超過・deadline miss・fsync結果不明が発生したらfail-closed、以後nonzero PWM禁止、transport使用可能なら独立STOP pathで停止要求、package incomplete。unknown outcome commandを再送しない。
 - STOP処理はwriter lock、Evidence queue、fsync、TX drainを待たない。STOP reserveはSTOP経路のbounded loop-service上限と独立driver cutoff応答時間を含めて別試験で定める。software ACKはphysical cutoffの証明ではない。
+
+
+# 310 protocol v2 amendment — 2026-11-05
+
+Status: command-authority amendment for implementation. This section supersedes incompatible v1 field widths and the T01/T03 persistence assumptions below. The protocol version is incremented; v1 and v2 frames MUST NOT be mixed in one session. The v2 firmware remains unqualified until native tests, AVR build/resource evidence, and separately authorized hardware verification are complete.
+
+## A. Decision basis
+
+The v1 design used a 32-bit host session tag whose persistent allocator attempted monotonic allocation across restarts, and a 16-bit per-sample sequence extended by host checkpoints. The audit established that a pair of local files cannot prove freshness after a paired rollback. A local SHA-256, hash chain, or second file in the same backup domain is not a monotonic witness.
+
+The adopted correction is to remove those host-side pseudo-authorities:
+
+- The full RFC 4122 UUID `measurement_session_id` is the canonical session identity and is transmitted on every v2 frame. There is no separate persistent or monotonic `measurement_session_tag`.
+- The device's committed full `boot_id64` identifies a boot epoch. The device owns a uint64 sample-attempt sequence for that epoch.
+- The host checkpoint is a cache/reconciliation aid only. It MUST NOT create, rewind, or authorize the device sequence.
+- A host restart re-handshakes and obtains the current device sequence from HELLO_ACK. Existing RawLog/Evidence records are reconciled by the full pair `(boot_id64, sample_sequence64)`; a stale checkpoint cannot rewind the device counter.
+- If the device reports a sequence lower than a durable host-observed high-water for the same boot_id64, the session is unresolved and ARM is prohibited. If it is higher, the intervening sequence range is recorded as a gap/unattributed interval before acquisition resumes; no sample is synthesized.
+
+## B. V2 common header
+
+The v2 decoded common header is 29 bytes, little-endian:
+
+| Field | Width |
+|---|---:|
+| magic = 0x344D | uint16 (2 B) |
+| protocol_version = 0x02 | uint8 (1 B) |
+| message_type | uint8 (1 B) |
+| flags = 0 | uint8 (1 B) |
+| measurement_session_id | UUID bytes (16 B) |
+| device_epoch_tag | uint32 (4 B) |
+| command_id | uint32 (4 B) |
+
+The 16 UUID bytes are the canonical UUID byte order (RFC 4122 network byte order), not a textual UUID and not the little-endian UUID field layout used by some platform APIs. All other multi-byte numeric fields are little-endian.
+
+The full UUID MUST be newly generated for every measurement session. It is not a security credential; uniqueness is provided by UUIDv4 entropy and collision detection against the local retained session inventory. The host MUST reject a zero UUID. The firmware binds the complete UUID to the current committed boot_id64 after HELLO. There is no persistent tag allocator and no monotonic session-tag counter. Reuse of the same UUID while a process is alive is rejected.
+
+The 32-bit device_epoch_tag remains a compact correlation field derived from the low 32 bits of boot_id64 (zero maps to 0xFFFFFFFF). It is not the epoch identity. The full boot_id64 is returned in HELLO_ACK and bound to the active UUID; any change requires the v2 reboot/identity confirmation rules. The host MUST NOT infer a new epoch from the truncated tag alone.
+
+## C. HELLO and HELLO_ACK
+
+HELLO payload remains host_nonce64 (8 B). HELLO_ACK payload becomes:
+
+| Field | Width |
+|---|---:|
+| result | uint8 |
+| boot_id64 | uint64 (8 B) |
+| echoed host_nonce64 | uint64 (8 B) |
+| next_sample_sequence64 | uint64 (8 B) |
+
+Payload length = 25 B. HELLO_ACK returns the next sequence value that the device will assign to the next scheduled conversion attempt in this boot epoch. At a newly committed boot epoch this value is zero. The value is captured atomically with respect to ADC scheduling.
+
+The host accepts HELLO_ACK only when UUID, nonce, result, nonzero boot_id64, and derived device_epoch_tag all match the outstanding HELLO. A failed/invalid boot journal returns BOOT_ID_INVALID and MUST NOT expose a usable epoch or permit ARM.
+
+## D. Device-owned sample sequence
+
+- Firmware maintains a uint64 `sample_sequence64` for the current boot_id64. It increments exactly once for each scheduled ADC conversion attempt, including PRECONDITION_INVALID, CONVERSION_TIMEOUT, and NOT_ACQUIRED attempts.
+- The sequence starts at zero only after a new boot_id64 has been committed successfully. It MUST NOT reset on HELLO, ARM, STOP, session change, or host reconnect.
+- Before increment, UINT64_MAX exhaustion causes a latched identity/sequence fault and prohibits further acquisition/ARM; wrap is forbidden.
+- STATUS replaces the uint16 `last_sample_sequence` with uint64 `next_sample_sequence64`, defined as the next sequence to allocate. This is a snapshot, not proof of receipt by the host.
+- A host restart MUST use HELLO_ACK's live next_sample_sequence64 as the device authority. A host checkpoint with a lower value is not used to rewind; it is reconciled against RawLog and Evidence. A checkpoint higher than the device value for the same boot_id64 is a hard contradiction and fail-closed.
+- On same-boot reconnect, the first new ADC_BATCH starts at the HELLO_ACK next_sample_sequence64. Any sequence interval between the last durable host record and this value is accounted as missing/unattributable. The host does not invent samples or claim that the interval was never previously stored until the durable logs have been scanned.
+
+## E. V2 ADC_BATCH payload
+
+V2 removes the uint16 sequence from each sample unit and removes batch_sequence. The batch begins with a uint64 first_sample_sequence64; sample sequence for slot i is exactly first_sample_sequence64 + i. This preserves a full-width device sequence without repeating eight bytes per sample.
+
+Batch header:
+
+| Field | Width |
+|---|---:|
+| first_sample_sequence64 | uint64 (8 B) |
+| batch_flags | uint8 (1 B; v2 reserved bits zero) |
+| sample_count | uint8 (1 B; exactly 12 for a complete batch) |
+| loss_counter_snapshot | uint8 (1 B; low 8 bits of cumulative uint32 counter) |
+
+Each sample unit remains 12 bytes:
+
+| Field | Width |
+|---|---:|
+| timestamp_us_u32 | uint32 (4 B) |
+| channel_code | uint8 (1 B) |
+| adc_raw | uint16 (2 B) |
+| stage_context_token | uint16 (2 B) |
+| acquisition_status | uint8 (1 B) |
+| sample_flags | uint16 (2 B; reserved bits zero) |
+
+Payload = 11 + (12 × 12) = 155 B. Decoded ADC_BATCH = 29-byte header + 155-byte payload + 2-byte CRC = 186 B. COBS maximum = 187 B; delimiter = 1 B; maximum wire size = 188 B. This remains within the existing 194-byte RX/TX workspace ceiling.
+
+Every emitted batch contains exactly 12 scheduled attempts. Each slot represents one attempted conversion; when acquisition did not occur, the slot carries raw=0xFFFF and the appropriate status. The sequence is still consumed. If an entire batch is dropped, the next emitted batch starts at the sequence after those 12 attempts; the resulting sequence gap and loss counter are accounted. A partial batch is not emitted.
+
+## F. STATUS v2 payload
+
+STATUS fields are state uint8, active_pwm uint8, active_context_token uint16, loss_counter uint32, and next_sample_sequence64 uint64. Payload length is 16 B. The next sequence value is sampled atomically with the scheduler state. It MUST NOT be interpreted as the last sequence received by the host.
+
+## G. T01/T03 acceptance changes
+
+### T01 — session identity
+
+The monotonic local session-tag allocator is removed from the acceptance contract. The full UUID is now carried in every frame and is the session identity. Required tests:
+- UUIDv4 generation and zero UUID rejection;
+- no UUID reuse within a live process/session inventory;
+- old frame from a prior session rejected after new HELLO, including same command_id and same boot epoch;
+- UUID serialization byte-order golden vectors;
+- malformed/partial UUID rejected before any state/output change.
+
+A persistent local counter is not required and MUST NOT be used as proof of uniqueness. The UUID collision probability is negligible but not mathematically zero; any detected collision fails closed and requires a new UUID. This is an explicit protocol identity design, not a claim of cryptographic authentication.
+
+### T03 — epoch/sequence continuity
+
+The host checkpoint is no longer the authority for sample sequence. Required tests:
+- sequence increments across HELLO, ARM, STOP, and measurement-session boundaries within the same boot_id64;
+- new boot_id64 is committed before sequence resets to zero;
+- host restart uses live HELLO_ACK next_sample_sequence64 and does not restore a lower checkpoint as the active counter;
+- same boot_id64 with device sequence lower than durable host high-water fails closed;
+- same boot_id64 with device sequence higher than last durable host record emits an explicit gap/unattributed range before accepting new samples;
+- uint64 boundary/exhaustion never wraps;
+- delayed ADC_BATCH from old UUID or old boot epoch is rejected;
+- full boot_id64, not device_epoch_tag, remains the epoch identity.
+
+## H. Compatibility and release
+
+Protocol v1 (version 0x01) and v2 (version 0x02) are incompatible. The v2 host codec/session and firmware implementation MUST be updated together. No v1 fallback is permitted after a v2 HELLO has been selected. The production firmware build identity must explicitly declare protocol v2. The 194-byte workspace, 900-byte static SRAM ceiling, 700-byte stack ceiling, 448-byte reserve, STOP latch ordering, and fail-closed EEPROM identity rules remain in force.
+
+This amendment changes the design contract only. It does not assert that firmware, compiler resource limits, EEPROM power-fail behavior, independent physical STOP, ADC accuracy, target-host fsync budget, or hardware safety have been verified. No upload, physical serial connection, motor energization, EEPROM/fuse operation, or 310-second measurement is authorized by this text.
