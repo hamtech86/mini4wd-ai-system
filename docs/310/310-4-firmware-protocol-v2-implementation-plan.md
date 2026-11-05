@@ -82,3 +82,14 @@ The host-side acceptance harness must exercise:
 - HARDWARE_CURRENT_LIMIT_CONFIRMED=false remains in force.
 - Keep this branch unmerged until FW2-01..FW2-07 and host/firmware interoperability tests pass.
 - A successful native test or AVR compile is not hardware qualification and does not by itself complete 310-5.
+
+
+## 5. 2026-11-05 implementation status
+
+- FW2-01: fixed-memory codec header added at firmware/motor/ProtocolV2Codec.h. Native C++11 test covers CRC-16 vector, HELLO full-UUID round trip, ADC_BATCH sequence decoding and 188-byte wire ceiling, zero UUID rejection, and uint64 exhaustion boundary.
+- FW2-02: BootIdentityJournal.h added with exact slot/provisioning bytes, marker-last writes, readback, unique highest generation, factory-empty predicate, fail-closed corruption and generation exhaustion.
+- Native fault-injection tests cover all 17 writes in a generation commit, both fail-before-write and write-then-report-failure semantics. This includes an ambiguous final marker write: if marker committed despite a failed return, restart discovers that generation and increments again rather than reusing it.
+- Native CI run #11 at exact HEAD 38f0331bf5ee19c60d2db5ee1fb9d7b13966d779 completed successfully. The C++11 codec and EEPROM journal model compiled with -Wall -Wextra -Werror -pedantic and both native executables exited successfully.
+- Initial runs #7–#10 failed because the test fixture calculated the provisioning CRC from address 0 instead of address 256. The fixture was corrected; run #11 is the first passing evidence for both native targets.
+- Arduino Uno compile run #86 is pending at this report update. It currently targets the legacy MotoreRev.ino; the new v2 headers are not yet integrated into that sketch.
+- FW2-03 through FW2-07 remain not implemented. No full v2 firmware state machine, STOP preemption, ADC scheduler integration, AVR resource proof for the v2 build, or physical qualification is claimed.
