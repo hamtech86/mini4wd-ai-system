@@ -60,6 +60,157 @@ jobs:
           echo "HEX artifact staged at $artifact_dir/MotoreRev.ino.hex"
           cat "$artifact_dir/build-manifest.txt"
 
+      - name: Compile isolated protocol v2 sketch for Arduino Uno
+        shell: bash
+        run: |
+          set -euo pipefail
+          sketch_dir="${RUNNER_TEMP}/MotoreRevV2"
+          mkdir -p "$sketch_dir"
+          cp firmware/motor/MotoreRevV2/MotoreRevV2.ino "$sketch_dir/MotoreRevV2.ino"
+          cp firmware/motor/ProtocolV2Codec.h "$sketch_dir/"
+          cp firmware/motor/BootIdentityJournal.h "$sketch_dir/"
+          cp firmware/motor/ProtocolV2Device.h "$sketch_dir/"
+          cp firmware/motor/ProtocolV2TxScheduler.h "$sketch_dir/"
+          cp firmware/motor/ProtocolV2AdcScheduler.h "$sketch_dir/"
+          build_dir="${RUNNER_TEMP}/MotoreRevV2-build"
+          mkdir -p "$build_dir"
+          arduino-cli compile --export-binaries --fqbn arduino:avr:uno \
+            --build-path "$build_dir" \
+            --build-property "compiler.cpp.extra_flags=-DSERIAL_RX_BUFFER_SIZE=32 -DSERIAL_TX_BUFFER_SIZE=32 -fstack-usage -fno-lto" \
+            --build-property "compiler.c.extra_flags=-fstack-usage -fno-lto" \
+            --build-property "compiler.c.elf.extra_flags=-fno-lto -Wl,-Map=$build_dir/MotoreRevV2.map" \
+            "$sketch_dir"
+          v2_hex_file="$(find "$sketch_dir" -type f -name '*.hex' -print -quit)"
+          if [[ -z "$v2_hex_file" ]]; then
+            echo "ERROR: v2 compile succeeded but no HEX file was found under $sketch_dir"
+            find "$sketch_dir" -maxdepth 5 -type f -print
+            exit 1
+          fi
+          artifact_dir="${RUNNER_TEMP}/firmware-artifact"
+          mkdir -p "$artifact_dir"
+          cp "$v2_hex_file" "$artifact_dir/MotoreRevV2.ino.hex"
+          elf_file="$(find "$build_dir" -type f -name '*.elf' -print -quit)"
+          map_file="$build_dir/MotoreRevV2.map"
+          if [[ -z "$elf_file" || ! -s "$map_file" ]]; then
+            echo "ERROR: expected v2 ELF and linker map were not produced"
+            find "$build_dir" -maxdepth 4 -type f -print
+            exit 1
+          fi
+          cp "$elf_file" "$artifact_dir/MotoreRevV2.elf"
+          cp "$map_file" "$artifact_dir/MotoreRevV2.map"
+          avr_objdump="$(find "$HOME/.arduino15/packages/arduino/tools/avr-gcc" -type f -name avr-objdump -print -quit)"
+          if [[ -z "$avr_objdump" ]]; then
+            echo "ERROR: avr-objdump not found in the installed Arduino AVR toolchain"
+            exit 1
+          fi
+          "$avr_objdump" -Cd "$elf_file" > "$artifact_dir/MotoreRevV2-disassembly.txt"
+          avr_size="$(find "$HOME/.arduino15/packages/arduino/tools/avr-gcc" -type f -name avr-size -print -quit)"
+          if [[ -z "$avr_size" ]]; then
+            echo "ERROR: avr-size not found in the installed Arduino AVR toolchain"
+            exit 1
+          fi
+          "$avr_size" "$elf_file" | tee "$artifact_dir/MotoreRevV2-avr-size.txt"
+          awk 'NR == 2 { if (($2 + $3) > 900) { print "ERROR: .data + .bss exceeds 900-byte static SRAM budget"; exit 1 } }' "$artifact_dir/MotoreRevV2-avr-size.txt"
+          stack_files="$(find "$build_dir" -type f -name '*.su' -print | wc -l)"
+          if [[ "$stack_files" -eq 0 ]]; then
+            echo "ERROR: -fstack-usage did not produce any .su files"
+            exit 1
+          fi
+          (cd "$build_dir" && find . -type f -name '*.su' -print0 | tar --null -czf "$artifact_dir/MotoreRevV2-stack-usage.tar.gz" --files-from -)
+          python3 - "$build_dir" "$artifact_dir" <<'PY'
+          from pathlib import Path
+          import sys
+          build_dir, artifact_dir = map(Path, sys.argv[1:])
+          rows = []
+          all_rows = []
+          for path in build_dir.rglob("*.su"):
+              for line in path.read_text(errors="replace").splitlines():
+                  parts = line.rsplit(chr(9), 2)
+                  if len(parts) != 3:
+                      continue
+                  try:
+                      frame = int(parts[1])
+                  except ValueError:
+                      continue
+                  rows.append((frame, parts[0], parts[2]))
+          rows.sort(reverse=True)
+          if not rows:
+              raise SystemExit("ERROR: no non-empty GCC stack-usage records")
+          (artifact_dir / "MotoreRevV2-stack-usage-all.txt").write_text(
+              "".join(str(frame) + chr(9) + qualifier + chr(9) + name + chr(10) for frame, name, qualifier in rows)
+          )
+          (artifact_dir / "MotoreRevV2-stack-usage-top30.txt").write_text(
+              "".join(str(frame) + chr(9) + qualifier + chr(9) + name + chr(10) for frame, name, qualifier in rows[:30])
+          )
+          largest = rows[0][0]
+          print(f"Largest individual stack frame: {largest} bytes (not a call-chain proof)")
+          if largest > 700:
+              raise SystemExit("ERROR: one stack frame exceeds 700 bytes")
+          PY
+          # Compile-only second image: link the otherwise dormant ADC capture
+          # helper chain so its SRAM/stack cost is measured. Never uploaded.
+          audit_build_dir="${RUNNER_TEMP}/MotoreRevV2-adc-audit-build"
+          mkdir -p "$audit_build_dir"
+          arduino-cli compile --fqbn arduino:avr:uno \
+            --build-path "$audit_build_dir" \
+            --build-property "compiler.cpp.extra_flags=-DSERIAL_RX_BUFFER_SIZE=32 -DSERIAL_TX_BUFFER_SIZE=32 -fstack-usage -fno-lto -DM4WD_ADC_RESOURCE_AUDIT" \
+            --build-property "compiler.c.extra_flags=-fstack-usage -fno-lto" \
+            --build-property "compiler.c.elf.extra_flags=-fno-lto -Wl,-Map=$audit_build_dir/MotoreRevV2-adc-audit.map" \
+            "$sketch_dir"
+          audit_elf="$(find "$audit_build_dir" -type f -name '*.elf' -print -quit)"
+          if [[ -z "$audit_elf" ]]; then
+            echo "ERROR: ADC helper resource-audit ELF missing"
+            exit 1
+          fi
+          cp "$audit_elf" "$artifact_dir/MotoreRevV2-adc-audit.elf"
+          cp "$audit_build_dir/MotoreRevV2-adc-audit.map" "$artifact_dir/MotoreRevV2-adc-audit.map"
+          "$avr_size" "$audit_elf" | tee "$artifact_dir/MotoreRevV2-adc-audit-avr-size.txt"
+          awk 'NR == 2 { if (($2 + $3) > 900) { print "ERROR: ADC-helper linked .data + .bss exceeds 900-byte static SRAM budget"; exit 1 } }' "$artifact_dir/MotoreRevV2-adc-audit-avr-size.txt"
+          (cd "$audit_build_dir" && find . -type f -name '*.su' -print0 | tar --null -czf "$artifact_dir/MotoreRevV2-adc-audit-stack-usage.tar.gz" --files-from -)
+          stack_files="$(find "$audit_build_dir" -type f -name '*.su' -print | wc -l)"
+          echo "ADC audit GCC .su files: $stack_files"
+          if [[ "$stack_files" -eq 0 ]]; then
+            find "$audit_build_dir" -type f -maxdepth 5 -print | head -80
+            echo "ERROR: ADC audit compiler emitted no .su files"
+            exit 1
+          fi
+          python3 - "$audit_build_dir" "$artifact_dir" <<'PY'
+          from pathlib import Path
+          import sys
+          build_dir, artifact_dir = map(Path, sys.argv[1:])
+          rows = []
+          for path in build_dir.rglob("*.su"):
+              for line in path.read_text(errors="replace").splitlines():
+                  parts = line.rsplit(chr(9), 2)
+                  if len(parts) < 3:
+                      continue
+                  try:
+                      frame = int(parts[-2])
+                  except ValueError:
+                      continue
+                  rows.append((frame, parts[0], parts[-1]))
+          rows.sort(reverse=True)
+          if not rows:
+              raise SystemExit("ERROR: ADC audit .su files contain no parseable GCC stack-usage records")
+          (artifact_dir / "MotoreRevV2-adc-audit-stack-usage-all.txt").write_text(
+              "".join(str(frame) + chr(9) + qualifier + chr(9) + name + chr(10) for frame, name, qualifier in rows)
+          )
+          (artifact_dir / "MotoreRevV2-adc-audit-stack-usage-top30.txt").write_text(
+              "".join(str(frame) + chr(9) + qualifier + chr(9) + name + chr(10) for frame, name, qualifier in rows[:30])
+          )
+          print(f"ADC helper image largest individual stack frame: {rows[0][0]} bytes")
+          if rows[0][0] > 700:
+              raise SystemExit("ERROR: ADC helper image contains a frame over 700 bytes")
+          PY
+          "$avr_objdump" -Cd "$audit_elf" > "$artifact_dir/MotoreRevV2-adc-audit-disassembly.txt"
+          {
+            echo "sketch=MotoreRevV2"
+            echo "fqbn=arduino:avr:uno"
+            echo "arduino_avr_core=1.8.8"
+            echo "checked_out_sha=$GITHUB_SHA"
+            sha256sum "$artifact_dir/MotoreRevV2.ino.hex" "$artifact_dir/MotoreRevV2.elf" "$artifact_dir/MotoreRevV2.map"
+          } > "$artifact_dir/MotoreRevV2-build-manifest.txt"
+
       - name: Verify firmware CAL and host-owned control contract
         shell: bash
         run: |
