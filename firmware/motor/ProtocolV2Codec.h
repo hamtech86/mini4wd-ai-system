@@ -10,7 +10,9 @@ static const uint16_t kMagic = 0x344D;
 static const uint8_t kVersion = 0x02;
 static const uint16_t kHeaderSize = 29;
 static const uint16_t kCrcSize = 2;
+// Keep the shared 194-byte safety ceiling for v1/legacy callers; v2 uses its tighter proven frame bound.
 static const uint16_t kMaxWireSize = 194;
+static const uint16_t kMaxV2WireSize = 188; // v2 ADC_BATCH maximum including delimiter
 static const uint16_t kAdcBatchPayloadSize = 155;
 
 enum MessageType : uint8_t {
@@ -21,6 +23,10 @@ enum MessageType : uint8_t {
 };
 
 enum DriveDirectionV2 : uint8_t { DIRECTION_FWD = 0, DIRECTION_REV = 1 };
+enum AcquisitionStatusV2 : uint8_t {
+  ADC_ACQ_OK = 0, ADC_PRECONDITION_INVALID = 1,
+  ADC_CONVERSION_TIMEOUT = 2, ADC_NOT_ACQUIRED = 3
+};
 
 struct FrameView {
   uint8_t message_type;
@@ -50,6 +56,9 @@ static inline void write_u32(uint8_t* p, uint32_t v) {
 }
 static inline void write_u64(uint8_t* p, uint64_t v) {
   write_u32(p, (uint32_t)v); write_u32(p + 4, (uint32_t)(v >> 32));
+}
+static inline uint32_t saturating_add_u32(uint32_t value, uint32_t increment) {
+  return increment > UINT32_MAX - value ? UINT32_MAX : value + increment;
 }
 
 static inline uint16_t crc16_ccitt_false(const uint8_t* data, uint16_t length) {
@@ -211,7 +220,7 @@ static inline bool encode_frame_in_place(uint8_t type, const uint8_t* session,
                                          uint32_t epoch_tag, uint32_t command_id,
                                          uint8_t* buffer, uint16_t payload_length,
                                          uint16_t capacity, uint16_t* wire_length) {
-  if (!buffer || !session || !wire_length || capacity < kMaxWireSize) return false;
+  if (!buffer || !session || !wire_length || capacity < 2) return false;
   if (!validate_header(type, session, epoch_tag, command_id) ||
       !validate_payload(type, buffer + 1 + kHeaderSize, payload_length, epoch_tag)) return false;
   const uint16_t raw_length = kHeaderSize + payload_length + kCrcSize;

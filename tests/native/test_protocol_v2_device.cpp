@@ -171,10 +171,45 @@ static void test_disarm_keeps_session_and_allows_direction_change() {
   assert(output.pwm == 0 && output.direction_low);
 }
 
+static void test_sample_sequence_allocator_reserves_complete_batch_boundary() {
+  FakeOutput output;
+  ProtocolV2Device<FakeOutput> device(output, 23, UINT64_MAX - 12ULL);
+  uint64_t value = 0;
+  assert(device.can_begin_adc_batch());
+  for (uint8_t i = 0; i < 12; ++i) {
+    assert(device.allocate_sample_sequence64(&value));
+    assert(value == UINT64_MAX - 12ULL + i);
+  }
+  assert(device.next_sample_sequence64() == UINT64_MAX);
+  assert(!device.can_begin_adc_batch());
+  assert(!device.allocate_sample_sequence64(&value));
+  assert(device.state() == DEVICE_FAULT_STOP);
+  assert(output.pwm == 0 && output.direction_low);
+}
+
+static void test_sample_sequence_allocator_is_monotonic_and_fails_closed() {
+  FakeOutput output;
+  ProtocolV2Device<FakeOutput> device(output, 21, 0);
+  uint64_t value = 99;
+  assert(device.allocate_sample_sequence64(&value));
+  assert(value == 0 && device.next_sample_sequence64() == 1);
+  assert(device.allocate_sample_sequence64(&value));
+  assert(value == 1 && device.next_sample_sequence64() == 2);
+
+  FakeOutput exhausted_output;
+  ProtocolV2Device<FakeOutput> exhausted(exhausted_output, 22, UINT64_MAX);
+  assert(!exhausted.allocate_sample_sequence64(&value));
+  assert(exhausted.state() == DEVICE_FAULT_STOP);
+  assert(exhausted_output.pwm == 0 && exhausted_output.direction_low);
+}
+
+
 int main() {
   test_boot_hello_arm_pwm_and_stop_preemption();
   test_duplicate_and_conflicting_stop_history();
   test_invalid_boot_never_arms();
   test_disarm_keeps_session_and_allows_direction_change();
+  test_sample_sequence_allocator_is_monotonic_and_fails_closed();
+  test_sample_sequence_allocator_reserves_complete_batch_boundary();
   return 0;
 }

@@ -62,6 +62,35 @@ class ProtocolV2Device {
   uint8_t active_direction() const { return active_direction_; }
   uint64_t boot_id64() const { return boot_id64_; }
   uint64_t next_sample_sequence64() const { return next_sample_sequence64_; }
+  const uint8_t* session_uuid() const { return session_uuid_; }
+  bool session_bound() const { return session_bound_; }
+  bool can_begin_adc_batch() const {
+    return next_sample_sequence64_ <= UINT64_MAX - 12ULL &&
+        state_ != DEVICE_STOP_LATCHED && state_ != DEVICE_STOPPED &&
+        state_ != DEVICE_FAULT && state_ != DEVICE_FAULT_STOP &&
+        state_ != DEVICE_BOOT_ID_INVALID;
+  }
+  void latch_sample_sequence_exhaustion() {
+    outputs_safe();
+    state_ = DEVICE_FAULT_STOP;
+  }
+
+  // Allocate exactly one scheduled ADC-attempt identity. UINT64_MAX is a
+  // terminal boundary: it is never emitted and the device fails closed.
+  bool allocate_sample_sequence64(uint64_t* allocated) {
+    if (!allocated || next_sample_sequence64_ == UINT64_MAX ||
+        state_ == DEVICE_STOP_LATCHED || state_ == DEVICE_STOPPED ||
+        state_ == DEVICE_FAULT || state_ == DEVICE_FAULT_STOP ||
+        state_ == DEVICE_BOOT_ID_INVALID) {
+      if (next_sample_sequence64_ == UINT64_MAX) {
+        outputs_safe();
+        state_ = DEVICE_FAULT_STOP;
+      }
+      return false;
+    }
+    *allocated = next_sample_sequence64_++;
+    return true;
+  }
 
   bool initialize_identity(uint64_t boot_id64, uint64_t next_sample_sequence64) {
     if (!output_healthy_ || boot_id64 == 0 || state_ != DEVICE_BOOT_ID_INVALID)
@@ -90,7 +119,6 @@ class ProtocolV2Device {
  private:
   struct CommandCacheEntry {
     bool used;
-    uint8_t session[16];
     uint32_t command_id;
     uint8_t request_type;
     uint8_t request_payload[4];
@@ -194,8 +222,7 @@ class ProtocolV2Device {
     *conflict = false;
     for (uint8_t i = 0; i < 4; ++i) {
       const CommandCacheEntry& e = command_cache_[i];
-      if (!e.used || e.command_id != f.command_id ||
-          !same_session(e.session, f.session_uuid)) continue;
+      if (!e.used || e.command_id != f.command_id) continue;
       const bool exact = e.request_type == f.message_type &&
           e.request_length == f.payload_length &&
           memcmp(e.request_payload, f.payload, f.payload_length) == 0;
@@ -214,7 +241,6 @@ class ProtocolV2Device {
                      const uint8_t* ack_payload, uint8_t ack_length) {
     CommandCacheEntry& e = command_cache_[command_cache_next_];
     e.used = true;
-    memcpy(e.session, f.session_uuid, 16);
     e.command_id = f.command_id;
     e.request_type = f.message_type;
     e.request_length = (uint8_t)f.payload_length;

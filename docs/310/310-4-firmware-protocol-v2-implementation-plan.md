@@ -193,3 +193,131 @@ Verification status at this document update:
 - A subsequent native run exposed an outdated STOP test that expected a new HELLO to clear STOP; corrected to assert terminal STOP semantics.
 - The next exact-HEAD native run is the acceptance evidence for this increment; do not count the failed runs as passes.
 - No v2 sketch, AVR build/map, SRAM/stack proof, physical output test or hardware qualification is claimed.
+
+
+## 10. 2026-11-05 isolated Uno v2 sketch increment
+
+Added `firmware/motor/MotoreRevV2/MotoreRevV2.ino` as a separate protocol-v2 sketch; the legacy `MotoreRev.ino` remains unchanged.
+
+Implemented in this increment:
+- Initializes D5 PWM and D7/D8 direction outputs to non-driving LOW before constructing protocol state.
+- Uses a static-storage placement-constructed `ProtocolV2Device`; no heap allocation is used.
+- Connects the existing `BootIdentityJournal` to the Uno EEPROM API through a read/update/readback adapter. The sketch never writes the provisioning record. An absent/invalid provisioning record or invalid journal leaves the device fail-closed and unable to complete HELLO/ARM.
+- Connects `ProtocolV2Device` to a GPIO output adapter: FWD maps to D7 HIGH/D8 LOW, REV maps to D7 LOW/D8 HIGH, and PWM is limited to the protocol's 0..30 range. Safe output requests set PWM=0 and both direction pins LOW.
+- Receives delimiter-framed COBS data in a fixed 194-byte workspace, invokes the existing CRC/protocol decoder, passes valid frames to the device state machine, and sends replies through the existing bounded 16-byte-per-service TX scheduler.
+- No text/debug output is emitted on the binary protocol serial channel.
+- Added an Arduino Uno CI compile step for this isolated sketch, copying its four required protocol headers into the sketch build directory.
+
+Not implemented by this increment:
+- ADC acquisition scheduler, per-conversion `micros()` timestamps, context/epoch capture, 12-slot ADC_BATCH producer, or sequence consumption for failed acquisition attempts.
+- STATUS/telemetry production, v2 AVR resource proof (.elf/.hex/map with SRAM/stack audit), and host/firmware serial interoperability.
+- Physical direction polarity confirmation, current-limit confirmation, BOD/EEPROM power-fail qualification, upload, or motor energization.
+
+The GPIO adapter's `true` return means only that the software issued the pin writes; it is not physical feedback. This sketch is an implementation candidate, not an accepted or hardware-qualified firmware release. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains in force.
+
+
+### V2 wire-layout reconciliation and CI evidence — 2026-11-05
+
+The v0.5 body §4.1/§4.2 records the earlier v1 sample/batch representation (14-byte sample units and 173-byte payload). It must not be copied into the v2 sketch. The v2 appendix E representation is the one implemented by `ProtocolV2Codec.h`: 155-byte payload = 11-byte batch header + 12 × 12-byte sample units; the 12-byte v2 sample unit is timestamp_us_u32(4), channel_code(1), adc_raw(2), stage_context_token(2), acquisition_status(1), sample_flags(2). The full uint64 first_sample_sequence64 is in the batch header and slot i is first+i. The 194-byte workspace is retained; the v2 maximum wire frame is 188 bytes. Native codec validation uses these v2 offsets and length.
+
+Sampling cadence remains unadopted. The 25/75 ms alternating schedule described in v1 §4.3 is a candidate, not permission to run acquisition at that rate. The new sketch therefore does not yet schedule or emit ADC_BATCH. Before enabling acquisition, the authority must close the v2 cadence and timing requirements and the implementation must snapshot each sample's stage token immediately before conversion, capture the conversion midpoint timestamp, and consume a sequence for every attempted slot including unavailable attempts.
+
+Arduino Uno compile workflow run #113 / run ID 42010177306 completed success at PR #189 HEAD `d8dc58e82c7f129805a337e5b4b5746a12d87612`. The job's legacy compile, isolated v2 sketch compile, firmware source-contract checks, and artifact upload steps all succeeded. Break-in/Battery workflow run #1468 / run ID 42010177298 also completed with all four jobs successful (battery, full suite, break-in and RawLog/sequence regression). This is compile and repository regression evidence only; it is not AVR SRAM/stack qualification, host/device interoperability or hardware qualification.
+
+
+### Reproducible v2 build artifact — 2026-11-05
+
+The Uno workflow was extended to retain the separately compiled `MotoreRevV2.ino.hex` and `MotoreRevV2-build-manifest.txt` in the workflow artifact alongside the legacy firmware artifact. At exact workflow HEAD `42740e7653883e09a03dcd56eb7e8b14123d8361`, Arduino Uno Firmware Compile run #115 / ID 42011003509 succeeded, including the v2 compile step and artifact upload. Artifact ID: 13406986860 (expires 2026-11-19). Break-in and Battery run #1470 / ID 42011002691 completed with all four jobs successful. The artifact is compile output, not an AVR resource qualification or authorization to upload it to a board.
+
+
+### AVR static SRAM gate — 2026-11-05
+
+The first resource-audit attempt found 1,026 bytes of global SRAM, above the 900-byte limit. The command-result cache was then reduced by removing a redundant per-entry 16-byte session UUID: all cache lookups occur only after the current full session UUID has already been validated, and the cache is cleared whenever a new session binds. The Uno UART RX/TX ring sizes were changed to 32 bytes each using global `compiler.cpp.extra_flags`, so the sketch and Arduino HardwareSerial core share identical compile-time array bounds. A sketch-only macro override was rejected after CI exposed the class-layout mismatch warning; the override was moved to the global compile property.
+
+At exact HEAD `91bb1d50ca42a6939a8b780283c594b082daff46`, Arduino Uno Firmware Compile run #122 / ID 42012147999 succeeded. `avr-size` reported text=10670, data=146, bss=752; therefore `.data + .bss = 898 bytes`, within the 900-byte static SRAM ceiling. The CI job also retained the HEX, ELF, linker map, size report and SHA-256 manifest in artifact ID 13408055659 (expires 2026-11-19). Native protocol v2 workflow #71 / ID 42012148002 succeeded. Break-in/Battery workflow #1477 / ID 42012148043 completed with all four jobs successful.
+
+This closes only the static SRAM-size check for this exact build. Worst-case stack <=700 bytes, reserve >=448 bytes under the required execution paths, ISR/call nesting, UART overflow behavior under sustained traffic, and full ADC-enabled sketch memory are NOT yet proven. At 898 bytes there is only 2 bytes of headroom against the static limit; the ADC scheduler must not be added without a renewed resource budget and optimization review.
+
+
+### Reduced v2 RX/TX workspace — 2026-11-05
+
+The v2 protocol maximum wire frame is 188 bytes (155-byte ADC_BATCH payload + 29-byte header + 2-byte CRC, worst-case COBS overhead and delimiter). Added `kMaxV2WireSize=188`; the v2 TX scheduler and sketch RX workspace now use this exact bound instead of the shared 194-byte legacy ceiling. `encode_frame_in_place` now validates the caller's actual capacity against the encoded frame requirement rather than requiring the larger shared ceiling. The native TX scheduler test now allocates the exact v2 buffer.
+
+At exact HEAD `91f4f76e2ef7d74ec29c9f27a0f1cc7b96c70cb3`, Arduino Uno compile run #125 / ID 42012704575 succeeded; `avr-size` reports text=10670, data=146, bss=740, hence `.data + .bss = 886 bytes`. Native protocol v2 run #74 / ID 42012704567 succeeded. Break-in/Battery run #1480 / ID 42012704547 completed with all four jobs successful. Artifact ID 13407238519 contains the v2 HEX, ELF, map, size report and SHA-256 manifest (expires 2026-11-19).
+
+The previous 898-byte static footprint was reduced by another 12 bytes using the exact v2 frame ceiling. This leaves 14 bytes below the 900-byte static cap. Worst-case stack and reserve proofs remain open; static size alone is not full SRAM qualification.
+
+
+### Stack-usage instrumentation — 2026-11-05
+
+The Uno compile workflow now passes `-fstack-usage` to C++ and C compilation and stages compiler `.su` records plus a top-30 frame report in the build artifact. This is intended to support, but does not itself complete, the worst-case stack call-chain/ISR analysis. At the latest check, no Arduino workflow run was returned for the new instrumentation commit; therefore the `.su` artifact has not yet been verified. The last successful Uno build remains run #125 / ID 42012704575 at HEAD `91f4f76e2ef7d74ec29c9f27a0f1cc7b96c70cb3`, with static `.data + .bss = 886 bytes`. The current instrumentation and compile guard/comment changes are not yet covered by a newer Arduino CI result. Native protocol v2 run #78 / ID 42013704106 and Break-in/Battery run #1484 / ID 42013704193 both succeeded; all four repository test jobs passed.
+
+
+### ADC attempt identity and batch TX path increment — 2026-11-05
+
+Added the following source-level pieces:
+- `ProtocolV2Device::allocate_sample_sequence64()` allocates one monotonic sequence per scheduled conversion attempt and refuses UINT64_MAX rather than wrapping; exhaustion requests safe outputs and latches `DEVICE_FAULT_STOP`.
+- The v2 TX scheduler now exposes `enqueue_frame()` for a validated large telemetry payload. It accepts only when the TX path is fully idle, so ADC_BATCH cannot displace a control ACK. It encodes directly into the existing TX workspace and does not allocate a second 155-byte payload copy.
+- The sketch defines an RX/ADC payload union, reusing the 188-byte RX workspace as the 155-byte ADC_BATCH construction area. Its source-level capture primitive maps channel codes 0..5 to A0..A5, snapshots the active stage token immediately before conversion, captures a per-conversion `micros()` midpoint, records raw ADC, and builds a 12-slot v2 payload. Whole batches are dropped and loss count advanced if TX is busy; no partial batch is sent.
+- No cadence is selected and the capture primitive is not called by `loop()`. The 25/75 ms schedule remains a candidate only. Consequently this is not yet an active ADC acquisition scheduler and the current linked AVR image does not include the unreferenced capture primitive; its runtime SRAM/stack impact is not part of the measured image.
+
+Native regression at HEAD `16dfa605ad4d87f6d70feff0ce2f7119ce35353a`: protocol v2 native workflow #90 / ID 42015620401 passed, including sample-sequence monotonic/exhaustion tests and large 155-byte ADC_BATCH TX encode/decode vector. Break-in/Battery workflow #1496 / ID 42015620515 passed all four jobs. Arduino compile workflow #141 / ID 42015620312 compiled the command sketch successfully, but its stack-report step failed because GNU sort was given a literal backslash-t separator. This was corrected to default whitespace sorting.
+
+At HEAD `450f2b7505d23b29c413e6869abed2c9ad2ef862`, Arduino compile workflow #142 / ID 42015767478 passed including the corrected stack-report generation and artifact upload. The compiled linked image remains text=10924, data=146, bss=740; `.data + .bss = 886 bytes`. This does NOT measure the unreferenced ADC capture primitive. The retained artifact is ID 13409920093 (expires 2026-11-19). Native workflow #91 / ID 42015767482 passed, and Break-in/Battery workflow #1497 / ID 42015767589 passed all four jobs.
+
+Remaining: keep the ADC capture path linked through a defined foreground scheduler interface; qualify a cadence before enabling it; test ADC sample ordering/status/sequence gaps and full batch round-trip; add STATUS/loss reporting; measure the ADC-enabled image; prove worst-case call-chain/ISR stack <=700 bytes and >=448-byte reserve. Current 886-byte SRAM result applies only to the linked command-only image, not an ADC-enabled firmware build.
+
+
+### Stack report correction — 2026-11-05
+
+The first stack artifact at run #142 contained empty `.su` files because the GCC/LTO combination did not emit usable frame records. This was not accepted as stack evidence. The Uno workflow was changed to produce a separate non-LTO analysis build with `-fstack-usage`; at run #147 / ID 42016234707, 228 non-empty frame records were emitted. The largest individual frame in that report is 168 bytes (`loop()`); the top report also includes the core ISR frames. This is only per-function frame evidence, not the required worst-case nested call-chain plus ISR stack proof. The stack parser was then corrected to parse GCC tab-delimited records and retain full/top-30 reports. At HEAD `a70c5cfd4d8144699a4f75fb236f42b49207145c`, Arduino compile workflow #148 / ID 42016688697 passed; the parser reported 228 records and largest individual frame 168 bytes. Artifact ID 13409287960 (expires 2026-11-19) contains the HEX/ELF/map and parsed full/top-30 stack reports. Native workflow #97 / ID 42016688703 passed, and Break-in/Battery workflow #1503 / ID 42016688698 passed all four jobs.
+
+
+The AVR GCC 7.3 toolchain bundled with Arduino AVR core 1.8.8 rejects `-fcallgraph-info=su`; that optional compiler flag was tried, failed at compile, and was removed. The next resource-audit increment retains `avr-objdump -Cd` disassembly alongside the map and `.su` records so call edges can be reviewed manually. This is a tooling limitation, not a firmware test pass.
+
+
+### TX workspace ownership correction and bounded ADC attempt helpers — 2026-11-05
+
+The earlier source-level ADC capture implementation briefly staged ADC_BATCH in the RX workspace union and passed it to the TX scheduler. That implementation violated design v0.5 §7.3 and is superseded. The current implementation uses distinct 188-byte RX and TX workspaces; the TX scheduler acquires its own TX workspace and writes the 155-byte ADC_BATCH payload directly at the payload offset. No extra ADC payload staging buffer or complete-frame shadow is allocated. A control reply received while a batch is being built is retained in the bounded pending-reply slot; foreground TX service discards the incomplete batch and sends the control reply. STOP output-safe action occurs synchronously in the device state machine before the ACK is queued. STOP, DISARM, and HELLO boundaries explicitly discard partial batches.
+
+ADC attempt helpers now use the AVCC reference, ADC prescaler 128, a 2 ms reference-settling delay, and a bounded 2 ms conversion wait instead of Arduino `analogRead()`. Each successful or failed attempted conversion consumes exactly one uint64 sample sequence and carries a per-conversion midpoint timestamp and stage token sampled before conversion. Named statuses are OK=0, PRECONDITION_INVALID=1, CONVERSION_TIMEOUT=2, NOT_ACQUIRED=3; failed attempts carry raw=0xFFFF. Timeout disables the ADC, so later attempted slots become PRECONDITION_INVALID. A separate helper records NOT_ACQUIRED only when a future scheduler can identify a deliberately missed scheduled slot.
+
+Native protocol v2 workflow #113 / run ID `42027088527` passed at code HEAD `66c57f9d6f482f9aaabad2152e84c1d1b84831f3`. The added test decodes a full ADC_BATCH and verifies all four acquisition status codes and raw sentinel semantics; existing tests verify direct TX workspace assembly and STOP preemption. Arduino Uno compile workflow #164 / run ID `42027088535` also passed at that code HEAD. Linked command-only image size is text=11624, data=146, bss=746; static allocation 892 bytes (8 bytes below the 900-byte cap). The command-only nested stack audit remains 292 bytes; see `310-5-avr-resource-audit.md`.
+
+Qualification remains incomplete: neither capture helper is called by `loop()`; no cadence is approved; no scheduler/deadline/overrun accounting, STATUS/loss-counter reporting, complete loss-window accounting, transport-evidence persistence, or ADC-enabled resource proof exists. The 892-byte SRAM result and 292-byte stack bound are for the linked command-only image and cannot be carried over to a scheduler-enabled image. With only 8 bytes of static headroom, the ADC-enabled implementation will likely require a deliberate SRAM reduction/re-layout before it can meet the 900-byte limit. No hardware interaction was performed.
+
+
+### Per-attempt loss accounting and linked ADC resource recheck — 2026-11-05
+
+A follow-up review found the partial-batch drop counter initially counted one dropped batch rather than every unretained sample attempt. The sketch now uses saturating uint32 addition and accounts each unretained attempt: failed TX workspace acquisition adds one; aborting a partial batch adds its accumulated slot count; an append failure adds prior partial slots plus the current attempt; a full-batch enqueue/validation failure adds 12. Any valid control reply preempts and discards an incomplete ADC batch before its ACK is queued, after STOP's synchronous safe-output action. The sequence allocator continues to advance for every attempt already scheduled, so host sequence gaps remain the authoritative sample-identity evidence.
+
+The normal production build at code HEAD `6c3492d28d08ed146e0e51dbf0e368bd85cbf277` (Arduino Uno Firmware Compile workflow #181 / run ID `42029342721`) reports text=11536, data=146, bss=747; static allocation **893 bytes**, 7 bytes below the 900-byte limit. The compile-only ADC-helper audit image (macro `M4WD_ADC_RESOURCE_AUDIT`, not uploaded) reports text=12652, data=146, bss=749; static allocation **895 bytes**, 5 bytes below the limit. The audit image links both `capture_adc_attempt()` and `record_not_acquired_attempt()`; its stack report retains the 23-byte `append_adc_attempt()`, 25-byte `encode_frame_in_place()`, 17-byte `validate_payload()`, and 168-byte `loop()` frames. The deepest ADC path including the active UART TX ISR is bounded at 266 bytes; the command/ACK path remains the larger 292-byte bound. With audit-image static allocation, `2048 - 895 - 292 = 861` bytes remain, 413 bytes above the 448-byte reserve. Artifact ID `13415696144` contains both production and audit ELF/HEX/map/disassembly/stack records (expires 2026-11-19). Detailed arithmetic is in `310-5-avr-resource-audit.md`.
+
+The v2 payload currently carries only the low 8 bits of loss_counter in ADC_BATCH and the design says counter saturation must set a SATURATED flag. However, v2 batch_flags and sample_flags are reserved-zero, and the 16-byte STATUS payload has no defined saturation flag field. Firmware now saturates at UINT32_MAX and does not wrap, but it does NOT claim to emit the separate SATURATED flag or full counter in STATUS; the wire-level flag representation and STATUS emission remain explicit unresolved design/integration work. RX overflow, COBS failure, oversize, and TX backpressure reason counters are also not yet implemented.
+
+No sampling cadence or loop scheduler has been enabled. The linked ADC audit is compile-only and does not exercise conversion or physical hardware. No hardware interaction occurred.
+
+
+### Saturating counter helper and regression — 2026-11-05
+
+The saturating uint32 addition used by the firmware transport loss counter was moved into the shared codec utility layer as `saturating_add_u32()` and covered by native boundary tests (normal increment, exact UINT32_MAX arrival, overflow, and already-saturated input). Native protocol v2 workflow #135 / run ID `42029806922` passed at code HEAD `89546dec41e283c248abf55ff8c4b731cb6a4a33`. Arduino Uno Firmware Compile workflow #186 / run ID `42029806781` passed at the same code HEAD. The normal production image remains 893 static bytes; the compile-only ADC-helper image remains 895 static bytes; both are under the 900-byte cap, with the ADC audit stack arithmetic documented in `310-5-avr-resource-audit.md`. Full Break-in/Battery workflow #1543 / run ID `42029806831` passed all four jobs.
+
+The SATURATED wire flag and STATUS reporting remain unresolved as described above; a saturating counter implementation alone does not satisfy those protocol-level requirements.
+
+
+### 2026-11-05 integrated foreground scheduler and STATUS
+
+The earlier statements above that the ADC helpers are not called from loop() and that cadence/STATUS are absent are superseded by the 2026-11-05 implementation increment on the current branch.
+
+- Added ProtocolV2AdcScheduler.h with fixed 6-byte state, wrap-safe micros scheduling, two scans per 100 ms cycle (T and T+25 ms; next T+100 ms), channel order A0,A1,A4,A5,A2,A3.
+- The command authority adopted this schedule only for raw acquisition in docs/310/310-5-adc-acquisition-scheduler-decision-2026-11-05.md. It is not uniform 20 Hz data and makes no Nyquist, PWM-ripple, commutation-transient or peak-current claim.
+- MotoreRevV2.ino now services at most one ADC slot per foreground pass, services bounded RX before every slot, and uses a 2,000 µs ADC conversion timeout. If a scan is incomplete at the next scan boundary, remaining slots become explicit NOT_ACQUIRED entries; overdue conversions are never replayed in a burst. Missed-slot context token is zero because its historical stage cannot be proven.
+- Every scheduled slot consumes one device-owned uint64 sample sequence. The 12 slots in two scans are assembled directly into the TX workspace. A failed/unretained batch leaves a sequence gap and increments the saturating loss counter.
+- STATUS now reports state, PWM, active context token, full saturating uint32 loss counter, and next uint64 sample sequence after complete batches. STATUS is deferred until TX is idle and cannot occupy the pending-reply slot ahead of a command ACK. UINT32_MAX is the saturation terminal sentinel; the v2 reserved-zero flags are unchanged.
+- RX workspace is 48 bytes (largest host command frame 41 bytes); TX workspace remains 188 bytes. RX processing is capped at 32 bytes per loop pass; TX service remains capped at 16 bytes per pass.
+- Native protocol v2 workflow #145 / run ID 42038017941 passed the cadence order, timing, overrun, STOP cancellation/restart and micros-wrap vectors. Arduino Uno Firmware Compile workflow #196 / run ID 42038018027 passed both production and compile-only ADC audit images. Break-in/Battery workflow #1553 / run ID 42038018058 passed all four jobs.
+- Production image: text=13132, data=146, bss=615; static allocation=761 bytes. ADC audit image: text=13232, data=146, bss=616; static allocation=762 bytes. Both are below 900 bytes.
+- GCC .su inventory: loop 171 bytes, capture_adc_attempt 12, append_adc_attempt 25, encode_frame_in_place 25, validate_payload 17, cached_or_error 74, find_cached 19, UART TX ISR 17, TX ISR helper 2, main 2. Conservative deepest command/ACK path = 295 bytes; ADC encode path = 285 bytes. With 762 static bytes, 2048-762-295=991 bytes remain, 543 bytes above the 448-byte reserve. Detailed calculation is in docs/310/310-5-avr-resource-audit.md.
+- Exact firmware code/test HEAD for the three successful workflows above: 04669f877c3973a6c955277dca1bffbcf4ec15c0. Later commit 447bacbdaec355df2f1670c56f4f916b95b08c3f adds only the cadence decision document and the PR description was updated with the exact evidence.
+
+This completes the firmware software implementation/resource work package for FW2-01..FW2-07. It does not complete 310-5 formal acceptance or hardware qualification. No Arduino upload, physical serial connection, motor energization, 310-second measurement, EEPROM/fuse operation or hardware test occurred. Physical BOD, current limit, direction polarity, physical STOP/driver cutoff, sustained UART and host/device interoperability remain NOT QUALIFIED. HARDWARE_CURRENT_LIMIT_CONFIRMED=false remains unchanged.

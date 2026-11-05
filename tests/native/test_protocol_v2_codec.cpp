@@ -120,6 +120,13 @@ static void test_arm_ack_direction_sentinel_is_error_only() {
   assert(!encode_frame_in_place(ARM_ACK, session, 1, 1, tx, 5, sizeof(tx), &n));
 }
 
+static void test_uint32_saturating_add_never_wraps() {
+  assert(saturating_add_u32(0, 1) == 1);
+  assert(saturating_add_u32(UINT32_MAX - 1, 1) == UINT32_MAX);
+  assert(saturating_add_u32(UINT32_MAX - 1, 2) == UINT32_MAX);
+  assert(saturating_add_u32(UINT32_MAX, UINT32_MAX) == UINT32_MAX);
+}
+
 int main() {
   test_crc_vector();
   test_hello_round_trip();
@@ -128,5 +135,6 @@ int main() {
   test_reject_zero_session_and_wrong_version();
   test_arm_direction_and_disarm_wire_contract();
   test_arm_ack_direction_sentinel_is_error_only();
+  test_uint32_saturating_add_never_wraps();
   return 0;
 }
