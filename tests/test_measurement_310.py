@@ -989,10 +989,14 @@ def test_concurrent_abort_callers_latch_exactly_one_stop(tmp_path):
 
 
 class _FakeSerial:
-    def __init__(self, *, write_result=None, write_error=None, out_waiting=0):
+    def __init__(self, *, write_result=None, write_error=None, flush_error=None, block_flush=False):
+        import threading
         self.write_result = write_result
         self.write_error = write_error
-        self.out_waiting = out_waiting
+        self.flush_error = flush_error
+        self.block_flush = block_flush
+        self.flush_started = threading.Event()
+        self.release_flush = threading.Event()
         self.calls = []
 
     def write(self, payload):
@@ -1000,6 +1004,14 @@ class _FakeSerial:
         if self.write_error:
             raise self.write_error
         return len(payload) if self.write_result is None else self.write_result
+
+    def flush(self):
+        self.calls.append(("flush",))
+        self.flush_started.set()
+        if self.block_flush:
+            self.release_flush.wait()
+        if self.flush_error:
+            raise self.flush_error
 
 
 def _connected_pyserial(monkeypatch, fake):
@@ -1022,7 +1034,7 @@ def test_pyserial_write_exception_is_reported_as_uncertain_send(monkeypatch):
     # A write exception cannot establish whether zero, some, or all bytes escaped.
 
 
-def test_pyserial_short_write_is_rejected_without_claiming_drain(monkeypatch):
+def test_pyserial_short_write_is_rejected_before_flush(monkeypatch):
     fake = _FakeSerial(write_result=2)
     transport = _connected_pyserial(monkeypatch, fake)
     with pytest.raises(TransportError, match="short serial write"):
@@ -1030,25 +1042,38 @@ def test_pyserial_short_write_is_rejected_without_claiming_drain(monkeypatch):
     assert fake.calls == [("write", b"STOP")]
 
 
-def test_pyserial_tx_drain_timeout_is_reported_as_uncertain_send(monkeypatch):
-    fake = _FakeSerial(out_waiting=1)
+def test_pyserial_flush_exception_is_reported_as_uncertain_send(monkeypatch):
+    fake = _FakeSerial(flush_error=OSError("flush failed"))
+    transport = _connected_pyserial(monkeypatch, fake)
+    with pytest.raises(TransportError, match="serial send failed"):
+        transport.send(b"STOP")
+    assert fake.calls == [("write", b"STOP"), ("flush",)]
+
+
+def test_pyserial_flush_timeout_is_bounded_and_latches_transport(monkeypatch):
+    fake = _FakeSerial(block_flush=True)
     import sys
     import types
     monkeypatch.setitem(sys.modules, "serial", types.SimpleNamespace(
         Serial=lambda *args, **kwargs: fake
     ))
-    transport = PySerialTransport("FAKE-PORT", 57600, write_timeout_s=0.002)
+    transport = PySerialTransport("FAKE-PORT", 57600, write_timeout_s=0.01)
     transport.connect()
     with pytest.raises(TransportError, match="unknown"):
         transport.send(b"STOP")
-    assert fake.calls == [("write", b"STOP")]
+    assert fake.flush_started.is_set()
+    assert fake.calls == [("write", b"STOP"), ("flush",)]
+    fake.release_flush.set()
+    with pytest.raises(TransportError, match="previously timed out"):
+        transport.send(b"PWM")
+    assert fake.calls == [("write", b"STOP"), ("flush",)]
 
 
-def test_pyserial_success_requires_full_write_and_bounded_tx_drain(monkeypatch):
+def test_pyserial_success_requires_full_write_and_flush(monkeypatch):
     fake = _FakeSerial()
     transport = _connected_pyserial(monkeypatch, fake)
     transport.send(b"STOP")
-    assert fake.calls == [("write", b"STOP")]
+    assert fake.calls == [("write", b"STOP"), ("flush",)]
 
 
 
