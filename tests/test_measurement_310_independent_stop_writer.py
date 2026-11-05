@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from measurement_310.protocol_v2 import (
-    ProtocolV2Codec, PROTOCOL_V2_MAGIC, PROTOCOL_V2_VERSION,
+    ProtocolV2Codec, PROTOCOL_V2_MAGIC, PROTOCOL_V2_VERSION, StopReason,
 )
 from measurement_310.protocol_v2_session import ProtocolV2HostSession
 from measurement_310.command_intent import DurableIntentJournal
@@ -243,11 +243,20 @@ def test_independent_stop_tty_survives_command_tty_tx_timeout():
         with pytest.raises(TransportError):
             command.send(b"C" * 1_000_000)
         # The command tty is now fail-closed after its timed-out write. The
-        # separate STOP tty must still accept and deliver its short frame.
-        stop(b"INDEPENDENT-STOP")
+        # protocol session must still send a framed STOP_REQ on the other tty.
+        session_id = str(uuid.uuid4())
+        codec = ProtocolV2Codec(PROTOCOL_V2_MAGIC, PROTOCOL_V2_VERSION)
+        session = ProtocolV2HostSession.for_rawlog_session(
+            command, codec, tmp_path, session_id, stop_writer=stop,
+            stop_timeout_s=0.25,
+        )
+        session.send_stop_best_effort(stop_reason=int(StopReason.OPERATOR_REQUEST))
         ready, _, _ = select.select([stop_master], [], [], 0.5)
         assert ready
-        assert os.read(stop_master, 128) == b"INDEPENDENT-STOP"
+        frame = os.read(stop_master, 256)
+        decoded = codec.decode(frame).message
+        assert decoded["kind"] == "STOP_REQ"
+        assert decoded["stop_reason"] == int(StopReason.OPERATOR_REQUEST)
     finally:
         command.disconnect()
         stop.disconnect()
