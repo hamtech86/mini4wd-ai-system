@@ -46,7 +46,7 @@ class ProtocolV2Device {
   ProtocolV2Device(Output& output, uint64_t boot_id64, uint64_t next_sample_sequence64)
       : output_(output), boot_id64_(boot_id64), next_sample_sequence64_(next_sample_sequence64),
         state_(boot_id64 ? DEVICE_IDLE : DEVICE_BOOT_ID_INVALID),
-        session_bound_(false), active_token_(0), active_pwm_(0), command_high_water_(0),
+        session_bound_(false), active_token_(0), active_pwm_(0), active_direction_(0xFF), command_high_water_(0),
         command_cache_next_(0), output_healthy_(false) {
     memset(session_uuid_, 0, sizeof(session_uuid_));
     memset(command_cache_, 0, sizeof(command_cache_));
@@ -59,6 +59,7 @@ class ProtocolV2Device {
   DeviceStateV2 state() const { return state_; }
   uint8_t active_pwm() const { return active_pwm_; }
   uint16_t active_context_token() const { return active_token_; }
+  uint8_t active_direction() const { return active_direction_; }
   uint64_t boot_id64() const { return boot_id64_; }
   uint64_t next_sample_sequence64() const { return next_sample_sequence64_; }
 
@@ -81,6 +82,7 @@ class ProtocolV2Device {
     if (frame.message_type == HELLO) return handle_hello(frame);
     if (frame.message_type == STOP_REQ) return handle_stop(frame);
     if (frame.message_type == ARM) return handle_arm(frame);
+    if (frame.message_type == DISARM) return handle_disarm(frame);
     if (frame.message_type == PWM_SET) return handle_pwm(frame);
     return error_reply(frame, DEVICE_ERR_STATE);
   }
@@ -91,10 +93,10 @@ class ProtocolV2Device {
     uint8_t session[16];
     uint32_t command_id;
     uint8_t request_type;
-    uint8_t request_payload[3];
+    uint8_t request_payload[4];
     uint8_t request_length;
     uint8_t ack_type;
-    uint8_t ack_payload[4];
+    uint8_t ack_payload[5];
     uint8_t ack_length;
   };
   struct StopHistoryEntry {
@@ -112,6 +114,7 @@ class ProtocolV2Device {
   bool session_bound_;
   uint16_t active_token_;
   uint8_t active_pwm_;
+  uint8_t active_direction_;
   uint32_t command_high_water_;
   CommandCacheEntry command_cache_[4];
   uint8_t command_cache_next_;
@@ -152,6 +155,7 @@ class ProtocolV2Device {
     const bool ok = output_.safe_outputs();
     active_pwm_ = 0;
     active_token_ = 0;
+    active_direction_ = 0xFF;
     return ok;
   }
   DeviceReplyV2 handle_hello(const FrameView& f) {
@@ -222,7 +226,7 @@ class ProtocolV2Device {
     command_high_water_ = f.command_id;
   }
   DeviceReplyV2 cached_or_error(const FrameView& f, uint8_t expected_ack) const {
-    uint8_t ack_type = 0, ack_payload[4] = {0}, ack_length = 0;
+    uint8_t ack_type = 0, ack_payload[5] = {0}, ack_length = 0;
     bool conflict = false;
     if (find_cached(f, &ack_type, ack_payload, &ack_length, &conflict)) {
       if (conflict) return error_reply(f, DEVICE_ERR_ID_CONFLICT);
@@ -238,33 +242,71 @@ class ProtocolV2Device {
     if (!session_bound_ || !same_session(session_uuid_, f.session_uuid) ||
         f.device_epoch_tag != epoch_tag_for_boot_id(boot_id64_))
       return arm_ack(f, 2, state_, 0, false);
-    if (f.payload[2] != 0 || read_u16(f.payload) == 0)
-      return arm_ack(f, 3, state_, 0, false);
-    uint8_t old_type = 0, old_payload[4] = {0}, old_length = 0;
+    if (f.payload[2] != 0 || read_u16(f.payload) == 0 || f.payload[3] > DIRECTION_REV)
+      return arm_ack(f, 3, state_, 0, 0xFF, false);
+    uint8_t old_type = 0, old_payload[5] = {0}, old_length = 0;
     bool conflict = false;
     if (find_cached(f, &old_type, old_payload, &old_length, &conflict))
       return cached_or_error(f, ARM_ACK);
     if (conflict || !command_is_fresh(f))
       return error_reply(f, conflict ? DEVICE_ERR_ID_CONFLICT : DEVICE_ERR_COMMAND_ID);
-    if (state_ != DEVICE_IDLE && state_ != DEVICE_STOPPED && state_ != DEVICE_STOP_LATCHED)
-      return arm_ack(f, 4, state_, 0, true);
+    // STOP is terminal for this session. Only a normal DISARM returns to IDLE.
+    if (state_ != DEVICE_IDLE)
+      return arm_ack(f, 4, state_, 0, 0xFF, true);
     if (!outputs_safe()) {
       state_ = DEVICE_FAULT;
-      return arm_ack(f, 5, state_, 0, true);
+      return arm_ack(f, 5, state_, 0, 0xFF, true);
+    }
+    const uint8_t requested_direction = f.payload[3];
+    if (!output_.set_direction(requested_direction)) {
+      outputs_safe(); state_ = DEVICE_FAULT;
+      return arm_ack(f, 5, state_, 0, 0xFF, true);
     }
     active_token_ = read_u16(f.payload);
-    state_ = DEVICE_ARMED; // STOP latch clears only after all checks above.
-    DeviceReplyV2 r = arm_ack(f, 0, state_, active_token_, false);
+    active_direction_ = requested_direction;
+    state_ = DEVICE_ARMED;
+    DeviceReplyV2 r = arm_ack(f, 0, state_, active_token_, active_direction_, false);
     cache_command(f, r.message_type, r.payload, r.payload_length);
     return r;
   }
   DeviceReplyV2 arm_ack(const FrameView& f, uint8_t result, DeviceStateV2 state,
-                        uint16_t token, bool cache) {
+                        uint16_t token, uint8_t direction, bool cache) {
     DeviceReplyV2 r = blank_reply(f, ARM_ACK);
     r.payload[0] = result;
     r.payload[1] = (uint8_t)state;
     write_u16(r.payload + 2, token);
-    r.payload_length = 4;
+    r.payload[4] = direction;
+    r.payload_length = 5;
+    if (cache) cache_command(f, r.message_type, r.payload, r.payload_length);
+    return r;
+  }
+  DeviceReplyV2 handle_disarm(const FrameView& f) {
+    if (!session_bound_ || !same_session(session_uuid_, f.session_uuid) ||
+        f.device_epoch_tag != epoch_tag_for_boot_id(boot_id64_))
+      return disarm_ack(f, 1, state_, read_u16(f.payload), false);
+    uint8_t old_type = 0, old_payload[5] = {0}, old_length = 0;
+    bool conflict = false;
+    if (find_cached(f, &old_type, old_payload, &old_length, &conflict))
+      return cached_or_error(f, DISARM_ACK);
+    if (conflict || !command_is_fresh(f))
+      return error_reply(f, conflict ? DEVICE_ERR_ID_CONFLICT : DEVICE_ERR_COMMAND_ID);
+    const uint16_t token = read_u16(f.payload);
+    if ((state_ != DEVICE_ARMED && state_ != DEVICE_RUNNING) || token == 0 || token != active_token_)
+      return disarm_ack(f, 2, state_, token, true);
+    if (!outputs_safe()) {
+      state_ = DEVICE_FAULT;
+      return disarm_ack(f, 2, state_, token, true);
+    }
+    state_ = DEVICE_IDLE; // Session and command high-water remain bound for the next stage.
+    DeviceReplyV2 r = disarm_ack(f, 0, state_, token, false);
+    cache_command(f, r.message_type, r.payload, r.payload_length);
+    return r;
+  }
+  DeviceReplyV2 disarm_ack(const FrameView& f, uint8_t result, DeviceStateV2 state,
+                           uint16_t token, bool cache) {
+    DeviceReplyV2 r = blank_reply(f, DISARM_ACK);
+    r.payload[0] = result; r.payload[1] = (uint8_t)state;
+    write_u16(r.payload + 2, token); r.payload_length = 4;
     if (cache) cache_command(f, r.message_type, r.payload, r.payload_length);
     return r;
   }
