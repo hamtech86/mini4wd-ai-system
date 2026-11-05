@@ -76,3 +76,27 @@ Unified code/test HEAD 4ec8a14a8dc273227a8e1b98e7a14223360e11ff:
 T09/T15 still lacks qualified physical independence of the STOP writer/path, measured MCU/driver cutoff and actual stop latency. T18 remains NOT RUN on the approved target Linux host/storage. EEPROM brownout/power-fail, BOD/voltage monitor, current-limit, direction polarity, analog calibration/settling, sustained UART load and physical interoperability remain NOT RUN. No hardware operation was performed; HARDWARE_CURRENT_LIMIT_CONFIRMED=false remains unchanged.
 
 This exact software verification is evidence of integrated host/firmware source and automated tests, not formal 310-5 acceptance. Formal T01–T18 acceptance and stage handoff remain under upper-command review.
+
+
+## 2026-11-06 continuation — STOP endpoint guard and strict T18 profile
+
+### T09/T15 host-side STOP dispatch hardening
+
+- Added IndependentPySerialStopWriter with its own pySerial object, 100 ms write timeout and 100 ms flush deadline (200 ms combined bound).
+- The protocol-v2 RawLog session factory now refuses a real serial transport unless a callable independent STOP endpoint is supplied, its worst-case bound is below the 250 ms STOP caller deadline, and its resolved device path is distinct from the command port. It also rejects matching character-device IDs where the OS exposes them.
+- The independent STOP endpoint is opened before the normal command transport. Session disconnect closes both. A non-blocking writer lock rejects concurrent STOP frames instead of interleaving them; unknown write/flush outcome latches the writer fail-closed.
+- This is a software architecture and configuration guard only. A different tty path does not prove a separate electrical safety controller, hardware inhibit or L298N cutoff. No qualified external safety controller/interlock is presently connected or physically tested; T09/T15 physical qualification remains open.
+
+### T18 profile cannot silently use smoke-test parameters
+
+- The CLI now defaults to 10,000 samples, a fixed 10,000 ms stage, a 1,000 ms STOP reserve and a 1,000 ms additional margin.
+- The runner rejects fewer than 10,000 samples, any non-10,000 ms stage, reserve/margin below 1,000 ms, and a missing or symlinked output directory. The target directory must pre-exist on the approved storage.
+- The target Linux host/storage run remains NOT RUN. These guards prevent a zero-reserve/zero-margin smoke run from being mistaken for the adopted T18 profile.
+
+### Exact unified candidate verification after these changes
+
+Code/test HEAD 16add01e3d72440cfd019c0a59f78dc616944470:
+- Break-in/Battery workflow 42092849420: all four jobs succeeded; full suite **599 passed, 2 xfailed in 16.90s**.
+- Native protocol-v2 workflow 42092849183: success.
+- Arduino Uno Firmware Compile workflow 42092849215: success.
+- The source/test head is newer than the earlier 588-test run. The later changes are host STOP endpoint validation and strict T18 profile guards/tests; firmware source is unchanged.
