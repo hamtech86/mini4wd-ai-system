@@ -403,9 +403,9 @@ class ProtocolV2HostSession:
                 raise ProtocolV2SessionError("DISARM_ACK identity mismatch")
             self._armed = False
             self._active_stage = None
-            self._append("STAGE_DISARMED", stage_context_token=token,
-                         stage_context_id=stage_context_id, command_id=command_id,
-                         direction=int(identity.command_type == "DISARM"))
+            self._append("STAGE_DISARMED", direction="host_internal",
+                         stage_context_token=token, stage_context_id=stage_context_id,
+                         command_id=command_id, drive_direction=self._active_stage_direction_for_evidence(token))
             return sent
         except Exception:
             self._failed = True
