@@ -75,9 +75,9 @@ jobs:
           mkdir -p "$build_dir"
           arduino-cli compile --export-binaries --fqbn arduino:avr:uno \
             --build-path "$build_dir" \
-            --build-property "compiler.cpp.extra_flags=-DSERIAL_RX_BUFFER_SIZE=32 -DSERIAL_TX_BUFFER_SIZE=32 -fstack-usage" \
-            --build-property "compiler.c.extra_flags=-fstack-usage" \
-            --build-property "compiler.c.elf.extra_flags=-Wl,-Map=$build_dir/MotoreRevV2.map" \
+            --build-property "compiler.cpp.extra_flags=-DSERIAL_RX_BUFFER_SIZE=32 -DSERIAL_TX_BUFFER_SIZE=32 -fstack-usage -fno-lto" \
+            --build-property "compiler.c.extra_flags=-fstack-usage -fno-lto" \
+            --build-property "compiler.c.elf.extra_flags=-fno-lto -Wl,-Map=$build_dir/MotoreRevV2.map" \
             "$sketch_dir"
           v2_hex_file="$(find "$sketch_dir" -type f -name '*.hex' -print -quit)"
           if [[ -z "$v2_hex_file" ]]; then
@@ -110,7 +110,8 @@ jobs:
             exit 1
           fi
           (cd "$build_dir" && find . -type f -name '*.su' -print0 | tar --null -czf "$artifact_dir/MotoreRevV2-stack-usage.tar.gz" --files-from -)
-          find "$build_dir" -type f -name '*.su' -exec cat {} + | sort -k2,2nr | head -30 > "$artifact_dir/MotoreRevV2-stack-usage-top30.txt"
+          find "$build_dir" -type f -name '*.su' -exec cat {} + | tee "$artifact_dir/MotoreRevV2-stack-usage-all.txt" | sort -k2,2nr | head -30 | tee "$artifact_dir/MotoreRevV2-stack-usage-top30.txt"
+          awk -F '\\t' 'NF >= 2 { if ($2 > max) max=$2; if ($2 > 700) bad=1 } END { if (NR == 0 || max == 0 || bad) { print "ERROR: stack frame report empty or a single frame exceeds 700 bytes"; exit 1 } printf "Largest individual stack frame: %d bytes (not a call-chain proof)\\n", max }' "$artifact_dir/MotoreRevV2-stack-usage-all.txt"
           {
             echo "sketch=MotoreRevV2"
             echo "fqbn=arduino:avr:uno"
