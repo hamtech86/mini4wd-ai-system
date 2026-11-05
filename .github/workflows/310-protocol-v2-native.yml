@@ -8,6 +8,8 @@ on:
     paths:
       - "firmware/motor/ProtocolV2Codec.h"
       - "tests/native/test_protocol_v2_codec.cpp"
+      - "firmware/motor/BootIdentityJournal.h"
+      - "tests/native/test_boot_identity_journal.cpp"
       - ".github/workflows/310-protocol-v2-native.yml"
 
 jobs:
@@ -19,3 +21,7 @@ jobs:
         run: g++ -std=c++11 -Wall -Wextra -Werror -pedantic tests/native/test_protocol_v2_codec.cpp -o /tmp/test_protocol_v2_codec
       - name: Run protocol vectors
         run: /tmp/test_protocol_v2_codec
+      - name: Compile EEPROM boot journal model
+        run: g++ -std=c++11 -Wall -Wextra -Werror -pedantic tests/native/test_boot_identity_journal.cpp -o /tmp/test_boot_identity_journal
+      - name: Run EEPROM fault-boundary vectors
+        run: /tmp/test_boot_identity_journal
