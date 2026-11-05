@@ -9,9 +9,9 @@ This audit applies only to the currently linked command-only image of:
 - Sketch: `firmware/motor/MotoreRevV2/MotoreRevV2.ino`
 - Target: Arduino Uno / ATmega328P, `arduino:avr:uno`
 - Arduino AVR core: 1.8.8
-- Build commit: `f2eddc2d3f691ad86d7bbf16660d7bdfe635c067`
-- Arduino Uno Firmware Compile workflow #152 / run ID `42017656858`
-- Artifact ID `13409228567` (expires 2026-11-19)
+- Build commit: `66c57f9d6f482f9aaabad2152e84c1d1b84831f3`
+- Arduino Uno Firmware Compile workflow #164 / run ID `42027088535`
+- Artifact ID `13413524110` (expires 2026-11-19)
 
 The build uses non-LTO `-fstack-usage` analysis flags. The ELF, linker map, disassembly, size report, and full/top-30 GCC stack reports are retained in the workflow artifact.
 
@@ -22,14 +22,14 @@ The build uses non-LTO `-fstack-usage` analysis flags. The ELF, linker map, disa
 | Section | Bytes |
 |---|---:|
 | .data | 146 |
-| .bss | 740 |
-| .data + .bss | **886** |
+| .bss | 746 |
+| .data + .bss | **892** |
 | Static limit | 900 |
-| Remaining below static limit | **14** |
+| Remaining below static limit | **8** |
 | Physical SRAM | 2048 |
-| Remaining after static allocation | 1162 |
+| Remaining after static allocation | 1156 |
 
-This passes the 900-byte static allocation cap for the linked command-only image. The ADC capture primitive in the source is not referenced by `loop()` and is removed from this linked image; therefore this 886-byte result does not qualify an ADC-enabled build.
+This passes the 900-byte static allocation cap for the linked command-only image. The ADC capture primitive in the source is not referenced by `loop()` and is removed from this linked image; therefore this 892-byte result does not qualify an ADC-enabled build.
 
 ## Stack frame inventory
 
@@ -70,9 +70,9 @@ AVR interrupt entry clears the global interrupt-enable bit; the current image ha
 
 The conservative bound for the command-only image is **292 bytes**, below the 700-byte stack ceiling. Remaining SRAM after this bound is:
 
-`2048 - 886 - 292 = 870 bytes`
+`2048 - 892 - 292 = 864 bytes`
 
-This exceeds the required 448-byte reserve by 422 bytes.
+This exceeds the required 448-byte reserve by 416 bytes.
 
 ## Qualification boundary
 
