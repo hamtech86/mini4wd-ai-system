@@ -111,9 +111,11 @@ class IndependentPySerialStopWriter:
     """Dedicated pySerial endpoint for STOP; never shares the command transport.
 
     This class is intentionally separate from PySerialTransport. Configure it
-    only for a physically independent UART/USB endpoint wired to the device's
-    STOP receiver. A different pathname that resolves to the same tty is rejected
-    by ProtocolV2HostSession.for_rawlog_session.
+    only for a dedicated external safety-controller endpoint that can assert the
+    hardware inhibit independently of the motor command UART. A different path
+    does not by itself prove electrical independence or driver cutoff; those
+    require a reviewed wiring design and physical qualification. A pathname
+    resolving to the same tty is rejected by for_rawlog_session.
     """
     def __init__(self, port: str, baudrate: int = 57600,
                  write_timeout_s: float = 0.10, flush_timeout_s: float = 0.10):
