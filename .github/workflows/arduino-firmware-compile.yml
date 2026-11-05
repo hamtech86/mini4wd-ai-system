@@ -111,7 +111,7 @@ jobs:
           fi
           (cd "$build_dir" && find . -type f -name '*.su' -print0 | tar --null -czf "$artifact_dir/MotoreRevV2-stack-usage.tar.gz" --files-from -)
           find "$build_dir" -type f -name '*.su' -exec cat {} + | tee "$artifact_dir/MotoreRevV2-stack-usage-all.txt" | sort -k2,2nr | head -30 | tee "$artifact_dir/MotoreRevV2-stack-usage-top30.txt"
-          awk -F '\\t' 'NF >= 2 { if ($2 > max) max=$2; if ($2 > 700) bad=1 } END { if (NR == 0 || max == 0 || bad) { print "ERROR: stack frame report empty or a single frame exceeds 700 bytes"; exit 1 } printf "Largest individual stack frame: %d bytes (not a call-chain proof)\\n", max }' "$artifact_dir/MotoreRevV2-stack-usage-all.txt"
+          awk 'NF >= 2 { if ($2 > max) max=$2; if ($2 > 700) bad=1 } END { if (NR == 0 || max == 0 || bad) { print "ERROR: stack frame report empty or a single frame exceeds 700 bytes"; exit 1 } printf "Largest individual stack frame: %d bytes (not a call-chain proof)\\n", max }' "$artifact_dir/MotoreRevV2-stack-usage-all.txt"
           {
             echo "sketch=MotoreRevV2"
             echo "fqbn=arduino:avr:uno"
