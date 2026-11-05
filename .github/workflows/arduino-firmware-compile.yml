@@ -75,6 +75,7 @@ jobs:
           mkdir -p "$build_dir"
           arduino-cli compile --export-binaries --fqbn arduino:avr:uno \
             --build-path "$build_dir" \
+            --build-property "compiler.cpp.extra_flags=-DSERIAL_RX_BUFFER_SIZE=32 -DSERIAL_TX_BUFFER_SIZE=32" \
             --build-property "compiler.c.elf.extra_flags=-Wl,-Map=$build_dir/MotoreRevV2.map" \
             "$sketch_dir"
           v2_hex_file="$(find "$sketch_dir" -type f -name '*.hex' -print -quit)"
