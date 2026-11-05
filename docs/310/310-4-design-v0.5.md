@@ -1158,3 +1158,35 @@ This amendment changes the design contract only. It does not assert that firmwar
 
 ### Protocol v2 EEPROM layout supplement
 The exact 16-byte EEPROM slot byte assignments and provisioning-record validation are specified in docs/310/310-protocol-v2-eeprom-journal-byte-assignment.md on the protocol v2 firmware implementation branch. This supplement is normative for v2 firmware; it does not authorize physical EEPROM or fuse operations.
+
+
+## I. Per-stage direction, DISARM and terminal STOP — 2026-11-05 command-authority amendment
+
+This section supersedes any earlier protocol-v2 wording that implies one direction per measurement session or permits ordinary re-ARM after STOP.
+
+### I.1 Direction ownership
+- Direction is a stage attribute, not a measurement-session attribute.
+- ARM payload is stage_context_token:uint16, initial_pwm:uint8, direction:uint8; initial_pwm MUST be zero. Direction enum: FWD=0, REV=1. Other values are rejected before output changes.
+- ARM_ACK echoes result, state, active_context_token and direction. A successful ACK MUST report ARMED, the exact nonzero context token, and the exact requested direction. A rejected ACK may report direction 0xFF (NONE); success may not.
+- Direction is applied only while PWM is confirmed zero. The host MUST wait for a matching ARM_ACK before sending any PWM_SET for that stage.
+- The 310 benchmark sequence currently selects FWD for all stages. The protocol supports REV so later TuneBasic sequences can explicitly alternate directions without changing session identity.
+
+### I.2 Normal stage completion: DISARM
+- DISARM is a normal stage-boundary command and is distinct from emergency STOP.
+- DISARM payload carries the active nonzero stage_context_token. DISARM_ACK echoes result, state and token.
+- On valid DISARM, firmware synchronously requests PWM=0 and both direction pins LOW, clears active stage context/direction, and returns to IDLE while retaining measurement_session_id, boot_id64, sample sequence, command high-water and session command history.
+- Only after a successful matching DISARM_ACK may the host ARM the next stage in the same HELLO session, using a fresh command_id and a new non-reused stage_context_token.
+- PWM_SET is rejected while IDLE; no output may be enabled between DISARM and the next successful ARM_ACK.
+- A DISARM timeout or ambiguous write/ACK outcome is unresolved and fail-closed. The host MUST NOT assume the stage ended safely or send another ARM. Use the independent STOP path.
+
+### I.3 Emergency STOP
+- STOP_REQ remains a terminal emergency latch for the current boot/session execution. It synchronously requests PWM=0, both direction pins LOW, and invalidates active context before STOP_ACK construction/transmission.
+- STOP is not a normal stage boundary and MUST NOT be cleared by DISARM, a repeated HELLO, or another ARM in the same boot.
+- After STOP, a new session UUID may be bound only while outputs are non-driving, but this does not clear the terminal STOP state; ARM remains rejected until device reset/reboot establishes a new boot identity.
+- STOP remains independent of TX drain, Evidence writes and ADC batch completion. A software STOP_ACK is not proof of physical cutoff or rotor standstill.
+
+### I.4 Required verification
+- Codec golden vectors cover ARM FWD/REV, ARM_ACK direction echo/NONE rejection semantics, DISARM and DISARM_ACK.
+- Device tests cover FWD stage → DISARM → REV stage in the same UUID/boot epoch; command IDs and context tokens are fresh; PWM remains zero until each ARM_ACK; DISARM clears outputs/context; STOP remains terminal and cannot be converted into normal DISARM/re-ARM.
+- Host tests cover the exact sequence HELLO → ARM(FWD) → PWM → DISARM → ARM(REV) → PWM → DISARM, matching ACK identity at every boundary.
+- This is software protocol behavior only. No hardware energization, Arduino upload, physical serial connection, or 310-second measurement is authorized by this amendment.
