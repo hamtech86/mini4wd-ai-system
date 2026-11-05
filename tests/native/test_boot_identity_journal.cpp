@@ -27,7 +27,7 @@ class MemoryStorage {
   }
   void provision() {
     bytes[256] = 0x50; bytes[257] = 0x52; bytes[258] = 0x01;
-    bytes[259] = crc8_atm(bytes, 3);
+    bytes[259] = crc8_atm(bytes + 256, 3);
   }
   void clear_fault() { writes = 0; fail_at = -1; write_then_fail = false; }
 };
