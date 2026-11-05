@@ -176,6 +176,7 @@ int main() {
   test_duplicate_and_conflicting_stop_history();
   test_invalid_boot_never_arms();
   test_disarm_keeps_session_and_allows_direction_change();
+  test_sample_sequence_allocator_is_monotonic_and_fails_closed();
   return 0;
 }
 
