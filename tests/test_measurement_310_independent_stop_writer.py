@@ -219,7 +219,7 @@ def test_concurrent_stop_write_is_rejected_without_frame_interleaving(monkeypatc
     assert fake.writes == [b"FIRST-STOP"]
 
 
-def test_independent_stop_tty_survives_command_tty_tx_timeout():
+def test_independent_stop_tty_survives_command_tty_tx_timeout(tmp_path):
     import os
     import pty
     import select
