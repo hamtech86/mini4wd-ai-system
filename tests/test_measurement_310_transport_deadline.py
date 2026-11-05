@@ -12,9 +12,13 @@ class FakeSerial:
         self.out_waiting = 0
         self.closed = False
         self.written = []
+        self.flush_error = None
     def write(self, payload):
         self.written.append(bytes(payload))
         return len(payload)
+    def flush(self):
+        if self.flush_error:
+            raise self.flush_error
     def close(self):
         self.closed = True
 
@@ -42,9 +46,15 @@ def test_send_returns_after_driver_queue_drains(monkeypatch):
     assert instance.written == [b"STOP"]
 
 
-def test_send_fails_closed_when_driver_queue_does_not_drain(monkeypatch):
+def test_send_fails_closed_when_flush_does_not_finish(monkeypatch):
     instance = FakeSerial()
-    instance.out_waiting = 1
+    import threading
+    started = threading.Event()
+    release = threading.Event()
+    def blocking_flush():
+        started.set()
+        release.wait()
+    instance.flush = blocking_flush
     monkeypatch.setitem(sys.modules, "serial", types.SimpleNamespace(
         Serial=lambda *args, **kwargs: instance
     ))
@@ -52,6 +62,8 @@ def test_send_fails_closed_when_driver_queue_does_not_drain(monkeypatch):
     transport.connect()
     with pytest.raises(TransportError, match="unknown"):
         transport.send(b"STOP")
+    assert started.is_set()
+    release.set()
 
 
 def test_short_write_is_unknown(monkeypatch):
