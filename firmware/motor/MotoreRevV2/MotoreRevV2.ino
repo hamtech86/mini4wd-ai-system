@@ -171,7 +171,8 @@ static bool adc_ready = false;
 static const uint32_t kAdcConversionTimeoutUs = 2000UL;
 
 static bool append_adc_attempt(uint8_t channel_code, uint32_t timestamp_us,
-                               uint16_t raw, uint8_t acquisition_status) {
+                               uint16_t raw, uint16_t stage_token,
+                               uint8_t acquisition_status) {
   if (!device || !device->session_bound() ||
       (device->state() != DEVICE_ARMED && device->state() != DEVICE_RUNNING))
     return false;
@@ -192,7 +193,6 @@ static bool append_adc_attempt(uint8_t channel_code, uint32_t timestamp_us,
     return false;
   }
 
-  const uint16_t stage_token = device->active_context_token();
   if (!tx_scheduler.append_adc_sample(timestamp_us, channel_code, raw,
                                       stage_token, acquisition_status, 0)) {
     tx_scheduler.abort_adc_batch();
@@ -218,32 +218,39 @@ static bool append_adc_attempt(uint8_t channel_code, uint32_t timestamp_us,
 // attempt. PRECONDITION_INVALID and CONVERSION_TIMEOUT are explicit wire slots.
 static bool capture_adc_attempt(uint8_t channel_code) {
   if (channel_code > 5) return false;
+  if (!device || !device->session_bound() ||
+      (device->state() != DEVICE_ARMED && device->state() != DEVICE_RUNNING))
+    return false;
+  const uint16_t stage_token = device->active_context_token();
   const uint32_t attempt_start_us = micros();
   if (!adc_ready) {
-    return append_adc_attempt(channel_code, attempt_start_us, 0xFFFF, 1);
+    return append_adc_attempt(channel_code, attempt_start_us, 0xFFFF, stage_token, 1);
   }
 
   ADMUX = static_cast<uint8_t>((ADMUX & 0xF0) | (channel_code & 0x0F));
-  ADCSRA |= _BV(ADSC);
   const uint32_t conversion_start_us = micros();
+  ADCSRA |= _BV(ADSC);
   while (ADCSRA & _BV(ADSC)) {
     if (static_cast<uint32_t>(micros() - conversion_start_us) >=
         kAdcConversionTimeoutUs) {
-      return append_adc_attempt(channel_code, micros(), 0xFFFF, 2);
+      ADCSRA &= static_cast<uint8_t>(~_BV(ADEN));
+      adc_ready = false;
+      return append_adc_attempt(channel_code, micros(), 0xFFFF, stage_token, 2);
     }
   }
   const uint16_t raw = ADC;
   const uint32_t conversion_end_us = micros();
   const uint32_t midpoint_us = conversion_start_us +
       static_cast<uint32_t>(conversion_end_us - conversion_start_us) / 2UL;
-  return append_adc_attempt(channel_code, midpoint_us, raw, 0);
+  return append_adc_attempt(channel_code, midpoint_us, raw, stage_token, 0);
 }
 
 // The scheduler calls this only when it can identify an intentional missed
 // acquisition slot. It is not used for host-side frame loss or UART backpressure.
 static bool record_not_acquired_attempt(uint8_t channel_code, uint32_t scheduled_us) {
   if (channel_code > 5) return false;
-  return append_adc_attempt(channel_code, scheduled_us, 0xFFFF, 3);
+  const uint16_t stage_token = device ? device->active_context_token() : 0;
+  return append_adc_attempt(channel_code, scheduled_us, 0xFFFF, stage_token, 3);
 }
 
 } // namespace
