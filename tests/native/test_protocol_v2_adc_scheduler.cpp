@@ -30,7 +30,7 @@ static void test_micros_wrap(){
   AdcCadenceScheduler s; const uint32_t start=UINT32_MAX-10000UL;
   const uint8_t order[6]={0,1,4,5,2,3}; s.start(start);
   for(uint8_t i=0;i<6;++i) take(s,start,order[i],false);
-  const uint32_t second=start+25000UL;
+  const uint32_t second=start+static_cast<uint32_t>(25000);
   for(uint8_t i=0;i<6;++i) take(s,second,order[i],false);
 }
 static void test_stop_and_restart(){
