@@ -541,7 +541,7 @@ class SequenceController:
         if not marker.exists():
             payload = (
                 "Protocol Evidence companion finalization failed; verify the RawLog package "
-                "and external Evidence sidecar before any re-arm. Reason: " + str(reason) + "\\n"
+                "and external Evidence sidecar before any re-arm. Reason: " + str(reason) + "\n"
             ).encode("utf-8")
             fd = os.open(str(marker), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             try:
