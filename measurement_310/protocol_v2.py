@@ -151,6 +151,13 @@ class ProtocolV2Codec:
         if not isinstance(payload, bytes) or len(payload) != _PAYLOAD_LENGTHS[kind]:
             raise ProtocolV2Error(f"{kind.name} payload must be exactly {_PAYLOAD_LENGTHS[kind]} bytes")
         self._validate_payload(kind, payload)
+        if kind == MessageType.HELLO_ACK:
+            _result, boot_id64, _nonce, _next_sequence = struct.unpack("<BQQQ", payload)
+            if boot_id64:
+                if epoch_tag_for_boot_id(boot_id64) != epoch_tag:
+                    raise ProtocolV2Error("HELLO_ACK epoch tag does not match full boot_id64")
+            elif epoch_tag != 0:
+                raise ProtocolV2Error("HELLO_ACK without valid boot identity requires epoch_tag=0")
         header = HEADER.pack(self.magic, self.protocol_version, int(kind), 0,
                              session, epoch_tag, command_id)
         body = header + payload
