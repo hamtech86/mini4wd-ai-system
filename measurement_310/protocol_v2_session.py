@@ -67,6 +67,7 @@ class ProtocolV2HostSession:
         self._stop_frames: dict[int, dict] = {}
         self._rx_buffer = bytearray()
         self._messages: list[dict] = []
+        self._telemetry_queue: list[dict] = []
         self._pending: Optional[dict] = None
         self._correlator = AckCorrelator()
         self._context_map: dict[int, str] = {}
@@ -199,6 +200,9 @@ class ProtocolV2HostSession:
                 continue
             if message.get("kind") == expected_kind:
                 return message
+            if message.get("kind") in {"ADC_BATCH", "STATUS"}:
+                self._telemetry_queue.append(message)
+                continue
             self._append("RX_UNEXPECTED_MESSAGE", message=message, expected_kind=expected_kind)
         raise ProtocolV2SessionError(f"{expected_kind} timeout; outcome unresolved")
 
@@ -378,6 +382,9 @@ class ProtocolV2HostSession:
         message = self._next_message(timeout_s)
         if message is None:
             return None
+        if message.get("kind") in {"ADC_BATCH", "STATUS"}:
+            self._telemetry_queue.append(message)
+            return None
         if message.get("kind") != "APPLY_ACK":
             self._append("RX_UNEXPECTED_MESSAGE", message=message, expected_kind="APPLY_ACK")
             return None
@@ -411,6 +418,7 @@ class ProtocolV2HostSession:
             ack = self._wait_for("DISARM_ACK")
             if not self._accept_ack(ack, identity, "DISARM_ACK", token):
                 raise ProtocolV2SessionError("DISARM_ACK identity mismatch")
+            self._drain_telemetry_queue()
             self._armed = False
             self._active_stage = None
             self._append("STAGE_DISARMED", direction="host_internal",
@@ -421,6 +429,34 @@ class ProtocolV2HostSession:
         except Exception:
             self._failed = True
             raise
+
+    def poll_adc_batch(self, timeout_s: float = 0.0) -> Optional[list[dict]]:
+        """Drain one queued or newly received telemetry message without blocking."""
+        if self._failed:
+            raise ProtocolV2SessionError("host protocol session is fail-closed")
+        message = self._telemetry_queue.pop(0) if self._telemetry_queue else self._next_message(timeout_s)
+        if message is None:
+            return None
+        kind = message.get("kind")
+        if kind == "ADC_BATCH":
+            return self.accept_adc_batch(message)
+        if kind == "STATUS":
+            self._append("DEVICE_STATUS_RECEIVED", message=message)
+            return None
+        if kind == "ERROR":
+            self._failed = True
+            self._append("DEVICE_ERROR_RECEIVED", message=message)
+            raise ProtocolV2SessionError("device reported protocol-v2 ERROR")
+        self._append("RX_UNEXPECTED_MESSAGE", message=message, expected_kind="ADC_BATCH or STATUS")
+        return None
+
+    def _drain_telemetry_queue(self) -> None:
+        while self._telemetry_queue:
+            message = self._telemetry_queue.pop(0)
+            if message.get("kind") == "ADC_BATCH":
+                self.accept_adc_batch(message)
+            elif message.get("kind") == "STATUS":
+                self._append("DEVICE_STATUS_RECEIVED", message=message)
 
     def accept_adc_batch(self, message: dict) -> list[dict]:
         if self._failed or self.boot_id64 is None or self.next_sample_sequence64 is None:
