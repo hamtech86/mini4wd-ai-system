@@ -1329,3 +1329,16 @@ def test_evidence_bundle_failure_persists_rearm_inhibition(tmp_path):
     restarted.startup_recover()
     with pytest.raises(SequenceError, match="reconciliation"):
         restarted.start()
+
+
+def test_evidence_reconciliation_marker_symlink_blocks_startup(tmp_path):
+    clock = FakeClock()
+    target = tmp_path / "marker-target"
+    target.write_text("not an authorization marker")
+    (tmp_path / ".310-evidence-reconciliation-required").symlink_to(target)
+    ctl = SequenceController(
+        RawLogV2Writer(tmp_path), manifest(tmp_path),
+        lambda pwm: clock.utc_now(), lambda: None, lambda: None, clock,
+    )
+    with pytest.raises(SequenceError, match="must not be a symlink"):
+        ctl.startup_recover()
