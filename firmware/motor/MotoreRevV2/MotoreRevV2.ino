@@ -33,6 +33,8 @@ namespace {
 
 using namespace mini4wd310;
 
+static_assert(kMaxV2WireSize == 188, "v2 wire-size change requires an SRAM review");
+
 static const uint8_t PIN_PWM = 5;
 static const uint8_t PIN_IN3 = 7;
 static const uint8_t PIN_IN4 = 8;
