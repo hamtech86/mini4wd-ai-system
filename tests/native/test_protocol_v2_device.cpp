@@ -98,27 +98,14 @@ static void test_boot_hello_arm_pwm_and_stop_preemption() {
   assert(queued.message_type == APPLY_ACK && queued.payload[0] != 0);
   assert(output.pwm == 0 && device.state() == DEVICE_STOPPED);
 
-  // A new UUID/HELLO/ARM is required; the old session cannot re-drive output.
+  // A new UUID may be bound after STOP, but STOP remains terminal until reset.
   DeviceReplyV2 new_hello = device.handle(frame(HELLO, session_b, 0, 0, hello_payload, 8));
   assert(new_hello.message_type == HELLO_ACK && new_hello.payload[0] == 0);
   write_u16(arm_payload, 2); arm_payload[3] = DIRECTION_REV;
   DeviceReplyV2 new_arm = device.handle(frame(ARM, session_b, epoch, 1, arm_payload, 4));
-  assert(new_arm.message_type == ARM_ACK && new_arm.payload[0] == 0);
-  assert(new_arm.payload[4] == DIRECTION_REV && output.reverse);
-  write_u16(pwm_payload + 1, 2);
-  DeviceReplyV2 new_pwm = device.handle(frame(PWM_SET, session_b, epoch, 2, pwm_payload, 3));
-  assert(new_pwm.message_type == APPLY_ACK && new_pwm.payload[0] == 0);
-  assert(output.pwm == 20 && device.state() == DEVICE_RUNNING);
+  assert(new_arm.message_type == ARM_ACK && new_arm.payload[0] != 0);
+  assert(output.pwm == 0 && output.direction_low && device.state() == DEVICE_STOPPED);
 
-  // Same command_id with a changed payload is a conflict and cannot reapply.
-  pwm_payload[0] = 18;
-  DeviceReplyV2 conflict = device.handle(frame(PWM_SET, session_b, epoch, 2, pwm_payload, 3));
-  assert(conflict.message_type == ERROR_MSG && conflict.command_id == 0);
-  assert(output.pwm == 20);
-
-  DeviceReplyV2 stale = device.handle(frame(PWM_SET, session_a, epoch, 5, pwm_payload, 3));
-  assert(stale.message_type == APPLY_ACK && stale.payload[0] != 0);
-  assert(output.pwm == 20); // stale frame cannot alter the active session output
 }
 
 static void test_duplicate_and_conflicting_stop_history() {
