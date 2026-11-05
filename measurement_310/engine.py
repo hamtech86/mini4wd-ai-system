@@ -62,6 +62,7 @@ class SequenceController:
         ack_timeout_ms: int = 2_000,
         protocol_session: Optional[object] = None,
         send_normal_stop: Optional[Callable[[], None]] = None,
+        stage_direction: Optional[Callable[[int], int]] = None,
     ) -> None:
         if protocol_session is None and (not callable(send_pwm) or not callable(poll_ack)):
             raise ValueError("legacy send_pwm and poll_ack callbacks are required without protocol_session")
@@ -77,6 +78,8 @@ class SequenceController:
         self.send_normal_stop = send_normal_stop or send_stop
         self.poll_ack = poll_ack
         self.protocol_session = protocol_session
+        self.stage_direction = stage_direction or (lambda _index: 0)
+        self.current_stage_direction = 0
         self.clock = clock or SystemClock()
         self.ack_timeout_ns = ack_timeout_ms * 1_000_000
         self.state = SequenceState.READY
@@ -112,12 +115,13 @@ class SequenceController:
         clock: Optional[Clock] = None,
         ack_timeout_ms: int = 2_000,
         send_normal_stop: Optional[Callable[[], None]] = None,
+        stage_direction: Optional[Callable[[int], int]] = None,
     ) -> "SequenceController":
         """Construct the v0.5 path without dummy legacy PWM/ACK callbacks."""
         return cls(
             writer, manifest_fields, None, send_stop, None, clock,
             ack_timeout_ms=ack_timeout_ms, protocol_session=protocol_session,
-            send_normal_stop=send_normal_stop,
+            send_normal_stop=send_normal_stop, stage_direction=stage_direction,
         )
 
     def startup_recover(self) -> list[dict[str, Any]]:
@@ -253,10 +257,24 @@ class SequenceController:
             if self.protocol_session is None:
                 self.command_sent_utc = self.send_pwm(index)
             else:
-                self.command_sent_utc = self.protocol_session.send_stage_pwm(
-                    index, self.stage_context_id,
-                    self.session.state["measurement_session_id"], stage_index=index,
-                )
+                direction = self.stage_direction(index)
+                if isinstance(direction, bool) or not isinstance(direction, int) or direction not in {0, 1}:
+                    raise SequenceError("stage_direction must return FWD(0) or REV(1)")
+                self.current_stage_direction = direction
+                send_stage = self.protocol_session.send_stage_pwm
+                if getattr(self.protocol_session, "supports_stage_direction", False):
+                    self.command_sent_utc = send_stage(
+                        index, self.stage_context_id,
+                        self.session.state["measurement_session_id"], stage_index=index,
+                        direction=direction,
+                    )
+                else:
+                    if direction != 0:
+                        raise SequenceError("protocol session does not support per-stage REV direction")
+                    self.command_sent_utc = send_stage(
+                        index, self.stage_context_id,
+                        self.session.state["measurement_session_id"], stage_index=index,
+                    )
             transport_sent_ns = (
                 getattr(self.protocol_session, "last_write_completed_monotonic_ns", None)
                 if self.protocol_session is not None else None
@@ -333,6 +351,17 @@ class SequenceController:
     def _finish_stage(self) -> None:
         end_ns = self.clock.monotonic_ns()
         end_utc = self.clock.utc_now()
+        disarm = getattr(self.protocol_session, "disarm_stage", None)
+        if callable(disarm):
+            # Normal stage boundary: wait for DISARM_ACK before any next-stage ARM.
+            disarm()
+            self._append(
+                "SESSION_EVENT", event="OTHER", host_monotonic_ns=end_ns,
+                details={"kind": "STAGE_DISARM_ACKNOWLEDGED",
+                         "stage_index": self.stage_index,
+                         "stage_context_id": self.stage_context_id,
+                         "direction": self.current_stage_direction},
+            )
         self._append("PWM_STAGE", stage_id=f"PWM-{self.stage_index:02d}",
                      stage_index=self.stage_index, pwm_command=self.stage_index,
                      planned_duration_ms=self.STAGE_DURATION_MS, stage_status="completed",
