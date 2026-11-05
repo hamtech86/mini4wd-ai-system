@@ -18,10 +18,11 @@ from measurement_310.transport import (
 
 
 class FakeSerialPort:
-    def __init__(self, *args, flush_release=None, **kwargs):
+    def __init__(self, *args, flush_release=None, flush_started=None, **kwargs):
         self.args = args
         self.kwargs = kwargs
         self.flush_release = flush_release
+        self.flush_started = flush_started
         self.writes = []
         self.flush_count = 0
         self.closed = False
@@ -32,6 +33,8 @@ class FakeSerialPort:
 
     def flush(self):
         self.flush_count += 1
+        if self.flush_started is not None:
+            self.flush_started.set()
         if self.flush_release is not None:
             self.flush_release.wait()
 
@@ -191,3 +194,26 @@ def test_real_serial_factory_rejects_missing_independent_stop_writer(tmp_path):
         ProtocolV2HostSession.for_rawlog_session(
             command, codec, tmp_path, session_id,
         )
+
+
+def test_concurrent_stop_write_is_rejected_without_frame_interleaving(monkeypatch):
+    release = threading.Event()
+    started = threading.Event()
+    fake = FakeSerialPort(flush_release=release, flush_started=started)
+    monkeypatch.setitem(__import__("sys").modules, "serial",
+                        SimpleNamespace(Serial=lambda *a, **k: fake))
+    writer = IndependentPySerialStopWriter(
+        "/dev/ttyUSB-stop", write_timeout_s=0.1, flush_timeout_s=0.5
+    )
+    writer.connect()
+    errors = []
+    worker = threading.Thread(target=lambda: writer(b"FIRST-STOP"))
+    worker.start()
+    assert started.wait(0.2)
+    with pytest.raises(TransportError, match="already in progress"):
+        writer(b"SECOND-STOP")
+    assert fake.writes == [b"FIRST-STOP"]
+    release.set()
+    worker.join(0.5)
+    assert not worker.is_alive()
+    assert fake.writes == [b"FIRST-STOP"]
