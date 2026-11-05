@@ -139,7 +139,7 @@ jobs:
               "".join(str(frame) + chr(9) + qualifier + chr(9) + name + chr(10) for frame, name, qualifier in rows)
           )
           (artifact_dir / "MotoreRevV2-stack-usage-top30.txt").write_text(
-              "".join(str(frame) + chr(9) + qualifier + chr(9) + name + chr(10) for frame, name, qualifier in rows)
+              "".join(str(frame) + chr(9) + qualifier + chr(9) + name + chr(10) for frame, name, qualifier in rows[:30])
           )
           largest = rows[0][0]
           print(f"Largest individual stack frame: {largest} bytes (not a call-chain proof)")
@@ -195,7 +195,7 @@ jobs:
               "".join(str(frame) + chr(9) + qualifier + chr(9) + name + chr(10) for frame, name, qualifier in rows)
           )
           (artifact_dir / "MotoreRevV2-adc-audit-stack-usage-top30.txt").write_text(
-              "".join(str(frame) + chr(9) + qualifier + chr(9) + name + chr(10) for frame, name, qualifier in rows)
+              "".join(str(frame) + chr(9) + qualifier + chr(9) + name + chr(10) for frame, name, qualifier in rows[:30])
           )
           print(f"ADC helper image largest individual stack frame: {rows[0][0]} bytes")
           if rows[0][0] > 700:
