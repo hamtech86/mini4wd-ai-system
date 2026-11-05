@@ -228,6 +228,7 @@ static bool append_adc_attempt(uint8_t channel_code, uint32_t timestamp_us,
       add_adc_loss_count(12);
       return false;
     }
+    enqueue_status();
   }
   return true;
 }
@@ -271,6 +272,24 @@ static bool record_not_acquired_attempt(uint8_t channel_code, uint32_t scheduled
   // before this loop could account for it. Zero deliberately leaves context
   // unresolved rather than assigning it to a later stage.
   return append_adc_attempt(channel_code, scheduled_us, 0xFFFF, 0, ADC_NOT_ACQUIRED);
+}
+
+static void enqueue_status() {
+  if (!device || !device->session_bound()) return;
+  DeviceReplyV2 status;
+  memset(&status, 0, sizeof(status));
+  status.message_type = STATUS;
+  memcpy(status.session_uuid, device->session_uuid(), 16);
+  status.epoch_tag = epoch_tag_for_boot_id(device->boot_id64());
+  status.command_id = 0;
+  status.payload[0] = static_cast<uint8_t>(device->state());
+  status.payload[1] = device->active_pwm();
+  write_u16(status.payload + 2, device->active_context_token());
+  write_u32(status.payload + 4, adc_loss_counter);
+  write_u64(status.payload + 8, device->next_sample_sequence64());
+  status.payload_length = 16;
+  status.valid = true;
+  (void)tx_scheduler.enqueue(status);
 }
 
 } // namespace
