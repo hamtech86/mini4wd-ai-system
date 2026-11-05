@@ -46,3 +46,33 @@ On unified HEAD d2fb10a72de9e69dd39863ba500a9742658c760c, Arduino Uno Firmware C
 - No Arduino upload, serial hardware connection, motor energization, EEPROM/fuse operation, 310-second measurement or physical test was performed. HARDWARE_CURRENT_LIMIT_CONFIRMED=false remains unchanged.
 
 Formal T01–T18 PASS and 310-5 acceptance remain pending exact unified-head CI, remaining software verification, and separate authorized hardware qualification.
+
+
+## 2026-11-06 continuation — unified CI, Evidence bundle, and boot provisioning
+
+### Exact unified source/test verification
+
+Unified code/test HEAD 4ec8a14a8dc273227a8e1b98e7a14223360e11ff:
+- Break-in/Battery workflow run 42090719264: all four jobs succeeded; full suite **588 passed, 2 xfailed in 12.13s**.
+- Native protocol-v2 workflow run 42090718783: success.
+- Arduino Uno Firmware Compile run 42090718935: success, including production MotoreRevV2, compile-only ADC resource-audit image, and the separate guarded EEPROM provisioner.
+- The subsequent 695d8c09b9e8d85067398394ed865b3cd4c01aa0 commit adds only the provisioning procedure document.
+
+### T10/T17 companion Evidence bundle now implemented
+
+- RawLog v2 remains unchanged: exactly manifest.json + records.jsonl.
+- The external transport Evidence sidecar now has a deterministic per-session location, a durable companion manifest containing both RawLog file hashes plus the Evidence file hash-chain head/count, and a verifier that detects tampering.
+- A backup/restore regression copies the two-file RawLog package and the external Evidence directory to a new root, then verifies the restored pair.
+- SequenceController normal completion now writes the companion manifest after RawLog finalization. If this step fails, it writes .310-evidence-reconciliation-required and blocks re-arm on restart. Symlinked reconciliation markers are rejected.
+- This closes the software-side inventory/restore mechanism; it does not prove an actual production backup medium or power-loss recovery.
+
+### EEPROM provisioning path
+
+- Added a separate one-shot ProvisionBootIdentity sketch. It has no startup write, requires PROVISION followed by CONFIRM-310-BOOT-ID, writes only EEPROM 256–259, verifies readback, and refuses if journal bytes 0–255 are not erased or if partial data is unexpected.
+- The shared four-byte record is tested in native C++; the provisioning sketch is compiled in CI only. It was not uploaded or run.
+
+### Remaining gates
+
+T09/T15 still lacks qualified physical independence of the STOP writer/path, measured MCU/driver cutoff and actual stop latency. T18 remains NOT RUN on the approved target Linux host/storage. EEPROM brownout/power-fail, BOD/voltage monitor, current-limit, direction polarity, analog calibration/settling, sustained UART load and physical interoperability remain NOT RUN. No hardware operation was performed; HARDWARE_CURRENT_LIMIT_CONFIRMED=false remains unchanged.
+
+This exact software verification is evidence of integrated host/firmware source and automated tests, not formal 310-5 acceptance. Formal T01–T18 acceptance and stage handoff remain under upper-command review.
