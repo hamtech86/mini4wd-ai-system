@@ -214,3 +214,12 @@ Not implemented by this increment:
 - Physical direction polarity confirmation, current-limit confirmation, BOD/EEPROM power-fail qualification, upload, or motor energization.
 
 The GPIO adapter's `true` return means only that the software issued the pin writes; it is not physical feedback. This sketch is an implementation candidate, not an accepted or hardware-qualified firmware release. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains in force.
+
+
+### V2 wire-layout reconciliation and CI evidence — 2026-11-05
+
+The v0.5 body §4.1/§4.2 records the earlier v1 sample/batch representation (14-byte sample units and 173-byte payload). It must not be copied into the v2 sketch. The v2 appendix E representation is the one implemented by `ProtocolV2Codec.h`: 155-byte payload = 11-byte batch header + 12 × 12-byte sample units; the 12-byte v2 sample unit is timestamp_us_u32(4), channel_code(1), adc_raw(2), stage_context_token(2), acquisition_status(1), sample_flags(2). The full uint64 first_sample_sequence64 is in the batch header and slot i is first+i. The 194-byte workspace is retained; the v2 maximum wire frame is 188 bytes. Native codec validation uses these v2 offsets and length.
+
+Sampling cadence remains unadopted. The 25/75 ms alternating schedule described in v1 §4.3 is a candidate, not permission to run acquisition at that rate. The new sketch therefore does not yet schedule or emit ADC_BATCH. Before enabling acquisition, the authority must close the v2 cadence and timing requirements and the implementation must snapshot each sample's stage token immediately before conversion, capture the conversion midpoint timestamp, and consume a sequence for every attempted slot including unavailable attempts.
+
+Arduino Uno compile workflow run #113 / run ID 42010177306 completed success at PR #189 HEAD `d8dc58e82c7f129805a337e5b4b5746a12d87612`. The job's legacy compile, isolated v2 sketch compile, firmware source-contract checks, and artifact upload steps all succeeded. Break-in/Battery workflow run #1468 / run ID 42010177298 also completed with all four jobs successful (battery, full suite, break-in and RawLog/sequence regression). This is compile and repository regression evidence only; it is not AVR SRAM/stack qualification, host/device interoperability or hardware qualification.
