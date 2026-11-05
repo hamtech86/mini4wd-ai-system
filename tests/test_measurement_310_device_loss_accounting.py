@@ -9,7 +9,7 @@ from measurement_310.device_loss_accounting import (
 
 def batch(start_us, statuses=None):
     statuses = statuses or [0] * 12
-    offsets = [0, 100, 400, 500, 200, 300, 25000, 25100, 25400, 25500, 25200, 25300]
+    offsets = [0, 100, 200, 300, 400, 500, 25000, 25100, 25200, 25300, 25400, 25500]
     samples = []
     for i, channel in enumerate(CHANNEL_ORDER * 2):
         samples.append({
