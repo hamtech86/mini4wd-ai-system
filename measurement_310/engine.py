@@ -337,6 +337,50 @@ class SequenceController:
             elif self.clock.monotonic_ns() - int(self.command_sent_ns) >= self.ack_timeout_ns:
                 self.abort("communication_lost", fault="PWM ACK timeout")
         elif self.state == SequenceState.RUNNING:
+            if self.protocol_session is not None:
+                poll_telemetry = getattr(self.protocol_session, "poll_adc_batch", None)
+                if callable(poll_telemetry):
+                    try:
+                        samples = poll_telemetry(timeout_s=0.0)
+                        if samples:
+                            channel_names = {
+                                0: "A0", 1: "A1", 2: "A2", 3: "A3", 4: "A4", 5: "A5"
+                            }
+                            boot_id = int(self.protocol_session.boot_id64)
+                            for sample in samples:
+                                status = int(sample["acquisition_status"])
+                                channel = channel_names[int(sample["channel_code"])]
+                                valid = status == 0
+                                reason = {
+                                    1: "PRECONDITION_INVALID",
+                                    2: "CONVERSION_TIMEOUT",
+                                    3: "NOT_ACQUIRED",
+                                }.get(status)
+                                self.record_adc_sample(
+                                    channel=channel,
+                                    adc_raw=int(sample["adc_raw"]) if valid else None,
+                                    adc_resolution_bits=10,
+                                    device_timestamp_us_u32=int(sample["timestamp_us_u32"]),
+                                    device_timestamp_point=(
+                                        "scheduled_slot_start" if status == 3
+                                        else "conversion_midpoint" if valid
+                                        else "attempt_timestamp"
+                                    ),
+                                    device_epoch_id=f"{boot_id:016X}",
+                                    device_elapsed_us=int(sample["device_elapsed_us"]),
+                                    device_sample_sequence=int(sample["sample_sequence64"]),
+                                    validity="valid" if valid else "invalid",
+                                    invalid_reason=reason,
+                                    stage_assignment_override=(
+                                        "unresolved" if status == 3 else "confirmed"
+                                    ),
+                                    stage_context_id_override=(
+                                        None if status == 3 else self.stage_context_id
+                                    ),
+                                )
+                    except Exception as exc:
+                        self.abort("communication_lost", fault=f"ADC telemetry processing failed: {exc}")
+                        return self.state
             if self.clock.monotonic_ns() >= int(self.next_deadline_ns):
                 try:
                     self._finish_stage()
@@ -380,6 +424,8 @@ class SequenceController:
         device_epoch_id: str, device_elapsed_us: Optional[int] = None,
         device_sample_sequence: Optional[int] = None, validity: str = "valid",
         invalid_reason: Optional[str] = None,
+        stage_assignment_override: Optional[str] = None,
+        stage_context_id_override: Optional[str] = None,
     ) -> None:
         """Persist one channel observation without merging or re-timing ADC samples."""
         from raw_log_v2.validator import CHANNELS
@@ -389,7 +435,16 @@ class SequenceController:
             raise ValueError("adc_resolution_bits must be 1..32")
         sensor, role = CHANNELS[channel]
         now_ns = self.clock.monotonic_ns()
-        confirmed = self.state == SequenceState.RUNNING and self.stage_context_id is not None
+        if stage_assignment_override is None:
+            confirmed = self.state == SequenceState.RUNNING and self.stage_context_id is not None
+            assigned_context_id = self.stage_context_id if confirmed else None
+        else:
+            if stage_assignment_override not in {"confirmed", "unresolved"}:
+                raise ValueError("stage_assignment_override must be confirmed or unresolved")
+            confirmed = stage_assignment_override == "confirmed"
+            assigned_context_id = stage_context_id_override if confirmed else None
+            if confirmed and not assigned_context_id:
+                raise ValueError("confirmed sample requires stage_context_id_override")
         try:
             self._append(
                 "ADC_SAMPLE", sample_id=str(uuid.uuid4()), channel=channel,
@@ -401,7 +456,7 @@ class SequenceController:
                 device_sample_sequence=device_sample_sequence,
                 host_received_at_utc=self.clock.utc_now(),
                 host_received_monotonic_ns=now_ns,
-                stage_context_id=self.stage_context_id if confirmed else None,
+                stage_context_id=assigned_context_id,
                 stage_id=f"PWM-{self.stage_index:02d}" if confirmed else None,
                 stage_assignment="confirmed" if confirmed else "unresolved",
                 calibration_id=None, validity=validity, invalid_reason=invalid_reason,
