@@ -175,11 +175,13 @@ static void test_sample_sequence_allocator_reserves_complete_batch_boundary() {
   FakeOutput output;
   ProtocolV2Device<FakeOutput> device(output, 23, UINT64_MAX - 12ULL);
   uint64_t value = 0;
+  assert(device.can_begin_adc_batch());
   for (uint8_t i = 0; i < 12; ++i) {
     assert(device.allocate_sample_sequence64(&value));
     assert(value == UINT64_MAX - 12ULL + i);
   }
   assert(device.next_sample_sequence64() == UINT64_MAX);
+  assert(!device.can_begin_adc_batch());
   assert(!device.allocate_sample_sequence64(&value));
   assert(device.state() == DEVICE_FAULT_STOP);
   assert(output.pwm == 0 && output.direction_low);
