@@ -538,6 +538,14 @@ class ProtocolV2HostSession:
         self.next_sample_sequence64 = first + len(samples)
         return samples
 
+    def finalize_evidence_bundle(self, rawlog_package_dir):
+        if not self.measurement_session_id:
+            raise ProtocolV2SessionError("cannot bind Evidence bundle before HELLO session identity")
+        from .evidence_bundle import write_evidence_bundle_manifest
+        return write_evidence_bundle_manifest(
+            rawlog_package_dir, self.evidence, self.measurement_session_id
+        )
+
     def _finalize_adc_loss_window(self) -> None:
         accumulator = self._loss_accumulator
         self._loss_accumulator = None

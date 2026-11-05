@@ -163,6 +163,13 @@ class SequenceController:
             if inhibit_path.is_symlink() or not inhibit_path.is_file():
                 raise SequenceError("re-arm inhibition marker is not a regular file")
             self._recovery_requires_review = True
+        evidence_marker = self.writer.root / ".310-evidence-reconciliation-required"
+        if evidence_marker.is_symlink():
+            raise SequenceError("Evidence reconciliation marker must not be a symlink")
+        if evidence_marker.exists():
+            if not evidence_marker.is_file():
+                raise SequenceError("Evidence reconciliation marker is not a regular file")
+            self._recovery_requires_review = True
         result = self.writer.recover_pending()
         pending_after = self.writer.list_incomplete_work()
         if pending_after:
@@ -508,8 +515,47 @@ class SequenceController:
             },
         )
         self._finalization_started = True
-        self.session.finalize({"record_counts": {}}, "completed", self.clock.utc_now())
+        final_dir = self.session.finalize({"record_counts": {}}, "completed", self.clock.utc_now())
+        if self.protocol_session is not None:
+            finalize_bundle = getattr(self.protocol_session, "finalize_evidence_bundle", None)
+            if callable(finalize_bundle):
+                try:
+                    finalize_bundle(final_dir)
+                except Exception as exc:
+                    self._last_fault = f"Evidence companion-manifest finalization failed: {exc}"
+                    self._recovery_requires_review = True
+                    try:
+                        self._mark_evidence_reconciliation_required(str(exc))
+                    except Exception as marker_exc:
+                        self._last_fault += f"; re-arm marker write failed: {marker_exc}"
+                    self.state = SequenceState.FAULT
+                    raise SequenceError(
+                        "RawLog package finalized but Evidence bundle is untrusted; re-arm is inhibited"
+                    ) from exc
         self.state = SequenceState.COMPLETED
+
+    def _mark_evidence_reconciliation_required(self, reason: str) -> None:
+        marker = self.writer.root / ".310-evidence-reconciliation-required"
+        if marker.is_symlink():
+            raise SequenceError("Evidence reconciliation marker must not be a symlink")
+        if not marker.exists():
+            payload = (
+                "Protocol Evidence companion finalization failed; verify the RawLog package "
+                "and external Evidence sidecar before any re-arm. Reason: " + str(reason) + "\n"
+            ).encode("utf-8")
+            fd = os.open(str(marker), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            try:
+                written = os.write(fd, payload)
+                if written != len(payload):
+                    raise OSError("short Evidence reconciliation marker write")
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+            dir_fd = os.open(str(self.writer.root), os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
 
     def _record_aborted_stage(self, reason: str) -> None:
         if self.session is None or self.stage_index < 0 or self.stage_context_id is None or self._stage_recorded:
