@@ -13,6 +13,7 @@
  */
 #include <Arduino.h>
 #include <EEPROM.h>
+#include <string.h>
 #include "../BootIdentityJournal.h"
 
 namespace {
