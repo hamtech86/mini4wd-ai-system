@@ -101,7 +101,7 @@ using Device = ProtocolV2Device<UnoOutputAdapter>;
 alignas(Device) static uint8_t device_storage[sizeof(Device)];
 static Device* device = 0;
 
-static uint8_t rx_buffer[kMaxWireSize];
+static uint8_t rx_buffer[kMaxV2WireSize];
 static uint16_t rx_length = 0;
 static bool rx_discard_until_delimiter = false;
 
