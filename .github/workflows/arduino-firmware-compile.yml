@@ -97,6 +97,12 @@ jobs:
           fi
           cp "$elf_file" "$artifact_dir/MotoreRevV2.elf"
           cp "$map_file" "$artifact_dir/MotoreRevV2.map"
+          avr_objdump="$(find "$HOME/.arduino15/packages/arduino/tools/avr-gcc" -type f -name avr-objdump -print -quit)"
+          if [[ -z "$avr_objdump" ]]; then
+            echo "ERROR: avr-objdump not found in the installed Arduino AVR toolchain"
+            exit 1
+          fi
+          "$avr_objdump" -Cd "$elf_file" > "$artifact_dir/MotoreRevV2-disassembly.txt"
           avr_size="$(find "$HOME/.arduino15/packages/arduino/tools/avr-gcc" -type f -name avr-size -print -quit)"
           if [[ -z "$avr_size" ]]; then
             echo "ERROR: avr-size not found in the installed Arduino AVR toolchain"
