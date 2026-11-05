@@ -113,3 +113,81 @@ def test_production_session_factory_accepts_distinct_bounded_stop_endpoint(tmp_p
     assert stop.worst_case_s < session.stop_timeout_s
     assert session.intent_journal.path.parent.is_dir()
     assert session.evidence.path.parent.is_dir()
+
+
+class FakeIndependentWriter:
+    port = "/dev/ttyUSB9"
+    worst_case_s = 0.20
+
+    def __init__(self, events):
+        self.events = events
+
+    def connect(self):
+        self.events.append("stop-connect")
+
+    def __call__(self, payload):
+        self.events.append("stop-write")
+
+    def disconnect(self):
+        self.events.append("stop-disconnect")
+
+
+class FakeCommandTransport:
+    port = "/dev/ttyACM0"
+
+    def __init__(self, events):
+        self.events = events
+        self.sent = []
+
+    def connect(self):
+        self.events.append("command-connect")
+
+    def send(self, payload):
+        self.sent.append(bytes(payload))
+
+    def receive(self, timeout_s):
+        return None
+
+    def disconnect(self):
+        self.events.append("command-disconnect")
+
+
+def test_session_opens_stop_endpoint_before_command_and_closes_both(tmp_path):
+    session_id = str(uuid.uuid4())
+    events = []
+    transport = FakeCommandTransport(events)
+    stop_writer = FakeIndependentWriter(events)
+    codec = ProtocolV2Codec(PROTOCOL_V2_MAGIC, PROTOCOL_V2_VERSION)
+    session = ProtocolV2HostSession.for_rawlog_session(
+        transport, codec, tmp_path, session_id, stop_writer=stop_writer,
+        stop_timeout_s=0.25,
+    )
+
+    def hello_ack(kind):
+        hello = codec.decode(transport.sent[0]).message
+        from measurement_310.protocol_v2 import epoch_tag_for_boot_id
+        return {
+            "kind": "HELLO_ACK",
+            "result": 0,
+            "echoed_host_nonce64": hello["host_nonce64"],
+            "measurement_session_id": session_id,
+            "boot_id64": 123,
+            "device_epoch_tag": epoch_tag_for_boot_id(123),
+            "next_sample_sequence64": 0,
+        }
+
+    session._wait_for = hello_ack
+    session.start_session(session_id)
+    assert events[:2] == ["stop-connect", "command-connect"]
+    session.disconnect()
+    assert events[-2:] == ["command-disconnect", "stop-disconnect"]
+
+
+def test_real_serial_factory_rejects_missing_independent_stop_writer(tmp_path):
+    session_id = str(uuid.uuid4())
+    command = PySerialTransport("/dev/ttyACM0", 57600)
+    codec = ProtocolV2Codec(PROTOCOL_V2_MAGIC, PROTOCOL_V2_VERSION)
+    with pytest.raises(ValueError, match="dedicated independent STOP endpoint"):
+        ProtocolV2HostSession.for_rawlog_session(
+            command, codec, tmp_path, session_id,
+        )
