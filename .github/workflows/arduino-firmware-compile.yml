@@ -219,7 +219,7 @@ jobs:
           provision_dir="$provision_root/ProvisionBootIdentity"
           mkdir -p "$provision_dir"
           cp firmware/motor/ProvisionBootIdentity/ProvisionBootIdentity.ino "$provision_dir/ProvisionBootIdentity.ino"
-          cp firmware/motor/BootIdentityJournal.h "$provision_root/BootIdentityJournal.h"
+          cp firmware/motor/BootIdentityJournal.h "$provision_dir/BootIdentityJournal.h"
           arduino-cli compile --fqbn arduino:avr:uno "$provision_dir"
           echo "Guarded boot identity provisioner compiled; no EEPROM operation or upload was performed."
 
