@@ -110,8 +110,36 @@ jobs:
             exit 1
           fi
           (cd "$build_dir" && find . -type f -name '*.su' -print0 | tar --null -czf "$artifact_dir/MotoreRevV2-stack-usage.tar.gz" --files-from -)
-          find "$build_dir" -type f -name '*.su' -exec cat {} + | tee "$artifact_dir/MotoreRevV2-stack-usage-all.txt" | sort -k2,2nr | head -30 | tee "$artifact_dir/MotoreRevV2-stack-usage-top30.txt"
-          awk 'NF >= 2 { if ($2 > max) max=$2; if ($2 > 700) bad=1 } END { if (NR == 0 || max == 0 || bad) { print "ERROR: stack frame report empty or a single frame exceeds 700 bytes"; exit 1 } printf "Largest individual stack frame: %d bytes (not a call-chain proof)\\n", max }' "$artifact_dir/MotoreRevV2-stack-usage-all.txt"
+          python3 - "$build_dir" "$artifact_dir" <<'PY'
+          from pathlib import Path
+          import sys
+          build_dir, artifact_dir = map(Path, sys.argv[1:])
+          rows = []
+          all_rows = []
+          for path in build_dir.rglob("*.su"):
+              for line in path.read_text(errors="replace").splitlines():
+                  parts = line.rsplit("\\t", 2)
+                  if len(parts) != 3:
+                      continue
+                  try:
+                      frame = int(parts[1])
+                  except ValueError:
+                      continue
+                  rows.append((frame, parts[0], parts[2]))
+          rows.sort(reverse=True)
+          if not rows:
+              raise SystemExit("ERROR: no non-empty GCC stack-usage records")
+          (artifact_dir / "MotoreRevV2-stack-usage-all.txt").write_text(
+              "".join(f"{frame}\\t{qualifier}\\t{name}\\n" for frame, name, qualifier in rows)
+          )
+          (artifact_dir / "MotoreRevV2-stack-usage-top30.txt").write_text(
+              "".join(f"{frame}\\t{qualifier}\\t{name}\\n" for frame, name, qualifier in rows[:30])
+          )
+          largest = rows[0][0]
+          print(f"Largest individual stack frame: {largest} bytes (not a call-chain proof)")
+          if largest > 700:
+              raise SystemExit("ERROR: one stack frame exceeds 700 bytes")
+          PY
           {
             echo "sketch=MotoreRevV2"
             echo "fqbn=arduino:avr:uno"
