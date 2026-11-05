@@ -107,3 +107,23 @@ def test_protocol_version_is_normative():
         ProtocolV2Codec(PROTOCOL_V2_MAGIC, 1)
     with pytest.raises(ValueError):
         ProtocolV2Codec(0x1234, PROTOCOL_V2_VERSION)
+
+
+def test_adc_batch_can_reach_but_not_consume_uint64_exhaustion_sentinel():
+    first = 0xFFFFFFFFFFFFFFFF - 12
+    payload = bytearray(struct.pack("<QBBB", first, 0, 12, 0))
+    for i in range(12):
+        payload.extend(struct.pack("<IBHHBH", i, i % 6, 512, 1, 0, 0))
+    msg = decode(CODEC.encode_message(
+        MessageType.ADC_BATCH, session_id=SESSION, epoch_tag=1, payload=bytes(payload)
+    ))
+    assert msg["samples"][-1]["sample_sequence64"] == 0xFFFFFFFFFFFFFFFE
+
+    first = 0xFFFFFFFFFFFFFFFF - 11
+    payload = bytearray(struct.pack("<QBBB", first, 0, 12, 0))
+    for i in range(12):
+        payload.extend(struct.pack("<IBHHBH", i, i % 6, 512, 1, 0, 0))
+    with pytest.raises(ProtocolV2Error):
+        CODEC.encode_message(
+            MessageType.ADC_BATCH, session_id=SESSION, epoch_tag=1, payload=bytes(payload)
+        )
