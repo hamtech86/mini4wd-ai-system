@@ -115,6 +115,7 @@ static uint16_t rx_length = 0;
 static bool rx_discard_until_delimiter = false;
 static uint8_t adc_batch_count = 0;
 static uint32_t adc_loss_counter = 0;
+static bool status_pending = false;
 #if defined(M4WD_ADC_RESOURCE_AUDIT)
 // Build-only volatile gate retains the otherwise unreferenced ADC helper call
 // chain for AVR resource analysis. The macro is absent from production builds.
@@ -228,7 +229,7 @@ static bool append_adc_attempt(uint8_t channel_code, uint32_t timestamp_us,
       add_adc_loss_count(12);
       return false;
     }
-    enqueue_status();
+    status_pending = true;
   }
   return true;
 }
@@ -341,4 +342,8 @@ void loop() {
   }
 #endif
   tx_scheduler.service(Serial);
+  if (status_pending && !tx_scheduler.busy()) {
+    enqueue_status();
+    status_pending = false;
+  }
 }
