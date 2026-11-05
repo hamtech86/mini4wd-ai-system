@@ -5,6 +5,7 @@ import base64
 from dataclasses import asdict
 import secrets
 import time
+import threading
 import uuid
 from typing import Callable, Optional
 
@@ -38,17 +39,19 @@ class ProtocolV2HostSession:
         *,
         stop_writer: Optional[Callable[[bytes], None]] = None,
         ack_timeout_s: float = 2.0,
+        stop_timeout_s: float = 0.25,
         monotonic: Callable[[], float] = time.monotonic,
         utc_now: Optional[Callable[[], str]] = None,
     ):
-        if ack_timeout_s <= 0:
-            raise ValueError("ack_timeout_s must be positive")
+        if ack_timeout_s <= 0 or stop_timeout_s <= 0:
+            raise ValueError("ACK and STOP timeouts must be positive")
         self.transport = transport
         self.codec = codec
         self.intent_journal = intent_journal
         self.evidence = evidence_journal
         self.stop_writer = stop_writer
         self.ack_timeout_s = ack_timeout_s
+        self.stop_timeout_s = stop_timeout_s
         self.monotonic = monotonic
         self.utc_now = utc_now or self._utc_now
         self.measurement_session_id: Optional[str] = None
@@ -485,7 +488,21 @@ class ProtocolV2HostSession:
                 "frame": frame, "command_id": command_id, "stop_reason": stop_reason,
             }
         try:
-            self.stop_writer(frame)
+            finished = threading.Event()
+            writer_errors = []
+            def writer_worker():
+                try:
+                    self.stop_writer(frame)
+                except Exception as exc:
+                    writer_errors.append(exc)
+                finally:
+                    finished.set()
+            worker = threading.Thread(target=writer_worker, name="310-stop-writer", daemon=True)
+            worker.start()
+            if not finished.wait(self.stop_timeout_s):
+                raise TimeoutError(f"STOP writer deadline expired after {self.stop_timeout_s:.3f}s")
+            if writer_errors:
+                raise writer_errors[0]
         except Exception as exc:
             try:
                 self._append("STOP_TX_ERROR", frame_b64=base64.b64encode(frame).decode("ascii"),
