@@ -62,6 +62,25 @@ class ProtocolV2Device {
   uint8_t active_direction() const { return active_direction_; }
   uint64_t boot_id64() const { return boot_id64_; }
   uint64_t next_sample_sequence64() const { return next_sample_sequence64_; }
+  const uint8_t* session_uuid() const { return session_uuid_; }
+  bool session_bound() const { return session_bound_; }
+
+  // Allocate exactly one scheduled ADC-attempt identity. UINT64_MAX is a
+  // terminal boundary: it is never emitted and the device fails closed.
+  bool allocate_sample_sequence64(uint64_t* allocated) {
+    if (!allocated || next_sample_sequence64_ == UINT64_MAX ||
+        state_ == DEVICE_STOP_LATCHED || state_ == DEVICE_STOPPED ||
+        state_ == DEVICE_FAULT || state_ == DEVICE_FAULT_STOP ||
+        state_ == DEVICE_BOOT_ID_INVALID) {
+      if (next_sample_sequence64_ == UINT64_MAX) {
+        outputs_safe();
+        state_ = DEVICE_FAULT_STOP;
+      }
+      return false;
+    }
+    *allocated = next_sample_sequence64_++;
+    return true;
+  }
 
   bool initialize_identity(uint64_t boot_id64, uint64_t next_sample_sequence64) {
     if (!output_healthy_ || boot_id64 == 0 || state_ != DEVICE_BOOT_ID_INVALID)
