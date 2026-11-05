@@ -93,3 +93,43 @@ The host-side acceptance harness must exercise:
 - Initial runs #7–#10 failed because the test fixture calculated the provisioning CRC from address 0 instead of address 256. The fixture was corrected; run #11 is the first passing evidence for both native targets.
 - Arduino Uno compile run #86 is pending at this report update. It currently targets the legacy MotoreRev.ino; the new v2 headers are not yet integrated into that sketch.
 - FW2-03 through FW2-07 remain not implemented. No full v2 firmware state machine, STOP preemption, ADC scheduler integration, AVR resource proof for the v2 build, or physical qualification is claimed.
+
+
+## 6. 2026-11-05 firmware state-machine increment
+
+Added `firmware/motor/ProtocolV2Device.h` and `tests/native/test_protocol_v2_device.cpp`.
+
+Implemented software contracts:
+- Boot identity is a constructor/initialization gate. A zero or invalid boot identity cannot complete HELLO or enter an ARM-capable state.
+- Startup requests safe outputs before frame handling.
+- HELLO binds the full 16-byte UUID; same-session HELLO retry is idempotent and does not reset command freshness/cache. A different UUID cannot orphan an ARMED/RUNNING output.
+- ARM requires the bound UUID, full-boot-derived epoch tag, nonzero context token, initial PWM=0, a fresh command ID, and an eligible state. Successful ARM first requests safe outputs and only then enters ARMED.
+- PWM_SET requires current UUID/epoch, increasing command ID, active context token and ARMED/RUNNING state.
+- Four-entry command-result cache returns the prior ACK for an exact duplicate; a reused command ID with changed payload is rejected. An evicted/old command ID cannot become fresh because the high-water mark remains.
+- STOP_REQ executes the safe-output adapter before history classification or ACK construction, clears active PWM/context, and latches STOPPED or FAULT_STOP. Four-entry STOP history distinguishes new, exact duplicate, ID conflict and history-full outcomes.
+- Re-arming after STOP requires a new UUID HELLO and new ARM. Old-session PWM is rejected. A prior fatal output/boot fault remains FAULT_STOP and cannot be cleared by STOP.
+- ERROR replies use header command_id=0 and place the related request ID in the ERROR payload, matching the v2 codec's header rules.
+
+Native test coverage:
+- HELLO full boot identity/nonce/sequence response.
+- ARM with PWM held at zero.
+- PWM apply and STOP preemption before a subsequent queued PWM request.
+- STOP invalidates context and prevents same-session restart.
+- New UUID + HELLO + ARM is required for restart.
+- Old-session drive frames cannot alter the new session output.
+- Duplicate STOP and same stop_request_id/different reason conflict.
+- Invalid boot identity cannot bind a usable session.
+- Idempotent HELLO retry does not reset command cache; a new UUID is rejected while a drive output is active.
+
+CI:
+- Native protocol v2 workflow run #22, run ID 41963370586, exact HEAD `cec01535717d901552cb99da9b368623379eb59d`: success. Both original codec/journal targets and the new device-state-machine compile/run steps passed.
+- Native workflow at subsequent exact HEAD `88b777f7c23577b79e1d2794424bb9d66da40c42`, run ID 41963453353: success. Includes codec, EEPROM journal fault-boundary suite and device safety vectors.
+- Additional duplicate-command/active-session regression tests were added at HEAD `a20337655b637ea459e79b39ea734776eacaece9`; exact-HEAD CI is pending and must be checked before counting those latest tests as verified.
+
+Not yet implemented/qualified:
+- No `MotoreRevV2.ino` binary parser/TX scheduler integration.
+- No actual Arduino EEPROM adapter or provisioning workflow.
+- No direction-selection contract in v2 messages; existing motor direction behavior must be reconciled before enabling nonzero PWM in the sketch.
+- No ADC scheduler/cadence adoption or 12-slot batch producer.
+- No AVR v2 sketch compile, .elf/.hex/map, SRAM/stack proof.
+- No Arduino upload, serial hardware connection, motor energization, EEPROM/fuse operation, physical test, or hardware qualification.
