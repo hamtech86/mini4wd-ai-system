@@ -288,7 +288,7 @@ class ProtocolV2Codec:
             first, flags, count, _loss = struct.unpack("<QBBB", p[:11])
             if count != 12:
                 raise ProtocolV2Error("ADC_BATCH requires exactly 12 sample slots")
-            if first > 0xFFFFFFFFFFFFFFFF - (count - 1):
+            if first > 0xFFFFFFFFFFFFFFFF - count:
                 raise ProtocolV2Error("ADC_BATCH sample sequence overflows uint64")
             if flags != 0:
                 raise ProtocolV2Error("reserved ADC_BATCH flags must be zero")
