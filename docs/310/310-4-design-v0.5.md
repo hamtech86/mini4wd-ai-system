@@ -1154,3 +1154,7 @@ The host checkpoint is no longer the authority for sample sequence. Required tes
 Protocol v1 (version 0x01) and v2 (version 0x02) are incompatible. The v2 host codec/session and firmware implementation MUST be updated together. No v1 fallback is permitted after a v2 HELLO has been selected. The production firmware build identity must explicitly declare protocol v2. The 194-byte workspace, 900-byte static SRAM ceiling, 700-byte stack ceiling, 448-byte reserve, STOP latch ordering, and fail-closed EEPROM identity rules remain in force.
 
 This amendment changes the design contract only. It does not assert that firmware, compiler resource limits, EEPROM power-fail behavior, independent physical STOP, ADC accuracy, target-host fsync budget, or hardware safety have been verified. No upload, physical serial connection, motor energization, EEPROM/fuse operation, or 310-second measurement is authorized by this text.
+
+
+### Protocol v2 EEPROM layout supplement
+The exact 16-byte EEPROM slot byte assignments and provisioning-record validation are specified in docs/310/310-protocol-v2-eeprom-journal-byte-assignment.md on the protocol v2 firmware implementation branch. This supplement is normative for v2 firmware; it does not authorize physical EEPROM or fuse operations.
