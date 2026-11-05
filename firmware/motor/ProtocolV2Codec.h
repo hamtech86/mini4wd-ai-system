@@ -128,7 +128,8 @@ static inline bool validate_payload(uint8_t type, const uint8_t* p, uint16_t n,
     case ARM:
       return read_u16(p) != 0 && p[2] == 0 && p[3] <= DIRECTION_REV;
     case ARM_ACK:
-      return p[0] <= 6 && p[1] <= 7 && p[4] <= DIRECTION_REV &&
+      return p[0] <= 6 && p[1] <= 7 &&
+             (p[4] <= DIRECTION_REV || (p[0] != 0 && p[4] == 0xFF)) &&
              (p[0] != 0 || (p[1] == 1 && read_u16(p + 2) != 0));
     case DISARM:
       return read_u16(p) != 0;
