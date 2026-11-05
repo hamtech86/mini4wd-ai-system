@@ -139,3 +139,41 @@ The STATUS encode chain is below the command path. Therefore the conservative ma
 2048 - 762 - 295 = **991 bytes remaining**, which is 543 bytes above the required 448-byte reserve.
 
 This is a compiler/disassembly bound for the exact image, not an on-board stack watermark. It qualifies the software memory arithmetic only; it does not qualify physical STOP, current limiting, direction polarity, BOD, EEPROM power-fail behavior, analog accuracy, or sustained physical UART behavior.
+
+
+## 2026-11-06 exact unified PR build
+
+- Source HEAD: 082ee1df09684415f26a5d7fa0541afe19d6d07c
+- Arduino Uno Firmware Compile run: 42091319752
+- Artifact ID: 13445132659
+- Target: arduino:avr:uno, Arduino AVR core 1.8.8
+- Build manifest now records the actual checked-out Git SHA separately from the GitHub PR event/merge SHA.
+
+### Exact linked image sizes
+
+| Image | text | .data | .bss | .data + .bss |
+|---|---:|---:|---:|---:|
+| MotoreRevV2 production integrated sketch | 13,132 B | 146 B | 615 B | **761 B** |
+| MotoreRevV2 ADC resource-audit image | 13,232 B | 146 B | 616 B | **762 B** |
+| Separate boot identity provisioner (compile-only) | 3,044 B | included in 252 B global total | — | **252 B global total** |
+
+The two motor-control images remain below the 900-byte static cap. The provisioner is a separate service image and is never used as the motor-control firmware.
+
+### Stack review
+
+The current production and ADC audit .su inventories retain the same largest relevant frames: loop 171 B, ProtocolV2Device::cached_or_error 74 B, find_cached 19 B, and ADC append path 25 B. The conservative nested command-processing chain remains:
+
+2 + 171 + 74 + 19 + 6 + 17 + 2 + 2 + 2 = **295 B**
+
+This includes the main frame, loop/cached lookup frames, call return addresses, UART TX ISR frame/helper and interrupt-entry PC. The ADC path remains below this bound. This is a static disassembly/.su review, not an on-board stack watermark.
+
+Using the larger motor-control image:
+2048 - 762 - 295 = **991 B** remaining, which is **543 B above** the required 448-byte reserve.
+
+### Artifact hashes
+
+- MotoreRevV2 HEX: f2f4ad306eb2b643122df8c5417ebcdb7c6e346f463121d3b139f7dd21adf075
+- MotoreRevV2 ELF: e87ef4b5d41e9c944ffe47be36b4e39d76f50eaef33fc5da9d17d9548fa5b82c
+- MotoreRevV2 map: 51fa18bb5714ebb7d13dfa1535165b970d3bdf9af38d6642f1c30d1f297b6f17
+
+The separate provisioning image was compile-tested only. No HEX was uploaded, no EEPROM was written, and no physical test was performed.
