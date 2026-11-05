@@ -69,25 +69,13 @@ def reconcile_device_sequence(
         return unresolved(SequenceReconciliationStatus.UNRESOLVED_INVALID, "host_next_sequence64 is invalid")
 
     if host_boot_id64 is None:
-        start = 0 if host_next_sequence64 is None else host_next_sequence64
-        if host_next_sequence64 is None:
-            return SequenceReconciliation(
-                SequenceReconciliationStatus.GAP_UNATTRIBUTABLE,
-                device_boot_id64, device_next_sequence64, 0, device_next_sequence64,
-                "no durable host high-water exists; prior device sequence is unattributable",
-            )
-        if host_next_sequence64 > device_next_sequence64:
-            return unresolved(SequenceReconciliationStatus.UNRESOLVED_DEVICE_ROLLBACK,
-                              "host sequence high-water exceeds live device sequence")
-        if start == device_next_sequence64:
-            return SequenceReconciliation(
-                SequenceReconciliationStatus.CONTIGUOUS, device_boot_id64,
-                device_next_sequence64, None, None, "device and host sequence high-water match",
-            )
+        if host_next_sequence64 is not None:
+            return unresolved(SequenceReconciliationStatus.UNRESOLVED_IDENTITY,
+                              "host sequence high-water has no verified boot identity")
         return SequenceReconciliation(
-            SequenceReconciliationStatus.GAP_UNATTRIBUTABLE, device_boot_id64,
-            device_next_sequence64, start, device_next_sequence64,
-            "host has no epoch identity; sequence interval requires reconciliation",
+            SequenceReconciliationStatus.GAP_UNATTRIBUTABLE,
+            device_boot_id64, device_next_sequence64, 0, device_next_sequence64,
+            "no durable host high-water exists; prior device sequence is unattributable",
         )
 
     if host_boot_id64 != device_boot_id64:
