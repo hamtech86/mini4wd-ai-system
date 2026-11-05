@@ -1,6 +1,7 @@
 """Transport abstraction. Wire format is deliberately injected, not specified here."""
 from __future__ import annotations
 from dataclasses import dataclass
+import time
 from typing import Optional, Protocol
 
 class TransportError(RuntimeError):
@@ -34,10 +35,13 @@ class SerialTransport(Protocol):
 
 class PySerialTransport:
     """Lazy pySerial adapter; construction never opens a port."""
-    def __init__(self, port: str, baudrate: int, timeout_s: float = 0.1):
-        if not port or baudrate <= 0 or timeout_s < 0:
+    def __init__(self, port: str, baudrate: int, timeout_s: float = 0.1,
+                 write_timeout_s: float = 0.25):
+        if (not port or baudrate <= 0 or timeout_s < 0
+                or write_timeout_s <= 0):
             raise ValueError("invalid serial configuration")
         self.port, self.baudrate, self.timeout_s = port, baudrate, timeout_s
+        self.write_timeout_s = write_timeout_s
         self._serial = None
 
     def connect(self) -> None:
@@ -45,7 +49,8 @@ class PySerialTransport:
             return
         try:
             import serial
-            self._serial = serial.Serial(self.port, self.baudrate, timeout=self.timeout_s)
+            self._serial = serial.Serial(self.port, self.baudrate, timeout=self.timeout_s,
+                                         write_timeout=self.write_timeout_s)
         except Exception as exc:
             raise TransportError(f"serial connect failed: {exc}") from exc
 
@@ -61,9 +66,16 @@ class PySerialTransport:
             raise TransportError("serial port is not connected")
         try:
             written = self._serial.write(payload)
-            self._serial.flush()
             if written != len(payload):
-                raise TransportError("short serial write")
+                raise TransportError("short serial write; delivery outcome unknown")
+            # pySerial.flush() has no caller-supplied deadline. Poll the driver
+            # queue instead so a blocked TX drain cannot hold the controller
+            # forever. A timeout remains an UNKNOWN delivery outcome.
+            deadline = time.monotonic() + self.write_timeout_s
+            while self._serial.out_waiting:
+                if time.monotonic() >= deadline:
+                    raise TransportError("serial TX drain deadline expired; delivery outcome unknown")
+                time.sleep(0.001)
         except Exception as exc:
             raise TransportError(f"serial send failed: {exc}") from exc
 
