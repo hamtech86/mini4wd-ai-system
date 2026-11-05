@@ -10,7 +10,8 @@ static const uint16_t kMagic = 0x344D;
 static const uint8_t kVersion = 0x02;
 static const uint16_t kHeaderSize = 29;
 static const uint16_t kCrcSize = 2;
-static const uint16_t kMaxWireSize = 194; // legacy/shared workspace ceiling
+// Keep the shared 194-byte safety ceiling for v1/legacy callers; v2 uses its tighter proven frame bound.
+static const uint16_t kMaxWireSize = 194;
 static const uint16_t kMaxV2WireSize = 188; // v2 ADC_BATCH maximum including delimiter
 static const uint16_t kAdcBatchPayloadSize = 155;
 
