@@ -176,7 +176,7 @@ def test_for_session_creates_durable_rawlog_sidecar_path(tmp_path):
         identity(session_id=session_id), "2026-11-05T18:00:00Z"
     )
     assert journal.path.is_file()
-    assert journal.path.read_text().endswith("\\n")
+    assert journal.path.read_text().endswith("\n")
 
 
 def test_for_session_rejects_symlinked_intent_directory(tmp_path):
