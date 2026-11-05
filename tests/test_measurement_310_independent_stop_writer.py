@@ -262,3 +262,16 @@ def test_independent_stop_tty_survives_command_tty_tx_timeout(tmp_path):
         stop.disconnect()
         os.close(command_master)
         os.close(stop_master)
+
+
+def test_direct_protocol_session_constructor_cannot_bypass_stop_endpoint_guard(tmp_path):
+    command = PySerialTransport("/dev/ttyACM0", 57600)
+    stop = IndependentPySerialStopWriter("/dev/ttyACM0")
+    codec = ProtocolV2Codec(PROTOCOL_V2_MAGIC, PROTOCOL_V2_VERSION)
+    with pytest.raises(ValueError, match="physically distinct"):
+        ProtocolV2HostSession(
+            command, codec,
+            DurableIntentJournal(tmp_path / "intent.jsonl"),
+            TransportEvidenceJournal(tmp_path / "transport-evidence.jsonl"),
+            stop_writer=stop,
+        )
