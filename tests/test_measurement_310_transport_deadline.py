@@ -50,7 +50,7 @@ def test_send_fails_closed_when_driver_queue_does_not_drain(monkeypatch):
     ))
     transport = PySerialTransport("mock", 57600, write_timeout_s=0.002)
     transport.connect()
-    with pytest.raises(TransportError, match="UNKNOWN"):
+    with pytest.raises(TransportError, match="unknown"):
         transport.send(b"STOP")
 
 
