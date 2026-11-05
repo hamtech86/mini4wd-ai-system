@@ -20,6 +20,8 @@ class MessageType(IntEnum):
     HELLO_ACK = 0x02
     ARM = 0x03
     ARM_ACK = 0x04
+    DISARM = 0x05
+    DISARM_ACK = 0x06
     PWM_SET = 0x10
     APPLY_ACK = 0x11
     STOP_REQ = 0x20
@@ -27,6 +29,11 @@ class MessageType(IntEnum):
     STATUS = 0x30
     ERROR = 0x31
     ADC_BATCH = 0x40
+
+
+class DriveDirection(IntEnum):
+    FWD = 0
+    REV = 1
 
 
 class StopReason(IntEnum):
@@ -73,8 +80,10 @@ _ZERO_SESSION_ALLOWED = {
 _PAYLOAD_LENGTHS = {
     MessageType.HELLO: 8,
     MessageType.HELLO_ACK: 25,
-    MessageType.ARM: 3,
-    MessageType.ARM_ACK: 4,
+    MessageType.ARM: 4,
+    MessageType.ARM_ACK: 5,
+    MessageType.DISARM: 2,
+    MessageType.DISARM_ACK: 4,
     MessageType.PWM_SET: 3,
     MessageType.APPLY_ACK: 4,
     MessageType.STOP_REQ: 3,
@@ -169,10 +178,21 @@ class ProtocolV2Codec:
                                    epoch_tag=0, command_id=0, payload=struct.pack("<Q", host_nonce64))
 
     def encode_arm(self, *, session_id: str | uuid.UUID, epoch_tag: int,
-                   command_id: int, stage_context_token: int) -> bytes:
+                   command_id: int, stage_context_token: int,
+                   direction: int = DriveDirection.FWD) -> bytes:
         _uint(stage_context_token, 16, "stage_context_token", nonzero=True)
+        _uint(int(direction), 8, "direction")
+        if int(direction) not in {int(DriveDirection.FWD), int(DriveDirection.REV)}:
+            raise ProtocolV2Error("direction must be FWD(0) or REV(1)")
         return self.encode_message(MessageType.ARM, session_id=session_id, epoch_tag=epoch_tag,
-                                   command_id=command_id, payload=struct.pack("<HB", stage_context_token, 0))
+                                   command_id=command_id,
+                                   payload=struct.pack("<HBB", stage_context_token, 0, int(direction)))
+
+    def encode_disarm(self, *, session_id: str | uuid.UUID, epoch_tag: int,
+                      command_id: int, stage_context_token: int) -> bytes:
+        _uint(stage_context_token, 16, "stage_context_token", nonzero=True)
+        return self.encode_message(MessageType.DISARM, session_id=session_id, epoch_tag=epoch_tag,
+                                   command_id=command_id, payload=struct.pack("<H", stage_context_token))
 
     def encode_pwm_set(self, *, session_id: str | uuid.UUID, epoch_tag: int,
                        command_id: int, pwm: int, stage_context_token: int) -> bytes:
@@ -249,15 +269,25 @@ class ProtocolV2Codec:
             if result == 1 and boot != 0:
                 raise ProtocolV2Error("BOOT_ID_INVALID HELLO_ACK must return boot_id64=0")
         elif kind == MessageType.ARM:
-            token, initial_pwm = struct.unpack("<HB", p)
-            if token == 0 or initial_pwm != 0:
-                raise ProtocolV2Error("ARM requires nonzero context token and initial_pwm=0")
+            token, initial_pwm, direction = struct.unpack("<HBB", p)
+            if token == 0 or initial_pwm != 0 or direction not in {0, 1}:
+                raise ProtocolV2Error("ARM requires nonzero token, initial_pwm=0 and FWD/REV direction")
         elif kind == MessageType.ARM_ACK:
-            result, state, token = struct.unpack("<BBH", p)
-            if result not in _ARM_RESULTS or state not in _STATE_NAMES:
+            result, state, token, direction = struct.unpack("<BBHB", p)
+            if result not in _ARM_RESULTS or state not in _STATE_NAMES or direction not in {0, 1, 0xFF}:
                 raise ProtocolV2Error("invalid ARM_ACK fields")
-            if result == 0 and (state != 1 or token == 0):
-                raise ProtocolV2Error("successful ARM_ACK must report ARMED and echo token")
+            if result == 0 and (state != 1 or token == 0 or direction not in {0, 1}):
+                raise ProtocolV2Error("successful ARM_ACK must report ARMED and echo token/direction")
+        elif kind == MessageType.DISARM:
+            token, = struct.unpack("<H", p)
+            if token == 0:
+                raise ProtocolV2Error("DISARM requires a nonzero active context token")
+        elif kind == MessageType.DISARM_ACK:
+            result, state, token = struct.unpack("<BBH", p)
+            if result not in {0, 1, 2} or state not in _STATE_NAMES or token == 0:
+                raise ProtocolV2Error("invalid DISARM_ACK fields")
+            if result == 0 and state != 0:
+                raise ProtocolV2Error("successful DISARM_ACK must report IDLE")
         elif kind == MessageType.PWM_SET:
             pwm, token = struct.unpack("<BH", p)
             if pwm > 30 or token == 0:
@@ -312,12 +342,22 @@ class ProtocolV2Codec:
             return {"result": result, "boot_id64": boot,
                     "echoed_host_nonce64": nonce, "next_sample_sequence64": next_sequence}
         if kind == MessageType.ARM:
-            token, pwm = struct.unpack("<HB", p)
-            return {"stage_context_token": token, "initial_pwm": pwm}
+            token, pwm, direction = struct.unpack("<HBB", p)
+            return {"stage_context_token": token, "initial_pwm": pwm,
+                    "direction": "FWD" if direction == 0 else "REV", "direction_code": direction}
         if kind == MessageType.ARM_ACK:
+            result, state, token, direction = struct.unpack("<BBHB", p)
+            return {"result": result, "state": _STATE_NAMES[state], "state_code": state,
+                    "active_context_token": token,
+                    "direction": {0: "FWD", 1: "REV", 0xFF: "NONE"}[direction],
+                    "direction_code": direction}
+        if kind == MessageType.DISARM:
+            token, = struct.unpack("<H", p)
+            return {"stage_context_token": token}
+        if kind == MessageType.DISARM_ACK:
             result, state, token = struct.unpack("<BBH", p)
             return {"result": result, "state": _STATE_NAMES[state], "state_code": state,
-                    "active_context_token": token}
+                    "stage_context_token": token}
         if kind == MessageType.PWM_SET:
             pwm, token = struct.unpack("<BH", p)
             return {"pwm": pwm, "stage_context_token": token}
