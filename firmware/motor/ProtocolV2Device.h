@@ -64,17 +64,25 @@ class ProtocolV2Device {
   uint64_t next_sample_sequence64() const { return next_sample_sequence64_; }
   const uint8_t* session_uuid() const { return session_uuid_; }
   bool session_bound() const { return session_bound_; }
+  bool can_begin_adc_batch() const {
+    return next_sample_sequence64_ <= UINT64_MAX - 12ULL &&
+        state_ != DEVICE_STOP_LATCHED && state_ != DEVICE_STOPPED &&
+        state_ != DEVICE_FAULT && state_ != DEVICE_FAULT_STOP &&
+        state_ != DEVICE_BOOT_ID_INVALID;
+  }
+  void latch_sample_sequence_exhaustion() {
+    outputs_safe();
+    state_ = DEVICE_FAULT_STOP;
+  }
 
   // Allocate exactly one scheduled ADC-attempt identity. UINT64_MAX is a
   // terminal boundary: it is never emitted and the device fails closed.
   bool allocate_sample_sequence64(uint64_t* allocated) {
-    // A batch must reserve a representable exclusive next-sequence boundary
-    // (first + 12). Do not start a batch that the v2 host cannot represent.
-    if (!allocated || next_sample_sequence64_ > UINT64_MAX - 12ULL ||
+    if (!allocated || next_sample_sequence64_ == UINT64_MAX ||
         state_ == DEVICE_STOP_LATCHED || state_ == DEVICE_STOPPED ||
         state_ == DEVICE_FAULT || state_ == DEVICE_FAULT_STOP ||
         state_ == DEVICE_BOOT_ID_INVALID) {
-      if (next_sample_sequence64_ > UINT64_MAX - 12ULL) {
+      if (next_sample_sequence64_ == UINT64_MAX) {
         outputs_safe();
         state_ = DEVICE_FAULT_STOP;
       }
