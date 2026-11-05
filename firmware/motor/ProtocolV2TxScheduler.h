@@ -26,17 +26,23 @@ class ProtocolV2TxScheduler {
     if (!reply.valid || reply.payload_length > sizeof(reply.payload)) return false;
     if (tx_offset_ >= tx_length_) {
       tx_offset_ = tx_length_ = 0;
-      return encode(reply);
+      if (!pending_valid_) return encode(reply);
+      if (reply.message_type == STOP_ACK && pending_.message_type != STOP_ACK) {
+        pending_ = reply;
+        return true;
+      }
+      return false;
     }
-    if (!pending_valid_ || reply.message_type == STOP_ACK) {
-      // STOP_ACK replaces a lower-priority pending reply, never an active frame.
-      if (pending_valid_ && pending_.message_type == STOP_ACK &&
-          reply.message_type != STOP_ACK) return false;
+    if (!pending_valid_) {
       pending_ = reply;
       pending_valid_ = true;
       return true;
     }
-    return false;
+    if (reply.message_type == STOP_ACK && pending_.message_type != STOP_ACK) {
+      pending_ = reply; // STOP_ACK supersedes a pending lower-priority reply.
+      return true;
+    }
+    return reply.message_type == STOP_ACK && pending_.message_type == STOP_ACK;
   }
 
   template <typename SerialLike>
