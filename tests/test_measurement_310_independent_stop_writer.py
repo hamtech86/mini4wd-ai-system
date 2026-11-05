@@ -242,8 +242,8 @@ def test_independent_stop_tty_survives_command_tty_tx_timeout(tmp_path):
         stop.connect()
         with pytest.raises(TransportError):
             command.send(b"C" * 1_000_000)
-        # The command tty is now fail-closed after its timed-out write. The
-        # protocol session must still send a framed STOP_REQ on the other tty.
+        # The command tty write has timed out. The protocol session must still
+        # send a framed STOP_REQ on the separate tty.
         session_id = str(uuid.uuid4())
         codec = ProtocolV2Codec(PROTOCOL_V2_MAGIC, PROTOCOL_V2_VERSION)
         session = ProtocolV2HostSession.for_rawlog_session(
