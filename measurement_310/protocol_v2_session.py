@@ -56,6 +56,7 @@ class ProtocolV2HostSession:
         self.monotonic = monotonic
         self.utc_now = utc_now or self._utc_now
         self.measurement_session_id: Optional[str] = None
+        self._storage_session_id: Optional[str] = None
         self.boot_id64: Optional[int] = None
         self.epoch_tag: Optional[int] = None
         self.next_sample_sequence64: Optional[int] = None
@@ -75,6 +76,26 @@ class ProtocolV2HostSession:
         self._active_stage: Optional[dict] = None
         self._loss_accumulator: Optional[DeviceLossWindowAccumulator] = None
         self._failed = False
+
+    @classmethod
+    def for_rawlog_session(
+        cls, transport: SerialTransport, codec: ProtocolV2Codec,
+        rawlog_root, measurement_session_id: str, *,
+        stop_writer: Optional[Callable[[bytes], None]] = None,
+        ack_timeout_s: float = 2.0, stop_timeout_s: float = 0.25,
+        monotonic: Callable[[], float] = time.monotonic,
+        utc_now: Optional[Callable[[], str]] = None,
+    ) -> "ProtocolV2HostSession":
+        """Bind intent and Evidence sidecars to one canonical RawLog session."""
+        intent = DurableIntentJournal.for_session(rawlog_root, measurement_session_id)
+        evidence = TransportEvidenceJournal.for_session(rawlog_root, measurement_session_id)
+        session = cls(
+            transport, codec, intent, evidence, stop_writer=stop_writer,
+            ack_timeout_s=ack_timeout_s, stop_timeout_s=stop_timeout_s,
+            monotonic=monotonic, utc_now=utc_now,
+        )
+        session._storage_session_id = measurement_session_id
+        return session
 
     @staticmethod
     def _utc_now() -> str:
@@ -218,6 +239,8 @@ class ProtocolV2HostSession:
         if parsed.int == 0 or parsed.version != 4 or parsed.variant != uuid.RFC_4122:
             raise ValueError("measurement_session_id must be a nonzero RFC4122 UUIDv4")
         canonical_id = str(parsed)
+        if self._storage_session_id is not None and canonical_id != self._storage_session_id:
+            raise ProtocolV2SessionError("measurement session UUID does not match its durable sidecar paths")
         if self.measurement_session_id is not None:
             if self.measurement_session_id != canonical_id:
                 raise ProtocolV2SessionError("adapter cannot switch measurement session in place")

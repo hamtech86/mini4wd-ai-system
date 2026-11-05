@@ -159,3 +159,23 @@ def test_v2_session_rejects_invalid_measurement_session_id(tmp_path, value):
     session = make_session(tmp_path, ScriptedTransport(value))
     with pytest.raises(ValueError):
         session.start_session(value)
+
+
+def test_for_rawlog_session_binds_intent_and_evidence_to_same_uuid(tmp_path):
+    session_id = str(uuid.uuid4())
+    transport = ScriptedTransport(session_id)
+    session = ProtocolV2HostSession.for_rawlog_session(
+        transport, CODEC, tmp_path, session_id,
+    )
+    assert session.intent_journal.path == (
+        tmp_path / ".command-intents" / session_id / "command-intents-v1.jsonl"
+    )
+    assert session.evidence.path == (
+        tmp_path / ".transport-evidence" / session_id / "transport-evidence-v1.jsonl"
+    )
+    with pytest.raises(ProtocolV2SessionError, match="does not match"):
+        session.start_session(str(uuid.uuid4()))
+    assert transport.connected is False
+    session.start_session(session_id)
+    assert session.measurement_session_id == session_id
+    assert transport.connected is True
