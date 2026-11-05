@@ -103,18 +103,12 @@ using Device = ProtocolV2Device<UnoOutputAdapter>;
 alignas(Device) static uint8_t device_storage[sizeof(Device)];
 static Device* device = 0;
 
-// RX frame assembly and the 155-byte ADC_BATCH payload share one SRAM region.
-// They are never live at the same time: ADC_BATCH is assembled only between
-// complete RX frames, then copied/encoded into the independent TX workspace.
-union IoWorkspace {
-  uint8_t rx[kMaxV2WireSize];
-  uint8_t adc_batch[kAdcBatchPayloadSize];
-};
-static IoWorkspace io_workspace;
+// RX owns its one frame workspace. ADC_BATCH assembly is owned directly by
+// the TX scheduler's one TX workspace; no second payload/frame shadow exists.
+static uint8_t rx_buffer[kMaxV2WireSize];
 static uint16_t rx_length = 0;
 static bool rx_discard_until_delimiter = false;
 static uint8_t adc_batch_count = 0;
-static uint64_t adc_batch_first_sequence = 0;
 static uint32_t adc_loss_counter = 0;
 
 static void handle_rx_byte(uint8_t value) {
@@ -126,7 +120,7 @@ static void handle_rx_byte(uint8_t value) {
     }
     if (rx_length == 0) return;
     FrameView frame;
-    if (decode_frame_in_place(io_workspace.rx, rx_length, &frame)) {
+    if (decode_frame_in_place(rx_buffer, rx_length, &frame)) {
       const DeviceReplyV2 reply = device->handle(frame);
       // STOP output action already occurred synchronously inside handle().
       // The scheduler only queues the best-effort ACK.
@@ -137,12 +131,12 @@ static void handle_rx_byte(uint8_t value) {
   }
 
   if (rx_discard_until_delimiter) return;
-  if (rx_length >= sizeof(io_workspace.rx) - 1) {
+  if (rx_length >= sizeof(rx_buffer) - 1) {
     rx_length = 0;
     rx_discard_until_delimiter = true;
     return;
   }
-  io_workspace.rx[rx_length++] = value;
+  rx_buffer[rx_length++] = value;
 }
 
 static void service_rx() {
@@ -162,8 +156,19 @@ static bool capture_adc_attempt(uint8_t channel_code) {
   uint64_t sequence = 0;
   if (!device->allocate_sample_sequence64(&sequence)) return false;
 
-  // Capture stage identity immediately before the conversion; use the
-  // conversion interval midpoint, not a shared scan timestamp.
+  if (adc_batch_count == 0) {
+    if (!tx_scheduler.begin_adc_batch(sequence, static_cast<uint8_t>(adc_loss_counter))) {
+      ++adc_loss_counter;
+      return false;
+    }
+  } else if (!tx_scheduler.batch_building()) {
+    // A control ACK/STOP preempted the in-progress batch.
+    adc_batch_count = 0;
+    ++adc_loss_counter;
+    return false;
+  }
+
+  // Stage identity is sampled immediately before the individual conversion.
   const uint16_t stage_token = device->active_context_token();
   const uint32_t conversion_start_us = micros();
   const uint16_t raw = static_cast<uint16_t>(analogRead(A0 + channel_code));
@@ -171,35 +176,21 @@ static bool capture_adc_attempt(uint8_t channel_code) {
   const uint32_t midpoint_us = conversion_start_us +
       static_cast<uint32_t>(conversion_end_us - conversion_start_us) / 2UL;
 
-  if (adc_batch_count == 0) {
-    adc_batch_first_sequence = sequence;
-    write_u64(io_workspace.adc_batch, sequence);
-    io_workspace.adc_batch[8] = 0;  // v2 reserved flags
-    io_workspace.adc_batch[9] = 12; // complete batch only
-  } else if (sequence != adc_batch_first_sequence + adc_batch_count) {
-    // Never silently renumber a discontinuous batch.
+  if (!tx_scheduler.append_adc_sample(midpoint_us, channel_code, raw,
+                                      stage_token, 0, 0)) {
+    tx_scheduler.abort_adc_batch();
     adc_batch_count = 0;
     ++adc_loss_counter;
     return false;
   }
-
-  const uint16_t offset = static_cast<uint16_t>(11 + adc_batch_count * 12);
-  write_u32(io_workspace.adc_batch + offset, midpoint_us);
-  io_workspace.adc_batch[offset + 4] = channel_code;
-  write_u16(io_workspace.adc_batch + offset + 5, raw);
-  write_u16(io_workspace.adc_batch + offset + 7, stage_token);
-  io_workspace.adc_batch[offset + 9] = 0; // acquisition_status=OK
-  write_u16(io_workspace.adc_batch + offset + 10, 0); // reserved sample flags
   ++adc_batch_count;
 
   if (adc_batch_count == 12) {
-    io_workspace.adc_batch[10] = static_cast<uint8_t>(adc_loss_counter);
-    const bool queued = tx_scheduler.enqueue_frame(
-        ADC_BATCH, device->session_uuid(), epoch_tag_for_boot_id(device->boot_id64()),
-        0, io_workspace.adc_batch, kAdcBatchPayloadSize);
+    const bool queued = tx_scheduler.finish_adc_batch(
+        device->session_uuid(), epoch_tag_for_boot_id(device->boot_id64()));
     adc_batch_count = 0;
     if (!queued) {
-      ++adc_loss_counter; // whole batch dropped; next batch retains sequence gap
+      ++adc_loss_counter;
       return false;
     }
   }
