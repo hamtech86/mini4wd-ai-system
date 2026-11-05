@@ -90,7 +90,6 @@ class ProtocolV2Device {
  private:
   struct CommandCacheEntry {
     bool used;
-    uint8_t session[16];
     uint32_t command_id;
     uint8_t request_type;
     uint8_t request_payload[4];
@@ -194,8 +193,7 @@ class ProtocolV2Device {
     *conflict = false;
     for (uint8_t i = 0; i < 4; ++i) {
       const CommandCacheEntry& e = command_cache_[i];
-      if (!e.used || e.command_id != f.command_id ||
-          !same_session(e.session, f.session_uuid)) continue;
+      if (!e.used || e.command_id != f.command_id) continue;
       const bool exact = e.request_type == f.message_type &&
           e.request_length == f.payload_length &&
           memcmp(e.request_payload, f.payload, f.payload_length) == 0;
@@ -214,7 +212,6 @@ class ProtocolV2Device {
                      const uint8_t* ack_payload, uint8_t ack_length) {
     CommandCacheEntry& e = command_cache_[command_cache_next_];
     e.used = true;
-    memcpy(e.session, f.session_uuid, 16);
     e.command_id = f.command_id;
     e.request_type = f.message_type;
     e.request_length = (uint8_t)f.payload_length;
