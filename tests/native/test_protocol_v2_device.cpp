@@ -66,6 +66,18 @@ static void test_boot_hello_arm_pwm_and_stop_preemption() {
   assert(applied.payload[1] == 12 && output.pwm == 12);
   assert(device.state() == DEVICE_RUNNING);
 
+  // Exact HELLO retry must not reset command freshness while running.
+  DeviceReplyV2 hello_retry = device.handle(frame(HELLO, session_a, 0, 0, hello_payload, 8));
+  assert(hello_retry.message_type == HELLO_ACK && hello_retry.payload[0] == 0);
+  DeviceReplyV2 replay = device.handle(frame(PWM_SET, session_a, epoch, 2, pwm_payload, 3));
+  assert(replay.message_type == APPLY_ACK && replay.payload[0] == 0);
+  assert(output.pwm == 12);
+
+  // A different UUID cannot orphan a currently running output.
+  DeviceReplyV2 busy_hello = device.handle(frame(HELLO, session_b, 0, 0, hello_payload, 8));
+  assert(busy_hello.message_type == HELLO_ACK && busy_hello.payload[0] == 3);
+  assert(output.pwm == 12);
+
   // STOP must synchronously zero PWM and invalidate ARM before the next queued PWM.
   uint8_t stop_payload[3] = {1,0,0};
   write_u16(stop_payload + 1, 9);
@@ -90,6 +102,12 @@ static void test_boot_hello_arm_pwm_and_stop_preemption() {
   DeviceReplyV2 new_pwm = device.handle(frame(PWM_SET, session_b, epoch, 2, pwm_payload, 3));
   assert(new_pwm.message_type == APPLY_ACK && new_pwm.payload[0] == 0);
   assert(output.pwm == 20 && device.state() == DEVICE_RUNNING);
+
+  // Same command_id with a changed payload is a conflict and cannot reapply.
+  pwm_payload[0] = 18;
+  DeviceReplyV2 conflict = device.handle(frame(PWM_SET, session_b, epoch, 2, pwm_payload, 3));
+  assert(conflict.message_type == ERROR_MSG && conflict.command_id == 0);
+  assert(output.pwm == 20);
 
   DeviceReplyV2 stale = device.handle(frame(PWM_SET, session_a, epoch, 5, pwm_payload, 3));
   assert(stale.message_type == APPLY_ACK && stale.payload[0] != 0);
