@@ -432,6 +432,8 @@ class SequenceController:
         from raw_log_v2.validator import CHANNELS
         if not isinstance(samples, list) or len(samples) != 12:
             raise ValueError("protocol ADC sample batch must contain exactly 12 samples")
+        if self.session is None:
+            raise SequenceError("RawLog session is not open")
         records = []
         base_seq = int(self.session.state["last_record_seq"]) + 1
         for offset, sample in enumerate(samples):
@@ -481,6 +483,10 @@ class SequenceController:
                 raise SequenceError("RawLog session is not open")
             self.session.append_many(records)
         except Exception as exc:
+            # append_many may have written a partial/torn tail or durable records
+            # without a durable work-state update. Never append another record
+            # to this work area; startup recovery must reconcile the bytes.
+            self._log_write_failed = True
             self.abort("storage_failure", fault=f"RawLog ADC_SAMPLE batch append failed: {exc}")
             raise SequenceError("ADC sample batch storage failed; sequence stopped") from exc
 
