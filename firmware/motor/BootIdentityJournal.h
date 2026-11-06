@@ -38,6 +38,18 @@ static inline uint8_t crc8_atm(const uint8_t* data, uint8_t length) {
   return crc;
 }
 
+static inline void make_boot_provision_record(uint8_t record[4]) {
+  record[0] = 0x50;
+  record[1] = 0x52;
+  record[2] = 0x01;
+  record[3] = crc8_atm(record, 3);
+}
+
+static inline bool boot_provision_record_valid(const uint8_t record[4]) {
+  return record[0] == 0x50 && record[1] == 0x52 && record[2] == 0x01 &&
+         record[3] == crc8_atm(record, 3);
+}
+
 static inline uint16_t boot_crc16(const uint8_t* data, uint8_t length) {
   uint16_t crc = 0xFFFF;
   for (uint8_t i = 0; i < length; ++i) {
@@ -103,8 +115,7 @@ class BootIdentityJournal {
   bool provisioning_valid() const {
     uint8_t record[4];
     for (uint8_t i = 0; i < 4; ++i) record[i] = storage_.read(kProvisionRecordBase + i);
-    return record[0] == 0x50 && record[1] == 0x52 && record[2] == 0x01 &&
-           record[3] == crc8_atm(record, 3);
+    return boot_provision_record_valid(record);
   }
 
   bool journal_is_erased() const {

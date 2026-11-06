@@ -35,6 +35,8 @@ class TransportEvidenceJournal:
 
     def __init__(self, path: os.PathLike | str):
         self.path = Path(path)
+        self._cached_signature = None
+        self._cached_chain_head = None
 
     @staticmethod
     def _fsync_directory(path: Path) -> None:
@@ -131,7 +133,29 @@ class TransportEvidenceJournal:
         lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
         try:
             fcntl.flock(lock_fd, fcntl.LOCK_EX)
-            _, previous = self._read()
+            if self.path.is_symlink():
+                raise ProtocolV1SessionError("transport Evidence path must not be a symlink")
+            try:
+                current_stat = self.path.stat()
+                signature = (
+                    current_stat.st_dev, current_stat.st_ino,
+                    current_stat.st_size, current_stat.st_mtime_ns,
+                )
+            except FileNotFoundError:
+                signature = None
+            if signature != self._cached_signature:
+                _, previous = self._read()
+                if self.path.exists():
+                    current_stat = self.path.stat()
+                    self._cached_signature = (
+                        current_stat.st_dev, current_stat.st_ino,
+                        current_stat.st_size, current_stat.st_mtime_ns,
+                    )
+                else:
+                    self._cached_signature = None
+                self._cached_chain_head = previous
+            else:
+                previous = self._cached_chain_head or ("0" * 64)
             event_id = str(uuid.uuid4())
             event_type = {
                 "FRAME_TX_INTENT": "frame_tx_intent",
@@ -168,6 +192,16 @@ class TransportEvidenceJournal:
                 if os.write(fd, line) != len(line):
                     raise ProtocolV1SessionError("short Evidence append; durability uncertain")
                 os.fsync(fd)
+                current_stat = os.fstat(fd)
+                self._cached_signature = (
+                    current_stat.st_dev, current_stat.st_ino,
+                    current_stat.st_size, current_stat.st_mtime_ns,
+                )
+                self._cached_chain_head = digest
+            except Exception:
+                self._cached_signature = None
+                self._cached_chain_head = None
+                raise
             finally:
                 os.close(fd)
             if not existed:

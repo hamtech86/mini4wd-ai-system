@@ -1,6 +1,6 @@
 """Crash-safe RawLog v2 package writer and recovery."""
 from __future__ import annotations
-import hashlib, json, os, shutil, tempfile
+import hashlib, json, os, shutil, tempfile, uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -104,6 +104,120 @@ def _snapshot_tree(source: Path) -> Tuple[List[Tuple[str, bytes]], str]:
         digest.update(rel.encode("utf-8") + b"\0")
         digest.update(len(payload).to_bytes(8, "big")); digest.update(payload)
     return entries, digest.hexdigest()
+
+
+
+def _reconcile_interrupted_pwm_stages(records: List[Dict[str, Any]], log_id: str,
+                                      measurement_session_id: str,
+                                      recovered_at_utc: str):
+    """Materialize send/ACK-backed stages while leaving the preserved source immutable."""
+    stages = {
+        item.get("stage_index"): item for item in records
+        if isinstance(item, dict) and item.get("record_type") == "PWM_STAGE"
+        and isinstance(item.get("stage_index"), int)
+        and not isinstance(item.get("stage_index"), bool)
+    }
+    lifecycle = {}
+    sample_contexts = {}
+    for item in records:
+        if not isinstance(item, dict):
+            continue
+        if item.get("record_type") == "ADC_SAMPLE" and item.get("stage_assignment") == "confirmed":
+            stage_id, context_id = item.get("stage_id"), item.get("stage_context_id")
+            if isinstance(stage_id, str) and stage_id.startswith("PWM-") and isinstance(context_id, str):
+                try:
+                    index = int(stage_id[4:])
+                except ValueError:
+                    continue
+                sample_contexts.setdefault(index, set()).add(context_id)
+        if item.get("record_type") != "SESSION_EVENT":
+            continue
+        details = item.get("details")
+        if not isinstance(details, dict):
+            continue
+        kind = details.get("kind")
+        index = details.get("stage_index")
+        if (kind not in {"PWM_COMMAND_SENT", "PWM_ACK_RECEIVED", "STAGE_DISARM_ACKNOWLEDGED"}
+                or isinstance(index, bool) or not isinstance(index, int) or not 0 <= index <= 30):
+            continue
+        lifecycle.setdefault(index, {})[kind] = item
+
+    synthesized = []
+    for index in sorted(lifecycle):
+        if index in stages:
+            continue
+        events = lifecycle[index]
+        sent, ack, disarm = (
+            events.get("PWM_COMMAND_SENT"), events.get("PWM_ACK_RECEIVED"),
+            events.get("STAGE_DISARM_ACKNOWLEDGED"),
+        )
+        if sent is None and ack is None:
+            continue
+        source = ack or sent
+        details = source.get("details", {})
+        context_id = details.get("stage_context_id")
+        if not isinstance(context_id, str) or not context_id:
+            candidates = sample_contexts.get(index, set())
+            if len(candidates) == 1:
+                context_id = next(iter(candidates))
+        if not isinstance(context_id, str) or not context_id:
+            continue
+        if any(
+            event is not None and isinstance(event.get("details"), dict)
+            and event["details"].get("stage_context_id") not in (None, context_id)
+            for event in (sent, ack, disarm)
+        ):
+            continue
+
+        sent_details = sent.get("details", {}) if sent else {}
+        ack_details = ack.get("details", {}) if ack else {}
+        disarm_details = disarm.get("details", {}) if disarm else {}
+        sent_utc = sent_details.get("command_sent_at_utc") or ack_details.get("command_sent_at_utc")
+        ack_utc = (ack_details.get("ack_received_at_utc") or ack.get("recorded_at_utc")) if ack else None
+        start_ns = (ack_details.get("ack_received_host_monotonic_ns")
+                    or ack.get("host_monotonic_ns")) if ack else None
+        end_utc = (disarm_details.get("stage_ended_at_utc")
+                   or disarm.get("recorded_at_utc")) if disarm else None
+        end_ns = (disarm_details.get("stage_end_host_monotonic_ns")
+                  or disarm.get("host_monotonic_ns")) if disarm else None
+        completed = (
+            sent is not None and ack is not None and disarm is not None
+            and isinstance(sent_utc, str) and isinstance(ack_utc, str)
+            and isinstance(end_utc, str)
+            and isinstance(start_ns, int) and not isinstance(start_ns, bool)
+            and isinstance(end_ns, int) and not isinstance(end_ns, bool)
+            and end_ns >= start_ns
+        )
+        record_id = str(uuid.uuid5(
+            uuid.NAMESPACE_URL, f"rawlog-v2-recovered-stage:{log_id}:{index}:{context_id}",
+        ))
+        record = {
+            "schema_version": "2.0.0", "record_type": "PWM_STAGE",
+            "record_id": record_id, "record_seq": len(records) + 1,
+            "log_id": log_id, "measurement_session_id": measurement_session_id,
+            "recorded_at_utc": recovered_at_utc,
+            "stage_id": f"PWM-{index:02d}", "stage_index": index,
+            "pwm_command": index, "planned_duration_ms": 10000,
+            "stage_status": "completed" if completed else "aborted",
+            "started_at_utc": ack_utc,
+            "ended_at_utc": end_utc if completed else recovered_at_utc,
+            "start_host_monotonic_ns": start_ns,
+            "end_host_monotonic_ns": end_ns if completed else None,
+            "actual_duration_ms": ((end_ns - start_ns) / 1_000_000) if completed else None,
+            "pwm_command_sent_at_utc": sent_utc,
+            "pwm_applied_ack_received_at_utc": ack_utc,
+            "output_state": "unknown", "stage_context_id": context_id,
+            "termination_reason": "duration_elapsed" if completed else "process_interrupted",
+        }
+        records.append(record)
+        synthesized.append({
+            "stage_index": index, "stage_id": record["stage_id"],
+            "stage_status": record["stage_status"],
+            "termination_reason": record["termination_reason"],
+            "stage_context_id": context_id, "record_id": record_id,
+        })
+    return synthesized
+
 
 def _read_recovery_records(raw: bytes):
     boundary = raw.rfind(b"\n") + 1
@@ -282,6 +396,15 @@ class RawLogV2Writer:
         else:
             recovery_time = recovered_at_utc or utc_now()
 
+        source_complete_json_record_count = len(records)
+        recovered_stage_records = _reconcile_interrupted_pwm_stages(
+            records, log_id, state["measurement_session_id"], recovery_time,
+        )
+        if recovered_stage_records:
+            recovered_jsonl += b"".join(
+                _json_bytes(item) for item in records[-len(recovered_stage_records):]
+            )
+
         counts = {}
         for item in records:
             kind = item.get("record_type")
@@ -299,10 +422,11 @@ class RawLogV2Writer:
                 "recovered_at_utc":recovery_time,"source_work_directory":f".work/{log_id}",
                 "source_tree_sha256":tree_hash,
                 "preserved_files":[{"path":rel,"size_bytes":len(payload),"sha256":_sha256(payload)} for rel,payload in entries],
-                "source_records_sha256":_sha256(raw_records),"complete_json_record_count":len(records),
+                "source_records_sha256":_sha256(raw_records),"complete_json_record_count":source_complete_json_record_count,
                 "incomplete_tail_present":bool(tail),"incomplete_tail_size_bytes":len(tail),
                 "incomplete_tail_sha256":_sha256(tail) if tail else None,
-                "rejected_complete_lines":rejected,"validation_errors":validation,
+                "rejected_complete_lines":rejected,"recovered_stage_records":recovered_stage_records,
+                "validation_errors":validation,
                 "final_package_path":log_id,"final_records_sha256":_sha256(recovered_jsonl),
                 "final_manifest_sha256":_sha256(_json_bytes(manifest))}
             recovery_record_bytes = _json_bytes(recovery_record)
@@ -364,24 +488,58 @@ class RawLogV2Session:
         self.closed = False
 
     def append(self, record: Dict[str, Any]):
-        if self.closed or self.state.get("phase") != "recording": raise RawLogV2Error("session is not appendable")
-        expected = int(self.state["last_record_seq"]) + 1
-        if record.get("record_seq") != expected: raise ValueError(f"record_seq must be continuous; expected {expected}")
-        if record.get("log_id") != self.state["log_id"]: raise ValueError("record log_id does not match session")
-        if record.get("measurement_session_id") != self.state["measurement_session_id"]:
-            raise ValueError("record measurement_session_id does not match session")
-        payload = _json_bytes(record)
+        self.append_many([record])
+
+    def append_many(self, records: List[Dict[str, Any]]):
+        """Durably append an ordered record batch with one records fsync and one state fsync.
+
+        All records are validated and serialized before any bytes are written. The
+        batch is the durability unit: this method returns only after both the JSONL
+        bytes and updated work-state have been fsynced. A failed write/state update
+        leaves the session non-appendable so callers cannot append behind an
+        uncertain durability boundary; startup recovery remains authoritative.
+        """
+        if self.closed or self.state.get("phase") != "recording":
+            raise RawLogV2Error("session is not appendable")
+        if not isinstance(records, list) or not records:
+            raise ValueError("records must be a non-empty list")
+        first = int(self.state["last_record_seq"]) + 1
+        for offset, record in enumerate(records):
+            expected = first + offset
+            if not isinstance(record, dict):
+                raise TypeError("each record must be an object")
+            if record.get("record_seq") != expected:
+                raise ValueError(f"record_seq must be continuous; expected {expected}")
+            if record.get("log_id") != self.state["log_id"]:
+                raise ValueError("record log_id does not match session")
+            if record.get("measurement_session_id") != self.state["measurement_session_id"]:
+                raise ValueError("record measurement_session_id does not match session")
+        payload = b"".join(_json_bytes(record) for record in records)
         fd = os.open(str(self.records_path), os.O_WRONLY | os.O_APPEND)
         try:
             view = memoryview(payload)
             while view:
                 count = os.write(fd, view)
-                if count <= 0: raise OSError("short append to records.jsonl")
+                if count <= 0:
+                    raise OSError("short append to records.jsonl")
                 view = view[count:]
             os.fsync(fd)
-        finally: os.close(fd)
-        self.state["record_count"] = expected; self.state["last_record_seq"] = expected
-        _atomic_replace_json(self.state_path, self.state)
+        except Exception:
+            self.closed = True
+            raise
+        finally:
+            os.close(fd)
+        previous_count = self.state["record_count"]
+        previous_seq = self.state["last_record_seq"]
+        self.state["record_count"] = first + len(records) - 1
+        self.state["last_record_seq"] = first + len(records) - 1
+        try:
+            _atomic_replace_json(self.state_path, self.state)
+        except Exception:
+            self.state["record_count"] = previous_count
+            self.state["last_record_seq"] = previous_seq
+            self.closed = True
+            raise
 
     def finalize(self, manifest_fields: Dict[str, Any], status: str, ended_at_utc: Optional[str]):
         if status not in {"completed", "aborted"}: raise ValueError("normal finalization status must be completed or aborted")

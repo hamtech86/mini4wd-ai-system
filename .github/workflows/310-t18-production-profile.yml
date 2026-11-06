@@ -1,0 +1,43 @@
+name: 310 T18 production-path profile
+
+on:
+  push:
+    branches:
+      - integration/310-5-unified-candidate
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: 310-t18-profile-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  production-path-profile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Run full 31-stage production-path profile
+        run: |
+          python -m measurement_310.t18_production_profile \
+            --output-dir "$RUNNER_TEMP/310-t18-production-profile"
+      - name: Upload profile and package evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: 310-t18-production-path-profile
+          path: |
+            ${{ runner.temp }}/310-t18-production-profile/t18-production-profile.json
+            ${{ runner.temp }}/310-t18-production-profile/t18-production-profile.json.sha256
+            ${{ runner.temp }}/310-t18-production-profile/t18-production-stage-profile.csv
+            ${{ runner.temp }}/310-t18-production-profile/rawlog/**
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 30
