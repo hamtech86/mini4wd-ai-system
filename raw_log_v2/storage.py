@@ -1,6 +1,6 @@
 """Crash-safe RawLog v2 package writer and recovery."""
 from __future__ import annotations
-import hashlib, json, os, shutil, tempfile
+import hashlib, json, os, shutil, tempfile, uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -104,6 +104,120 @@ def _snapshot_tree(source: Path) -> Tuple[List[Tuple[str, bytes]], str]:
         digest.update(rel.encode("utf-8") + b"\0")
         digest.update(len(payload).to_bytes(8, "big")); digest.update(payload)
     return entries, digest.hexdigest()
+
+
+
+def _reconcile_interrupted_pwm_stages(records: List[Dict[str, Any]], log_id: str,
+                                      measurement_session_id: str,
+                                      recovered_at_utc: str):
+    """Materialize send/ACK-backed stages while leaving the preserved source immutable."""
+    stages = {
+        item.get("stage_index"): item for item in records
+        if isinstance(item, dict) and item.get("record_type") == "PWM_STAGE"
+        and isinstance(item.get("stage_index"), int)
+        and not isinstance(item.get("stage_index"), bool)
+    }
+    lifecycle = {}
+    sample_contexts = {}
+    for item in records:
+        if not isinstance(item, dict):
+            continue
+        if item.get("record_type") == "ADC_SAMPLE" and item.get("stage_assignment") == "confirmed":
+            stage_id, context_id = item.get("stage_id"), item.get("stage_context_id")
+            if isinstance(stage_id, str) and stage_id.startswith("PWM-") and isinstance(context_id, str):
+                try:
+                    index = int(stage_id[4:])
+                except ValueError:
+                    continue
+                sample_contexts.setdefault(index, set()).add(context_id)
+        if item.get("record_type") != "SESSION_EVENT":
+            continue
+        details = item.get("details")
+        if not isinstance(details, dict):
+            continue
+        kind = details.get("kind")
+        index = details.get("stage_index")
+        if (kind not in {"PWM_COMMAND_SENT", "PWM_ACK_RECEIVED", "STAGE_DISARM_ACKNOWLEDGED"}
+                or isinstance(index, bool) or not isinstance(index, int) or not 0 <= index <= 30):
+            continue
+        lifecycle.setdefault(index, {})[kind] = item
+
+    synthesized = []
+    for index in sorted(lifecycle):
+        if index in stages:
+            continue
+        events = lifecycle[index]
+        sent, ack, disarm = (
+            events.get("PWM_COMMAND_SENT"), events.get("PWM_ACK_RECEIVED"),
+            events.get("STAGE_DISARM_ACKNOWLEDGED"),
+        )
+        if sent is None and ack is None:
+            continue
+        source = ack or sent
+        details = source.get("details", {})
+        context_id = details.get("stage_context_id")
+        if not isinstance(context_id, str) or not context_id:
+            candidates = sample_contexts.get(index, set())
+            if len(candidates) == 1:
+                context_id = next(iter(candidates))
+        if not isinstance(context_id, str) or not context_id:
+            continue
+        if any(
+            event is not None and isinstance(event.get("details"), dict)
+            and event["details"].get("stage_context_id") not in (None, context_id)
+            for event in (sent, ack, disarm)
+        ):
+            continue
+
+        sent_details = sent.get("details", {}) if sent else {}
+        ack_details = ack.get("details", {}) if ack else {}
+        disarm_details = disarm.get("details", {}) if disarm else {}
+        sent_utc = sent_details.get("command_sent_at_utc") or ack_details.get("command_sent_at_utc")
+        ack_utc = (ack_details.get("ack_received_at_utc") or ack.get("recorded_at_utc")) if ack else None
+        start_ns = (ack_details.get("ack_received_host_monotonic_ns")
+                    or ack.get("host_monotonic_ns")) if ack else None
+        end_utc = (disarm_details.get("stage_ended_at_utc")
+                   or disarm.get("recorded_at_utc")) if disarm else None
+        end_ns = (disarm_details.get("stage_end_host_monotonic_ns")
+                  or disarm.get("host_monotonic_ns")) if disarm else None
+        completed = (
+            sent is not None and ack is not None and disarm is not None
+            and isinstance(sent_utc, str) and isinstance(ack_utc, str)
+            and isinstance(end_utc, str)
+            and isinstance(start_ns, int) and not isinstance(start_ns, bool)
+            and isinstance(end_ns, int) and not isinstance(end_ns, bool)
+            and end_ns >= start_ns
+        )
+        record_id = str(uuid.uuid5(
+            uuid.NAMESPACE_URL, f"rawlog-v2-recovered-stage:{log_id}:{index}:{context_id}",
+        ))
+        record = {
+            "schema_version": "2.0.0", "record_type": "PWM_STAGE",
+            "record_id": record_id, "record_seq": len(records) + 1,
+            "log_id": log_id, "measurement_session_id": measurement_session_id,
+            "recorded_at_utc": recovered_at_utc,
+            "stage_id": f"PWM-{index:02d}", "stage_index": index,
+            "pwm_command": index, "planned_duration_ms": 10000,
+            "stage_status": "completed" if completed else "aborted",
+            "started_at_utc": ack_utc,
+            "ended_at_utc": end_utc if completed else recovered_at_utc,
+            "start_host_monotonic_ns": start_ns,
+            "end_host_monotonic_ns": end_ns if completed else None,
+            "actual_duration_ms": ((end_ns - start_ns) / 1_000_000) if completed else None,
+            "pwm_command_sent_at_utc": sent_utc,
+            "pwm_applied_ack_received_at_utc": ack_utc,
+            "output_state": "unknown", "stage_context_id": context_id,
+            "termination_reason": "duration_elapsed" if completed else "process_interrupted",
+        }
+        records.append(record)
+        synthesized.append({
+            "stage_index": index, "stage_id": record["stage_id"],
+            "stage_status": record["stage_status"],
+            "termination_reason": record["termination_reason"],
+            "stage_context_id": context_id, "record_id": record_id,
+        })
+    return synthesized
+
 
 def _read_recovery_records(raw: bytes):
     boundary = raw.rfind(b"\n") + 1
@@ -282,6 +396,14 @@ class RawLogV2Writer:
         else:
             recovery_time = recovered_at_utc or utc_now()
 
+        recovered_stage_records = _reconcile_interrupted_pwm_stages(
+            records, log_id, state["measurement_session_id"], recovery_time,
+        )
+        if recovered_stage_records:
+            recovered_jsonl += b"".join(
+                _json_bytes(item) for item in records[-len(recovered_stage_records):]
+            )
+
         counts = {}
         for item in records:
             kind = item.get("record_type")
@@ -302,7 +424,7 @@ class RawLogV2Writer:
                 "source_records_sha256":_sha256(raw_records),"complete_json_record_count":len(records),
                 "incomplete_tail_present":bool(tail),"incomplete_tail_size_bytes":len(tail),
                 "incomplete_tail_sha256":_sha256(tail) if tail else None,
-                "rejected_complete_lines":rejected,"validation_errors":validation,
+                "rejected_complete_lines":rejected,"recovered_stage_records":recovered_stage_records,\n                "validation_errors":validation,
                 "final_package_path":log_id,"final_records_sha256":_sha256(recovered_jsonl),
                 "final_manifest_sha256":_sha256(_json_bytes(manifest))}
             recovery_record_bytes = _json_bytes(recovery_record)

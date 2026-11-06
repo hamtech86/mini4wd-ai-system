@@ -51,6 +51,105 @@ def test_append_rejects_sequence_gap(tmp_path):
     bad=session_event(); bad["record_seq"]=2
     with pytest.raises(ValueError,match="continuous"): session.append(bad)
 
+
+
+def test_crash_recovery_materializes_acknowledged_inflight_stage_as_interrupted(tmp_path):
+    writer = RawLogV2Writer(tmp_path)
+    fields = manifest_fields()
+    session = writer.begin(fields)
+    context = "context-pwm-12"
+    session.append({
+        "schema_version": "2.0.0", "record_type": "SESSION_EVENT",
+        "record_id": "ack-pwm-12", "record_seq": 1,
+        "log_id": fields["log_id"], "measurement_session_id": fields["measurement_session_id"],
+        "recorded_at_utc": "2026-11-01T00:00:12.010Z",
+        "event": "OTHER", "host_monotonic_ns": 12_010_000_000,
+        "details": {"kind": "PWM_ACK_RECEIVED", "stage_index": 12,
+                    "stage_id": "PWM-12", "stage_context_id": context,
+                    "ack_received_at_utc": "2026-11-01T00:00:12.010Z",
+                    "ack_received_host_monotonic_ns": 12_010_000_000},
+    })
+    session.append({
+        "schema_version": "2.0.0", "record_type": "ADC_SAMPLE",
+        "record_id": "sample-record-12", "record_seq": 2,
+        "log_id": fields["log_id"], "measurement_session_id": fields["measurement_session_id"],
+        "recorded_at_utc": "2026-11-01T00:00:12.100Z", "sample_id": "sample-12",
+        "channel": "A0", "sensor": "ACS712 #1", "signal_role": "winding_current",
+        "adc_raw": 512, "adc_resolution_bits": 10, "raw_unit": "count",
+        "device_timestamp_us_u32": 10, "device_timestamp_point": "conversion_midpoint",
+        "device_epoch_id": "boot-1", "device_elapsed_us": 10, "device_sample_sequence": 1,
+        "host_received_at_utc": "2026-11-01T00:00:12.100Z",
+        "host_received_monotonic_ns": 12_100_000_000,
+        "stage_context_id": context, "stage_id": "PWM-12",
+        "stage_assignment": "confirmed", "calibration_id": None,
+        "validity": "valid", "invalid_reason": None,
+    })
+    original = (tmp_path / ".work" / fields["log_id"] / "records.jsonl").read_bytes()
+    recovery = writer.recover_incomplete(fields["log_id"], recovered_at_utc="2026-11-01T00:00:20.000Z")
+    original_copy = (tmp_path / ".recovery" / fields["log_id"] /
+                     recovery["recovery_id"] / "original" / "records.jsonl")
+    assert original_copy.read_bytes() == original
+    assert len(recovery["recovered_stage_records"]) == 1
+    assert recovery["recovered_stage_records"][0]["stage_index"] == 12
+    assert recovery["recovered_stage_records"][0]["stage_status"] == "aborted"
+
+    final = tmp_path / fields["log_id"]
+    manifest = json.loads((final / "manifest.json").read_text())
+    records = [json.loads(line) for line in (final / "records.jsonl").read_text().splitlines()]
+    recovered_stage = next(r for r in records if r.get("record_type") == "PWM_STAGE")
+    assert recovered_stage["stage_status"] == "aborted"
+    assert recovered_stage["termination_reason"] == "process_interrupted"
+    assert recovered_stage["output_state"] == "unknown"
+    assert recovered_stage["pwm_command_sent_at_utc"] is None
+    assert recovered_stage["end_host_monotonic_ns"] is None
+    assert recovered_stage["actual_duration_ms"] is None
+    assert validate_package(manifest, records, raise_on_error=False) == []
+
+
+def test_crash_recovery_marks_disarm_acknowledged_stage_completed(tmp_path):
+    writer = RawLogV2Writer(tmp_path)
+    fields = manifest_fields()
+    session = writer.begin(fields)
+    context = "context-pwm-03"
+    session.append({
+        "schema_version": "2.0.0", "record_type": "SESSION_EVENT",
+        "record_id": "sent-pwm-03", "record_seq": 1,
+        "log_id": fields["log_id"], "measurement_session_id": fields["measurement_session_id"],
+        "recorded_at_utc": "2026-11-01T00:00:03.000Z", "event": "OTHER",
+        "host_monotonic_ns": 3_000_000_000,
+        "details": {"kind": "PWM_COMMAND_SENT", "stage_index": 3, "stage_id": "PWM-03",
+                    "stage_context_id": context, "command_sent_at_utc": "2026-11-01T00:00:03.000Z"},
+    })
+    session.append({
+        "schema_version": "2.0.0", "record_type": "SESSION_EVENT",
+        "record_id": "ack-pwm-03", "record_seq": 2,
+        "log_id": fields["log_id"], "measurement_session_id": fields["measurement_session_id"],
+        "recorded_at_utc": "2026-11-01T00:00:03.010Z", "event": "OTHER",
+        "host_monotonic_ns": 3_010_000_000,
+        "details": {"kind": "PWM_ACK_RECEIVED", "stage_index": 3, "stage_id": "PWM-03",
+                    "stage_context_id": context, "command_sent_at_utc": "2026-11-01T00:00:03.000Z",
+                    "ack_received_at_utc": "2026-11-01T00:00:03.010Z",
+                    "ack_received_host_monotonic_ns": 3_010_000_000},
+    })
+    session.append({
+        "schema_version": "2.0.0", "record_type": "SESSION_EVENT",
+        "record_id": "disarm-pwm-03", "record_seq": 3,
+        "log_id": fields["log_id"], "measurement_session_id": fields["measurement_session_id"],
+        "recorded_at_utc": "2026-11-01T00:00:13.020Z", "event": "OTHER",
+        "host_monotonic_ns": 13_010_000_000,
+        "details": {"kind": "STAGE_DISARM_ACKNOWLEDGED", "stage_index": 3,
+                    "stage_id": "PWM-03", "stage_context_id": context,
+                    "stage_ended_at_utc": "2026-11-01T00:00:13.000Z",
+                    "stage_end_host_monotonic_ns": 13_010_000_000},
+    })
+    recovery = writer.recover_incomplete(fields["log_id"], recovered_at_utc="2026-11-01T00:00:14.000Z")
+    assert recovery["recovered_stage_records"][0]["stage_status"] == "completed"
+    final = tmp_path / fields["log_id"]
+    manifest = json.loads((final / "manifest.json").read_text())
+    records = [json.loads(line) for line in (final / "records.jsonl").read_text().splitlines()]
+    assert validate_package(manifest, records, raise_on_error=False) == []
+
+
 def test_crash_recovery_preserves_original_and_drops_partial_tail(tmp_path):
     writer=RawLogV2Writer(tmp_path); session=writer.begin(manifest_fields()); session.append(session_event())
     work=tmp_path/".work"/"MOTOR-310-TEST"; rp=work/"records.jsonl"
