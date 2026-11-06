@@ -303,8 +303,8 @@ def run_profile(output_dir: os.PathLike | str) -> dict:
     evidence = TransportEvidenceJournal.for_session(rawlog_root, session_id)
     bundle = verify_evidence_bundle(package_dir, evidence, session_id)
     manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
-    records = parse_complete_jsonl(records_path.read_bytes())
-    validation_errors = validate_package(
+    records, parse_errors = parse_complete_jsonl(records_path.read_bytes())
+    validation_errors = list(parse_errors) + validate_package(
         manifest_data, records, raise_on_error=False
     )
     adc_records = [r for r in records if r.get("record_type") == "ADC_SAMPLE"]
