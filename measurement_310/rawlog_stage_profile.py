@@ -246,7 +246,7 @@ def run_profile(output_dir: str | os.PathLike, samples: int = 10_008) -> dict:
 
 
     report = {
-        "profile": "310-5-T18-rawlog-stage-v1",
+        "profile": "310-5-T18-rawlog-append-microbenchmark-v2",
         "run_id": run_id,
         "host": {
             "system": platform.system(),
