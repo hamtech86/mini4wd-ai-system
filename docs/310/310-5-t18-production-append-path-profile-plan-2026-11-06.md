@@ -47,6 +47,6 @@ Use an injected deterministic clock and in-memory protocol transport to avoid ph
 
 - Target-host synthetic filesystem fsync profile: limited PASS only.
 - RawLog append microbenchmark: software microbenchmark only; no stage-budget result.
-- Production-path T18 profile: NOT RUN.
+- Full production-path harness: implemented; hosted-runner and approved target-host profile results are still pending final verification.
 - T18 end-to-end acceptance: BLOCKED pending production-path profile and the remaining separately required recovery/backup evidence.
 - Physical safety qualification: NOT RUN. No Arduino upload, serial hardware connection, motor energization, EEPROM/fuse operation, or physical test is authorized. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains unchanged.
