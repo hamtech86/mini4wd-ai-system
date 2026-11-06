@@ -161,3 +161,23 @@ Exact code/test HEAD `d8a1e6af1c2a33d1508f7cd47bf237792249a743`:
 - Arduino Uno compile/resource workflow: success.
 
 The benchmark has **not yet been run on the target host**. It excludes final package publication, crash recovery and backup/restore timing. T18 remains incomplete beyond the limited synthetic host-fsync profile PASS. PR #190 remains Draft/Open/Unmerged; no hardware action is authorized.
+
+
+## 2026-11-06 continuation — full production-path T18 harness and hosted-runner result
+
+The earlier RawLog append microbenchmark did not execute the complete protocol/sequence path. A separate full-path harness is now implemented in `measurement_310/t18_production_profile.py`, with a dedicated workflow at `.github/workflows/310-t18-production-profile.yml`.
+
+The harness exercises the production `ProtocolV2HostSession`, `SequenceController`, ADC loss accounting, batched RawLog ADC_SAMPLE append, command-intent journal, transport Evidence journal, 31 stage transitions, DISARM, normal-completion STOP_REQ, RawLog publication and Evidence companion-manifest verification. It uses only an in-memory protocol peer; all RawLog, intent and Evidence persistence and fsync calls are real writes on the selected host filesystem. The sequence monotonic clock is injected and advanced by 10,000 ms at each stage boundary; execution cost is measured separately with `time.perf_counter_ns()`.
+
+Hosted-runner profile workflow [42241208363](https://github.com/hamtech86/mini4wd-ai-system/actions/runs/42241208363) completed successfully at HEAD `3e174e1c63385991fe41f3a964310ea249a5a69f`:
+- 31 stages, 3,100 ADC_BATCH frames, 37,200 ADC slots and 37,200 persisted ADC_SAMPLE records.
+- 10,143 transport Evidence events.
+- 310 one-second per-channel loss-window summaries; all 310 PASS.
+- RawLog v2 package validation and Evidence companion-bundle verification succeeded.
+- Exactly one normal-completion STOP_REQ was written through the injected independent STOP writer.
+- Per-stage execution time: p50 308.858 ms; p95 1,518.286 ms; p99 1,756.753 ms; p99.9 1,756.753 ms; max 1,756.753 ms. All 31 stages met the 8,000 ms allowance on the GitHub-hosted runner.
+- Full artifact bundle: [workflow artifact 13516000375](https://github.com/hamtech86/mini4wd-ai-system/actions/runs/42241208363/artifacts/13516000375).
+
+The host-side CI on the same code/test head `ede304a7bd1dc2c2b75aa6d5359f5685205352a5` passed all four jobs; full suite **611 passed, 2 xfailed in 10.29s**. Native protocol-v2 and Arduino Uno compile/resource jobs also succeeded.
+
+**Evidence boundary:** the hosted-runner profile is software-path verification, not the approved target Linux host/storage measurement. The target-host full production-path profile remains NOT RUN. Therefore T18 end-to-end acceptance remains BLOCKED pending that target-host run and the remaining recovery/backup evidence. No hardware was connected or energized; `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains unchanged. PR #190 remains Draft/Open/Unmerged.
