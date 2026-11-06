@@ -291,13 +291,6 @@ class SequenceController:
                 and not isinstance(transport_sent_ns, bool)
                 else self.clock.monotonic_ns()
             )
-            self._append(
-                "SESSION_EVENT", event="OTHER", host_monotonic_ns=self.command_sent_ns,
-                details={"kind": "PWM_COMMAND_SENT", "stage_index": self.stage_index,
-                         "stage_id": f"PWM-{self.stage_index:02d}",
-                         "stage_context_id": self.stage_context_id,
-                         "command_sent_at_utc": self.command_sent_utc},
-            )
         except Exception as exc:
             self.abort("communication_lost", fault=f"PWM send failed: {exc}")
             return
