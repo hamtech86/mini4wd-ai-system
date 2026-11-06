@@ -2,7 +2,7 @@ import pytest
 
 from measurement_310.rawlog_stage_profile import (
     BATCH_SAMPLES,
-    SAMPLES_PER_STAGE,
+    CHANNEL_CODE_ORDER,
     MIN_SAMPLES,
     percentile,
     summarize,
@@ -10,10 +10,10 @@ from measurement_310.rawlog_stage_profile import (
 )
 
 
-def test_t18_rawlog_profile_uses_full_stage_shape():
+def test_profile_declares_protocol_v2_channel_order_without_claiming_device_timing():
     assert BATCH_SAMPLES == 12
-    assert SAMPLES_PER_STAGE == 1200
-    assert MIN_SAMPLES == 10000
+    assert CHANNEL_CODE_ORDER == (0, 1, 4, 5, 2, 3) * 2
+    assert MIN_SAMPLES == 10_000
 
 
 def test_nearest_rank_percentile_matches_profile_convention():
