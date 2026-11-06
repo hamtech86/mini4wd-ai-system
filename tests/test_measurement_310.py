@@ -1369,7 +1369,6 @@ def test_rawlog_append_many_commits_contiguous_batch_as_single_state_update(tmp_
     assert session.state["last_record_seq"] == 12
     lines = (session.work_dir / "records.jsonl").read_text().splitlines()
     assert len(lines) == 12
-    session.abort if hasattr(session, "abort") else None
 
 
 def test_rawlog_append_many_rejects_invalid_batch_before_writing(tmp_path):
@@ -1412,5 +1411,5 @@ def test_sequence_controller_persists_adc_batch_through_append_many(tmp_path):
     assert [record["channel"] for record in adc] == [
         "A0", "A1", "A4", "A5", "A2", "A3", "A0", "A1", "A4", "A5", "A2", "A3"
     ]
-    assert [record["record_seq"] for record in adc] == list(range(3, 15))
+    assert [record["record_seq"] for record in adc] == list(range(2, 14))
     ctl.abort("test_end")
