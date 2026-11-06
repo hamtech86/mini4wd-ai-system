@@ -364,24 +364,58 @@ class RawLogV2Session:
         self.closed = False
 
     def append(self, record: Dict[str, Any]):
-        if self.closed or self.state.get("phase") != "recording": raise RawLogV2Error("session is not appendable")
-        expected = int(self.state["last_record_seq"]) + 1
-        if record.get("record_seq") != expected: raise ValueError(f"record_seq must be continuous; expected {expected}")
-        if record.get("log_id") != self.state["log_id"]: raise ValueError("record log_id does not match session")
-        if record.get("measurement_session_id") != self.state["measurement_session_id"]:
-            raise ValueError("record measurement_session_id does not match session")
-        payload = _json_bytes(record)
+        self.append_many([record])
+
+    def append_many(self, records: List[Dict[str, Any]]):
+        """Durably append an ordered record batch with one records fsync and one state fsync.
+
+        All records are validated and serialized before any bytes are written. The
+        batch is the durability unit: this method returns only after both the JSONL
+        bytes and updated work-state have been fsynced. A failed write/state update
+        leaves the session non-appendable so callers cannot append behind an
+        uncertain durability boundary; startup recovery remains authoritative.
+        """
+        if self.closed or self.state.get("phase") != "recording":
+            raise RawLogV2Error("session is not appendable")
+        if not isinstance(records, list) or not records:
+            raise ValueError("records must be a non-empty list")
+        first = int(self.state["last_record_seq"]) + 1
+        for offset, record in enumerate(records):
+            expected = first + offset
+            if not isinstance(record, dict):
+                raise TypeError("each record must be an object")
+            if record.get("record_seq") != expected:
+                raise ValueError(f"record_seq must be continuous; expected {expected}")
+            if record.get("log_id") != self.state["log_id"]:
+                raise ValueError("record log_id does not match session")
+            if record.get("measurement_session_id") != self.state["measurement_session_id"]:
+                raise ValueError("record measurement_session_id does not match session")
+        payload = b"".join(_json_bytes(record) for record in records)
         fd = os.open(str(self.records_path), os.O_WRONLY | os.O_APPEND)
         try:
             view = memoryview(payload)
             while view:
                 count = os.write(fd, view)
-                if count <= 0: raise OSError("short append to records.jsonl")
+                if count <= 0:
+                    raise OSError("short append to records.jsonl")
                 view = view[count:]
             os.fsync(fd)
-        finally: os.close(fd)
-        self.state["record_count"] = expected; self.state["last_record_seq"] = expected
-        _atomic_replace_json(self.state_path, self.state)
+        except Exception:
+            self.closed = True
+            raise
+        finally:
+            os.close(fd)
+        previous_count = self.state["record_count"]
+        previous_seq = self.state["last_record_seq"]
+        self.state["record_count"] = first + len(records) - 1
+        self.state["last_record_seq"] = first + len(records) - 1
+        try:
+            _atomic_replace_json(self.state_path, self.state)
+        except Exception:
+            self.state["record_count"] = previous_count
+            self.state["last_record_seq"] = previous_seq
+            self.closed = True
+            raise
 
     def finalize(self, manifest_fields: Dict[str, Any], status: str, ended_at_utc: Optional[str]):
         if status not in {"completed", "aborted"}: raise ValueError("normal finalization status must be completed or aborted")
