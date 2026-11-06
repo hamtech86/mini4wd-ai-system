@@ -73,7 +73,7 @@ def write_csv(path: Path, header: tuple[str, ...], rows) -> None:
 
 def run_profile(output_dir: str | os.PathLike, samples: int = 10_008) -> dict:
     if isinstance(samples, bool) or not isinstance(samples, int) or samples < MIN_SAMPLES:
-        raise ValueError("T18 production-path profile requires at least 10,000 sample commits")
+        raise ValueError("RawLog append microbenchmark requires at least 10,000 sample commits")
     if samples % BATCH_SAMPLES:
         raise ValueError(f"samples must be a multiple of {BATCH_SAMPLES} to preserve whole ADC_BATCH groups")
 
@@ -138,12 +138,13 @@ def run_profile(output_dir: str | os.PathLike, samples: int = 10_008) -> dict:
                 channel = channel_names[channel_code]
                 sensor, role = CHANNELS[channel]
                 sample_sequence += 1
-                timestamp_us = sample_sequence & 0xFFFFFFFF
+                device_elapsed_us = sample_sequence * 25_000
+                timestamp_us = device_elapsed_us & 0xFFFFFFFF
                 wire_samples.append({
                     "channel_code": channel_code,
                     "adc_raw": 512,
                     "timestamp_us_u32": timestamp_us,
-                    "device_elapsed_us": sample_sequence,
+                    "device_elapsed_us": device_elapsed_us,
                     "sample_sequence64": sample_sequence,
                     "acquisition_status": 0,
                     "stage_context_token": stage_index + 1,
@@ -166,7 +167,7 @@ def run_profile(output_dir: str | os.PathLike, samples: int = 10_008) -> dict:
                     "device_timestamp_us_u32": timestamp_us,
                     "device_timestamp_point": "conversion_midpoint",
                     "device_epoch_id": device_epoch_id,
-                    "device_elapsed_us": sample_sequence * 25_000,
+                    "device_elapsed_us": device_elapsed_us,
                     "device_sample_sequence": sample_sequence,
                     "host_received_at_utc": utc_now(),
                     "host_received_monotonic_ns": time.monotonic_ns(),
