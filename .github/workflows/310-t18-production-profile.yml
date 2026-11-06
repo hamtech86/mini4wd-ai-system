@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: 310-t18-profile-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   production-path-profile:
     runs-on: ubuntu-latest
