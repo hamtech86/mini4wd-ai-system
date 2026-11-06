@@ -64,8 +64,9 @@ def test_crash_recovery_materializes_acknowledged_inflight_stage_as_interrupted(
         "log_id": fields["log_id"], "measurement_session_id": fields["measurement_session_id"],
         "recorded_at_utc": "2026-11-01T00:00:12.010Z",
         "event": "OTHER", "host_monotonic_ns": 12_010_000_000,
+        # Legacy interrupted sessions may not have context copied into this event;
+        # recovery must uniquely reconcile it from the confirmed ADC samples.
         "details": {"kind": "PWM_ACK_RECEIVED", "stage_index": 12,
-                    "stage_id": "PWM-12", "stage_context_id": context,
                     "ack_received_at_utc": "2026-11-01T00:00:12.010Z",
                     "ack_received_host_monotonic_ns": 12_010_000_000},
     })
@@ -101,9 +102,14 @@ def test_crash_recovery_materializes_acknowledged_inflight_stage_as_interrupted(
     assert recovered_stage["termination_reason"] == "process_interrupted"
     assert recovered_stage["output_state"] == "unknown"
     assert recovered_stage["pwm_command_sent_at_utc"] is None
+    assert recovered_stage["stage_context_id"] == context
     assert recovered_stage["end_host_monotonic_ns"] is None
     assert recovered_stage["actual_duration_ms"] is None
     assert validate_package(manifest, records, raise_on_error=False) == []
+    published_records = (final / "records.jsonl").read_bytes()
+    second = writer.recover_incomplete(fields["log_id"], recovered_at_utc="2026-11-01T00:00:21.000Z")
+    assert second["recovered_stage_records"] == recovery["recovered_stage_records"]
+    assert (final / "records.jsonl").read_bytes() == published_records
 
 
 def test_crash_recovery_marks_disarm_acknowledged_stage_completed(tmp_path):
