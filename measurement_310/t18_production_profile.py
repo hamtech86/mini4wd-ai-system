@@ -250,10 +250,11 @@ def run_profile(output_dir: os.PathLike | str) -> dict:
     total_batches = 0
     total_slots = 0
     profile_start = time.perf_counter_ns()
+    stage_zero_start = time.perf_counter_ns()
     controller.start()
 
     for stage_index in range(31):
-        stage_start = time.perf_counter_ns()
+        stage_start = stage_zero_start if stage_index == 0 else time.perf_counter_ns()
         state = controller.poll()  # APPLY_ACK is decoded/correlated by production session.
         if state.value != "running":
             raise RuntimeError(
