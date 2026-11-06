@@ -47,6 +47,15 @@ Use an injected deterministic clock and in-memory protocol transport to avoid ph
 
 - Target-host synthetic filesystem fsync profile: limited PASS only.
 - RawLog append microbenchmark: software microbenchmark only; no stage-budget result.
-- Full production-path harness: implemented; hosted-runner and approved target-host profile results are still pending final verification.
-- T18 end-to-end acceptance: BLOCKED pending production-path profile and the remaining separately required recovery/backup evidence.
+- Full production-path harness: implemented and executed successfully on GitHub-hosted Ubuntu at workflow run [42241208363](https://github.com/hamtech86/mini4wd-ai-system/actions/runs/42241208363).
+  - 31/31 stages completed through the production host orchestration path.
+  - 3,100 Protocol v2 ADC_BATCH frames and 37,200 ADC slots accepted and persisted as 37,200 independent ADC_SAMPLE records.
+  - 10,143 transport Evidence events persisted; 310 one-second loss-window summaries all PASS.
+  - RawLog v2 package validation and Evidence companion-bundle verification succeeded.
+  - One normal-completion STOP_REQ was emitted through the injected independent STOP writer.
+  - Per-stage host execution time: p50 308.858 ms, p95 1,518.286 ms, p99 1,756.753 ms, p99.9 1,756.753 ms, max 1,756.753 ms. All 31 stages were below the 8,000 ms processing allowance on that hosted runner.
+  - Run artifact: [310-t18-production-path-profile](https://github.com/hamtech86/mini4wd-ai-system/actions/runs/42241208363/artifacts/13516000375).
+- The hosted-runner profile is software-path evidence only. It is not the approved target host/storage profile and cannot be substituted for it.
+- Approved target-host production-path profile: NOT RUN.
+- T18 end-to-end acceptance: BLOCKED pending the same full profile on the approved target host and the remaining separately required recovery/backup evidence.
 - Physical safety qualification: NOT RUN. No Arduino upload, serial hardware connection, motor energization, EEPROM/fuse operation, or physical test is authorized. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains unchanged.
