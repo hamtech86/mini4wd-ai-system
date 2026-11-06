@@ -89,14 +89,11 @@ def run_profile(output_dir: str | os.PathLike, samples: int = 10_008) -> dict:
     sample_latencies: list[int] = []
     evidence_latencies: list[int] = []
     batch_latencies: list[int] = []
-    full_stage_latencies: list[int] = []
     sample_rows = []
     batch_rows = []
     sample_sequence = 0
     record_sequence = 0
     batch_count = samples // BATCH_SAMPLES
-    stage_start_ns = None
-    stage_batch_count = 0
     stage_index = -1
     stage_context_id = ""
 
@@ -121,8 +118,6 @@ def run_profile(output_dir: str | os.PathLike, samples: int = 10_008) -> dict:
             if next_stage != stage_index:
                 stage_index = next_stage
                 stage_context_id = f"t18-context-{stage_index:03d}"
-                stage_start_ns = time.perf_counter_ns()
-                stage_batch_count = 0
                 started = time.perf_counter_ns()
                 evidence.append(
                     "STAGE_CONTEXT_MAP",
@@ -239,7 +234,6 @@ def run_profile(output_dir: str | os.PathLike, samples: int = 10_008) -> dict:
             batch_latencies.append(batch_elapsed)
             batch_rows.append((batch_index + 1, stage_index, first_sequence + 1,
                                sample_sequence, batch_elapsed))
-            stage_batch_count += 1
 
             if (batch_index + 1) % 10 == 0:
                 print(
@@ -249,8 +243,6 @@ def run_profile(output_dir: str | os.PathLike, samples: int = 10_008) -> dict:
                     flush=True,
                 )
 
-        if stage_batch_count == BATCHES_PER_STAGE:
-            full_stage_latencies.append(time.perf_counter_ns() - stage_start_ns)
 
 
     report = {
