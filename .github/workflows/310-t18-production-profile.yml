@@ -35,4 +35,5 @@ jobs:
             ${{ runner.temp }}/310-t18-production-profile/t18-production-stage-profile.csv
             ${{ runner.temp }}/310-t18-production-profile/rawlog/**
           if-no-files-found: warn
+          include-hidden-files: true
           retention-days: 30
