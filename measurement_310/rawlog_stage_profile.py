@@ -85,7 +85,7 @@ def run_profile(output_dir: str | os.PathLike, samples: int = 10_008) -> dict:
     log_id = "T18-RAWLOG-" + run_id
     session_id = str(uuid.uuid4())
     device_epoch_id = "0000000000000001"
-    channels = [CHANNELS[code] for code in (0, 1, 4, 5, 2, 3)]
+    channel_names = list(CHANNELS)
     sample_latencies: list[int] = []
     evidence_latencies: list[int] = []
     batch_latencies: list[int] = []
@@ -135,7 +135,7 @@ def run_profile(output_dir: str | os.PathLike, samples: int = 10_008) -> dict:
 
             for slot in range(BATCH_SAMPLES):
                 channel_code = CHANNEL_CODE_ORDER[slot]
-                channel = CHANNELS[channel_code]
+                channel = channel_names[channel_code]
                 sensor, role = CHANNELS[channel]
                 sample_sequence += 1
                 timestamp_us = sample_sequence & 0xFFFFFFFF
