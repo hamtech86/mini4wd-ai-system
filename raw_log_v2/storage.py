@@ -396,6 +396,7 @@ class RawLogV2Writer:
         else:
             recovery_time = recovered_at_utc or utc_now()
 
+        source_complete_json_record_count = len(records)
         recovered_stage_records = _reconcile_interrupted_pwm_stages(
             records, log_id, state["measurement_session_id"], recovery_time,
         )
@@ -421,10 +422,11 @@ class RawLogV2Writer:
                 "recovered_at_utc":recovery_time,"source_work_directory":f".work/{log_id}",
                 "source_tree_sha256":tree_hash,
                 "preserved_files":[{"path":rel,"size_bytes":len(payload),"sha256":_sha256(payload)} for rel,payload in entries],
-                "source_records_sha256":_sha256(raw_records),"complete_json_record_count":len(records),
+                "source_records_sha256":_sha256(raw_records),"complete_json_record_count":source_complete_json_record_count,
                 "incomplete_tail_present":bool(tail),"incomplete_tail_size_bytes":len(tail),
                 "incomplete_tail_sha256":_sha256(tail) if tail else None,
-                "rejected_complete_lines":rejected,"recovered_stage_records":recovered_stage_records,\n                "validation_errors":validation,
+                "rejected_complete_lines":rejected,"recovered_stage_records":recovered_stage_records,
+                "validation_errors":validation,
                 "final_package_path":log_id,"final_records_sha256":_sha256(recovered_jsonl),
                 "final_manifest_sha256":_sha256(_json_bytes(manifest))}
             recovery_record_bytes = _json_bytes(recovery_record)
