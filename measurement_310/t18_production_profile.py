@@ -52,9 +52,9 @@ class DeterministicClock:
         return self.ns / 1_000_000_000
 
     def utc_now(self) -> str:
-        return datetime.fromtimestamp(
-            1_798_000_000 + self.ns / 1_000_000_000, timezone.utc
-        ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        # UTC is observational wall time; only the monotonic sequence clock is
+        # virtualized. This keeps RawLog created_at_utc >= ended_at_utc.
+        return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
     def advance_stage(self) -> None:
         self.ns += 10_000_000_000
@@ -202,7 +202,7 @@ def _manifest(root: Path, log_id: str, session_id: str, clock: DeterministicCloc
             "firmware_id": f"{BOOT_ID64:016X}", "adc_resolution_bits": 10,
         },
         "measurement_conditions": {
-            "direction": "FWD", "voltage_control_mode": "UNSPECIFIED",
+            "direction": "FWD", "voltage_control_mode": "UNKNOWN",
             "sweep_pwm_min": 0, "sweep_pwm_max": 30,
             "stage_duration_ms": 10000, "schedule_owner": "PYTHON",
         },
