@@ -1,8 +1,8 @@
-"""Profile the production RawLog v2 append path with a 310-stage-shaped workload.
+"""Measure RawLog v2 append and evidence-journal costs with synthetic records.
 
-This is a software-only host/storage benchmark. It uses the real
-RawLogV2Session.append and TransportEvidenceJournal.append implementations,
-but synthetic ADC_BATCH contents. It never opens serial ports or hardware.
+Software-only microbenchmark: uses real RawLogV2Session.append and
+TransportEvidenceJournal.append implementations. It does not qualify ADC
+cadence, Protocol v2 acceptance, SequenceController stages, or T18 end-to-end.
 """
 from __future__ import annotations
 
@@ -27,12 +27,7 @@ from raw_log_v2.validator import CHANNELS
 
 MIN_SAMPLES = 10_000
 BATCH_SAMPLES = 12
-BATCHES_PER_STAGE = 100
-SAMPLES_PER_STAGE = BATCH_SAMPLES * BATCHES_PER_STAGE
-STAGE_MS = 10_000
-STOP_RESERVE_MS = 1_000
-MARGIN_MS = 1_000
-BATCH_PERIOD_MS = 100
+CHANNEL_CODE_ORDER = (0, 1, 4, 5, 2, 3) * 2
 
 
 def utc_now() -> str:
@@ -90,7 +85,7 @@ def run_profile(output_dir: str | os.PathLike, samples: int = 10_008) -> dict:
     log_id = "T18-RAWLOG-" + run_id
     session_id = str(uuid.uuid4())
     device_epoch_id = "0000000000000001"
-    channels = list(CHANNELS)
+    channels = [CHANNELS[code] for code in (0, 1, 4, 5, 2, 3)]
     sample_latencies: list[int] = []
     evidence_latencies: list[int] = []
     batch_latencies: list[int] = []
@@ -106,8 +101,8 @@ def run_profile(output_dir: str | os.PathLike, samples: int = 10_008) -> dict:
     stage_context_id = ""
 
     print(
-        f"T18 production-path profile: {samples} RawLog ADC_SAMPLE commits, "
-        f"{batch_count} ADC_BATCH groups, {samples // SAMPLES_PER_STAGE} full 10-second stage groups",
+        f"T18 RawLog append microbenchmark: {samples} ADC_SAMPLE commits, "
+        f"{batch_count} synthetic 12-slot groups",
         flush=True,
     )
 
@@ -122,10 +117,8 @@ def run_profile(output_dir: str | os.PathLike, samples: int = 10_008) -> dict:
         evidence = TransportEvidenceJournal.for_session(rawlog_root, session_id)
 
         for batch_index in range(batch_count):
-            next_stage = batch_index // BATCHES_PER_STAGE
+            next_stage = 0
             if next_stage != stage_index:
-                if stage_index >= 0 and stage_batch_count == BATCHES_PER_STAGE:
-                    full_stage_latencies.append(time.perf_counter_ns() - stage_start_ns)
                 stage_index = next_stage
                 stage_context_id = f"t18-context-{stage_index:03d}"
                 stage_start_ns = time.perf_counter_ns()
@@ -146,16 +139,16 @@ def run_profile(output_dir: str | os.PathLike, samples: int = 10_008) -> dict:
             rawlog_records = []
 
             for slot in range(BATCH_SAMPLES):
-                channel_code = slot % len(channels)
-                channel = channels[channel_code]
+                channel_code = CHANNEL_CODE_ORDER[slot]
+                channel = CHANNELS[channel_code]
                 sensor, role = CHANNELS[channel]
                 sample_sequence += 1
-                timestamp_us = (sample_sequence * 25_000) & 0xFFFFFFFF
+                timestamp_us = sample_sequence & 0xFFFFFFFF
                 wire_samples.append({
                     "channel_code": channel_code,
                     "adc_raw": 512,
                     "timestamp_us_u32": timestamp_us,
-                    "device_elapsed_us": sample_sequence * 25_000,
+                    "device_elapsed_us": sample_sequence,
                     "sample_sequence64": sample_sequence,
                     "acquisition_status": 0,
                     "stage_context_token": stage_index + 1,
@@ -259,11 +252,6 @@ def run_profile(output_dir: str | os.PathLike, samples: int = 10_008) -> dict:
         if stage_batch_count == BATCHES_PER_STAGE:
             full_stage_latencies.append(time.perf_counter_ns() - stage_start_ns)
 
-    stage_limit_ns = (STAGE_MS - STOP_RESERVE_MS - MARGIN_MS) * 1_000_000
-    available_ns = (STAGE_MS - STOP_RESERVE_MS) * 1_000_000
-    stage_max_ns = max(full_stage_latencies) if full_stage_latencies else None
-    stage_budget_pass = stage_max_ns is not None and stage_max_ns < stage_limit_ns
-    batch_overruns = sum(value > BATCH_PERIOD_MS * 1_000_000 for value in batch_latencies)
 
     report = {
         "profile": "310-5-T18-rawlog-stage-v1",
@@ -279,41 +267,35 @@ def run_profile(output_dir: str | os.PathLike, samples: int = 10_008) -> dict:
         "parameters": {
             "rawlog_sample_commits": samples,
             "batch_samples": BATCH_SAMPLES,
-            "batches_per_10s_stage": BATCHES_PER_STAGE,
-            "samples_per_10s_stage": SAMPLES_PER_STAGE,
-            "stage_ms": STAGE_MS,
-            "stop_reserve_ms": STOP_RESERVE_MS,
-            "margin_ms": MARGIN_MS,
-            "available_after_stop_reserve_ns": available_ns,
-            "raw_stage_limit_after_margin_ns": stage_limit_ns,
+            "channel_code_order": list(CHANNEL_CODE_ORDER),
+            "timestamp_model": "synthetic monotonic sequence counter; not a device-time or cadence claim",
         },
         "workload": {
             "rawlog_append_count": len(sample_latencies),
             "evidence_append_count": len(evidence_latencies),
             "adc_batch_count": len(batch_latencies),
-            "full_10s_stage_groups": len(full_stage_latencies),
-            "partial_final_stage_samples": samples % SAMPLES_PER_STAGE,
+            "full_10s_stage_groups": None,
+            "partial_final_stage_samples": None,
         },
         "latency": {
             "rawlog_append": summarize(sample_latencies),
             "evidence_append": summarize(evidence_latencies),
             "adc_batch_total": summarize(batch_latencies),
-            "full_stage_group_ns": full_stage_latencies,
-            "full_stage_group_max_ns": stage_max_ns,
+            "full_stage_group_ns": None,
+            "full_stage_group_max_ns": None,
         },
         "budget": {
-            "full_stage_groups_within_8s_limit": stage_budget_pass,
-            "batch_period_ms": BATCH_PERIOD_MS,
-            "batch_overrun_count": batch_overruns,
-            "batch_period_met_for_all_batches": batch_overruns == 0,
-            "profile_within_stage_budget": stage_budget_pass,
+            "rawlog_append_profile_completed": len(sample_latencies) == samples,
+            "stage_budget_assessed": False,
+            "t18_end_to_end_pass": False,
         },
         "limitations": [
             "Uses the production RawLogV2Session.append and TransportEvidenceJournal.append code paths with synthetic ADC_BATCH contents.",
             "Does not open serial ports, firmware, MCU, driver, motor, or hardware.",
             "Does not execute the 310-second sequence or measure physical ADC arrival timing.",
             "Does not include final package publication, crash recovery, or backup/restore timing.",
-            "The full-stage result is based on the completed 1,200-sample groups in this 10,000+ commit profile.",
+            "Synthetic batch groups use protocol-v2 channel code order only; no device cadence is asserted.",
+            "No stage-budget or T18 end-to-end pass is produced by this microbenchmark.",
         ],
     }
 
@@ -347,7 +329,7 @@ def main(argv=None) -> int:
     parser.add_argument("--samples", type=int, default=10_008)
     args = parser.parse_args(argv)
     report = run_profile(args.output_dir, args.samples)
-    return 0 if report["budget"]["profile_within_stage_budget"] else 2
+    return 0 if report["budget"]["rawlog_append_profile_completed"] else 2
 
 
 if __name__ == "__main__":
