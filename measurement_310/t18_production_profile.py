@@ -291,7 +291,10 @@ def run_profile(output_dir: os.PathLike | str) -> dict:
                 f"stage {stage_index} did not advance to next ACK gate: {state.value}"
             )
         if stage_index == 30 and state.value != "completed":
-            raise RuntimeError(f"31-stage sequence did not complete: {state.value}")
+            raise RuntimeError(
+                f"31-stage sequence did not complete: {state.value}; "
+                f"controller_fault={controller._last_fault!r}"
+            )
 
     total_elapsed_ns = time.perf_counter_ns() - profile_start
     package_dir = rawlog_root / log_id
