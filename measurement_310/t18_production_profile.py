@@ -400,6 +400,7 @@ def run_profile(output_dir: os.PathLike | str) -> dict:
     profile_start = time.perf_counter_ns()
     stage_zero_start = time.perf_counter_ns()
     profiler = PersistenceProfiler()
+    controller.startup_recover()
 
     with profiler:
         controller.start()
