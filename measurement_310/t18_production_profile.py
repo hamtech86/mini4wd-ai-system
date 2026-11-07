@@ -261,12 +261,12 @@ class PersistenceProfiler:
             if name == "command-intents-v1.jsonl":
                 return "command_intent_file"
             return "other_file"
-        if "/rawlog/" in path or path.endswith("/rawlog"):
-            return "rawlog_directory"
         if ".transport-evidence" in path:
             return "evidence_directory"
         if ".command-intents" in path:
             return "command_intent_directory"
+        if "/rawlog/" in path or path.endswith("/rawlog"):
+            return "rawlog_directory"
         return "other_directory"
 
     def _record(self, stage, key, elapsed_ns):
@@ -401,7 +401,6 @@ def run_profile(output_dir: os.PathLike | str) -> dict:
         controller.start()
         for stage_index in range(31):
             profiler.current_stage = stage_index
-            stage_before = profiler.snapshot(stage_index)
             stage_start = stage_zero_start if stage_index == 0 else time.perf_counter_ns()
             state = controller.poll()  # APPLY_ACK is decoded/correlated by production session.
             if state.value != "running":
