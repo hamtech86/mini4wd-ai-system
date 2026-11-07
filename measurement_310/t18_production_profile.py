@@ -333,7 +333,11 @@ class PersistenceProfiler:
     def stage_summary(self, stage):
         stats = self._stats.get(stage, {})
         result = {}
-        for key, value in stats.items():
+        keys = ["rawlog_append_many"] + [
+            "fsync_" + bucket for bucket in self.FSYNC_BUCKETS
+        ]
+        for key in keys:
+            value = stats.get(key, {"count": 0, "total_ns": 0, "max_ns": 0})
             result[key + "_count"] = value["count"]
             result[key + "_total_ms"] = value["total_ns"] / 1_000_000
             result[key + "_max_ms"] = value["max_ns"] / 1_000_000
