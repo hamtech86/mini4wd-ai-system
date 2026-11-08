@@ -105,6 +105,11 @@ class ProtocolV2HostSession:
         self._active_stage: Optional[dict] = None
         self._loss_accumulator: Optional[DeviceLossWindowAccumulator] = None
         self._failed = False
+        # ADC transport evidence is buffered in bounded groups. Command/ACK
+        # and lifecycle evidence remains synchronous and durable.
+        self._pending_evidence_events: list[dict] = []
+        self._pending_telemetry_batches = 0
+        self._evidence_batch_limit = 10
 
     @classmethod
     def for_rawlog_session(
@@ -132,6 +137,24 @@ class ProtocolV2HostSession:
         from datetime import datetime, timezone
         return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
+    def flush_evidence(self) -> None:
+        """Durably commit queued telemetry evidence before a control boundary."""
+        if not self._pending_evidence_events:
+            return
+        append_many = getattr(self.evidence, "append_many", None)
+        if not callable(append_many):
+            self._failed = True
+            raise ProtocolV2SessionError("Evidence journal lacks durable append_many support")
+        try:
+            append_many(list(self._pending_evidence_events))
+        except Exception as exc:
+            self._failed = True
+            raise ProtocolV2SessionError(
+                f"Evidence transaction durability is uncertain; session failed closed: {exc}"
+            ) from exc
+        self._pending_evidence_events.clear()
+        self._pending_telemetry_batches = 0
+
     def _append(self, event: str, *, direction: Optional[str] = None,
                 host_received_at_utc: Optional[str] = None,
                 host_received_monotonic_ns: Optional[int] = None, **payload) -> str:
@@ -147,10 +170,42 @@ class ProtocolV2HostSession:
             host_received_at_utc = host_received_at_utc or message.get("_host_received_at_utc")
             if host_received_monotonic_ns is None:
                 host_received_monotonic_ns = message.get("_host_received_monotonic_ns")
+
+        message_kind = payload.get("message_kind")
+        telemetry_event = (
+            event in {"RX_BYTES", "ADC_BATCH_ACCEPTED", "ADC_LOSS_WINDOW_SUMMARY",
+                      "DEVICE_STATUS_RECEIVED"}
+            or (event == "FRAME_RX_DECODED" and message_kind in {"ADC_BATCH", "STATUS"})
+        )
+        stop_event = event in {"STOP_TX_ATTEMPT", "STOP_TX_ERROR"}
+        event_id = str(uuid.uuid4())
+        entry = {
+            "event": event,
+            "payload": {"recorded_at_utc": self.utc_now(), **payload},
+            "measurement_session_id": self.measurement_session_id,
+            "device_epoch_id": str(self.boot_id64) if self.boot_id64 is not None else None,
+            "direction": direction,
+            "host_received_at_utc": host_received_at_utc,
+            "host_received_monotonic_ns": host_received_monotonic_ns,
+            "event_id": event_id,
+            "host_event_at_utc": self.utc_now(),
+            "host_event_monotonic_ns": time.monotonic_ns(),
+        }
+        if telemetry_event or stop_event:
+            self._pending_evidence_events.append(entry)
+            if event == "ADC_BATCH_ACCEPTED":
+                self._pending_telemetry_batches += 1
+                if self._pending_telemetry_batches >= self._evidence_batch_limit:
+                    self.flush_evidence()
+            return event_id
+
+        # Every non-telemetry control/error event is a durability boundary.
+        # Flush preceding ADC evidence before persisting this event.
+        self.flush_evidence()
         return self.evidence.append(
-            event, {"recorded_at_utc": self.utc_now(), **payload},
+            event, entry["payload"],
             measurement_session_id=self.measurement_session_id,
-            device_epoch_id=str(self.boot_id64) if self.boot_id64 is not None else None,
+            device_epoch_id=entry["device_epoch_id"],
             direction=direction, host_received_at_utc=host_received_at_utc,
             host_received_monotonic_ns=host_received_monotonic_ns,
         )
@@ -227,6 +282,7 @@ class ProtocolV2HostSession:
                 rx_chunk_event_id=rx_id, message_type=decoded.message.get("message_type"),
                 command_id=decoded.message.get("command_id"),
                 measurement_session_id=decoded.message.get("measurement_session_id"),
+                message_kind=decoded.message.get("kind"),
             )
             self._messages.append(decoded.message)
 
@@ -584,6 +640,7 @@ class ProtocolV2HostSession:
     def finalize_evidence_bundle(self, rawlog_package_dir):
         if not self.measurement_session_id:
             raise ProtocolV2SessionError("cannot bind Evidence bundle before HELLO session identity")
+        self.flush_evidence()
         from .evidence_bundle import write_evidence_bundle_manifest
         return write_evidence_bundle_manifest(
             rawlog_package_dir, self.evidence, self.measurement_session_id
