@@ -35,7 +35,6 @@ namespace {
 using namespace mini4wd310;
 
 static_assert(kMaxV2WireSize == 188, "v2 wire-size change requires an SRAM review");
-static const uint8_t kMaxHostCommandWireSize = 41;
 static const uint16_t kRxWorkspaceSize = kMaxWireSize;
 static_assert(kRxWorkspaceSize == 194, "RX workspace must retain the full 194-byte contract");
 static_assert(kMaxV2WireSize <= kMaxWireSize, "v2 frame must fit the full RX/TX workspace");
