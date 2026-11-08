@@ -1,6 +1,6 @@
 # 310-5 T18 durable-persistence remediation
 
-Status: implementation candidate committed in PR #193; full regression CI and target-host validation remain pending.
+Status: implementation candidate committed in PR #193; complete regression CI and hosted T18 profile pass. Target-host validation remains pending.
 
 ## Evidence from the 2026-11-08 target-host run
 
@@ -72,17 +72,18 @@ The first PR #193 implementation passed the full 31-stage T18 production-path wo
 - Stage count: 31; ADC batches: 3,100; ADC slots: 37,200.
 - Evidence events: 10,143; loss-window summaries: 310; all loss windows PASS.
 - RawLog validation errors: 0; Evidence bundle verification: PASS.
-- Hosted-runner stage elapsed p50: 173.929 ms; p95: 204.792 ms; max/p99.9: 1,453.246 ms.
-- Hosted-runner total profile elapsed: 6,772.749 ms.
-- Evidence file fsync: 873 calls / 266.418 ms total.
-- RawLog work-state fsync: 322 calls / 105.498 ms total.
-- RawLog records fsync: 3,196 calls / 1,109.005 ms total.
+- Latest verified PR head: `ea5cb5d816ca038063204e1c85d04cf35b742cb0`.
+- GitHub Actions T18 run #41 (`42492559051`): PASS; all 31 stages, 3,100 ADC batches, 37,200 ADC slots, and 10,143 Evidence events.
+- Hosted-runner stage elapsed p50: 191.596 ms; p95: 515.208 ms; p99.9/max: 1,501.335 ms against the 8,000 ms stage ceiling.
+- GitHub Actions full regression run #1700 (`42492559087`): all four jobs PASS (Break-in, Battery, RawLog/Sequence, full pytest); full suite **622 passed, 2 xfailed**.
+- T18 artifact: [run #41 artifact](https://github.com/hamtech86/mini4wd-ai-system/actions/runs/42492559051/artifacts/13622650255).
 
-These numbers demonstrate that the implementation preserves the profile's checks and improves the hosted-runner path. They do **not** replace the required run on the user's target host. The full regression suite is still being corrected/validated.
+These results establish the PR candidate's hosted-runner software regression and production-path profile. They do **not** replace the required run on the user's target host/storage. The original target-host result remains FAIL until a new target-host profile passes.
 
 ## Current disposition
 
-- Original 2026-11-08 T18 target-host performance: **FAIL**.
+- PR #193 hosted CI: **PASS** (T18 run #41; full regression run #1700).
+- Original 2026-11-08 T18 target-host performance: **FAIL**; target-host rerun is still required.
 - 310-5: **NOT ACCEPTED**.
 - 310-6: **BLOCKED**.
 - PR #192 remains open and unmerged; this remediation branch does not merge it.
