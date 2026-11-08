@@ -235,9 +235,13 @@ def _read_recovery_records(raw: bytes):
     return b"".join(accepted), tail, records, rejected
 
 class RawLogV2Writer:
-    def __init__(self, root):
+    def __init__(self, root, *, checkpoint_interval: int = 10):
+        if (isinstance(checkpoint_interval, bool) or not isinstance(checkpoint_interval, int)
+                or checkpoint_interval < 1):
+            raise ValueError("checkpoint_interval must be a positive integer")
         self.root = Path(root); self.work_root = self.root / ".work"
         self.recovery_root = self.root / ".recovery"
+        self.checkpoint_interval = checkpoint_interval
 
     def begin(self, manifest_fields: Dict[str, Any]):
         missing = {"log_id", "measurement_session_id", "started_at_utc"} - set(manifest_fields)
@@ -486,18 +490,21 @@ class RawLogV2Session:
         self.writer, self.work_dir, self.state = writer, work_dir, state
         self.records_path, self.state_path = work_dir / "records.jsonl", work_dir / "work_state.json"
         self.closed = False
+        self._appends_since_checkpoint = 0
 
     def append(self, record: Dict[str, Any]):
         self.append_many([record])
 
     def append_many(self, records: List[Dict[str, Any]]):
-        """Durably append an ordered record batch with one records fsync and one state fsync.
+        """Durably append records; persist the recoverable work-state periodically.
 
-        All records are validated and serialized before any bytes are written. The
-        batch is the durability unit: this method returns only after both the JSONL
-        bytes and updated work-state have been fsynced. A failed write/state update
-        leaves the session non-appendable so callers cannot append behind an
-        uncertain durability boundary; startup recovery remains authoritative.
+        Every call fsyncs records.jsonl before returning. The in-memory record
+        sequence advances only after that fsync succeeds. work_state.json is a
+        checkpoint, not the source of truth: recovery reconstructs the record
+        count and sequence from complete records.jsonl lines, so a crash between
+        checkpoints cannot cause durable records to be discarded or misnumbered.
+        A checkpoint is forced at finalization and at least every configured
+        number of append_many calls.
         """
         if self.closed or self.state.get("phase") != "recording":
             raise RawLogV2Error("session is not appendable")
@@ -533,17 +540,27 @@ class RawLogV2Session:
         previous_seq = self.state["last_record_seq"]
         self.state["record_count"] = first + len(records) - 1
         self.state["last_record_seq"] = first + len(records) - 1
+        self._appends_since_checkpoint += 1
+        if self._appends_since_checkpoint >= self.writer.checkpoint_interval:
+            self._persist_work_state_checkpoint()
+        # If no checkpoint is due, the records are still durable. A stale
+        # work_state is intentionally recoverable from the complete JSONL.
+
+    def _persist_work_state_checkpoint(self) -> None:
+        if self.closed:
+            raise RawLogV2Error("session is already closed")
         try:
             _atomic_replace_json(self.state_path, self.state)
         except Exception:
-            self.state["record_count"] = previous_count
-            self.state["last_record_seq"] = previous_seq
             self.closed = True
             raise
+        self._appends_since_checkpoint = 0
 
     def finalize(self, manifest_fields: Dict[str, Any], status: str, ended_at_utc: Optional[str]):
         if status not in {"completed", "aborted"}: raise ValueError("normal finalization status must be completed or aborted")
         if self.closed: raise RawLogV2Error("session is already closed")
+        # Commit the latest count/sequence checkpoint before package publication.
+        self._persist_work_state_checkpoint()
         raw = self.records_path.read_bytes()
         records, parse_errors = parse_complete_jsonl(raw)
         if parse_errors: raise RawLogV2Error("malformed JSONL: " + "; ".join(parse_errors))
