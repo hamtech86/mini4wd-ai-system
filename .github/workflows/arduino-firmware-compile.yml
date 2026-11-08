@@ -76,7 +76,7 @@ jobs:
           mkdir -p "$build_dir"
           arduino-cli compile --export-binaries --fqbn arduino:avr:uno \
             --build-path "$build_dir" \
-            --build-property "compiler.cpp.extra_flags=-DSERIAL_RX_BUFFER_SIZE=32 -DSERIAL_TX_BUFFER_SIZE=32 -fstack-usage -fno-lto" \
+            --build-property "compiler.cpp.extra_flags=-DSERIAL_RX_BUFFER_SIZE=24 -DSERIAL_TX_BUFFER_SIZE=24 -fstack-usage -fno-lto" \
             --build-property "compiler.c.extra_flags=-fstack-usage -fno-lto" \
             --build-property "compiler.c.elf.extra_flags=-fno-lto -Wl,-Map=$build_dir/MotoreRevV2.map" \
             "$sketch_dir"
@@ -153,7 +153,7 @@ jobs:
           mkdir -p "$audit_build_dir"
           arduino-cli compile --fqbn arduino:avr:uno \
             --build-path "$audit_build_dir" \
-            --build-property "compiler.cpp.extra_flags=-DSERIAL_RX_BUFFER_SIZE=32 -DSERIAL_TX_BUFFER_SIZE=32 -fstack-usage -fno-lto -DM4WD_ADC_RESOURCE_AUDIT" \
+            --build-property "compiler.cpp.extra_flags=-DSERIAL_RX_BUFFER_SIZE=24 -DSERIAL_TX_BUFFER_SIZE=24 -fstack-usage -fno-lto -DM4WD_ADC_RESOURCE_AUDIT" \
             --build-property "compiler.c.extra_flags=-fstack-usage -fno-lto" \
             --build-property "compiler.c.elf.extra_flags=-fno-lto -Wl,-Map=$audit_build_dir/MotoreRevV2-adc-audit.map" \
             "$sketch_dir"
