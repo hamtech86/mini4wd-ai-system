@@ -30,6 +30,10 @@
 #include "ProtocolV2TxScheduler.h"
 #include "ProtocolV2AdcScheduler.h"
 
+#if SERIAL_RX_BUFFER_SIZE != 24 || SERIAL_TX_BUFFER_SIZE != 24
+#error "310 Uno UART rings must use the audited 24-byte RX/TX sizes"
+#endif
+
 namespace {
 
 using namespace mini4wd310;
@@ -171,9 +175,9 @@ static void handle_rx_byte(uint8_t value) {
 
 static void service_rx() {
   // Bound foreground RX work so a continuous stream cannot starve STOP or
-  // the cadence scheduler. The Uno RX ring is 32 bytes; 32 reads drain one
-  // full ring while guaranteeing the loop returns to safety work.
-  for (uint8_t budget = 0; budget < 32 && Serial.available() > 0; ++budget) {
+  // the cadence scheduler. The audited Uno RX ring is 24 bytes; one pass
+  // drains at most one full ring before returning to safety work.
+  for (uint8_t budget = 0; budget < 24 && Serial.available() > 0; ++budget) {
     const int value = Serial.read();
     if (value >= 0) handle_rx_byte(static_cast<uint8_t>(value));
   }
