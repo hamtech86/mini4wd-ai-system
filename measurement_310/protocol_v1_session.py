@@ -321,7 +321,7 @@ class TransportEvidenceJournal:
                     "direction": direction, "payload": payload, "previous_hash": previous,
                 }
                 digest = hashlib.sha256(self._canonical(body)).hexdigest()
-                lines.append(self._canonical({"body": body, "sha256": digest}) + b"\\n")
+                lines.append(self._canonical({"body": body, "sha256": digest}) + b"\n")
                 event_ids.append(event_id)
                 previous = digest
 
