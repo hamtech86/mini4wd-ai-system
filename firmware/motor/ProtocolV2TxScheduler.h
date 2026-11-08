@@ -146,6 +146,7 @@ class ProtocolV2TxScheduler {
  private:
   static const uint8_t kChunkMax = 16;
   uint8_t tx_buffer_[kMaxWireSize];
+  static_assert(sizeof(tx_buffer_) == 194, "TX workspace must retain the full 194-byte contract");
   uint16_t tx_length_;
   uint16_t tx_offset_;
   DeviceReplyV2 pending_;
