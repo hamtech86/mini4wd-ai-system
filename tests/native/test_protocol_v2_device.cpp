@@ -204,6 +204,29 @@ static void test_sample_sequence_allocator_is_monotonic_and_fails_closed() {
 }
 
 
+static void test_zero_command_id_is_rejected_and_cache_empty_sentinel_is_safe() {
+  FakeOutput output;
+  ProtocolV2Device<FakeOutput> device(output, 31, 0);
+  const uint8_t session[16] = {4,3,2,1,5,6,7,8,9,10,11,12,13,14,15,16};
+  const uint32_t epoch = epoch_tag_for_boot_id(31);
+  uint8_t hello[8] = {0}; write_u64(hello, 9);
+  DeviceReplyV2 h = device.handle(frame(HELLO, session, 0, 0, hello, 8));
+  assert(h.message_type == HELLO_ACK && h.payload[0] == 0);
+
+  uint8_t arm[4] = {0}; write_u16(arm, 5); arm[3] = DIRECTION_FWD;
+  DeviceReplyV2 zero_id = device.handle(frame(ARM, session, epoch, 0, arm, 4));
+  assert(zero_id.message_type == ERROR_MSG);
+  assert(zero_id.payload[0] == DEVICE_ERR_COMMAND_ID);
+  assert(device.state() == DEVICE_IDLE && output.pwm == 0 && output.direction_low);
+
+  DeviceReplyV2 accepted = device.handle(frame(ARM, session, epoch, 1, arm, 4));
+  assert(accepted.message_type == ARM_ACK && accepted.payload[0] == 0);
+  DeviceReplyV2 replay = device.handle(frame(ARM, session, epoch, 1, arm, 4));
+  assert(replay.message_type == ARM_ACK && replay.payload[0] == 0);
+  assert(memcmp(accepted.payload, replay.payload, accepted.payload_length) == 0);
+}
+
+
 int main() {
   test_boot_hello_arm_pwm_and_stop_preemption();
   test_duplicate_and_conflicting_stop_history();
@@ -211,5 +234,6 @@ int main() {
   test_disarm_keeps_session_and_allows_direction_change();
   test_sample_sequence_allocator_is_monotonic_and_fails_closed();
   test_sample_sequence_allocator_reserves_complete_batch_boundary();
+  test_zero_command_id_is_rejected_and_cache_empty_sentinel_is_safe();
   return 0;
 }
