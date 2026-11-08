@@ -219,6 +219,39 @@ def _reconcile_interrupted_pwm_stages(records: List[Dict[str, Any]], log_id: str
     return synthesized
 
 
+
+def _demote_unmatched_confirmed_adc_samples(records: List[Dict[str, Any]]) -> List[str]:
+    """Keep raw samples but remove stage attribution when recovery cannot prove its PWM_STAGE.
+
+    The immutable .recovery/original copy retains the original confirmed fields.
+    The published recovery package must not claim a stage that has no matching
+    durable PWM_STAGE record.
+    """
+    stages_by_context = {
+        item.get("stage_context_id"): item.get("stage_id")
+        for item in records
+        if isinstance(item, dict) and item.get("record_type") == "PWM_STAGE"
+        and isinstance(item.get("stage_context_id"), str)
+    }
+    demoted = []
+    for item in records:
+        if not isinstance(item, dict) or item.get("record_type") != "ADC_SAMPLE":
+            continue
+        if item.get("stage_assignment") != "confirmed":
+            continue
+        context_id = item.get("stage_context_id")
+        if (isinstance(context_id, str)
+                and stages_by_context.get(context_id) == item.get("stage_id")):
+            continue
+        sample_id = item.get("sample_id")
+        if isinstance(sample_id, str):
+            demoted.append(sample_id)
+        item["stage_assignment"] = "unresolved"
+        item["stage_id"] = None
+        item["stage_context_id"] = None
+    return demoted
+
+
 def _read_recovery_records(raw: bytes):
     boundary = raw.rfind(b"\n") + 1
     complete, tail = raw[:boundary], raw[boundary:]
@@ -405,6 +438,12 @@ class RawLogV2Writer:
                 _json_bytes(item) for item in records[-len(recovered_stage_records):]
             )
 
+        # A confirmed live assignment is not sufficient after a crash if its
+        # PWM_STAGE record is absent. Preserve the sample, but publish it as
+        # unresolved rather than inventing a stage or failing package recovery.
+        recovered_unattributed_adc_sample_ids = _demote_unmatched_confirmed_adc_samples(records)
+        recovered_jsonl = b"".join(_json_bytes(item) for item in records)
+
         counts = {}
         for item in records:
             kind = item.get("record_type")
@@ -426,6 +465,7 @@ class RawLogV2Writer:
                 "incomplete_tail_present":bool(tail),"incomplete_tail_size_bytes":len(tail),
                 "incomplete_tail_sha256":_sha256(tail) if tail else None,
                 "rejected_complete_lines":rejected,"recovered_stage_records":recovered_stage_records,
+                "recovered_unattributed_adc_sample_ids":recovered_unattributed_adc_sample_ids,
                 "validation_errors":validation,
                 "final_package_path":log_id,"final_records_sha256":_sha256(recovered_jsonl),
                 "final_manifest_sha256":_sha256(_json_bytes(manifest))}
