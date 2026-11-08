@@ -1,6 +1,5 @@
+import hashlib
 import uuid
-
-import pytest
 
 from measurement_310.protocol_v1_session import TransportEvidenceJournal
 from measurement_310.protocol_v2 import (
@@ -45,7 +44,10 @@ def test_evidence_append_many_preserves_hash_chain_and_event_ids(tmp_path):
         "SESSION_STARTED", "RX_BYTES", "ADC_BATCH_ACCEPTED"
     ]
     assert [event["event_id"] for event in events] == [first_id, *returned_ids]
-    assert events[1]["previous_hash"] == events[0]["sha256"] if "sha256" in events[0] else True
+    first_hash = hashlib.sha256(journal._canonical(events[0])).hexdigest()
+    second_hash = hashlib.sha256(journal._canonical(events[1])).hexdigest()
+    assert events[1]["previous_hash"] == first_hash
+    assert events[2]["previous_hash"] == second_hash
     assert chain_head == journal._cached_chain_head
     assert events[1]["host_event_monotonic_ns"] == 100
     assert events[2]["host_event_monotonic_ns"] == 101
