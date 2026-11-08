@@ -177,3 +177,61 @@ Using the larger motor-control image:
 - MotoreRevV2 map: 51fa18bb5714ebb7d13dfa1535165b970d3bdf9af38d6642f1c30d1f297b6f17
 
 The separate provisioning image was compile-tested only. No HEX was uploaded, no EEPROM was written, and no physical test was performed.
+
+
+## 2026-11-08 194-byte RX/TX workspace re-audit
+
+This section supersedes the earlier workspace sizes for the unified MotoreRevV2 candidate.
+
+- Exact source HEAD: `c2ba0a431a96d586c4449b4b98f8c31acd55bfb3`
+- Arduino Uno Firmware Compile run: `42463230241`
+- Artifact ID: `13609549698`
+- Target: `arduino:avr:uno`, Arduino AVR core 1.8.8
+- The RX frame workspace is exactly 194 bytes (`rx_buffer[194]`).
+- The TX frame workspace is exactly 194 bytes (`tx_buffer_[194]`); the maximum encoded protocol-v2 frame remains 188 bytes.
+- HardwareSerial RX and TX rings are each 24 bytes. The foreground RX budget is 24 bytes per loop pass, and the same ring-size macros are used for the sketch and core build.
+- The command cache uses `command_id == 0` as its empty sentinel. Protocol v2 command IDs are required to be nonzero, so this removes the redundant per-entry `used` byte without changing replay/conflict identity semantics.
+
+### Exact linked image sizes
+
+| Image | text | .data | .bss | .data + .bss |
+|---|---:|---:|---:|---:|
+| MotoreRevV2 production integrated sketch | 13,274 B | 146 B | 747 B | **893 B** |
+| MotoreRevV2 ADC resource-audit image | 13,374 B | 146 B | 748 B | **894 B** |
+| Separate boot identity provisioner | 3,044 B | included in 252 B global total | — | **252 B global total** |
+
+Both motor-control images are below the 900-byte static SRAM ceiling. The ADC audit image is the larger image and is used for reserve arithmetic.
+
+### Updated conservative stack bound
+
+GCC `.su` and the retained AVR disassembly report:
+
+- `main()`: 2 B
+- `loop()`: 171 B
+- `ProtocolV2Device::cached_or_error()`: 74 B
+- `ProtocolV2Device::find_cached()`: 18 B
+- Three call return addresses in the main command-processing chain: 6 B
+- UART TX-empty ISR `__vector_19`: 17 B
+- `HardwareSerial::_tx_udr_empty_irq()`: 2 B
+- ISR helper call return address: 2 B
+- ATmega328P interrupt-entry PC: 2 B
+
+Conservative simultaneous bound:
+
+`2 + 171 + 74 + 18 + 6 + 17 + 2 + 2 + 2 = 294 B`
+
+The sketch does not enable nested interrupts from an ISR; the interrupt frame is therefore added once. This remains a static compiler/disassembly bound, not an on-board stack watermark.
+
+Using the larger ADC audit image:
+
+`2048 - 894 - 294 = 860 B` remaining.
+
+This is 412 B above the required 448 B reserve. The static allocation, stack bound and reserve arithmetic meet their software audit limits for this exact build.
+
+### Artifact hashes
+
+- MotoreRevV2 HEX: `97cdfa5d148ecf953371598e549b7e5e6e2c656be6a693fc208b22027ef41e69`
+- MotoreRevV2 ELF: `08fd69e35cdd527636879e5d06aeee552d40868c20084e7f6bf45c4a840e765d`
+- MotoreRevV2 map: `14c79f95b62d70fa28808d16fd40e9a662d283e7f34924fee01d202365681550`
+
+The artifact is compile/audit evidence only. No HEX was uploaded. This does not qualify physical UART throughput with 24-byte rings, ADC timing, physical STOP, BOD/voltage monitoring, EEPROM power-fail behavior, current limiting, direction polarity, analog calibration, or motor cutoff. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains unchanged.
