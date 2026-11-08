@@ -181,3 +181,53 @@ Hosted-runner profile workflow [42241208363](https://github.com/hamtech86/mini4w
 The host-side CI on the same code/test head `ede304a7bd1dc2c2b75aa6d5359f5685205352a5` passed all four jobs; full suite **611 passed, 2 xfailed in 10.29s**. Native protocol-v2 and Arduino Uno compile/resource jobs also succeeded.
 
 **Evidence boundary:** the hosted-runner profile is software-path verification, not the approved target Linux host/storage measurement. The target-host full production-path profile remains NOT RUN. Therefore T18 end-to-end acceptance remains BLOCKED pending that target-host run and the remaining recovery/backup evidence. No hardware was connected or energized; `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains unchanged. PR #190 remains Draft/Open/Unmerged.
+
+## 2026-11-08 upper-command continuation — 194-byte workspace correction and unified CI
+
+The earlier integrated firmware audit used a 48-byte RX workspace and a 188-byte TX workspace. That did **not** satisfy the previously accepted 194-byte RX and 194-byte TX workspace contract. The discrepancy is corrected in the candidate source; the earlier workspace-size statement is superseded.
+
+### Source changes
+
+- RX frame workspace is now exactly 194 bytes.
+- TX frame workspace is now exactly 194 bytes; the maximum encoded protocol-v2 frame remains 188 bytes.
+- HardwareSerial RX/TX rings are each 24 bytes, with a 24-byte foreground RX service budget. The same ring-size macros are used for the sketch and Arduino core compile.
+- The command-cache empty sentinel is `command_id == 0`; protocol v2 requires nonzero command IDs. This removes the redundant per-entry `used` byte without changing command replay/conflict identity.
+- The ADC_BATCH payload remains built directly in the TX workspace; no second frame/payload shadow or unbounded queue was introduced.
+
+### Exact software verification
+
+Code/test source HEAD: `c2ba0a431a96d586c4449b4b98f8c31acd55bfb3`.
+
+- Break-in/Battery Tests workflow `42463230261`: all four host test jobs succeeded; full suite **615 passed, 2 xfailed**.
+- Native protocol-v2 workflow `42463230282`: success.
+- Arduino Uno Firmware Compile workflow `42463230241`: success, including production image, ADC resource-audit image and compile-only boot identity provisioner.
+- Production image: `.data=146 B`, `.bss=747 B`, static total **893 B**.
+- ADC audit image: `.data=146 B`, `.bss=748 B`, static total **894 B**.
+- RX workspace **194 B**; TX workspace **194 B**; UART RX/TX rings **24 B each**.
+- Largest GCC stack frame: 171 B. Reviewed conservative nested stack bound: **294 B**.
+- Remaining SRAM using the larger audit image: `2048 - 894 - 294 = 860 B`, which is **412 B above** the required 448 B reserve.
+- Provisioning image: 3,044 B flash / 252 B global memory; compile-only, not uploaded.
+
+The exact ELF/map/HEX hashes and calculation are recorded in `docs/310/310-5-avr-resource-audit.md`.
+
+### T18 diagnostics and target-host boundary
+
+- PR #191, which adds observational fsync and RawLog append timing to the T18 production-path profile, was merged into this integration branch at merge commit `d0f5fcb0daa74b016d13d94bd35ec26e4511d587`. It does not skip, defer, combine or reorder durability operations.
+- Its GitHub-hosted production-path run passed all 31 simulated stages; p99 stage execution was 3,278.349 ms. This is hosted-runner software evidence, not the approved target-host/storage profile.
+- The user's target-host run has an existing persistent `.310-rearm-inhibited` marker after interrupted work. The controller intentionally blocks automatic re-arm until command-outcome reconciliation. Do not delete the marker, force-remove the work area, reset RawLog, or bypass the inhibit. The target-host production-path profile is therefore still not accepted.
+
+### Remaining acceptance boundary
+
+The following are not closed by CI or static analysis:
+
+- R01: explicit command-outcome reconciliation and authorized release of the persistent re-arm inhibit.
+- T09/T15 and HW07: independent physical STOP channel, MCU behavior under sustained UART load, external inhibit/L298N cutoff and measured stop latency.
+- HW01–HW05: MCU/fuse/BOD and voltage-monitor qualification, EEPROM power-fail/brownout and journal behavior.
+- HW06: ADC reference, calibration, settling and channel accuracy.
+- HW08: current-limit confirmation and the controlled PWM 0–30 integrated safety qualification.
+- T18: approved target-host full production-path profile, including actual RawLog/Evidence/intent persistence, finalization/recovery and backup/restore.
+- Physical serial interoperability and the separately authorized physical 310-second measurement.
+
+No Arduino upload, serial hardware connection, motor energization, EEPROM/fuse operation, or physical test occurred. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains unchanged.
+
+**Disposition:** software integration and automated checks have advanced, but formal T01–T18 acceptance is still **0 PASS** and 310-5 is not formally accepted. PR #190 remains Draft/Open/Unmerged. 310-6 UI integration has not started; its entry condition remains formal 310-5 acceptance.
