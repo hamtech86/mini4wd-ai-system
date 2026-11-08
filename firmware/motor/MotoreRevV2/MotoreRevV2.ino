@@ -36,8 +36,9 @@ using namespace mini4wd310;
 
 static_assert(kMaxV2WireSize == 188, "v2 wire-size change requires an SRAM review");
 static const uint8_t kMaxHostCommandWireSize = 41;
-static const uint8_t kRxWorkspaceSize = 48;
-static_assert(kRxWorkspaceSize >= kMaxHostCommandWireSize, "RX workspace too small for the largest host command");
+static const uint16_t kRxWorkspaceSize = kMaxWireSize;
+static_assert(kRxWorkspaceSize == 194, "RX workspace must retain the full 194-byte contract");
+static_assert(kMaxV2WireSize <= kMaxWireSize, "v2 frame must fit the full RX/TX workspace");
 
 static const uint8_t PIN_PWM = 5;
 static const uint8_t PIN_IN3 = 7;
@@ -111,6 +112,7 @@ static Device* device = 0;
 // RX owns its one frame workspace. ADC_BATCH assembly is owned directly by
 // the TX scheduler's one TX workspace; no second payload/frame shadow exists.
 static uint8_t rx_buffer[kRxWorkspaceSize];
+static_assert(sizeof(rx_buffer) == 194, "RX workspace size changed");
 static uint16_t rx_length = 0;
 static bool rx_discard_until_delimiter = false;
 static uint8_t adc_batch_count = 0;
