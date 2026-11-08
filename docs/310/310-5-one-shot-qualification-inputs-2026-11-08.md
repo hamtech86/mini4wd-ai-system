@@ -56,7 +56,7 @@ HW08は出力最大値探索ではない。Pythonが31段階を管理し、Ardui
 
 ### 4.1 現在の合格済みソフトウェア証拠
 
-Code/test source HEAD: `c2ba0a431a96d586c4449b4b98f8c31acd55bfb3`
+Code/test source HEAD: `3b065388501d4be91f39b5c6d197cecf52c53f17`
 
 - Full suite: **615 passed, 2 xfailed**。全4 host jobs success。
 - Native protocol-v2 workflow: success。
@@ -88,3 +88,30 @@ Code/test source HEAD: `c2ba0a431a96d586c4449b4b98f8c31acd55bfb3`
 5. 上位司令塔が最終審査し、正式受入を宣言する。
 
 **現時点の判定: 310-5 NOT ACCEPTED。310-6 UI統合は未着手。**
+
+## 6. T01–T18 current evidence map
+
+The controlling test definitions are `docs/310/310-4-implementation-acceptance-tests-2026-11-02.md` at accepted 310-4 design HEAD `73a123d58005f1a04f4a207811e740153ac779e0`. Current evidence is separated below from physical completion.
+
+| Test | Current software evidence | Still prevents full PASS |
+|---|---|---|
+| T01 Session identity | The old 32-bit tag allocator was superseded by the adopted full UUID session identity in protocol v2; zero/invalid session and handshake paths are covered by host/device tests. | Final traceability must record the superseding design decision; no legacy tag allocator PASS is claimed. |
+| T02 Device sequence / gap | Device-owned uint64 monotonic allocation, batch-boundary exhaustion and fail-closed behavior are covered by native tests; host RawLog sequence/recovery tests run in CI. | Full duplicate/conflict/gap matrix and actual reboot/epoch continuity still require final evidence reconciliation. |
+| T03 Boot epoch / checkpoint | Full boot identity journal emulator, corrupt/duplicate/exhaustion/write-failure tests, HELLO/epoch handling and host re-arm gate tests are present. | Physical EEPROM power-loss and real boot identity behavior remain untested. |
+| T04 Partial TX / ACK | Host tests cover short/failed write, flush exception/timeout, ACK mismatch/timeout, fragmented/coalesced frames and post-flush timestamp origin; device ACKs echo session/epoch/command/context. | Physical UART delivery and complete target fault-injection matrix remain unqualified. |
+| T05 fsync / crash / latency | Host fault injection, RawLog recovery, durable intent/Evidence tests and persistence diagnostics are present; full suite passes. | Approved target-host production-path latency/fault/recovery profile remains NOT RUN. |
+| T06 EEPROM interruption | Native journal emulator covers invalid/corrupt/duplicate generation, exhaustion and write-failure boundaries. | Actual EEPROM power interruption and brownout are NOT RUN. |
+| T07 ADC cadence | Native scheduler tests cover channel order, 25/75 ms pattern, overrun-to-NOT_ACQUIRED and micros wrap. | Reference acquisition, channel settling, PWM-phase error and physical timing qualification are NOT RUN. |
+| T08 SRAM / stack | Exact Uno build and ADC audit images meet static memory limits; 894 B static, 294 B conservative nested stack, 860 B remaining. | On-board stack watermark and worst-case physical runtime occupancy are NOT RUN. |
+| T09 STOP under TX blockage | Native TX scheduler test verifies STOP_ACK preempts ADC batch ownership; host independent STOP writer tests distinct bounded endpoint and failure latch. | Independent physical STOP wiring, MCU freeze behavior, driver cutoff and measured physical latency are NOT RUN. |
+| T10 RawLog / Evidence closure | Companion manifest binds RawLog and Evidence hashes/counts; tamper, mismatch and extra-file tests are present; original two-file RawLog schema remains unchanged. | Actual target-host backup/restore and power-loss recovery are NOT RUN. |
+| T11 Channel/window loss | Firmware assigns device-owned sequence per attempted slot; host persists ADC_BATCH slots as ADC_SAMPLE and tracks per-channel/window loss summaries; hosted production profile checks 310 summaries. | Actual hardware acquisition/loss behavior and target-host end-to-end loss reconciliation remain unqualified. |
+| T12 310-3 compatibility | Exact code/test HEAD full suite: 615 passed, 2 xfailed; Break-in/Battery/RawLog-sequence jobs all success. | CI is software regression evidence only; no physical behavior claim. |
+| T13 EEPROM endurance / BOD | Journal layout and compile-only provisioner exist; native emulator covers state/failure logic. | Datasheet-backed 36,600-event wear proof, fuse/BOD readback, external supervisor and hold-up waveforms are BLOCKED. |
+| T14 SRAM/map/ownership | RX/TX workspaces exactly 194 B each; static .data+.bss 894 B; conservative stack 294 B; reserve 860 B; no second ADC staging buffer or unbounded queue. | On-board watermark, physical UART occupancy and live overflow/ownership trace are NOT RUN. |
+| T15 STOP congestion / MCU fault | Host and native tests cover STOP priority, pending TX reply and STOP during ADC batch; fail-closed output state is software-tested. | Physical MCU reset/freeze, independent enable cutoff and measured driver inactive waveform are NOT RUN. |
+| T16 ADC acquisition / precision | Firmware has bounded conversion timeout and explicit PRECONDITION_INVALID / CONVERSION_TIMEOUT / NOT_ACQUIRED slots; cadence scheduler is unit-tested. | Installed sensor variant, VREF/filter, traceable reference, uncertainty budget and physical accuracy limits are unknown/BLOCKED. |
+| T17 Loss / companion package | Software verifies companion manifest, RawLog/Evidence hashes and tamper cases; hosted profile verifies loss-window summaries. | Target-host restore and real interrupted-storage reconciliation remain NOT RUN. |
+| T18 fsync / deadline | 10,000-sample target-host synthetic fsync profile exists; GitHub-hosted production path completed 31 stages with all 310 loss summaries. | Actual target-host full production-path profile, including command intent, Evidence, RawLog finalize/recovery and backup/restore, remains NOT RUN. |
+
+**Formal disposition remains NOT ACCEPTED.** The table records software evidence only; it does not convert any physical subtest to PASS. The outstanding R01, T13/T15 physical qualification, T16 analog reference qualification, T18 target-host production profile and HW01–HW08 gates must close before formal 310-5 acceptance.
