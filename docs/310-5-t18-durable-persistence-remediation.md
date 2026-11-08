@@ -1,0 +1,73 @@
+# 310-5 T18 durable-persistence remediation
+
+Status: remediation design recorded; implementation and target-host validation are still pending.
+
+## Evidence from the 2026-11-08 target-host run
+
+The profile completed and its JSON SHA-256 sidecar verified. It recorded 31 stages, 3,100 ADC batches, 37,200 ADC slots, 10,143 Evidence events, and 310 loss-window summaries. RawLog validation returned zero errors, the Evidence bundle verified, and all loss-window summaries passed.
+
+The profile status is nevertheless **FAIL**: every stage exceeded the 8,000 ms budget. Stage elapsed time was p50 24,518.446 ms, p95 25,223.586 ms, and max/p99.9 32,578.374 ms.
+
+Observed cumulative synchronization costs:
+
+| Operation | Calls | Cumulative time |
+| --- | ---: | ---: |
+| Evidence file fsync | 10,143 | 393,453.462 ms |
+| RawLog records file fsync | 3,196 | 122,668.360 ms |
+| RawLog work-state file fsync | 3,197 | 132,303.325 ms |
+| RawLog directory fsync | 3,207 | 72,429.335 ms |
+
+The run used an in-memory Protocol V2 peer and the real host filesystem persistence path. No physical device was opened. This is a target-host software/persistence profile, not physical STOP or hardware-safety evidence.
+
+## Root cause in the current persistence path
+
+1. Each Evidence event is appended under the journal lock and individually file-fsynced. A received ADC batch creates multiple sequential Evidence events (RX bytes, decoded frame, accepted batch), so one telemetry batch incurs repeated durable writes.
+2. Each RawLog `append_many` call fsyncs `records.jsonl`, then atomically replaces and fsyncs `work_state.json`, including a parent-directory fsync. The T18 run invokes this path approximately once per ADC batch.
+3. The measured cumulative costs overlap by design: `rawlog_append_many` timing contains its internal fsync calls and must not be added to the fsync totals as a separate cost.
+
+## Required remediation design
+
+### A. Evidence journal transaction batches
+
+- Add an append-many operation that validates and serializes a bounded ordered group, constructs the hash chain in memory, writes the concatenated JSONL payload under one exclusive lock, and performs one file fsync before returning.
+- Preserve a distinct event ID and hash for every event; each event's `previous_hash` must reference the immediately preceding event in the same transaction or the prior durable chain head.
+- Update the cached file signature and chain head only after the complete write and fsync succeed.
+- On short write/fsync/lock failure, invalidate cached chain state and fail closed. A retry must re-read and validate the durable file; it must not silently append after an uncertain boundary.
+- Keep command-intent, FRAME_TX intent/completion, HELLO/ARM/APPLY_ACK/DISARM ACK correlation, protocol errors, and other safety-transition evidence synchronously durable before the caller can advance the corresponding state.
+- ADC telemetry may be grouped only within an explicitly bounded persistence window. A proposed upper bound is 10 batches (about one second at the current 100 ms batch cadence); this is a design ceiling, not permission to mark buffered records durable.
+- Flush pending telemetry before DISARM completion, before any subsequent ARM/command transition, and before normal finalization. Do not put a flush/fsync dependency on the independent STOP transmission path.
+- If a process crash loses an uncommitted telemetry group, preserve it as an attributable/unattributable sequence gap during restart reconciliation. Never synthesize missing raw ADC values or report the group as persisted.
+
+### B. RawLog bounded checkpointing
+
+- Preserve the current public RawLog v2 package schema and final two-file package (`manifest.json` and `records.jsonl`).
+- Investigate replacing per-ADC-batch `work_state.json` atomic replacement with a recoverable checkpoint model. The durable records JSONL must remain authoritative; startup recovery must derive the last complete record sequence/count from the preserved source bytes and must not trust a stale checkpoint as proof that later records were committed.
+- A candidate checkpoint cadence is no more than 10 ADC batches (about one second), with a durable records-file fsync at each checkpoint and a durable state checkpoint. Control/lifecycle records must force a checkpoint before the controller crosses a stage/ARM boundary.
+- Do not weaken directory-fsync requirements at package publication, recovery-original preservation, or manifest-last commit.
+- Keep the original crash source byte-for-byte preserved. Recovery must distinguish complete newline-terminated records, a partial tail, and a stale checkpoint; it must never rewrite the preserved original.
+
+### C. STOP and failure behavior
+
+- STOP transmission must remain independent of Evidence and RawLog locks, buffers, queue drains, and fsync.
+- A STOP write result remains distinct from a physical output-state confirmation.
+- Any persistence failure or uncertain command/ACK boundary must inhibit further ARM and keep the controller fail-closed.
+- No automatic resume is permitted after recovery.
+
+## Mandatory tests before a new T18 run
+
+1. Evidence append-many: exact hash-chain verification across multiple events, including existing-file append and process restart.
+2. Evidence failure injection: short write, fsync error, and interruption between write and fsync; retry must either validate and continue safely or fail closed.
+3. Crash injection at every RawLog checkpoint boundary: before records fsync, after records fsync, during checkpoint replacement, after checkpoint fsync, and during final publication.
+4. Recovery: preserve original bytes; rebuild sequence/count from complete records; discard only an unterminated tail from the derived package; never attribute ADC records to a missing PWM_STAGE.
+5. Ordering: no DISARM/next ARM may pass an uncommitted prior-stage record boundary.
+6. STOP: a deliberately blocked persistence writer must not delay the independent STOP writer; no fsync is allowed on the STOP critical path.
+7. Regression: full RawLog/Sequence, Break-in, Battery, and full Python test suites.
+8. Performance: repeat the full 31-stage production-path profile on the target host with real filesystem persistence. Require all 31 stages within 8,000 ms (including p99.9/max), all package/evidence/loss checks passing, and the separately specified save-stage maximum/p99.9 budget satisfied. Hosted-runner timings do not substitute for this result.
+
+## Current disposition
+
+- T18 target-host performance: **FAIL**.
+- 310-5: **NOT ACCEPTED**.
+- 310-6: **BLOCKED**.
+- PR #192 remains open and unmerged; this remediation branch does not merge it.
+- No Arduino connection, serial-device access, firmware upload, EEPROM/fuse operation, re-ARM, or motor energization is authorized by this work.
