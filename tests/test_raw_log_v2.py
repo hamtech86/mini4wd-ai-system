@@ -590,3 +590,46 @@ def test_normal_finalize_manifest_link_fsync_failure_is_reconfirmed_before_work_
     assert failures["remaining"]==0
     assert sorted(p.name for p in final.iterdir())==["manifest.json","records.jsonl"]
     assert json.loads((final/"manifest.json").read_text())["status"]=="completed"
+
+
+def test_recovery_demotes_confirmed_adc_when_pwm_stage_record_is_missing(tmp_path):
+    writer = RawLogV2Writer(tmp_path)
+    fields = manifest_fields()
+    session = writer.begin(fields)
+    session.append(session_event())
+    sample = {
+        "schema_version": "2.0.0", "record_type": "ADC_SAMPLE",
+        "record_id": "sample-orphan", "record_seq": 2,
+        "log_id": fields["log_id"], "measurement_session_id": fields["measurement_session_id"],
+        "recorded_at_utc": "2026-11-01T00:00:12.100Z", "sample_id": "sample-orphan",
+        "channel": "A0", "sensor": "ACS712 #1", "signal_role": "winding_current",
+        "adc_raw": 512, "adc_resolution_bits": 10, "raw_unit": "count",
+        "device_timestamp_us_u32": 10, "device_timestamp_point": "conversion_midpoint",
+        "device_epoch_id": "boot-1", "device_elapsed_us": 10, "device_sample_sequence": 1,
+        "host_received_at_utc": "2026-11-01T00:00:12.100Z",
+        "host_received_monotonic_ns": 12_100_000_000,
+        "stage_context_id": "context-without-stage", "stage_id": "PWM-12",
+        "stage_assignment": "confirmed", "calibration_id": None,
+        "validity": "valid", "invalid_reason": None,
+    }
+    session.append(sample)
+    original = (tmp_path / ".work" / fields["log_id"] / "records.jsonl").read_bytes()
+
+    recovery = writer.recover_incomplete(
+        fields["log_id"], recovered_at_utc="2026-11-01T00:00:20.000Z"
+    )
+
+    original_copy = (
+        tmp_path / ".recovery" / fields["log_id"] / recovery["recovery_id"]
+        / "original" / "records.jsonl"
+    )
+    assert original_copy.read_bytes() == original
+    final = tmp_path / fields["log_id"]
+    records = [json.loads(line) for line in (final / "records.jsonl").read_text().splitlines()]
+    recovered_sample = next(r for r in records if r.get("sample_id") == "sample-orphan")
+    assert recovered_sample["stage_assignment"] == "unresolved"
+    assert recovered_sample["stage_id"] is None
+    assert recovered_sample["stage_context_id"] is None
+    assert recovery["recovered_unattributed_adc_sample_ids"] == ["sample-orphan"]
+    manifest = json.loads((final / "manifest.json").read_text())
+    assert validate_package(manifest, records, raise_on_error=False) == []
