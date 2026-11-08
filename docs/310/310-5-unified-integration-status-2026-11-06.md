@@ -231,3 +231,20 @@ The following are not closed by CI or static analysis:
 No Arduino upload, serial hardware connection, motor energization, EEPROM/fuse operation, or physical test occurred. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains unchanged.
 
 **Disposition:** software integration and automated checks have advanced, but formal T01–T18 acceptance is still **0 PASS** and 310-5 is not formally accepted. PR #190 remains Draft/Open/Unmerged. 310-6 UI integration has not started; its entry condition remains formal 310-5 acceptance.
+
+## 2026-11-08 exact-head final software rerun
+
+A native regression was added for the command-cache memory optimization: command_id=0 is rejected, does not occupy a cache slot, and a subsequent nonzero ARM command is accepted/replayed idempotently.
+
+Exact code/test HEAD: `3b065388501d4be91f39b5c6d197cecf52c53f17`.
+
+- Break-in/Battery workflow `42463989878`: all four jobs success; full suite **615 passed, 2 xfailed**; RawLog/sequence 40 passed, break-in 19 passed, battery 9 passed.
+- Native protocol-v2 workflow `42463989902`: success, including the zero-command-ID/cache-sentinel regression.
+- Arduino Uno Firmware Compile `42463989888`: success, including production image, ADC resource-audit image and compile-only boot identity provisioner.
+- Exact-head artifact `13610293846`; build manifest `checked_out_sha` matches `3b065388...`.
+- Production static SRAM: 893 B; ADC audit static SRAM: 894 B.
+- RX/TX workspaces: 194 B each; UART RX/TX rings: 24 B each.
+- Conservative stack bound: 294 B; remaining SRAM: 860 B, 412 B above the 448 B reserve.
+- Firmware HEX/ELF/map hashes unchanged from the prior run because the exact-head delta is test-only.
+
+Documentation-only commits follow this code/test HEAD. No Arduino upload, serial hardware connection, motor energization, EEPROM/fuse operation, or physical test occurred. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains unchanged.
