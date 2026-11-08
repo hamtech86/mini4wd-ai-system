@@ -536,8 +536,6 @@ class RawLogV2Session:
             raise
         finally:
             os.close(fd)
-        previous_count = self.state["record_count"]
-        previous_seq = self.state["last_record_seq"]
         self.state["record_count"] = first + len(records) - 1
         self.state["last_record_seq"] = first + len(records) - 1
         self._appends_since_checkpoint += 1
