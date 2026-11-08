@@ -115,3 +115,23 @@ The controlling test definitions are `docs/310/310-4-implementation-acceptance-t
 | T18 fsync / deadline | 10,000-sample target-host synthetic fsync profile exists; GitHub-hosted production path completed 31 stages with all 310 loss summaries. | Actual target-host full production-path profile, including command intent, Evidence, RawLog finalize/recovery and backup/restore, remains NOT RUN. |
 
 **Formal disposition remains NOT ACCEPTED.** The table records software evidence only; it does not convert any physical subtest to PASS. The outstanding R01, T13/T15 physical qualification, T16 analog reference qualification, T18 target-host production profile and HW01–HW08 gates must close before formal 310-5 acceptance.
+
+## 7. One required target-host software run
+
+The remaining T18 target-host production-path run uses only `InMemoryProtocolV2Transport` and `InMemoryIndependentStopWriter`. It does not open `/dev/ttyACM0`, `/dev/ttyUSB0`, or any serial device, and it does not energize hardware. It performs real RawLog, command-intent, Evidence and filesystem fsync operations on the selected host filesystem.
+
+Run it from the existing local clone on the target storage, using a **new output root**. The previous incomplete root and its `.310-rearm-inhibited` marker are left untouched:
+
+```bash
+cd ~/mini4wd-ai-system-t18-pr190 &&
+git fetch origin integration/310-5-unified-candidate &&
+git switch integration/310-5-unified-candidate &&
+git pull --ff-only origin integration/310-5-unified-candidate &&
+test ! -e artifacts/310-t18-production-final-20261108-01 &&
+python -m measurement_310.t18_production_profile \
+  --output-dir ./artifacts/310-t18-production-final-20261108-01
+```
+
+The expected output directory contains `t18-production-profile.json`, `t18-production-stage-profile.csv`, their checksum, and a `rawlog/` tree. The JSON includes per-stage fsync target counts/total/max, p50/p95/p99/p99.9/max, stage timing, RawLog/Evidence/intent hashes, 310 loss-window summaries and validation results. A PASS requires all 31 stages under 8 seconds, 3,100 ADC_BATCH frames, 37,200 ADC_SAMPLE records, 310 passing loss-window summaries, verified companion Evidence bundle and exactly one normal-completion STOP_REQ through the in-memory writer.
+
+If this command fails or stalls, preserve the output root and process/storage evidence. Do not delete the output, remove the old marker, kill a D-state process, or rerun over the same output path. This run closes only T18 target-host software/storage evidence; it does not authorize or replace HW01–HW08.
