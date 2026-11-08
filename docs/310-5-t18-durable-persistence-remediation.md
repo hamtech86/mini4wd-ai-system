@@ -1,6 +1,6 @@
 # 310-5 T18 durable-persistence remediation
 
-Status: remediation design recorded; implementation and target-host validation are still pending.
+Status: implementation candidate committed in PR #193; full regression CI and target-host validation remain pending.
 
 ## Evidence from the 2026-11-08 target-host run
 
@@ -64,9 +64,25 @@ The run used an in-memory Protocol V2 peer and the real host filesystem persiste
 7. Regression: full RawLog/Sequence, Break-in, Battery, and full Python test suites.
 8. Performance: repeat the full 31-stage production-path profile on the target host with real filesystem persistence. Require all 31 stages within 8,000 ms (including p99.9/max), all package/evidence/loss checks passing, and the separately specified save-stage maximum/p99.9 budget satisfied. Hosted-runner timings do not substitute for this result.
 
+## First implementation candidate — hosted-runner result
+
+The first PR #193 implementation passed the full 31-stage T18 production-path workflow on the GitHub-hosted runner after the Evidence JSONL newline defect was corrected.
+
+- Profile status: PASS.
+- Stage count: 31; ADC batches: 3,100; ADC slots: 37,200.
+- Evidence events: 10,143; loss-window summaries: 310; all loss windows PASS.
+- RawLog validation errors: 0; Evidence bundle verification: PASS.
+- Hosted-runner stage elapsed p50: 173.929 ms; p95: 204.792 ms; max/p99.9: 1,453.246 ms.
+- Hosted-runner total profile elapsed: 6,772.749 ms.
+- Evidence file fsync: 873 calls / 266.418 ms total.
+- RawLog work-state fsync: 322 calls / 105.498 ms total.
+- RawLog records fsync: 3,196 calls / 1,109.005 ms total.
+
+These numbers demonstrate that the implementation preserves the profile's checks and improves the hosted-runner path. They do **not** replace the required run on the user's target host. The full regression suite is still being corrected/validated.
+
 ## Current disposition
 
-- T18 target-host performance: **FAIL**.
+- Original 2026-11-08 T18 target-host performance: **FAIL**.
 - 310-5: **NOT ACCEPTED**.
 - 310-6: **BLOCKED**.
 - PR #192 remains open and unmerged; this remediation branch does not merge it.
