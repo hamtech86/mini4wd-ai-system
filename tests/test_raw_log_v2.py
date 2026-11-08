@@ -242,7 +242,7 @@ def test_crash_after_manifest_commit_keeps_committed_package(tmp_path, monkeypat
     calls={"count":0}
     def fail_after_manifest(path, value):
         calls["count"] += 1
-        if calls["count"] == 2:
+        if calls["count"] == 3:
             raise OSError("simulated process crash after manifest publication")
         return original(path, value)
     monkeypatch.setattr(storage, "_atomic_replace_json", fail_after_manifest)
