@@ -590,3 +590,60 @@ def test_normal_finalize_manifest_link_fsync_failure_is_reconfirmed_before_work_
     assert failures["remaining"]==0
     assert sorted(p.name for p in final.iterdir())==["manifest.json","records.jsonl"]
     assert json.loads((final/"manifest.json").read_text())["status"]=="completed"
+
+
+
+def test_work_state_is_checkpointed_at_configured_append_interval(tmp_path):
+    writer = RawLogV2Writer(tmp_path, checkpoint_interval=2)
+    session = writer.begin(manifest_fields())
+    work_state_path = tmp_path / ".work" / "MOTOR-310-TEST" / "work_state.json"
+
+    first = session_event()
+    session.append(first)
+    assert json.loads(work_state_path.read_text())["record_count"] == 0
+
+    second = session_event()
+    second["record_id"] = "event-second"
+    second["record_seq"] = 2
+    session.append(second)
+    state = json.loads(work_state_path.read_text())
+    assert state["record_count"] == 2
+    assert state["last_record_seq"] == 2
+
+
+def test_crash_recovery_reconstructs_records_when_work_state_checkpoint_is_stale(tmp_path):
+    writer = RawLogV2Writer(tmp_path, checkpoint_interval=10)
+    session = writer.begin(manifest_fields())
+    session.append(session_event())
+    second = session_event()
+    second["record_id"] = "event-second"
+    second["record_seq"] = 2
+    session.append(second)
+
+    work_state_path = tmp_path / ".work" / "MOTOR-310-TEST" / "work_state.json"
+    stale_state = json.loads(work_state_path.read_text())
+    assert stale_state["record_count"] == 0
+    assert stale_state["last_record_seq"] == 0
+
+    recovery = writer.recover_incomplete(
+        "MOTOR-310-TEST", recovered_at_utc="2026-11-01T00:02:00.000Z"
+    )
+    final = tmp_path / "MOTOR-310-TEST"
+    manifest = json.loads((final / "manifest.json").read_text())
+    records = [json.loads(line) for line in (final / "records.jsonl").read_text().splitlines()]
+
+    assert recovery["complete_json_record_count"] == 2
+    assert manifest["record_counts"] == {"SESSION_EVENT": 2}
+    assert len(records) == 2
+    assert [record["record_seq"] for record in records] == [1, 2]
+    assert recovery["validation_errors"] == []
+    original = (tmp_path / ".recovery" / "MOTOR-310-TEST" /
+                recovery["recovery_id"] / "original" / "work_state.json")
+    assert json.loads(original.read_text()) == stale_state
+
+
+def test_rawlog_checkpoint_interval_must_be_positive_integer(tmp_path):
+    with pytest.raises(ValueError, match="checkpoint_interval"):
+        RawLogV2Writer(tmp_path, checkpoint_interval=0)
+    with pytest.raises(ValueError, match="checkpoint_interval"):
+        RawLogV2Writer(tmp_path, checkpoint_interval=True)
