@@ -209,6 +209,156 @@ def _manifest(root: Path, log_id: str, session_id: str, clock: DeterministicCloc
     }
 
 
+
+
+class PersistenceProfiler:
+    """Opt-in, observational timing for production persistence calls.
+
+    It wraps os.fsync and RawLogV2Session.append_many only while the T18
+    profile is running, then restores both functions. It never skips, batches,
+    reorders, or changes any durability operation.
+    """
+
+    FSYNC_BUCKETS = (
+        "rawlog_records_file", "rawlog_work_state_file",
+        "evidence_file", "command_intent_file", "rawlog_directory",
+        "evidence_directory", "command_intent_directory", "other_file",
+        "other_directory",
+    )
+
+    def __init__(self):
+        from collections import defaultdict
+        self.current_stage = -1
+        self._stats = defaultdict(lambda: defaultdict(
+            lambda: {"count": 0, "total_ns": 0, "max_ns": 0}
+        ))
+        self._original_fsync = None
+        self._original_append_many = None
+        self._storage_module = None
+
+    @staticmethod
+    def _fd_path(fd):
+        try:
+            return os.readlink(f"/proc/self/fd/{fd}")
+        except OSError:
+            return "<unresolved-fd>"
+
+    @classmethod
+    def _fsync_bucket(cls, fd):
+        path = cls._fd_path(fd)
+        try:
+            is_directory = os.path.isdir(f"/proc/self/fd/{fd}")
+        except OSError:
+            is_directory = False
+        name = Path(path).name
+        if not is_directory:
+            if name == "records.jsonl":
+                return "rawlog_records_file"
+            if name.startswith(".state-"):
+                return "rawlog_work_state_file"
+            if name == "transport-evidence-v1.jsonl":
+                return "evidence_file"
+            if name == "command-intents-v1.jsonl":
+                return "command_intent_file"
+            return "other_file"
+        if ".transport-evidence" in path:
+            return "evidence_directory"
+        if ".command-intents" in path:
+            return "command_intent_directory"
+        if "/rawlog/" in path or path.endswith("/rawlog"):
+            return "rawlog_directory"
+        return "other_directory"
+
+    def _record(self, stage, key, elapsed_ns):
+        row = self._stats[stage][key]
+        row["count"] += 1
+        row["total_ns"] += elapsed_ns
+        row["max_ns"] = max(row["max_ns"], elapsed_ns)
+
+    def __enter__(self):
+        from raw_log_v2 import storage
+        self._storage_module = storage
+        self._original_fsync = os.fsync
+        self._original_append_many = storage.RawLogV2Session.append_many
+        profiler = self
+
+        def measured_fsync(fd):
+            bucket = profiler._fsync_bucket(fd)
+            started = time.perf_counter_ns()
+            try:
+                return profiler._original_fsync(fd)
+            finally:
+                profiler._record(profiler.current_stage, "fsync_" + bucket,
+                                 time.perf_counter_ns() - started)
+
+        def measured_append_many(session, records):
+            started = time.perf_counter_ns()
+            try:
+                return profiler._original_append_many(session, records)
+            finally:
+                profiler._record(profiler.current_stage, "rawlog_append_many",
+                                 time.perf_counter_ns() - started)
+
+        os.fsync = measured_fsync
+        storage.RawLogV2Session.append_many = measured_append_many
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        if self._original_fsync is not None:
+            os.fsync = self._original_fsync
+        if self._storage_module is not None and self._original_append_many is not None:
+            self._storage_module.RawLogV2Session.append_many = self._original_append_many
+        return False
+
+    def snapshot(self, stage):
+        return {
+            key: dict(value)
+            for key, value in self._stats.get(stage, {}).items()
+        }
+
+    @staticmethod
+    def delta(before, after):
+        result = {}
+        keys = set(before) | set(after)
+        for key in keys:
+            left = before.get(key, {"count": 0, "total_ns": 0, "max_ns": 0})
+            right = after.get(key, {"count": 0, "total_ns": 0, "max_ns": 0})
+            result[key] = {
+                "count": right["count"] - left["count"],
+                "total_ns": right["total_ns"] - left["total_ns"],
+                "max_ns": right["max_ns"],
+            }
+        return result
+
+    def stage_summary(self, stage):
+        stats = self._stats.get(stage, {})
+        result = {}
+        keys = ["rawlog_append_many"] + [
+            "fsync_" + bucket for bucket in self.FSYNC_BUCKETS
+        ]
+        for key in keys:
+            value = stats.get(key, {"count": 0, "total_ns": 0, "max_ns": 0})
+            result[key + "_count"] = value["count"]
+            result[key + "_total_ms"] = value["total_ns"] / 1_000_000
+            result[key + "_max_ms"] = value["max_ns"] / 1_000_000
+        return result
+
+    def overall_summary(self):
+        keys = set()
+        for stats in self._stats.values():
+            keys.update(stats)
+        result = {}
+        for key in sorted(keys):
+            count = sum(self._stats[stage][key]["count"] for stage in self._stats)
+            total = sum(self._stats[stage][key]["total_ns"] for stage in self._stats)
+            maximum = max(self._stats[stage][key]["max_ns"] for stage in self._stats)
+            result[key] = {
+                "count": count, "total_ms": total / 1_000_000,
+                "max_ms": maximum / 1_000_000,
+            }
+        return result
+
+
 def run_profile(output_dir: os.PathLike | str) -> dict:
     output = Path(output_dir).resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -244,57 +394,61 @@ def run_profile(output_dir: os.PathLike | str) -> dict:
         protocol, stop_abort, clock=clock, send_normal_stop=stop_normal,
         stage_direction=lambda _index: int(DriveDirection.FWD),
     )
-    controller.startup_recover()
-
     stage_rows: list[dict] = []
     total_batches = 0
     total_slots = 0
     profile_start = time.perf_counter_ns()
     stage_zero_start = time.perf_counter_ns()
-    controller.start()
+    profiler = PersistenceProfiler()
+    controller.startup_recover()
 
-    for stage_index in range(31):
-        stage_start = stage_zero_start if stage_index == 0 else time.perf_counter_ns()
-        state = controller.poll()  # APPLY_ACK is decoded/correlated by production session.
-        if state.value != "running":
-            raise RuntimeError(
-                f"stage {stage_index} did not enter RUNNING after APPLY_ACK: {state.value}"
-            )
-        first_sequence = stage_index * SLOTS_PER_STAGE
-        for batch_index in range(BATCHES_PER_STAGE):
-            transport.queue_adc_batch(
-                session_id, stage_index + 1,
-                first_sequence + batch_index * SLOTS_PER_BATCH,
-            )
-            state = controller.poll()
+    with profiler:
+        controller.start()
+        for stage_index in range(31):
+            profiler.current_stage = stage_index
+            stage_start = stage_zero_start if stage_index == 0 else time.perf_counter_ns()
+            state = controller.poll()  # APPLY_ACK is decoded/correlated by production session.
             if state.value != "running":
                 raise RuntimeError(
-                    f"stage {stage_index} stopped while processing ADC batch {batch_index}: {state.value}"
+                    f"stage {stage_index} did not enter RUNNING after APPLY_ACK: {state.value}"
                 )
-            total_batches += 1
-            total_slots += SLOTS_PER_BATCH
-        clock.advance_stage()
-        state = controller.poll()  # Production stage DISARM, stage record and next ARM.
-        elapsed_ns = time.perf_counter_ns() - stage_start
-        stage_rows.append({
-            "stage_index": stage_index,
-            "pwm": stage_index,
-            "adc_batches": BATCHES_PER_STAGE,
-            "adc_slots": SLOTS_PER_STAGE,
-            "elapsed_ns": elapsed_ns,
-            "elapsed_ms": elapsed_ns / 1_000_000,
-            "budget_ms": STAGE_BUDGET_NS / 1_000_000,
-            "within_8s_budget": elapsed_ns <= STAGE_BUDGET_NS,
-        })
-        if stage_index < 30 and state.value != "waiting_ack":
-            raise RuntimeError(
-                f"stage {stage_index} did not advance to next ACK gate: {state.value}"
-            )
-        if stage_index == 30 and state.value != "completed":
-            raise RuntimeError(
-                f"31-stage sequence did not complete: {state.value}; "
-                f"controller_fault={controller._last_fault!r}"
-            )
+            first_sequence = stage_index * SLOTS_PER_STAGE
+            for batch_index in range(BATCHES_PER_STAGE):
+                transport.queue_adc_batch(
+                    session_id, stage_index + 1,
+                    first_sequence + batch_index * SLOTS_PER_BATCH,
+                )
+                state = controller.poll()
+                if state.value != "running":
+                    raise RuntimeError(
+                        f"stage {stage_index} stopped while processing ADC batch {batch_index}: {state.value}"
+                    )
+                total_batches += 1
+                total_slots += SLOTS_PER_BATCH
+            clock.advance_stage()
+            state = controller.poll()  # Production stage DISARM, stage record and next ARM.
+            elapsed_ns = time.perf_counter_ns() - stage_start
+            stage_metrics = profiler.stage_summary(stage_index)
+            stage_rows.append({
+                "stage_index": stage_index,
+                "pwm": stage_index,
+                "adc_batches": BATCHES_PER_STAGE,
+                "adc_slots": SLOTS_PER_STAGE,
+                "elapsed_ns": elapsed_ns,
+                "elapsed_ms": elapsed_ns / 1_000_000,
+                "budget_ms": STAGE_BUDGET_NS / 1_000_000,
+                "within_8s_budget": elapsed_ns <= STAGE_BUDGET_NS,
+                **stage_metrics,
+            })
+            if stage_index < 30 and state.value != "waiting_ack":
+                raise RuntimeError(
+                    f"stage {stage_index} did not advance to next ACK gate: {state.value}"
+                )
+            if stage_index == 30 and state.value != "completed":
+                raise RuntimeError(
+                    f"31-stage sequence did not complete: {state.value}; "
+                    f"controller_fault={controller._last_fault!r}"
+                )
 
     total_elapsed_ns = time.perf_counter_ns() - profile_start
     package_dir = rawlog_root / log_id
@@ -351,6 +505,12 @@ def run_profile(output_dir: os.PathLike | str) -> dict:
         "created_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "status": "PASS" if profile_pass else "FAIL",
         "stage_budget_ms": 8000,
+        "persistence_diagnostics": {
+            "method": "observational os.fsync and RawLogV2Session.append_many wrappers",
+            "durability_operations_changed": False,
+            "fsync_by_target": profiler.overall_summary(),
+            "scope_note": "Per-stage values include calls attributed during each measured stage; setup and final report writes are outside the stage rows.",
+        },
         "stage_count": len(stage_rows),
         "adc_batches": total_batches,
         "adc_slots": total_slots,

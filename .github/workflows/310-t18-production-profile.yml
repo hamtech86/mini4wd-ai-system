@@ -4,6 +4,10 @@ on:
   push:
     branches:
       - integration/310-5-unified-candidate
+      - diagnostics/t18-storage-breakdown
+  pull_request:
+    branches:
+      - integration/310-5-unified-candidate
   workflow_dispatch:
 
 permissions:
