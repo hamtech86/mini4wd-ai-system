@@ -235,3 +235,15 @@ This is 412 B above the required 448 B reserve. The static allocation, stack bou
 - MotoreRevV2 map: `14c79f95b62d70fa28808d16fd40e9a662d283e7f34924fee01d202365681550`
 
 The artifact is compile/audit evidence only. No HEX was uploaded. This does not qualify physical UART throughput with 24-byte rings, ADC timing, physical STOP, BOD/voltage monitoring, EEPROM power-fail behavior, current limiting, direction polarity, analog calibration, or motor cutoff. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains unchanged.
+
+### Exact-head rerun — 2026-11-08 08:41Z
+
+The same firmware sources were rebuilt and re-audited at exact code/test HEAD `3b065388501d4be91f39b5c6d197cecf52c53f17`:
+
+- Arduino Uno Firmware Compile run: `42463989888`
+- Artifact ID: `13610293846`
+- Build manifest `checked_out_sha` matches the exact HEAD.
+- Production: `.data=146 B`, `.bss=747 B`, total 893 B.
+- ADC audit: `.data=146 B`, `.bss=748 B`, total 894 B.
+- Largest individual frame 171 B; nested bound 294 B; remaining SRAM 860 B.
+- HEX/ELF/map hashes are unchanged from the preceding section because this exact-head change adds only a native regression test and does not modify firmware sources.
