@@ -83,7 +83,7 @@ Code/test source HEAD: `3b065388501d4be91f39b5c6d197cecf52c53f17`
 
 1. T01–T18の全必須項目について、対象HEAD・実行条件・証拠をひも付け、PASS/FAIL/BLOCKED/NOT RUNを明示する。
 2. HW01–HW07が合格し、current limit、external supervisor、独立STOP/cutoff、EEPROM/BOD/ADC条件を実証する。
-3. T18 target-host production pathとR01 reconciliationが完了する。
+3. T18 target-host profileは診断結果として実施・記録する。未実施または時間超過のみで自動FAILとせず、データ整合性・制御境界への具体的影響を審査する。R01はUNKNOWNの誤認と自動再始動を防ぐ最小要件を満たす。
 4. HW08の310秒測定は、独立current limitとcutoffの確認後、別途明示承認を得て実施し、証拠を保存する。
 5. 上位司令塔が最終審査し、正式受入を宣言する。
 
@@ -118,7 +118,7 @@ The controlling test definitions are `docs/310/310-4-implementation-acceptance-t
 
 ## 7. One required target-host software run
 
-The remaining T18 target-host production-path run uses only `InMemoryProtocolV2Transport` and `InMemoryIndependentStopWriter`. It does not open `/dev/ttyACM0`, `/dev/ttyUSB0`, or any serial device, and it does not energize hardware. It performs real RawLog, command-intent, Evidence and filesystem fsync operations on the selected host filesystem.
+The optional T18 target-host diagnostic uses only `InMemoryProtocolV2Transport` and `InMemoryIndependentStopWriter`. It does not open `/dev/ttyACM0`, `/dev/ttyUSB0`, or any serial device, and it does not energize hardware. It performs real RawLog, command-intent, Evidence and filesystem fsync operations on the selected host filesystem.
 
 Run it from the existing local clone on the target storage, using a **new output root**. The previous incomplete root and its `.310-rearm-inhibited` marker are left untouched:
 
@@ -132,7 +132,7 @@ python -m measurement_310.t18_production_profile \
   --output-dir ./artifacts/310-t18-production-final-20261108-01
 ```
 
-The expected output directory contains `t18-production-profile.json`, `t18-production-stage-profile.csv`, their checksum, and a `rawlog/` tree. The JSON includes per-stage fsync target counts/total/max, p50/p95/p99/p99.9/max, stage timing, RawLog/Evidence/intent hashes, 310 loss-window summaries and validation results. A PASS requires all 31 stages under 8 seconds, 3,100 ADC_BATCH frames, 37,200 ADC_SAMPLE records, 310 passing loss-window summaries, verified companion Evidence bundle and exactly one normal-completion STOP_REQ through the in-memory writer.
+The expected output directory contains `t18-production-profile.json`, `t18-production-stage-profile.csv`, their checksum, and a `rawlog/` tree. The JSON includes per-stage fsync target counts/total/max, p50/p95/p99/p99.9/max, stage timing, RawLog/Evidence/intent hashes, 310 loss-window summaries and validation results. A PASS requires 31 stages, 3,100 ADC_BATCH frames, 37,200 ADC_SAMPLE records, 310 passing loss-window summaries, verified companion Evidence bundle and exactly one normal-completion STOP_REQ through the in-memory writer. Stage elapsed time is observational only and is not an acceptance gate.
 
 If this command fails or stalls, preserve the output root and process/storage evidence. Do not delete the output, remove the old marker, kill a D-state process, or rerun over the same output path. This run closes only T18 target-host software/storage evidence; it does not authorize or replace HW01–HW08.
 
