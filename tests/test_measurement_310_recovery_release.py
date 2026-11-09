@@ -52,6 +52,7 @@ def test_operator_release_records_attestation_before_removing_markers(tmp_path):
     event = json.loads(audit_path.read_text(encoding="utf-8").splitlines()[0])
     assert event["operator_id"] == "operator-1"
     assert event["operator_attestation"] == "MAIN_POWER_OFF_AND_ROTOR_STOPPED"
+    assert event["main_switch_isolation_verification"] == "OPERATOR_ATTESTED"
     assert event["physical_state_evidence"] == (
         "OPERATOR_ATTESTATION_ONLY_NOT_INDEPENDENTLY_MEASURED"
     )
@@ -73,7 +74,7 @@ def test_operator_release_refuses_incomplete_rawlog_work(tmp_path, monkeypatch):
             operator_id="operator-1",
             decision_note="checked",
             confirm_main_power_off=True,
-        main_switch_isolation_verified=True,
+            main_switch_isolation_verified=True,
         )
 
     assert marker.exists()
