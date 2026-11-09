@@ -19,6 +19,7 @@ def test_operator_release_requires_explicit_power_off_attestation(tmp_path):
             operator_id="operator-1",
             decision_note="checked",
             confirm_main_power_off=False,
+            main_switch_isolation_verified=False,
         )
 
     assert marker.exists()
@@ -37,6 +38,7 @@ def test_operator_release_records_attestation_before_removing_markers(tmp_path):
         operator_id="operator-1",
         decision_note="Main switch OFF; rotor visually stopped.",
         confirm_main_power_off=True,
+        main_switch_isolation_verified=True,
     )
 
     assert result["released"] == [marker.name for marker in markers]
@@ -71,6 +73,7 @@ def test_operator_release_refuses_incomplete_rawlog_work(tmp_path, monkeypatch):
             operator_id="operator-1",
             decision_note="checked",
             confirm_main_power_off=True,
+        main_switch_isolation_verified=True,
         )
 
     assert marker.exists()
@@ -88,6 +91,7 @@ def test_operator_release_refuses_symlinked_marker(tmp_path):
             operator_id="operator-1",
             decision_note="checked",
             confirm_main_power_off=True,
+        main_switch_isolation_verified=True,
         )
 
     assert target.read_text(encoding="utf-8") == "do not follow"
@@ -100,6 +104,7 @@ def test_operator_release_requires_a_marker(tmp_path):
             operator_id="operator-1",
             decision_note="checked",
             confirm_main_power_off=True,
+        main_switch_isolation_verified=True,
         )
 
 
@@ -121,6 +126,24 @@ def test_operator_release_clears_marker_seen_by_sequence_controller(tmp_path):
         operator_id="operator-1",
         decision_note="Main switch OFF; rotor visually stopped.",
         confirm_main_power_off=True,
+        main_switch_isolation_verified=True,
     )
 
     controller._assert_rearm_not_inhibited()
+
+
+
+def test_operator_release_requires_verified_main_switch_isolation(tmp_path):
+    marker = tmp_path / ".310-rearm-inhibited"
+    marker.write_text("recovery required\n", encoding="utf-8")
+
+    with pytest.raises(RecoveryReleaseError, match="main switch isolates motor/driver supply"):
+        release_recovery_markers(
+            tmp_path,
+            operator_id="operator-1",
+            decision_note="checked",
+            confirm_main_power_off=True,
+            main_switch_isolation_verified=False,
+        )
+
+    assert marker.exists()
