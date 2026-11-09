@@ -561,7 +561,11 @@ def run_profile(output_dir: os.PathLike | str) -> dict:
     stage_times = [row["elapsed_ns"] for row in stage_rows]
     csv_path = output / "t18-production-stage-profile.csv"
     with csv_path.open("w", newline="", encoding="utf-8") as stream:
-        fieldnames = list(stage_rows[0])
+        # Finalization-only diagnostics appear on the terminal stage, so the
+        # CSV schema must be the stable union of fields across all stage rows.
+        fieldnames = list(dict.fromkeys(
+            key for row in stage_rows for key in row
+        ))
         csv_writer = csv.DictWriter(stream, fieldnames=fieldnames)
         csv_writer.writeheader()
         csv_writer.writerows(stage_rows)
