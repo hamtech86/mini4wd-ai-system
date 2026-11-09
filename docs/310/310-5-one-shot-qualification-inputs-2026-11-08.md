@@ -135,3 +135,32 @@ python -m measurement_310.t18_production_profile \
 The expected output directory contains `t18-production-profile.json`, `t18-production-stage-profile.csv`, their checksum, and a `rawlog/` tree. The JSON includes per-stage fsync target counts/total/max, p50/p95/p99/p99.9/max, stage timing, RawLog/Evidence/intent hashes, 310 loss-window summaries and validation results. A PASS requires all 31 stages under 8 seconds, 3,100 ADC_BATCH frames, 37,200 ADC_SAMPLE records, 310 passing loss-window summaries, verified companion Evidence bundle and exactly one normal-completion STOP_REQ through the in-memory writer.
 
 If this command fails or stalls, preserve the output root and process/storage evidence. Do not delete the output, remove the old marker, kill a D-state process, or rerun over the same output path. This run closes only T18 target-host software/storage evidence; it does not authorize or replace HW01–HW08.
+
+
+---
+
+## 2026-11-09司令塔訂正：リスクベース再評価によるT18 / HW資格条件の更新
+
+本節は上記の旧記述のうち、8,000ms合否条件および一律必須の物理保護要求に優先する。Issue #35の2026-11-09リスクベース再評価基準を適用する。
+
+### T18の扱い
+- 8,000ms stage ceiling、STOP reserve 1,000ms、追加margin 1,000msを用いた合否判定は廃止する。
+- stage elapsed、p50/p95/p99/p99.9/max、fsync target別時間、finalization時間は診断値として保持する。
+- T18のPASS/FAILは、stage/batch/sample件数、ADC loss windowの整合、RawLog validation、Evidence bundle、command-intent記録、normal completion STOP_REQ等のデータ・イベント整合性で判断する。
+- target-host profileは実際のfilesystem性能と保存/復旧挙動を把握する診断として残す。8秒を超えたことだけを理由に310-5を停止しない。
+- 遅延がstage progression、実際に要求されたSTOP処理、指令結果の照合、データ整合性を阻害した場合は、その具体的影響を別途評価する。
+
+### HW01–HW08の扱い
+- HW01のMCU・基板・配線同定と、電源/電流制限/保護素子/発熱条件の確認は、機器損傷防止のため優先する。
+- HW02のFuse/BOD確認、HW03の外部supervisor、HW05のEEPROM全write境界電源断、HW07の独立STOP回路は、すべて一律必須とせず、現物条件と故障シナリオに基づき必要性を判断する。Fuse writeは禁止のまま。
+- HW04のreset後出力OFF・ARM無効・no auto-resumeは維持する。resetそのものを防止することは要求しない。
+- HW06は現行の測定目的に必要なADC入力を対象にし、A0/A4/A5とA1/A2/A3の役割を混同しない。
+- HW07はソフトウェアSTOP経路の動作確認と、独立物理STOP/cutoffの必要性判断を分ける。手の届く主電源遮断スイッチを運用条件として評価する。
+- HW08の310秒実機測定は、電源・配線・current limitの確認後に別途明示承認を得る。今回の訂正はHW08の実施許可ではない。
+
+### 正式受入の表記
+- T18 target-host診断の未実施または8秒超過のみを310-5の自動FAIL条件にしない。実施済みの診断値と未実施理由/残留リスクは正直に報告する。
+- R01は、UNKNOWNをSUCCESSにしないこと、reset/recovery後に古いnonzero commandを自動再送・自動再開しないことを維持する。全コマンド同期fsync/hash-chain、全履歴の個別operator decision、独立物理safe-state assertionを一律必須とするかは再評価する。
+- 受入に必要な残りの項目は、Issue #35およびdocs/310/310-5-risk-based-reassessment-2026-11-09.mdの分類と理由に従って確定する。
+
+この訂正も、310-5正式受入、310-6移行、Arduino/serial接続、firmware upload、Fuse/EEPROM操作、motor energization、310秒実測の許可ではない。HARDWARE_CURRENT_LIMIT_CONFIRMED=falseを維持する。
