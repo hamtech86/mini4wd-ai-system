@@ -60,3 +60,50 @@ PR #193 の以下の実装をソース確認した。
 R01のhost software candidateは、リスクベースの簡素なmanual releaseを含めて実装・host test済みと評価する。ただしR01全体の正式PASSにはしない。主電源スイッチの設計上の遮断経路は既共有配線から確認できた。なお、現物導通、current-limit/電源/配線/熱の現物確認、必要な物理no-auto-resume確認は未実施であるため、310-5は未受入、310-6は引き続きBLOCKEDとする。
 
 本書はArduino接続、`/dev/ttyACM0` / `/dev/ttyUSB0`アクセス、firmware upload、Fuse/EEPROM操作、モーター通電、310秒測定を許可しない。
+
+
+## 2026-11-10 follow-up source audit — firmware conformance and supply ambiguity
+
+This follow-up is a source/document review only. No hardware was connected or energized.
+
+### Confirmed firmware/specification mismatch
+
+The current branch copy of `firmware/motor/MotoreRev.ino` still contains the following behavior in `updateSensors()`:
+
+- `sensor.currentAvg = (sensor.current1 + sensor.current2) / 2.0f`
+- `sensor.currentAvg` is then used by brush-peak detection.
+- `sensor.power` is calculated using `sensor.motorVoltage * sensor.currentAvg`.
+
+This conflicts with Issue #35's canonical sensor contract: A0/ACS712 #1 is the winding-current channel; A1/ACS712 #2 is a separate brush-stability observation; A0 and A1 must not be averaged or treated as interchangeable current channels. Therefore the current firmware source is **FAIL — SPECIFICATION NONCONFORMANCE** for this requirement. It must not be described as 310-4/310-5 compliant until corrected and regression-tested. This finding is based on source inspection, not physical behavior.
+
+### Reset behavior — evidence boundary
+
+The inspected source initializes the PWM and direction pins as outputs, writes PWM=0 and direction LOW, initializes `driveArmed=false` / empty ARM token, and calls `stopMotor()` before entering READY. STOP also clears the ARM token. This supports the software initialization/no-stale-token design.
+
+It does not establish the electrical pin state during the MCU reset-to-`setup()` interval, the L298N enable input's behavior while the MCU pins are high-impedance, or the physical motor output during brownout/reset. Those remain **NOT RUN** until separately authorized physical verification. No claim of physical no-auto-resume PASS is made.
+
+### Supply description — unresolved electrical ambiguity
+
+The already-shared circuit description literally says `12VAC adapter (+)` and then routes that point through a physical switch and `2200µF + 0.1µF` to the L298N supply path. The notation is internally ambiguous:
+
+- An AC output has no fixed positive terminal (`+`).
+- A polarized 2200µF electrolytic capacitor must not be assumed safe directly across an unrectified AC source.
+- The documented path does not identify a bridge rectifier, DC output rating, polarity, or adapter model.
+
+This may be a wording error for a 12V DC adapter, but that must not be silently assumed. Until the actual adapter output is identified as AC or DC and its rated voltage/polarity are established from its label/specification, the L298N supply path, capacitor polarity/voltage stress, and current-limit assessment remain **BLOCKED**. Do not energize the circuit to discover the answer.
+
+### Updated disposition
+
+| Item | State |
+|---|---|
+| A0/A1 independent-channel contract in current firmware source | **FAIL — source-level mismatch** |
+| Startup software defaults / ARM token invalidation | SOURCE REVIEW PASS; physical reset interval NOT RUN |
+| Physical reset/no-auto-resume | NOT RUN |
+| Adapter output type, rated voltage and polarity | BLOCKED — description ambiguous |
+| Driver supply / capacitor suitability / current limit / thermal qualification | BLOCKED / NOT RUN |
+| R01 host software candidate | SOFTWARE CANDIDATE PASS only |
+| 310-5 formal acceptance | NOT ACCEPTED |
+| 310-6 | BLOCKED |
+| `HARDWARE_CURRENT_LIMIT_CONFIRMED` | `false` — unchanged |
+
+The firmware mismatch requires a compliant code correction under the applicable 310-4 change process before the safety review can pass. The adapter ambiguity requires identification from existing markings/specification; it does not authorize a live measurement. No Arduino connection, serial access, firmware upload, motor energization, or 310-second run was performed or authorized.
