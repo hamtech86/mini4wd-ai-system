@@ -109,7 +109,7 @@ This closes the unit-tested software candidate for the one-time manual release a
 
 ## 2026-11-09 latest code-head verification
 
-The R01 operator-release helper and tests are included in code HEAD 9fc92a1b2a64829f1e2210d46c852781c1efa111. PR HEAD 1c2c67b5aa4287c9b6213cc5c85f88afa5f4f154 advances documentation only.
+The R01 operator-release helper and tests are included in code HEAD 9fc92a1b2a64829f1e2210d46c852781c1efa111. PR HEAD contains subsequent documentation-only commits; no code changes followed the tested code HEAD.
 
 - T18 production-path run #56 / run ID 42559099996: PASS; 31 stages, 3,100 ADC batches, 37,200 ADC slots, 10,143 Evidence events; p50 175.993 ms, p95 237.430 ms, p99/p99.9/max 1,458.258 ms.
 - Regression run #1725 / run ID 42559099952: all four jobs PASS; full suite 634 passed, 2 xfailed.
