@@ -99,7 +99,7 @@ Remaining boundaries are unchanged: hosted tests do not qualify target-PC filesy
 ## 2026-11-09 R01 operator-release candidate verification
 
 - Added measurement_310/recovery_release.py: manual operator-attested release of existing recovery markers after RawLog incomplete-work check.
-- Added six tests: explicit confirmation required; audit written before marker removal; incomplete RawLog work blocks release; symlink marker blocks release; no-marker case rejects; SequenceController guard blocks before and permits after explicit release.
+- Added seven tests: explicit power-off confirmation required; verified main-switch isolation attestation required; audit written before marker removal; incomplete RawLog work blocks release; symlink marker blocks release; no-marker case rejects; SequenceController guard blocks before and permits after explicit release.
 - CLI does not open serial devices, send STOP/ARM/PWM, or start a measurement. It prompts for the exact phrase MOTOR POWER OFF.
 - Audit labels physical evidence as operator attestation only, not independent measurement.
 - Regression run #1725 / run ID 42559099952: all four jobs PASS; full suite 634 passed, 2 xfailed.
@@ -135,3 +135,15 @@ Links:
 - [Regression run #1731](https://github.com/hamtech86/mini4wd-ai-system/actions/runs/42559306631)
 
 This still does not establish physical main-switch isolation, reset waveform behavior, or physical motor stop. R01 formal disposition and 310-5 acceptance remain open.
+
+
+## 2026-11-09 final operator-release verification
+
+Code HEAD: c3f51b314af85603ddeb4ed58b4be1e74f5c3442.
+
+- Regression run #1737 / 42559520609: all four jobs PASS; full suite 636 passed, 2 xfailed.
+- T18 production-path run #78 / 42559520579: PASS; 31 stages, 3,100 ADC batches, 37,200 ADC slots, 10,143 Evidence events; p50 104.903 ms, p95 699.490 ms, p99/p99.9/max 1,005.924 ms.
+- Operator release now requires two separate confirmations: motor main power OFF/rotor stopped, and confirmation that the switch isolates L298N motor/driver supply. Both are recorded as operator attestations, not independently measured facts.
+- A refusal test verifies that the release cannot proceed without the switch-isolation attestation.
+
+The code does not prove the switch wiring. The actual wiring must be identified during the no-power HW01 inspection before this command is used. No hardware operation was performed.
