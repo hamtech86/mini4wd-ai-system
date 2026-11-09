@@ -10,7 +10,7 @@
 
 2026-10-28に共有された新仕様配線を、再確認を求めず物理回路の正本として適用する。
 
-- 電源経路：12VAC adapter (+) → physical main switch → 2200µF + 0.1µF → L298N motor-driver supply path。
+- 電源経路：12V DC adapter (+) → physical main switch → 2200µF + 0.1µF → L298N motor-driver supply path。
 - モーター側電流経路：L298N → ACS712 #1（A0）→ A4 voltage-sense point → motor (+) → motor (−) → A5 voltage-sense point → ACS712 #2（A1）→ L298N (GND) → GND。
 - Arduino Uno：PC USBから5V給電。したがって主電源スイッチをOFFにするとL298N側のスイッチ後電源経路は遮断される一方、Arduino自体はUSB給電で通電を継続し得る。
 - A0/A1は独立したACS712入力。A4/A5は独立した電圧検出点。A2=KY-024、A3=thermistor。各センサー系とArduinoのGNDは共通。
@@ -116,3 +116,52 @@ The project owner clarified that the adapter supply is **12V DC**, not AC. This 
 This clarification does **not** independently establish the adapter's actual output polarity, regulation/tolerance, current capability, capacitor polarity/voltage rating, wiring continuity, or current limiting. Those electrical qualification items remain NOT RUN / BLOCKED pending documentary/nameplate evidence and appropriately authorized non-energized inspection. No live test is implied or authorized.
 
 Updated disposition: supply type = **DC 12V, owner-confirmed**; polarity/rating/current capability and downstream protection = **NOT YET VERIFIED**. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains unchanged.
+
+
+## 2026-11-10 follow-up — A0/A1 data-flow impact audit
+
+The source audit was extended beyond the firmware producer. This is a static source review of the current PR branch; it does not change the legacy DATA26 wire format or RawLog v1 originals.
+
+### Canonical meaning (Issue #35)
+
+- A0 / ACS712 #1: winding-current measurement. This is the only one of the two ACS712 channels that may supply winding current for current-based control, power, and winding analysis.
+- A1 / ACS712 #2: independent brush-stability observation. It must not be converted to an interchangeable winding-current value, averaged with A0, or substituted for A0.
+- A4 and A5 remain independent voltage inputs.
+- RawLog v2 is a separately specified format. The old DATA26 / RawLog v1 fields do not become valid v2 fields merely because their names remain in legacy code.
+
+### Confirmed legacy data-flow impact
+
+| Layer | Existing legacy fields / behavior | Required disposition |
+|---|---|---|
+| Firmware acquisition | `current1` from A0 and `current2` from A1; both converted using ACS712 sensitivity | Retain A0 conversion for winding current; A1 must remain a raw independent observation unless its physical meaning is separately approved |
+| Firmware derived values | `currentAvg` averages current1/current2; feeds brush peak, power, current ripple, peak power/current | Remove these cross-channel derivations; do not replace by blindly renaming A0 as old average |
+| DATA26 serializer | Emits current1, current2, current_avg, power, current_ripple, peak_current, brush_peak_current | Preserve historical RawLog v1 bytes/schema; mark legacy derived fields as non-authoritative/deprecated in the new contract; do not present them as v2 semantics |
+| Python protocol/parser | `CSV_FIELDS` and parser require the fixed 26-column contract including current_avg and derived fields | Legacy parser compatibility is coupled to DATA26; any firmware column removal/reordering requires a separately approved protocol migration, not an isolated firmware edit |
+| MeasurementManager | Requires and finite-checks current_avg, power, current_ripple, peak_current, brush_peak_current; constructs Measurement from them | New measurement/control path must consume A0-derived winding current and independent A1 observation explicitly; old required derived fields cannot be treated as valid safety/control inputs |
+| Measurement model / builder | Stores current1/current2 plus current_avg, power, current_ripple, peak_current, brush_peak_current | Separate raw/converted channel observations from approved derived values; avoid relabeling A1 as current |
+| FeatureExtractor / PerformanceAnalysis | average_current reads current_avg; torque estimate consumes it; brush lifecycle reads brush_peak_current | Torque/current estimate must use valid A0 winding-current samples; brush lifecycle cannot continue using the firmware's A0/A1 averaged brush_peak_current |
+| BreakinController | Brush peak approach reads brush_peak_current; current safety helper scans current1, current2, current_avg | Safety current must use A0 only. A1 must not be treated as current or used as a substitute. Brush stability logic requires a separately defined A1 observation algorithm/threshold before use |
+| UI / DB / config | Legacy current_avg/power/ripple/peak fields appear in column lists, model fields, UI display and SQL schema | Treat as legacy compatibility only; v2 schema must follow Issue #170 and Issue #35 rather than perpetuating these old derived semantics |
+
+### Change boundary and correction decision
+
+1. The firmware defect is confirmed: A0 and A1 are averaged and the average is used for brush peak and power/ripple/peak calculations.
+2. A firmware-only substitution (e.g. setting `currentAvg=current1`) is insufficient: it would leave the old `brush_peak_current` name/meaning misleading, and the Python control/analysis path would still accept the legacy derived values.
+3. Removing DATA26 columns or changing their order in-place is also not acceptable: it breaks the current fixed-width legacy parser and would rewrite the meaning of existing RawLog v1 records.
+4. Therefore the corrective implementation must be a coordinated, explicitly versioned 310-4 change: preserve old RawLog v1 originals, prevent legacy averaged/derived fields from being accepted as current safety/torque/brush evidence, define an independent A1 observation field/validity contract, and make the new RawLog v2 schema consume named A0/A1 raw samples plus calibration/timestamps per Issue #35 / Issue #170.
+5. Until that coordinated change is implemented and regression-tested, current A0/A1 source contract remains **FAIL**. This finding blocks 310-5 acceptance. No physical test or firmware upload is authorized by this audit.
+
+### Required regression coverage before re-review
+
+- Firmware/source tests assert there is no A0/A1 averaging and no A1-derived winding-current or power/control input.
+- A0 calibration/conversion tests prove winding-current calculations depend only on A0 raw value and the A0 calibration snapshot.
+- A1 tests prove it is retained as an independent observation and cannot satisfy A0 current validity or current safety gates.
+- Firmware DATA/serial contract tests explicitly document whether legacy DATA26 fields are retained as deprecated compatibility fields or superseded by a new protocol version; no silent column reorder/removal.
+- Python parser/MeasurementManager tests reject missing/invalid A0 control current and do not require legacy A0/A1-derived averages as authoritative inputs.
+- BreakinController tests prove over-current safety uses A0 only, and A1 missing/abnormal observations are not miscounted as missing A0 control feedback.
+- FeatureExtractor/PerformanceAnalysis tests prove torque uses A0-derived winding current and brush-life analysis does not consume the old averaged brush peak.
+- RawLog v1 byte-preservation and RawLog v2 schema tests prove the legacy original is unchanged and v2 records preserve distinct A0/A1 samples and their calibration/time metadata.
+
+### Status
+
+**FAIL — A0/A1 firmware and legacy consumer semantics remain nonconforming.** The audit defines the coordinated correction boundary; it does not claim the correction has been implemented. 310-5 remains NOT ACCEPTED and 310-6 remains BLOCKED.
