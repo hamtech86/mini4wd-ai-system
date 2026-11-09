@@ -92,7 +92,7 @@ def test_operator_release_refuses_symlinked_marker(tmp_path):
             operator_id="operator-1",
             decision_note="checked",
             confirm_main_power_off=True,
-        main_switch_isolation_verified=True,
+            main_switch_isolation_verified=True,
         )
 
     assert target.read_text(encoding="utf-8") == "do not follow"
