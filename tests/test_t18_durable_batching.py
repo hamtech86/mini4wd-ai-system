@@ -176,3 +176,34 @@ def test_symlinked_rearm_marker_blocks_protocol_v2_nonzero_send(tmp_path):
 
     with pytest.raises(ProtocolV2SessionError, match="must not be a symlink"):
         session.send_stage_pwm(1, str(uuid.uuid4()), str(uuid.uuid4()), stage_index=1)
+
+
+def test_protocol_v1_serial_send_is_blocked_by_recovery_marker(tmp_path):
+    from types import SimpleNamespace
+    import pytest
+    from measurement_310.protocol_v1_session import ProtocolV1HostSession, ProtocolV1SessionError
+
+    session = object.__new__(ProtocolV1HostSession)
+    session._failed = False
+    session._pending = None
+    session.transport = SimpleNamespace(port="/dev/ttyACM0")
+    session._rearm_inhibit_root = tmp_path
+    (tmp_path / ".310-rearm-inhibited").write_text("recovery review required\\n")
+
+    with pytest.raises(ProtocolV1SessionError, match="automatic re-arm is inhibited"):
+        session._send_stage_pwm(1, str(uuid.uuid4()), str(uuid.uuid4()), stage_index=1)
+
+
+def test_sequence_controller_guard_rejects_persistent_recovery_marker(tmp_path):
+    from types import SimpleNamespace
+    import pytest
+    from measurement_310.engine import SequenceController, SequenceError
+
+    controller = object.__new__(SequenceController)
+    controller.writer = SimpleNamespace(root=tmp_path)
+    (tmp_path / ".310-evidence-reconciliation-required").write_text(
+        "Evidence reconciliation required\\n"
+    )
+
+    with pytest.raises(SequenceError, match="automatic re-arm is inhibited"):
+        controller._assert_rearm_not_inhibited()
