@@ -107,3 +107,12 @@ This may be a wording error for a 12V DC adapter, but that must not be silently 
 | `HARDWARE_CURRENT_LIMIT_CONFIRMED` | `false` — unchanged |
 
 The firmware mismatch requires a compliant code correction under the applicable 310-4 change process before the safety review can pass. The adapter ambiguity requires identification from existing markings/specification; it does not authorize a live measurement. No Arduino connection, serial access, firmware upload, motor energization, or 310-second run was performed or authorized.
+
+
+### Owner clarification — supply is DC 12V (2026-11-10)
+
+The project owner clarified that the adapter supply is **12V DC**, not AC. This resolves the AC/DC ambiguity in the earlier wording `12VAC adapter (+)`. The canonical power-path description should therefore be interpreted as a 12V DC supply feeding the physical switch and the `2200µF + 0.1µF` input-capacitor network before the L298N supply path.
+
+This clarification does **not** independently establish the adapter's actual output polarity, regulation/tolerance, current capability, capacitor polarity/voltage rating, wiring continuity, or current limiting. Those electrical qualification items remain NOT RUN / BLOCKED pending documentary/nameplate evidence and appropriately authorized non-energized inspection. No live test is implied or authorized.
+
+Updated disposition: supply type = **DC 12V, owner-confirmed**; polarity/rating/current capability and downstream protection = **NOT YET VERIFIED**. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains unchanged.
