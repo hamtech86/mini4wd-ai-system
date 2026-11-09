@@ -139,6 +139,8 @@ def test_stop_evidence_does_not_flush_pending_telemetry_on_stop_path():
 def test_production_pwm_send_requires_bound_rearm_root(tmp_path):
     evidence = FakeEvidence()
     session = make_session(evidence)
+    from types import SimpleNamespace
+    session.transport = SimpleNamespace(port="/dev/ttyACM0")
     import pytest
     from measurement_310.protocol_v2_session import ProtocolV2SessionError
 

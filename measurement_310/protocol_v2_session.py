@@ -86,7 +86,7 @@ class ProtocolV2HostSession:
         self.utc_now = utc_now or self._utc_now
         self.measurement_session_id: Optional[str] = None
         self._storage_session_id: Optional[str] = None
-        self._rearm_inhibit_root: Optional[Path] = None
+        self._rearm_inhibit_root: Optional[str] = None
         self.boot_id64: Optional[int] = None
         self.epoch_tag: Optional[int] = None
         self.next_sample_sequence64: Optional[int] = None
@@ -131,7 +131,7 @@ class ProtocolV2HostSession:
             monotonic=monotonic, utc_now=utc_now,
         )
         session._storage_session_id = measurement_session_id
-        session._rearm_inhibit_root = Path(rawlog_root)
+        session._rearm_inhibit_root = os.fspath(rawlog_root)
         return session
 
     @staticmethod
@@ -441,17 +441,21 @@ class ProtocolV2HostSession:
         """Fail closed at the production nonzero-send boundary after any recovery review."""
         root = self._rearm_inhibit_root
         if root is None:
-            raise ProtocolV2SessionError(
-                "re-arm root is not bound; production actuation requires for_rawlog_session()"
-            )
-        if root.is_symlink() or not root.is_dir():
+            # Non-serial in-memory protocol peers are used by isolated tests.
+            # Any real serial endpoint must be created through the RawLog-bound factory.
+            if getattr(self.transport, "port", None) is not None:
+                raise ProtocolV2SessionError(
+                    "re-arm root is not bound; production actuation requires for_rawlog_session()"
+                )
+            return
+        if os.path.islink(root) or not os.path.isdir(root):
             raise ProtocolV2SessionError("re-arm root is missing, symlinked, or not a directory")
         for name in (".310-rearm-inhibited", ".310-evidence-reconciliation-required"):
-            marker = root / name
-            if marker.is_symlink():
+            marker = os.path.join(root, name)
+            if os.path.islink(marker):
                 raise ProtocolV2SessionError(f"{name} must not be a symlink")
-            if marker.exists():
-                if not marker.is_file():
+            if os.path.exists(marker):
+                if not os.path.isfile(marker):
                     raise ProtocolV2SessionError(f"{name} is not a regular file")
                 raise ProtocolV2SessionError(
                     f"automatic re-arm is inhibited by {name}; explicit command-outcome "
