@@ -133,3 +133,44 @@ def test_stop_evidence_does_not_flush_pending_telemetry_on_stop_path():
     assert [entry["event"] for entry in evidence.transactions[0]] == [
         "RX_BYTES", "STOP_TX_ATTEMPT"
     ]
+
+
+
+def test_production_pwm_send_requires_bound_rearm_root(tmp_path):
+    evidence = FakeEvidence()
+    session = make_session(evidence)
+    import pytest
+    from measurement_310.protocol_v2_session import ProtocolV2SessionError
+
+    with pytest.raises(ProtocolV2SessionError, match="re-arm root is not bound"):
+        session.send_stage_pwm(1, str(uuid.uuid4()), str(uuid.uuid4()), stage_index=1)
+
+
+def test_persistent_rearm_marker_blocks_protocol_v2_nonzero_send(tmp_path):
+    evidence = FakeEvidence()
+    session = make_session(evidence)
+    session._rearm_inhibit_root = tmp_path
+    (tmp_path / ".310-rearm-inhibited").write_text(
+        "Recovered incomplete work requires explicit reconciliation.\\n"
+    )
+    import pytest
+    from measurement_310.protocol_v2_session import ProtocolV2SessionError
+
+    with pytest.raises(ProtocolV2SessionError, match="automatic re-arm is inhibited"):
+        session.send_stage_pwm(1, str(uuid.uuid4()), str(uuid.uuid4()), stage_index=1)
+    assert evidence.transactions == []
+    assert evidence.single_events == []
+
+
+def test_symlinked_rearm_marker_blocks_protocol_v2_nonzero_send(tmp_path):
+    evidence = FakeEvidence()
+    session = make_session(evidence)
+    session._rearm_inhibit_root = tmp_path
+    target = tmp_path / "target"
+    target.write_text("inhibit")
+    (tmp_path / ".310-rearm-inhibited").symlink_to(target)
+    import pytest
+    from measurement_310.protocol_v2_session import ProtocolV2SessionError
+
+    with pytest.raises(ProtocolV2SessionError, match="must not be a symlink"):
+        session.send_stage_pwm(1, str(uuid.uuid4()), str(uuid.uuid4()), stage_index=1)

@@ -86,6 +86,7 @@ class ProtocolV2HostSession:
         self.utc_now = utc_now or self._utc_now
         self.measurement_session_id: Optional[str] = None
         self._storage_session_id: Optional[str] = None
+        self._rearm_inhibit_root: Optional[Path] = None
         self.boot_id64: Optional[int] = None
         self.epoch_tag: Optional[int] = None
         self.next_sample_sequence64: Optional[int] = None
@@ -130,6 +131,7 @@ class ProtocolV2HostSession:
             monotonic=monotonic, utc_now=utc_now,
         )
         session._storage_session_id = measurement_session_id
+        session._rearm_inhibit_root = Path(rawlog_root)
         return session
 
     @staticmethod
@@ -435,6 +437,27 @@ class ProtocolV2HostSession:
                      command_id=int(identity.command_id), identity=asdict(identity), message=message)
         return True
 
+    def _assert_rearm_not_inhibited(self) -> None:
+        """Fail closed at the production nonzero-send boundary after any recovery review."""
+        root = self._rearm_inhibit_root
+        if root is None:
+            raise ProtocolV2SessionError(
+                "re-arm root is not bound; production actuation requires for_rawlog_session()"
+            )
+        if root.is_symlink() or not root.is_dir():
+            raise ProtocolV2SessionError("re-arm root is missing, symlinked, or not a directory")
+        for name in (".310-rearm-inhibited", ".310-evidence-reconciliation-required"):
+            marker = root / name
+            if marker.is_symlink():
+                raise ProtocolV2SessionError(f"{name} must not be a symlink")
+            if marker.exists():
+                if not marker.is_file():
+                    raise ProtocolV2SessionError(f"{name} is not a regular file")
+                raise ProtocolV2SessionError(
+                    f"automatic re-arm is inhibited by {name}; explicit command-outcome "
+                    "reconciliation and independent safe-state confirmation are required"
+                )
+
     def send_stage_pwm(self, pwm: int, stage_context_id: str, measurement_session_id: str,
                        stage_index: Optional[int] = None, *,
                        host_boot_id64: Optional[int] = None,
@@ -443,6 +466,7 @@ class ProtocolV2HostSession:
         try:
             if self._failed:
                 raise ProtocolV2SessionError("host protocol session is fail-closed")
+            self._assert_rearm_not_inhibited()
             if self._pending is not None:
                 raise ProtocolV2SessionError("previous PWM outcome unresolved")
             if self._armed:
