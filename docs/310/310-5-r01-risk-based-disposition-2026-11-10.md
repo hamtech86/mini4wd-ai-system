@@ -147,9 +147,15 @@ The source audit was extended beyond the firmware producer. This is a static sou
 
 1. The firmware defect is confirmed: A0 and A1 are averaged and the average is used for brush peak and power/ripple/peak calculations.
 2. A firmware-only substitution (e.g. setting `currentAvg=current1`) is insufficient: it would leave the old `brush_peak_current` name/meaning misleading, and the Python control/analysis path would still accept the legacy derived values.
-3. Removing DATA26 columns or changing their order in-place is also not acceptable: it breaks the current fixed-width legacy parser and would rewrite the meaning of existing RawLog v1 records.
-4. Therefore the corrective implementation must be a coordinated, explicitly versioned 310-4 change: preserve old RawLog v1 originals, prevent legacy averaged/derived fields from being accepted as current safety/torque/brush evidence, define an independent A1 observation field/validity contract, and make the new RawLog v2 schema consume named A0/A1 raw samples plus calibration/timestamps per Issue #35 / Issue #170.
-5. Until that coordinated change is implemented and regression-tested, current A0/A1 source contract remains **FAIL**. This finding blocks 310-5 acceptance. No physical test or firmware upload is authorized by this audit.
+3. **Do not carry forward legacy RawLog v1 fields into RawLog v2 by default.** The accepted 310-1 policy in PR #180 defines v1 as legacy and explicitly prohibits automatic conversion, reclassification, or column compatibility. RawLog v2 is an independent named JSON schema, not a v1 CSV extension.
+4. The accepted 310-2 implementation in PR #181 created the independent `raw_log_v2` package and left the existing `raw_log_library` v1 implementation untouched. The v2 public package remains exactly `manifest.json + records.jsonl`; no public schema change was authorized by 310-2.
+5. Keep the following concepts separate:
+   - **Historical RawLog v1 files:** retain as legacy records; do not bulk-migrate, reinterpret, rewrite, or add an automatic compatibility conversion to v2.
+   - **RawLog v2:** record new measurements under the already accepted independent schema from PR #180 / Issue #35 / Issue #170. A0 and A1 are separate ADC_SAMPLE records with independent raw values, timestamps, and calibration references.
+   - **DATA26 legacy serial grammar:** it is a firmware/host protocol compatibility concern, not permission to make v2 inherit the old CSV field meanings. Any continued legacy serial support must remain explicitly separated from the v2 data contract; do not silently change the fixed-width legacy parser or relabel its old fields as v2 fields.
+   - **Crash recovery:** PR #181 preserves the complete work tree byte-for-byte under `.recovery`. PR #192 further confirms that the immutable `.recovery/original` source bytes stay unchanged, while a separately published derived recovery package may correct unsupported stage attribution (e.g. demote an ADC sample to `unresolved`) and retain the raw ADC values. This narrowly scoped recovery reconciliation is not a general v1-to-v2 migration policy.
+6. Therefore the corrective 310-4 implementation must use the accepted independent v2 schema for new measurement data and ensure A0 alone supplies winding-current/control/torque input while A1 remains an independent brush-stability observation. It must not introduce a v1-to-v2 migration, automatic reclassification, or v1-column compatibility layer as a shortcut.
+7. Until that coordinated source correction and regression testing are complete, current A0/A1 source contract remains **FAIL**. This finding blocks 310-5 acceptance. No physical test or firmware upload is authorized by this audit.
 
 ### Required regression coverage before re-review
 
@@ -165,3 +171,14 @@ The source audit was extended beyond the firmware producer. This is a static sou
 ### Status
 
 **FAIL — A0/A1 firmware and legacy consumer semantics remain nonconforming.** The audit defines the coordinated correction boundary; it does not claim the correction has been implemented. 310-5 remains NOT ACCEPTED and 310-6 remains BLOCKED.
+
+
+## 2026-11-10 correction — authoritative historical RawLog policy rechecked
+
+The previous wording in this disposition that implied a general requirement to preserve RawLog v1 schema/columns as a compatibility contract was imprecise. The accepted earlier PR decisions are authoritative:
+
+- **PR #180 / 310-1 accepted design HEAD `5db3314ddf1efc2c068330ac333367662542ae5c`:** RawLog v1 is legacy. RawLog v2 is an independent named JSON schema. No automatic v1-to-v2 conversion, reclassification, or column compatibility.
+- **PR #181 / 310-2 accepted implementation HEAD `e10d06bd1c5baf16df253792483bc4902582fdba`:** implement the independent `raw_log_v2` package; leave legacy `raw_log_library` v1 untouched. The public v2 package remains exactly `manifest.json + records.jsonl`, with no public schema change in 310-2.
+- **PR #192 recovery correction:** preserve immutable `.recovery/original` source bytes. A derived recovery package may narrowly reconcile unsupported stage attribution while preserving raw ADC values; this is not bulk legacy migration.
+
+Accordingly, the A0/A1 correction must honor the independent v2 schema for new data. It must not carry legacy v1 fields into v2, reinterpret old logs, or introduce automatic migration/column compatibility. DATA26 wire compatibility, if retained for a legacy path, is a separate protocol concern and must not be confused with RawLog v2 semantics.
