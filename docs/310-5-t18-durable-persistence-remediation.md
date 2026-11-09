@@ -96,3 +96,23 @@ These results establish the PR candidate's hosted-runner software regression and
 - Hosted T18 production-path run #48: PASS; 31 stages, 3,100 ADC batches, 37,200 ADC slots, 10,143 Evidence events. Stage elapsed p50 181.824 ms, p95 215.770 ms, p99.9/max 1,496.823 ms (8,000 ms ceiling).
 - Full regression run #1707: all four jobs PASS; 628 passed, 2 xfailed.
 - The run uses GitHub-hosted storage and an in-memory protocol peer. It does not replace the required target-PC filesystem rerun or establish physical STOP/device-safe-state evidence.
+
+
+## 2026-11-09 risk-based reassessment — supersedes the 8,000 ms acceptance ceiling
+
+The former 8,000 ms stage ceiling was derived from a 10,000 ms stage by reserving 1,000 ms for STOP and 1,000 ms of margin. That allocation was a planning assumption; no measured STOP-latency distribution or approved hazard analysis established 8,000 ms as a safety boundary.
+
+Per the 2026-11-09 commander risk policy in Issue #35:
+
+- Stage elapsed time, p50/p95/p99/p99.9/max, per-target fsync, and finalization phase timings remain mandatory diagnostic output.
+- Exceeding 8,000 ms alone no longer makes T18 FAIL and must not block 310-5 progress.
+- T18 status is determined by production-path integrity checks: expected stage/batch/sample counts, loss-window reconciliation, RawLog validation, Evidence bundle verification, command-intent evidence, and normal completion STOP request.
+- Any observed delay that actually blocks stage progression, delays a required STOP action, misattributes a command outcome, or corrupts/reconciles data incorrectly remains a concrete defect and must be evaluated on its own evidence.
+- The target-host profile remains useful to characterize the actual filesystem and fsync behavior. The profile must retain measured values without clipping, rounding away outliers, or changing durability operations to obtain a PASS.
+- Hosted-runner measurements remain software-path evidence only and do not substitute for the target-host diagnostic run or physical hardware qualification.
+
+The historical 2026-11-08 baseline result above remains preserved as a performance observation. Its former FAIL label reflected only the superseded 8,000 ms gate; it is not evidence of data corruption or a physical safety failure.
+
+The current PR #193 exact-head target-host rerun remains NOT RUN. The old target-host baseline must not be represented as an exact-head rerun of the durable-batching candidate.
+
+No hardware access or 310-second physical measurement is authorized by this policy update. HARDWARE_CURRENT_LIMIT_CONFIRMED=false remains unchanged.
