@@ -101,3 +101,26 @@ def test_operator_release_requires_a_marker(tmp_path):
             decision_note="checked",
             confirm_main_power_off=True,
         )
+
+
+
+def test_operator_release_clears_marker_seen_by_sequence_controller(tmp_path):
+    from types import SimpleNamespace
+    from measurement_310.engine import SequenceController, SequenceError
+
+    marker = tmp_path / ".310-rearm-inhibited"
+    marker.write_text("recovery required\n", encoding="utf-8")
+    controller = object.__new__(SequenceController)
+    controller.writer = SimpleNamespace(root=tmp_path)
+
+    with pytest.raises(SequenceError, match="automatic re-arm is inhibited"):
+        controller._assert_rearm_not_inhibited()
+
+    release_recovery_markers(
+        tmp_path,
+        operator_id="operator-1",
+        decision_note="Main switch OFF; rotor visually stopped.",
+        confirm_main_power_off=True,
+    )
+
+    controller._assert_rearm_not_inhibited()
