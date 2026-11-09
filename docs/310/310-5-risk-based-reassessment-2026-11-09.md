@@ -76,3 +76,21 @@ Issue #35の2026-11-09司令塔方針に従い、310-5の既存要求・試験�
 ## 明示的な制限
 
 本書はリスク対応の設計見直しであり、Arduino接続、/dev/ttyACM0や/dev/ttyUSB0へのアクセス、firmware upload、Fuse/EEPROM操作、モーター通電、310秒測定を許可しない。HARDWARE_CURRENT_LIMIT_CONFIRMED=falseを維持する。
+
+
+## 2026-11-09 implementation / hosted verification update
+
+The PR #193 code change removing the former 8,000 ms gate is committed at code HEAD `8840b4fa6112514137752c61931f083a13ccb443`. The subsequent PR HEAD advances documentation only.
+
+- T18 production-path workflow run #55 / run ID 42558700595: **PASS**.
+- 31 stages; 3,100 ADC batches; 37,200 ADC slots; 10,143 Evidence events.
+- Hosted stage elapsed: p50 182.408 ms; p95 579.505 ms; p99/p99.9/max 1,458.961 ms.
+- The report has no 8,000 ms ceiling and identifies stage timing as observational only.
+- Regression workflow run #1714 / run ID 42558700829: **all four jobs PASS**; full suite **629 passed, 2 xfailed**.
+- The new regression test deliberately inflates measured stage timings above the former 8-second ceiling without sleeping; the profile still returns PASS when data-integrity checks succeed. This directly verifies that elapsed time alone no longer controls T18 status.
+
+Evidence links:
+- [T18 run #55](https://github.com/hamtech86/mini4wd-ai-system/actions/runs/42558700595)
+- [Regression run #1714](https://github.com/hamtech86/mini4wd-ai-system/actions/runs/42558700829)
+
+Remaining boundaries are unchanged: hosted tests do not qualify target-PC filesystem behavior or physical hardware. Exact-head target-host diagnostic remains NOT RUN; R01 lifecycle/operator reconciliation remains incomplete; HW qualification remains NOT RUN and unauthorized.
