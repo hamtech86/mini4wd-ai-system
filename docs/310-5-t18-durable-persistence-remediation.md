@@ -88,3 +88,11 @@ These results establish the PR candidate's hosted-runner software regression and
 - 310-6: **BLOCKED**.
 - PR #192 is included in the integration merge; its recovery-attribution correction remains intact.
 - No Arduino connection, serial-device access, firmware upload, EEPROM/fuse operation, re-ARM, or motor energization is authorized by this work.
+
+
+## 2026-11-09 integration verification
+
+- Candidate head: `a82db73df401efa5c2208e6b0a58694de47f9b8b`.
+- Hosted T18 production-path run #48: PASS; 31 stages, 3,100 ADC batches, 37,200 ADC slots, 10,143 Evidence events. Stage elapsed p50 181.824 ms, p95 215.770 ms, p99.9/max 1,496.823 ms (8,000 ms ceiling).
+- Full regression run #1707: all four jobs PASS; 628 passed, 2 xfailed.
+- The run uses GitHub-hosted storage and an in-memory protocol peer. It does not replace the required target-PC filesystem rerun or establish physical STOP/device-safe-state evidence.
