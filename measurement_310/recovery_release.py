@@ -22,6 +22,7 @@ MARKER_NAMES = (
 )
 AUDIT_NAME = "recovery-operator-actions.jsonl"
 CONFIRMATION_PHRASE = "MOTOR POWER OFF"
+SWITCH_VERIFICATION_PHRASE = "MOTOR SUPPLY ISOLATION VERIFIED"
 
 
 class RecoveryReleaseError(RuntimeError):
@@ -42,6 +43,7 @@ def release_recovery_markers(
     operator_id: str,
     decision_note: str,
     confirm_main_power_off: bool,
+    main_switch_isolation_verified: bool,
 ) -> dict[str, Any]:
     """Release existing recovery markers after one explicit operator attestation.
 
@@ -58,6 +60,10 @@ def release_recovery_markers(
         raise RecoveryReleaseError("RawLog root must be an existing non-symlink directory")
     if confirm_main_power_off is not True:
         raise RecoveryReleaseError("explicit main-power-off confirmation is required")
+    if main_switch_isolation_verified is not True:
+        raise RecoveryReleaseError(
+            "operator must confirm the main switch isolates motor/driver supply"
+        )
     if not isinstance(operator_id, str) or not operator_id.strip():
         raise RecoveryReleaseError("operator_id must be non-empty")
     if not isinstance(decision_note, str) or not decision_note.strip():
@@ -93,6 +99,7 @@ def release_recovery_markers(
         "operator_id": operator_id.strip(),
         "decision_note": decision_note.strip(),
         "operator_attestation": "MAIN_POWER_OFF_AND_ROTOR_STOPPED",
+        "main_switch_isolation_verification": "OPERATOR_ATTESTED",
         "physical_state_evidence": "OPERATOR_ATTESTATION_ONLY_NOT_INDEPENDENTLY_MEASURED",
         "markers": markers,
         "rawlog_incomplete_work": [],
@@ -142,12 +149,22 @@ def main() -> int:
     confirmation = input(f'Type "{CONFIRMATION_PHRASE}" to continue: ').strip()
     if confirmation != CONFIRMATION_PHRASE:
         raise SystemExit("confirmation phrase did not match; recovery markers were not changed")
+    print(
+        "Confirm that the main switch actually interrupts the L298N motor/driver supply "
+        "according to the verified wiring."
+    )
+    switch_confirmation = input(
+        f'Type "{SWITCH_VERIFICATION_PHRASE}" to continue: '
+    ).strip()
+    if switch_confirmation != SWITCH_VERIFICATION_PHRASE:
+        raise SystemExit("switch-isolation confirmation did not match; markers were not changed")
 
     result = release_recovery_markers(
         args.root,
         operator_id=args.operator_id,
         decision_note=args.decision_note,
         confirm_main_power_off=True,
+        main_switch_isolation_verified=True,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
