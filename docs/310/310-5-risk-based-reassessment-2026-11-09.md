@@ -34,7 +34,7 @@ Issue #35の2026-11-09司令塔方針に従い、310-5の既存要求・試験�
 | command intent / ACK / outcome UNKNOWN | KEEP（実装簡素化） | コマンド送達結果不明のまま再送・自動再開し二重駆動 | write/flush/ACKの失敗経路はテスト済み。実機頻度は未測定 | 状態をUNKNOWN表示し、判断不能なら主電源遮断 | UNKNOWNをSUCCESSにしない、自動再送しない、自動再開しない。全イベント同期fsync/hash chainや全commandの独立物理確認を一律要求するかは再検討 | persistent marker integrationあり。R01 lifecycle未完了 |
 | ADC A0/A1/A2/A3/A4/A5の欠損 | RELAX | 測定解析の欠損。制御用途外のチャンネル欠損を停止扱いする過剰反応 | 実機ADC誤差・欠損率未測定 | 欠損/無効を表示し、解析から除外 | A0巻線電流・A4/A5電圧と、A1独立観測・A2/A3参考値を分離。A1/A2/A3欠損を制御停止へ混在させない | ソフトウェアaccountingあり。物理精度NOT RUN |
 | ADC連続3回失敗で停止 | INVESTIGATE | 制御入力欠損の継続、または単なる分析データ欠損 | 3回の物理的根拠・失敗率との関係が示されていない | 欠損表示、必要な場合は手動停止 | 3回を絶対閾値にしない。制御に実際に使う信号と測定品質用信号を分離し、根拠を示せる場合のみ閾値化 | native testsあり。閾値根拠未確認 |
-| T18 8,000ms ceiling | REMOVE | stage処理/保存が8秒を超える | 8秒は10秒からSTOP reserve 1秒+margin 1秒を差し引いた設計配分であり、実害・停止遅延の実測根拠ではない | 遅延内容を確認し、実害がある場合に改善 | 8秒超過のみでFAILにしない。時間は診断値として残す | PR #193 codeで合否ゲート除去を実装中 |
+| T18 8,000ms ceiling | REMOVE | stage処理/保存が8秒を超える | 8秒は10秒からSTOP reserve 1秒+margin 1秒を差し引いた設計配分であり、実害・停止遅延の実測根拠ではない | 遅延内容を確認し、実害がある場合に改善 | 8秒超過のみでFAILにしない。時間は診断値として残す | code HEAD 8840b4fで除去済み。T18 run #55 PASS |
 | T18 target-host profile | KEEP（診断） | 保存・fsync・finalize・recoveryの実態が見えない | 旧実装のtarget-host runでp50 24.5秒、max 32.6秒。これは性能実態の証拠であり危険確率の証拠ではない | 異常な遅延時は結果を確認し必要に応じて再測定 | 新HEADで実測し、遅延を分解する。8秒達成は要求しない。データ破損やSTOP阻害など具体的実害がなければ性能値のみで工程を停止しない | exact HEAD target-host NOT RUN |
 | SRAM 900B / stack 700B / reserve 448B | INVESTIGATE | stack overflow、メモリ破壊、UART/ADC workspace破損 | 静的監査はあるが実機stack watermark・最悪実行時の占有率なし | 不具合時は停止・電源遮断 | 3つの数値の根拠と現行imageの余裕を再確認。メモリ破壊防止は維持し、根拠のない余裕値を絶対視しない | compile/disassembly evidenceあり。on-board watermark未実施 |
 | current limit / 電源 / 配線 / 発熱 | KEEP（最優先） | 過電流・短絡・逆接・逆起電力・過熱によるArduino/driver/配線損傷、発煙 | 現物電源・電流制限・保護素子・回路revisionが未確認。リスク頻度を推定できない | 手の届く主電源遮断 | 電源・電流制限・配線・保護素子・温度の現物確認を優先。根拠が揃うまでcurrent-limit confirmedをfalse維持 | BLOCKED / NOT RUN |
@@ -65,8 +65,8 @@ Issue #35の2026-11-09司令塔方針に従い、310-5の既存要求・試験�
 | 領域 | 状態 | 次の作業 |
 |---|---|---|
 | リスク基準共有 | COMPLETE | Issue #35へ2026-11-09基準を追記済み |
-| T18 8秒合否ゲート | IMPLEMENTATION IN PROGRESS | code / tests / report schema / PR descriptionを同期 |
-| T18 hosted path | PASS | 新コードでCI再実行 |
+| T18 8秒合否ゲート | COMPLETE | code / regression test / report schema / PR description / qualification docsを同期。T18 #55 PASS、full regression #1714 PASS |
+| T18 hosted path | PASS | run #55: 31 stages / 3,100 batches / 37,200 slots / 10,143 events; max 1,458.961ms。628? Full suite 629 passed / 2 xfailed |
 | T18 target-host exact HEAD | NOT RUN | 新HEADを対象PC/storageで診断実行。時間値は合否ゲートにしない |
 | R01 marker checks | INTEGRATED | markerの存在時に自動再始動を阻止する部分は維持 |
 | R01 lifecycle/operator workflow | NOT COMPLETE | 過剰なjournal要件を整理し、UNKNOWN・運用者確認・電源遮断の最小手順へ再設計 |
