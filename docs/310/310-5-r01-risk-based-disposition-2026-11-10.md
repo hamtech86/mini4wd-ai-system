@@ -135,9 +135,9 @@ The source audit was extended beyond the firmware producer. This is a static sou
 |---|---|---|
 | Firmware acquisition | `current1` from A0 and `current2` from A1; both converted using ACS712 sensitivity | Retain A0 conversion for winding current; A1 must remain a raw independent observation unless its physical meaning is separately approved |
 | Firmware derived values | `currentAvg` averages current1/current2; feeds brush peak, power, current ripple, peak power/current | Remove these cross-channel derivations; do not replace by blindly renaming A0 as old average |
-| DATA26 serializer | Emits current1, current2, current_avg, power, current_ripple, peak_current, brush_peak_current | Preserve historical RawLog v1 bytes/schema; mark legacy derived fields as non-authoritative/deprecated in the new contract; do not present them as v2 semantics |
-| Python protocol/parser | `CSV_FIELDS` and parser require the fixed 26-column contract including current_avg and derived fields | Legacy parser compatibility is coupled to DATA26; any firmware column removal/reordering requires a separately approved protocol migration, not an isolated firmware edit |
-| MeasurementManager | Requires and finite-checks current_avg, power, current_ripple, peak_current, brush_peak_current; constructs Measurement from them | New measurement/control path must consume A0-derived winding current and independent A1 observation explicitly; old required derived fields cannot be treated as valid safety/control inputs |
+| DATA26 serializer | Legacy ASCII DATA26 emits current1, current2, current_avg and derived fields | Treat DATA26 as a separate legacy wire grammar only. Do not use its old field meanings to define RawLog v2, and do not silently alter its fixed-width grammar as part of the v2 schema. Any legacy firmware path retained must not be mistaken for the accepted v2 measurement path |
+| Python protocol/parser | Legacy `CSV_FIELDS` parser requires the fixed 26-column DATA26 grammar | Keep this parser scoped to legacy DATA26 only. The accepted v2 path is independent and must parse the named RawLog v2 records; do not force v2 through the legacy 26-column parser or create automatic v1/v2 conversion |
+| MeasurementManager | Legacy MeasurementManager requires old DATA26-derived fields including current_avg and brush_peak_current | Keep legacy data handling separate; the new v2 measurement/control path must consume named A0/A1 samples under the accepted v2 schema. Do not retrofit legacy v1 field requirements into v2 |
 | Measurement model / builder | Stores current1/current2 plus current_avg, power, current_ripple, peak_current, brush_peak_current | Separate raw/converted channel observations from approved derived values; avoid relabeling A1 as current |
 | FeatureExtractor / PerformanceAnalysis | average_current reads current_avg; torque estimate consumes it; brush lifecycle reads brush_peak_current | Torque/current estimate must use valid A0 winding-current samples; brush lifecycle cannot continue using the firmware's A0/A1 averaged brush_peak_current |
 | BreakinController | Brush peak approach reads brush_peak_current; current safety helper scans current1, current2, current_avg | Safety current must use A0 only. A1 must not be treated as current or used as a substitute. Brush stability logic requires a separately defined A1 observation algorithm/threshold before use |
@@ -162,11 +162,11 @@ The source audit was extended beyond the firmware producer. This is a static sou
 - Firmware/source tests assert there is no A0/A1 averaging and no A1-derived winding-current or power/control input.
 - A0 calibration/conversion tests prove winding-current calculations depend only on A0 raw value and the A0 calibration snapshot.
 - A1 tests prove it is retained as an independent observation and cannot satisfy A0 current validity or current safety gates.
-- Firmware DATA/serial contract tests explicitly document whether legacy DATA26 fields are retained as deprecated compatibility fields or superseded by a new protocol version; no silent column reorder/removal.
+- Firmware/protocol tests prove the v2 measurement path emits/parses the accepted named ADC_SAMPLE semantics independently of legacy DATA26; legacy DATA26 grammar tests remain scoped to the legacy path and no silent grammar change is introduced.
 - Python parser/MeasurementManager tests reject missing/invalid A0 control current and do not require legacy A0/A1-derived averages as authoritative inputs.
 - BreakinController tests prove over-current safety uses A0 only, and A1 missing/abnormal observations are not miscounted as missing A0 control feedback.
 - FeatureExtractor/PerformanceAnalysis tests prove torque uses A0-derived winding current and brush-life analysis does not consume the old averaged brush peak.
-- RawLog v1 byte-preservation and RawLog v2 schema tests prove the legacy original is unchanged and v2 records preserve distinct A0/A1 samples and their calibration/time metadata.
+- RawLog v2 schema tests prove new v2 records preserve distinct A0/A1 samples and their calibration/time metadata. No general v1 migration or rewrite is added; the narrow `.recovery/original` immutability/recovery-reconciliation behavior remains as accepted in PR #181/#192.
 
 ### Status
 
