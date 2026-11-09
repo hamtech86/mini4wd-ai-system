@@ -66,7 +66,7 @@ Issue #35の2026-11-09司令塔方針に従い、310-5の既存要求・試験�
 |---|---|---|
 | リスク基準共有 | COMPLETE | Issue #35へ2026-11-09基準を追記済み |
 | T18 8秒合否ゲート | COMPLETE | code / regression test / report schema / PR description / qualification docsを同期。T18 #55 PASS、full regression #1714 PASS |
-| T18 hosted path | PASS | run #55: 31 stages / 3,100 batches / 37,200 slots / 10,143 events; max 1,458.961ms。628? Full suite 629 passed / 2 xfailed |
+| T18 hosted path | PASS | run #55: 31 stages / 3,100 batches / 37,200 slots / 10,143 events; max 1,458.961ms。all four regression jobs PASS; full suite 629 passed / 2 xfailed |
 | T18 target-host exact HEAD | NOT RUN | 新HEADを対象PC/storageで診断実行。時間値は合否ゲートにしない |
 | R01 marker checks | INTEGRATED | markerの存在時に自動再始動を阻止する部分は維持 |
 | R01 lifecycle/operator workflow | NOT COMPLETE | 過剰なjournal要件を整理し、UNKNOWN・運用者確認・電源遮断の最小手順へ再設計 |
