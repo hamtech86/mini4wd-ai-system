@@ -43,14 +43,14 @@
 |---|---|---|---|
 | HW01 | 無通電でMCU marking・基板revision・回路図を同定。通電read-only signatureは別途条件確定後 | 写真、型番、revision、signature、clock根拠 | 最初に実施。現状BLOCKED |
 | HW02 | Fuse/BODをread-onlyで取得し、対象MCU datasheetと照合。Fuse writeは禁止 | 生dump、MCU identity、BOD設定、16MHz時の保証根拠 | HW01後。内部4.3V BODだけではPASSにしない |
-| HW03 | 外部supervisor/hold-up回路の実装とthreshold/reset/hold-upを、motor/driver切離し治具で確認 | 部品型番、回路図、測定波形、reset出力、hold-up時間 | HW01・電源/回路情報確定後。実装なし/証拠なしはFAIL/BLOCKED |
-| HW04 | driver切離し状態で電圧低下を模擬し、PWM=0、D7/D8 LOW、ARM無効、no auto-resumeを確認 | 入力電圧とreset/enable/PWM波形、状態ログ | HW03合格後 |
+| HW03 | 外部supervisor/hold-up回路の必要性を電源条件・故障シナリオから評価。必要な場合のみ実装とthreshold/reset/hold-upを確認 | 必要と判断した場合の部品型番、回路図、測定波形、reset出力、hold-up時間 | HW01・電源/回路情報確定後。未実装のみを自動FAILとしない |
+| HW04 | driver切離し状態でreset/電圧低下後のPWM=0、D7/D8 LOW、ARM無効、no auto-resumeを確認 | 入力電圧とreset/enable/PWM波形、状態ログ | MCU/電源条件の同定後。外部supervisorを必須前提にしない |
 | HW05 | motor/driver切離し状態でEEPROM journal各write境界の電源断・再起動を検証 | 各境界のEEPROM dump、BOOT_ID/journal判定、invalid/unknown時fail-closed証拠 | HW01–04の電源条件確定後。Fuse操作なし |
 | HW06 | traceable sourceでA0〜A5を個別入力しraw/status/timestamp/校正/settlingを照合 | 入力値、ADC raw、timestamp、channel独立性、誤差・不確かさ | ADC前段・VREF・入力範囲確定後。A0/A1は独立、A2/A3はraw reference only、A4/A5も独立 |
 | HW07 | ソフトウェアSTOP優先処理を確認し、独立物理STOP/cutoffの必要性を主電源遮断を含めて評価 | ソフトウェア状態遷移・出力OFFの証拠。独立cutoffが必要と判断した場合のみ回路/波形/停止時間 | MCU停止時の影響、主電源スイッチの位置/遮断性、追加回路コストを比較 |
 | HW08 | PWM 0–30、各10,000ms、31段階=310,000msの統合実機測定 | 31段階のPython command/ACK、必要なADC/RawLog/Evidence、電流制限・温度監視、主電源遮断手順。独立cutoffはリスク評価で必要と判断した場合 | 電源/配線/current limit/熱条件の必要確認後。**別途明示承認が必要** |
 
-HW08は出力最大値探索ではない。Pythonが31段階を管理し、Arduinoは指令されたPWMを適用するだけ。現行310 sequenceは正転のみ。実測開始は独立current limitと独立cutoffが実証されるまで禁止。
+HW08は出力最大値探索ではない。Pythonが31段階を管理し、Arduinoは指令されたPWMを適用するだけ。現行310 sequenceは正転のみ。実測開始は電源・配線・current limit・熱条件を確認し、別途明示承認を得るまで禁止。独立cutoffはリスク評価で必要と判断した場合に限る。
 
 ## 4. 310-5 software/host側の未閉鎖ゲート
 
@@ -114,7 +114,7 @@ The controlling test definitions are `docs/310/310-4-implementation-acceptance-t
 | T17 Loss / companion package | Software verifies companion manifest, RawLog/Evidence hashes and tamper cases; hosted profile verifies loss-window summaries. | Target-host restore and real interrupted-storage reconciliation remain NOT RUN. |
 | T18 fsync / deadline | 10,000-sample target-host synthetic fsync profile exists; GitHub-hosted production path completed 31 stages with all 310 loss summaries. | Actual target-host full production-path profile, including command intent, Evidence, RawLog finalize/recovery and backup/restore, remains NOT RUN. |
 
-**Formal disposition remains NOT ACCEPTED.** The table records software evidence only; it does not convert any physical subtest to PASS. The outstanding R01, T13/T15 physical qualification, T16 analog reference qualification, T18 target-host production profile and HW01–HW08 gates must close before formal 310-5 acceptance.
+**Formal disposition remains NOT ACCEPTED.** The table records software evidence only; it does not convert any physical subtest to PASS. The remaining KEEP items and INVESTIGATE decisions in the 2026-11-09 risk-based reassessment must be closed or explicitly accepted with residual-risk rationale before formal 310-5 acceptance. NOT APPLICABLE decisions must be documented; no blanket HW01–HW08 pass requirement is implied.
 
 ## 7. One required target-host software run
 
@@ -134,7 +134,7 @@ python -m measurement_310.t18_production_profile \
 
 The expected output directory contains `t18-production-profile.json`, `t18-production-stage-profile.csv`, their checksum, and a `rawlog/` tree. The JSON includes per-stage fsync target counts/total/max, p50/p95/p99/p99.9/max, stage timing, RawLog/Evidence/intent hashes, 310 loss-window summaries and validation results. A PASS requires 31 stages, 3,100 ADC_BATCH frames, 37,200 ADC_SAMPLE records, 310 passing loss-window summaries, verified companion Evidence bundle and exactly one normal-completion STOP_REQ through the in-memory writer. Stage elapsed time is observational only and is not an acceptance gate.
 
-If this command fails or stalls, preserve the output root and process/storage evidence. Do not delete the output, remove the old marker, kill a D-state process, or rerun over the same output path. This run closes only T18 target-host software/storage evidence; it does not authorize or replace HW01–HW08.
+If this command fails or stalls, preserve the output root and process/storage evidence. Do not delete the output, remove the old marker, kill a D-state process, or rerun over the same output path. This diagnostic contributes target-host software/storage evidence only; it does not authorize or replace any separately approved hardware qualification.
 
 
 ---
