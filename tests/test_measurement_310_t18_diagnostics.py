@@ -32,16 +32,18 @@ def test_persistence_profiler_measures_rawlog_append_and_fsync_without_skipping(
     summary = profiler.stage_summary(7)
     assert summary["rawlog_append_many_count"] == 1
     assert summary["fsync_rawlog_records_file_count"] == 1
-    assert summary["fsync_rawlog_work_state_file_count"] == 1
-    assert summary["fsync_rawlog_directory_count"] == 1
+    assert summary["fsync_rawlog_work_state_file_count"] == 0
+    assert summary["fsync_rawlog_directory_count"] == 0
 
-    # The instrumentation observes the normal durable append; it does not
-    # suppress or replace either file or directory fsync.
+    # The records are durable on every append. The work-state is a bounded
+    # checkpoint and is intentionally not rewritten for this first append.
     records = (session.work_dir / "records.jsonl").read_text(encoding="utf-8")
     assert json.loads(records.splitlines()[0])["event"] == "DIAGNOSTIC_TEST"
-    state = json.loads(session.state_path.read_text(encoding="utf-8"))
-    assert state["record_count"] == 1
-    assert state["last_record_seq"] == 1
+    durable_checkpoint = json.loads(session.state_path.read_text(encoding="utf-8"))
+    assert durable_checkpoint["record_count"] == 0
+    assert durable_checkpoint["last_record_seq"] == 0
+    assert session.state["record_count"] == 1
+    assert session.state["last_record_seq"] == 1
 
 
 def test_persistence_profiler_restores_patched_functions_after_exit():
