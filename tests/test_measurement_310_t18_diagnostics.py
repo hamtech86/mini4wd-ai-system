@@ -57,3 +57,26 @@ def test_persistence_profiler_restores_patched_functions_after_exit():
         assert storage.RawLogV2Session.append_many is not original_append_many
     assert os.fsync is original_fsync
     assert storage.RawLogV2Session.append_many is original_append_many
+
+
+
+def test_t18_stage_timing_is_observational_not_an_acceptance_gate(tmp_path, monkeypatch):
+    from measurement_310 import t18_production_profile as profile
+
+    class SlowObservationClock:
+        def __init__(self):
+            self.value = 0
+
+        def __call__(self):
+            # Make every measured interval exceed the former 8-second ceiling
+            # without sleeping or changing the deterministic sequence clock.
+            self.value += 9_000_000_000
+            return self.value
+
+    monkeypatch.setattr(profile.time, "perf_counter_ns", SlowObservationClock())
+    report = profile.run_profile(tmp_path / "t18-observational-timing")
+
+    assert report["status"] == "PASS"
+    assert report["stage_timing_policy"] == "OBSERVATIONAL_ONLY_NOT_AN_ACCEPTANCE_GATE"
+    assert report["stage_elapsed_ms"]["max"] > 8_000
+    assert all("within_8s_budget" not in row for row in report["stages"])
