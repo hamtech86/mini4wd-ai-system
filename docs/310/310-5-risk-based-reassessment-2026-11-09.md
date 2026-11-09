@@ -99,7 +99,7 @@ Remaining boundaries are unchanged: hosted tests do not qualify target-PC filesy
 ## 2026-11-09 R01 operator-release candidate verification
 
 - Added measurement_310/recovery_release.py: manual operator-attested release of existing recovery markers after RawLog incomplete-work check.
-- Added five tests: explicit confirmation required; audit written before marker removal; incomplete RawLog work blocks release; symlink marker blocks release; no-marker case rejects.
+- Added six tests: explicit confirmation required; audit written before marker removal; incomplete RawLog work blocks release; symlink marker blocks release; no-marker case rejects; SequenceController guard blocks before and permits after explicit release.
 - CLI does not open serial devices, send STOP/ARM/PWM, or start a measurement. It prompts for the exact phrase MOTOR POWER OFF.
 - Audit labels physical evidence as operator attestation only, not independent measurement.
 - Regression run #1725 / run ID 42559099952: all four jobs PASS; full suite 634 passed, 2 xfailed.
@@ -120,3 +120,18 @@ Links:
 - [Regression run #1725](https://github.com/hamtech86/mini4wd-ai-system/actions/runs/42559099952)
 
 These results verify hosted software behavior only. The exact-head target-host filesystem diagnostic remains NOT RUN; no physical hardware test was performed.
+
+
+## 2026-11-09 latest PR code verification
+
+Code HEAD: 0b6deb7ea40b39ebc321f5706d46911c59709d99.
+
+- Regression run #1731 / 42559306631: all four jobs PASS; full suite 635 passed, 2 xfailed.
+- T18 production-path run #72 / 42559306635: PASS; 31 stages, 3,100 ADC batches, 37,200 ADC slots, 10,143 Evidence events; p50 141.116 ms, p95 1,134.267 ms, p99/p99.9/max 1,488.031 ms.
+- The added integration test verifies that the SequenceController re-arm guard remains blocked while a recovery marker exists and passes only after explicit operator release.
+
+Links:
+- [T18 run #72](https://github.com/hamtech86/mini4wd-ai-system/actions/runs/42559306635)
+- [Regression run #1731](https://github.com/hamtech86/mini4wd-ai-system/actions/runs/42559306631)
+
+This still does not establish physical main-switch isolation, reset waveform behavior, or physical motor stop. R01 formal disposition and 310-5 acceptance remain open.
