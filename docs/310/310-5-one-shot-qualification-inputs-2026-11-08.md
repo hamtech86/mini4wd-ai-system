@@ -47,8 +47,8 @@
 | HW04 | driver切離し状態で電圧低下を模擬し、PWM=0、D7/D8 LOW、ARM無効、no auto-resumeを確認 | 入力電圧とreset/enable/PWM波形、状態ログ | HW03合格後 |
 | HW05 | motor/driver切離し状態でEEPROM journal各write境界の電源断・再起動を検証 | 各境界のEEPROM dump、BOOT_ID/journal判定、invalid/unknown時fail-closed証拠 | HW01–04の電源条件確定後。Fuse操作なし |
 | HW06 | traceable sourceでA0〜A5を個別入力しraw/status/timestamp/校正/settlingを照合 | 入力値、ADC raw、timestamp、channel独立性、誤差・不確かさ | ADC前段・VREF・入力範囲確定後。A0/A1は独立、A2/A3はraw reference only、A4/A5も独立 |
-| HW07 | motor切離し状態でSTOP、通信断、TX full、ADC batch中STOPを注入し、GPIO/driver enableを観測 | PWM=0、D7/D8 LOW、ARM invalid、no auto-resume、独立STOP経路、STOP latency、L298N cutoff波形 | 独立STOP/cutoff回路と観測点が確定した後 |
-| HW08 | PWM 0–30、各10,000ms、31段階=310,000msの統合実機測定 | 31段階のPython command/ACK、全ADC/RawLog/Evidence、電流制限・温度・停止監視、異常時独立cutoff記録 | HW01–07と全software gate合格後。**別途明示承認が必要** |
+| HW07 | ソフトウェアSTOP優先処理を確認し、独立物理STOP/cutoffの必要性を主電源遮断を含めて評価 | ソフトウェア状態遷移・出力OFFの証拠。独立cutoffが必要と判断した場合のみ回路/波形/停止時間 | MCU停止時の影響、主電源スイッチの位置/遮断性、追加回路コストを比較 |
+| HW08 | PWM 0–30、各10,000ms、31段階=310,000msの統合実機測定 | 31段階のPython command/ACK、必要なADC/RawLog/Evidence、電流制限・温度監視、主電源遮断手順。独立cutoffはリスク評価で必要と判断した場合 | 電源/配線/current limit/熱条件の必要確認後。**別途明示承認が必要** |
 
 HW08は出力最大値探索ではない。Pythonが31段階を管理し、Arduinoは指令されたPWMを適用するだけ。現行310 sequenceは正転のみ。実測開始は独立current limitと独立cutoffが実証されるまで禁止。
 
@@ -82,9 +82,9 @@ Code/test source HEAD: `3b065388501d4be91f39b5c6d197cecf52c53f17`
 310-5の正式受入は、次をすべて満たした後に一度だけ提出する。
 
 1. T01–T18の全必須項目について、対象HEAD・実行条件・証拠をひも付け、PASS/FAIL/BLOCKED/NOT RUNを明示する。
-2. HW01–HW07が合格し、current limit、external supervisor、独立STOP/cutoff、EEPROM/BOD/ADC条件を実証する。
+2. KEEP対象の現物確認を完了し、INVESTIGATE対象（external supervisor、独立STOP/cutoff、EEPROM/BOD等）は必要性・不要とする理由・残留リスク・運用条件を記録する。モーター通電前に電源、配線、電流制限、熱保護の実機条件を確認する。
 3. T18 target-host profileは診断結果として実施・記録する。未実施または時間超過のみで自動FAILとせず、データ整合性・制御境界への具体的影響を審査する。R01はUNKNOWNの誤認と自動再始動を防ぐ最小要件を満たす。
-4. HW08の310秒測定は、独立current limitとcutoffの確認後、別途明示承認を得て実施し、証拠を保存する。
+4. HW08の310秒測定は、current limitと電源/配線/熱条件の必要確認後、別途明示承認を得て実施し、証拠を保存する。独立cutoffを必須とするかはリスク評価で決定する。
 5. 上位司令塔が最終審査し、正式受入を宣言する。
 
 **現時点の判定: 310-5 NOT ACCEPTED。310-6 UI統合は未着手。**
