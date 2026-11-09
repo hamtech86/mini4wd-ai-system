@@ -245,6 +245,23 @@ class SequenceController:
             self._log_write_failed = True
             raise
 
+    def _assert_rearm_not_inhibited(self) -> None:
+        """Apply the persistent recovery gate before every sequence PWM entry path."""
+        root = self.writer.root
+        if root.is_symlink() or not root.is_dir():
+            raise SequenceError("RawLog root is missing, symlinked, or not a directory")
+        for name in (".310-rearm-inhibited", ".310-evidence-reconciliation-required"):
+            marker = root / name
+            if marker.is_symlink():
+                raise SequenceError(f"{name} must not be a symlink")
+            if marker.exists():
+                if not marker.is_file():
+                    raise SequenceError(f"{name} is not a regular file")
+                raise SequenceError(
+                    f"automatic re-arm is inhibited by {name}; explicit command-outcome "
+                    "reconciliation and independent safe-state confirmation are required"
+                )
+
     def _begin_stage(self, index: int) -> None:
         if self.state in {SequenceState.FAULT, SequenceState.ABORTED, SequenceState.STOPPING}:
             return
@@ -258,6 +275,7 @@ class SequenceController:
         self.stage_start_utc = None
         self.next_deadline_ns = None
         try:
+            self._assert_rearm_not_inhibited()
             # send_pwm returns UTC after transport write/flush completes.
             # Capture monotonic time immediately afterwards so ACK timeout and
             # send-to-ACK delay exclude time spent inside the blocking send.

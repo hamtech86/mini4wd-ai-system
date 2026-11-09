@@ -401,6 +401,8 @@ class ProtocolV1HostSession:
         self._context_map: dict[int, str] = {}
         self._armed = False
         self._failed = False
+        intent_path = getattr(self.intent_journal, "path", None)
+        self._rearm_inhibit_root = (Path(intent_path).parents[2] if intent_path is not None else None)
 
     @staticmethod
     def _utc_now() -> str:
@@ -621,10 +623,34 @@ class ProtocolV1HostSession:
             self._failed = True
             raise
 
+    def _assert_rearm_not_inhibited(self) -> None:
+        """Refuse a serial ARM/PWM path when RawLog recovery review is outstanding."""
+        root = self._rearm_inhibit_root
+        if root is None:
+            if getattr(self.transport, "port", None) is not None:
+                raise ProtocolV1SessionError(
+                    "re-arm root is not bound; production actuation requires a RawLog-bound intent journal"
+                )
+            return
+        if root.is_symlink() or not root.is_dir():
+            raise ProtocolV1SessionError("re-arm root is missing, symlinked, or not a directory")
+        for name in (".310-rearm-inhibited", ".310-evidence-reconciliation-required"):
+            marker = root / name
+            if marker.is_symlink():
+                raise ProtocolV1SessionError(f"{name} must not be a symlink")
+            if marker.exists():
+                if not marker.is_file():
+                    raise ProtocolV1SessionError(f"{name} is not a regular file")
+                raise ProtocolV1SessionError(
+                    f"automatic re-arm is inhibited by {name}; explicit command-outcome "
+                    "reconciliation and independent safe-state confirmation are required"
+                )
+
     def _send_stage_pwm(self, pwm: int, stage_context_id: str,
                         measurement_session_id: str, stage_index: Optional[int] = None) -> str:
         if self._failed:
             raise ProtocolV1SessionError("host protocol session is fail-closed")
+        self._assert_rearm_not_inhibited()
         if self._pending is not None:
             raise ProtocolV1SessionError(
                 "previous PWM command outcome is unresolved; a new stage cannot be sent"
