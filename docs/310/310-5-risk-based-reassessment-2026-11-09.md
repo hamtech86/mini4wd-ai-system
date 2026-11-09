@@ -69,7 +69,7 @@ Issue #35の2026-11-09司令塔方針に従い、310-5の既存要求・試験�
 | T18 hosted path | PASS | run #55: 31 stages / 3,100 batches / 37,200 slots / 10,143 events; max 1,458.961ms。all four regression jobs PASS; full suite 629 passed / 2 xfailed |
 | T18 target-host exact HEAD | NOT RUN | 新HEADを対象PC/storageで診断実行。時間値は合否ゲートにしない |
 | R01 marker checks | INTEGRATED | markerの存在時に自動再始動を阻止する部分は維持 |
-| R01 lifecycle/operator workflow | NOT COMPLETE | 過剰なjournal要件を整理し、UNKNOWN・運用者確認・電源遮断の最小手順へ再設計 |
+| R01 operator release | SOFTWARE CANDIDATE TESTED / INTEGRATION OPEN | recovery_release.pyを追加し、operator attestation・incomplete work拒否・audit記録・marker解除をテスト済み。UI統合・運用手順の実機条件確認は未完了 |
 | HW01–HW08 | NOT RUN / NOT AUTHORIZED | 現物情報を揃え、KEEP/INVESTIGATE対象だけをまとめて審査 |
 | 310-5 acceptance / 310-6 | NOT ACCEPTED / BLOCKED | 再分類後の証拠を審査して決定 |
 
@@ -94,3 +94,14 @@ Evidence links:
 - [Regression run #1714](https://github.com/hamtech86/mini4wd-ai-system/actions/runs/42558700829)
 
 Remaining boundaries are unchanged: hosted tests do not qualify target-PC filesystem behavior or physical hardware. Exact-head target-host diagnostic remains NOT RUN; R01 lifecycle/operator reconciliation remains incomplete; HW qualification remains NOT RUN and unauthorized.
+
+
+## 2026-11-09 R01 operator-release candidate verification
+
+- Added measurement_310/recovery_release.py: manual operator-attested release of existing recovery markers after RawLog incomplete-work check.
+- Added five tests: explicit confirmation required; audit written before marker removal; incomplete RawLog work blocks release; symlink marker blocks release; no-marker case rejects.
+- CLI does not open serial devices, send STOP/ARM/PWM, or start a measurement. It prompts for the exact phrase MOTOR POWER OFF.
+- Audit labels physical evidence as operator attestation only, not independent measurement.
+- Regression run #1725 / run ID 42559099952: all four jobs PASS; full suite 634 passed, 2 xfailed.
+
+This closes the unit-tested software candidate for the one-time manual release action, not R01 as a whole. It remains necessary to review its invocation/integration path, confirm the actual main switch isolates motor/driver power during HW01 wiring identification, and verify no-auto-resume behavior before formal R01 disposition. No hardware test was performed or authorized.
