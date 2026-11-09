@@ -105,3 +105,18 @@ Remaining boundaries are unchanged: hosted tests do not qualify target-PC filesy
 - Regression run #1725 / run ID 42559099952: all four jobs PASS; full suite 634 passed, 2 xfailed.
 
 This closes the unit-tested software candidate for the one-time manual release action, not R01 as a whole. It remains necessary to review its invocation/integration path, confirm the actual main switch isolates motor/driver power during HW01 wiring identification, and verify no-auto-resume behavior before formal R01 disposition. No hardware test was performed or authorized.
+
+
+## 2026-11-09 latest code-head verification
+
+The R01 operator-release helper and tests are included in code HEAD 9fc92a1b2a64829f1e2210d46c852781c1efa111. PR HEAD 1c2c67b5aa4287c9b6213cc5c85f88afa5f4f154 advances documentation only.
+
+- T18 production-path run #56 / run ID 42559099996: PASS; 31 stages, 3,100 ADC batches, 37,200 ADC slots, 10,143 Evidence events; p50 175.993 ms, p95 237.430 ms, p99/p99.9/max 1,458.258 ms.
+- Regression run #1725 / run ID 42559099952: all four jobs PASS; full suite 634 passed, 2 xfailed.
+- The five new operator-release tests are included in the 634 passing full-suite tests.
+
+Links:
+- [T18 run #56](https://github.com/hamtech86/mini4wd-ai-system/actions/runs/42559099996)
+- [Regression run #1725](https://github.com/hamtech86/mini4wd-ai-system/actions/runs/42559099952)
+
+These results verify hosted software behavior only. The exact-head target-host filesystem diagnostic remains NOT RUN; no physical hardware test was performed.
