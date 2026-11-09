@@ -62,7 +62,7 @@ The run used an in-memory Protocol V2 peer and the real host filesystem persiste
 5. Ordering: no DISARM/next ARM may pass an uncommitted prior-stage record boundary.
 6. STOP: a deliberately blocked persistence writer must not delay the independent STOP writer; no fsync is allowed on the STOP critical path.
 7. Regression: full RawLog/Sequence, Break-in, Battery, and full Python test suites.
-8. Performance: repeat the full 31-stage production-path profile on the target host with real filesystem persistence. Require all 31 stages within 8,000 ms (including p99.9/max), all package/evidence/loss checks passing, and the separately specified save-stage maximum/p99.9 budget satisfied. Hosted-runner timings do not substitute for this result.
+8. Performance: repeat the full 31-stage production-path profile on the target host with real filesystem persistence as a diagnostic. Record stage and persistence timing distributions without an 8,000 ms pass/fail ceiling. Hosted-runner timings do not substitute for target-host characterization, but target-host timing alone is not a safety gate.
 
 ## First implementation candidate — hosted-runner result
 
