@@ -43,10 +43,11 @@ class DeviceLossWindow:
 class DeviceEpochClockUnwrapper:
     """Unwrap Arduino micros() monotonically for one committed device boot epoch.
 
-    The first observed uint32 timestamp is retained as the boot-relative
-    coordinate. Subsequent timestamps are extended across one uint32 wrap.
-    A delta >= 2^31 us is ambiguous and is rejected rather than guessed.
-    Keep one instance for the whole device_epoch_id, across ARM/stage changes.
+    The first observed uint32 timestamp anchors this host-session coordinate.
+    Subsequent timestamps are extended across one uint32 wrap. A delta >=
+    2^31 us is ambiguous and is rejected rather than guessed. Keep one
+    instance across ARM/stage changes. Continuing the same device epoch after
+    a host-process restart requires a persisted timestamp checkpoint.
     """
 
     def __init__(self, boot_id64: int):
