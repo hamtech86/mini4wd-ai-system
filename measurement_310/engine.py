@@ -390,16 +390,20 @@ class SequenceController:
                                     "channel": channel,
                                     "adc_raw": int(sample["adc_raw"]) if valid else None,
                                     "adc_resolution_bits": 10,
-                                    "device_timestamp_us_u32": int(sample["timestamp_us_u32"]),
+                                    "device_timestamp_us_u32": (
+                                        int(sample["timestamp_us_u32"]) if valid else None
+                                    ),
                                     "device_timestamp_point": (
-                                        "scheduled_slot_start" if status == 3
-                                        else "conversion_midpoint" if valid
-                                        else "attempt_timestamp"
+                                        "conversion_midpoint" if valid else "unavailable"
                                     ),
                                     "device_epoch_id": f"{boot_id:016X}",
-                                    "device_elapsed_us": int(sample["device_elapsed_us"]),
+                                    "device_elapsed_us": (
+                                        int(sample["device_elapsed_us"])
+                                        if valid and sample.get("device_elapsed_us") is not None
+                                        else None
+                                    ),
                                     "device_sample_sequence": int(sample["sample_sequence64"]),
-                                    "validity": "valid" if valid else "invalid",
+                                    "validity": "valid" if valid else "unavailable",
                                     "invalid_reason": reason,
                                     "stage_assignment_override": (
                                         "unresolved" if status == 3 else "confirmed"
