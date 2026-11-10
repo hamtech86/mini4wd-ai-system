@@ -32,7 +32,7 @@ class ChannelWindow:
 @dataclass(frozen=True)
 class DeviceLossWindow:
     boot_id64: int
-    stage_context_token: int
+    stage_context_token: Optional[int]
     window_index: int
     start_elapsed_us: int
     end_elapsed_us: int
@@ -43,11 +43,11 @@ class DeviceLossWindow:
 class DeviceEpochClockUnwrapper:
     """Unwrap Arduino micros() monotonically for one committed device boot epoch.
 
-    The first observed uint32 timestamp anchors this host-session coordinate.
-    Subsequent timestamps are extended across one uint32 wrap. A delta >=
-    2^31 us is ambiguous and is rejected rather than guessed. Keep one
-    instance across ARM/stage changes. Continuing the same device epoch after
-    a host-process restart requires a persisted timestamp checkpoint.
+    The first observed scheduled slot anchors this host-session coordinate at
+    zero. Subsequent slot timestamps are extended across one uint32 wrap. A
+    delta >= 2^31 us is ambiguous and is rejected rather than guessed. Keep
+    one instance across ARM/stage changes. Continuing the same device epoch
+    after a host-process restart requires a persisted timestamp checkpoint.
     """
 
     def __init__(self, boot_id64: int):
@@ -79,21 +79,23 @@ class DeviceEpochClockUnwrapper:
 
 
 class DeviceLossWindowAccumulator:
-    """Accumulate per-channel [n*1s,(n+1)*1s) loss windows for one ARM epoch.
+    """Accumulate per-channel [n*1s,(n+1)*1s) windows for one device epoch.
 
-    Its private elapsed coordinate is intentionally ARM-local and is used only
-    to bucket loss windows. RawLog device_elapsed_us is produced separately by
-    DeviceEpochClockUnwrapper, which persists across ARM/stage changes.
-
-    A sequence gap or incomplete terminal window is reported UNATTRIBUTABLE;
-    it is never spread across channels by guesswork.
+    One accumulator is retained across all ARM/stage contexts in the same
+    verified boot epoch. Its elapsed coordinate starts at the first scheduled
+    slot observed by this host session and is never reset at a stage boundary.
+    A sequence gap or incomplete terminal window is UNATTRIBUTABLE; it is
+    never spread across channels by guesswork.
     """
 
-    def __init__(self, boot_id64: int, stage_context_token: int):
+    def __init__(self, boot_id64: int, stage_context_token: Optional[int] = None):
         if isinstance(boot_id64, bool) or not isinstance(boot_id64, int) or not 0 <= boot_id64 <= 0xFFFFFFFFFFFFFFFF:
             raise ValueError("boot_id64 must be uint64")
-        if isinstance(stage_context_token, bool) or not isinstance(stage_context_token, int) or not 0 <= stage_context_token <= 0xFFFF:
-            raise ValueError("stage_context_token must be uint16")
+        if stage_context_token is not None and (
+            isinstance(stage_context_token, bool) or not isinstance(stage_context_token, int)
+            or not 0 <= stage_context_token <= 0xFFFF
+        ):
+            raise ValueError("stage_context_token must be uint16 or None")
         self.boot_id64 = boot_id64
         self.stage_context_token = stage_context_token
         self._origin: Optional[int] = None
