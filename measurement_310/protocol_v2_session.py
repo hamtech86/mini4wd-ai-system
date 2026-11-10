@@ -665,17 +665,28 @@ class ProtocolV2HostSession:
             # The clock is deliberately not reset when _loss_accumulator is
             # replaced at the next stage boundary.
             for sample in samples:
-                sample["device_elapsed_us"] = self._device_clock.add(
-                    sample["timestamp_us_u32"]
-                )
+                if sample.get("acquisition_status") == 0:
+                    sample["device_elapsed_us"] = self._device_clock.add(
+                        sample["timestamp_us_u32"]
+                    )
+                else:
+                    # Failed/unavailable slots retain their schedule/attempt
+                    # timestamp only inside transport evidence and loss
+                    # accounting. They have no RawLog acquisition timestamp.
+                    sample["device_elapsed_us"] = None
             completed_windows = self._loss_accumulator.add_batch(samples, gap_slots=gap_slots)
         except DeviceLossAccountingError as exc:
             self._failed = True
             raise ProtocolV2SessionError(f"ADC time/loss accounting rejected batch: {exc}") from exc
+        last_device_elapsed_us = next(
+            (sample.get("device_elapsed_us") for sample in reversed(samples)
+             if sample.get("device_elapsed_us") is not None),
+            None,
+        )
         self._append("ADC_BATCH_ACCEPTED", first_sample_sequence64=first,
                      next_sample_sequence64=first + len(samples),
                      sample_count=len(samples),
-                     device_elapsed_us=samples[-1].get("device_elapsed_us"),
+                     device_elapsed_us=last_device_elapsed_us,
                      raw_frame_base64=message.get("_raw_frame_base64"))
         for window in completed_windows:
             self._append("ADC_LOSS_WINDOW_SUMMARY", summary=asdict(window), terminal=False)
