@@ -10,7 +10,9 @@ from measurement_310.protocol_v2 import (
     DriveDirection, epoch_tag_for_boot_id,
 )
 from measurement_310.protocol_v2_session import ProtocolV2HostSession, ProtocolV2SessionError
-from measurement_310.device_loss_accounting import DeviceLossWindowAccumulator
+from measurement_310.device_loss_accounting import (
+    DeviceEpochClockUnwrapper, DeviceLossWindowAccumulator,
+)
 
 
 BOOT = 0x123456789ABCDEF0
@@ -179,3 +181,44 @@ def test_for_rawlog_session_binds_intent_and_evidence_to_same_uuid(tmp_path):
     session.start_session(session_id)
     assert session.measurement_session_id == session_id
     assert transport.connected is True
+
+
+
+def _adc_batch(session_id, first_sequence, start_timestamp, token):
+    channel_order = (0, 1, 4, 5, 2, 3)
+    offsets = (0, 100, 200, 300, 400, 500, 25000, 25100, 25200, 25300, 25400, 25500)
+    payload = bytearray(struct.pack("<QBBB", first_sequence, 0, 12, 0))
+    for index, channel in enumerate(channel_order * 2):
+        payload.extend(struct.pack(
+            "<IBHHBH", (start_timestamp + offsets[index]) & 0xFFFFFFFF,
+            channel, 512, token, 0, 0,
+        ))
+    return CODEC.decode(CODEC.encode_message(
+        MessageType.ADC_BATCH, session_id=session_id,
+        epoch_tag=epoch_tag_for_boot_id(BOOT), payload=bytes(payload),
+    )).message
+
+
+def test_device_elapsed_us_continues_across_arm_stage_accumulator_reset(tmp_path):
+    session_id = str(uuid.uuid4())
+    session = make_session(tmp_path, ScriptedTransport(session_id))
+    session.start_session(session_id)
+
+    session._active_stage = {"token": 1, "stage_context_id": "stage-1"}
+    session._loss_accumulator = DeviceLossWindowAccumulator(BOOT, 1)
+    first = session.accept_adc_batch(_adc_batch(session_id, 0, 1_000_000, 1))
+    first_elapsed = [sample["device_elapsed_us"] for sample in first]
+    assert first_elapsed[0] == 1_000_000
+    assert first_elapsed[-1] == 1_025_500
+
+    # Simulate the normal DISARM/ARM boundary: loss windows reset, but the
+    # device boot epoch and its unwrapped micros clock do not.
+    session._loss_accumulator.finalize()
+    session._active_stage = {"token": 2, "stage_context_id": "stage-2"}
+    session._loss_accumulator = DeviceLossWindowAccumulator(BOOT, 2)
+    second = session.accept_adc_batch(_adc_batch(session_id, 12, 1_100_000, 2))
+    second_elapsed = [sample["device_elapsed_us"] for sample in second]
+    assert second_elapsed[0] == 1_100_000
+    assert second_elapsed[-1] == 1_125_500
+    assert second_elapsed[0] > first_elapsed[-1]
+    assert session._device_clock.boot_id64 == BOOT
