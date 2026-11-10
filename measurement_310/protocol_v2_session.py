@@ -460,6 +460,14 @@ class ProtocolV2HostSession:
             raise ProtocolV2SessionError(f"device sequence reconciliation failed: {resolution.detail}")
         self.sequence_reconciliation = resolution
         self.next_sample_sequence64 = next_sequence
+        if resolution.status is SequenceReconciliationStatus.GAP_UNATTRIBUTABLE:
+            resolution_gap_slots = (
+                int(resolution.gap_end_sequence64_exclusive)
+                - int(resolution.gap_start_sequence64)
+            )
+            self._pending_checkpoint_gap_slots = max(
+                self._pending_checkpoint_gap_slots, resolution_gap_slots
+            )
         self._append("HELLO_ACK_MATCHED", boot_id64=boot_id, device_epoch_tag=self.epoch_tag,
                      host_nonce64=nonce, next_sample_sequence64=next_sequence,
                      sequence_reconciliation=asdict(resolution), ack=ack)
