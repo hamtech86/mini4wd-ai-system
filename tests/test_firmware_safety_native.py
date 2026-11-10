@@ -14,6 +14,9 @@ def test_motor_firmware_stop_and_pause_safety_native_harness():
             [
                 "g++",
                 "-std=c++11",
+                # Explicit opt-in: this harness tests archived DATA26 safety
+                # behavior only; the legacy sketch is disabled by default.
+                "-DM4WD_ENABLE_LEGACY_DATA26=1",
                 "-Wall",
                 "-Wextra",
                 "-I",
