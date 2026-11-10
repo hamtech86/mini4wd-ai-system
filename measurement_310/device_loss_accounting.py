@@ -82,7 +82,7 @@ def load_latest_device_clock_checkpoint(
         try:
             with open(path, "r", encoding="utf-8") as stream:
                 for line_number, line in enumerate(stream, 1):
-                    if not line.endswith("\\n"):
+                    if not line.endswith("\n"):
                         raise DeviceLossAccountingError(
                             f"truncated RawLog v2 records.jsonl at {path}:{line_number}"
                         )
