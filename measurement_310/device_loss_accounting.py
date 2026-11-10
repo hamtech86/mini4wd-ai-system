@@ -118,7 +118,7 @@ class DeviceLossWindowAccumulator:
 
     @property
     def window_elapsed_us(self) -> Optional[int]:
-        """ARM-local elapsed coordinate used only for loss-window boundaries."""
+        """Device-epoch elapsed coordinate used for 1-second loss-window boundaries."""
         return self._elapsed if self._origin is not None else None
 
     def add_batch(self, samples: list[dict], *, gap_slots: int = 0) -> list[DeviceLossWindow]:
@@ -149,7 +149,7 @@ class DeviceLossWindowAccumulator:
             else:
                 delta = (timestamp - self._last) & UINT32_MASK
                 if delta >= UINT32_HALF:
-                    raise DeviceLossAccountingError("device timestamp ordering is ambiguous within this ARM epoch")
+                    raise DeviceLossAccountingError("device timestamp ordering is ambiguous within this device epoch")
                 self._elapsed += delta
                 self._last = timestamp
 
