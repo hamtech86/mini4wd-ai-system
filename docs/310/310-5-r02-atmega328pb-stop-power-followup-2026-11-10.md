@@ -134,7 +134,7 @@ The GitHub-hosted T18 production-path profile is software evidence on the runner
 | ATmega328PB 16 MHz compile target | PASS — CI properties asserted |
 | Protocol-v2 SRAM / static stack budget | PASS — static build audit |
 | v2 A0/A1 separation | PASS — source-level only |
-| legacy DATA26 A0/A1 average path | FAIL — isolated/retirement or versioned correction still required |
+| legacy DATA26 A0/A1 average path | RETIRED / DISABLED BY DEFAULT — archived source remains noncompliant |
 | per-channel 1-second loss accounting | PASS — source/host-test candidate |
 | same-boot timestamp checkpoint | IMPLEMENTED — host regression pass |
 | command_sent_ns after serial write/flush | PASS — source review |
@@ -168,3 +168,32 @@ The R02 documentation commit triggered the existing PR #193 T18 workflow on exac
 - Profile JSON SHA-256: `a4b4890165b9a1eeaa82621d2071243490fa438716e8bff0716255b4dbab7147`.
 
 Evidence boundary: GitHub runner Ubuntu 26.04 / ext4, in-memory protocol-v2 peer, real host-side RawLog/intent/Evidence files and production fsync calls. No serial device was opened and no physical hardware was used. The profile marks stage timing as observational only. It does not satisfy the target Linux Mint host's 10-second save-stage qualification or its required max/p99.9 distribution. Target-host diagnostic remains NOT RUN.
+
+
+## 11. Legacy DATA26 retirement and latest exact-head verification
+
+The legacy DATA26 sketch has now been isolated from the current 310 build:
+- Commit `224074c625b7cb146f4ffc1f7c7ea7e767015934` adds a compile-time guard to `firmware/motor/MotoreRev.ino`; a normal build fails unless the explicit archival-only macro `M4WD_ENABLE_LEGACY_DATA26` is supplied.
+- `firmware/motor/README.md` identifies `MotoreRevV2` as the only current 310 firmware and the DATA26 sketch as historical-only.
+- `arduino-firmware-compile.yml` now builds the Protocol V2 sketch and Boot Identity Provisioner for ATmega328PB / 16 MHz; it no longer builds the legacy sketch for Arduino Uno.
+- `motor-firmware-compile.yml` verifies the default-build guard, verifies that the V2 source has no A0/A1 averaging path, and runs the legacy safety harness only with explicit archival opt-in.
+- The Python native safety test first proves that compiling the legacy sketch without the opt-in macro is rejected, then runs the legacy harness with explicit opt-in.
+
+Latest exact PR #193 head: `7d53858db2f7b07a1f1b5d6d17036fa13a4ff089`.
+
+Exact-head verification:
+- Legacy retirement guard/native safety workflow: https://github.com/hamtech86/mini4wd-ai-system/actions/runs/42816321247 — PASS.
+- ATmega328PB current firmware compile: https://github.com/hamtech86/mini4wd-ai-system/actions/runs/42816321351 — PASS.
+- Full regression: https://github.com/hamtech86/mini4wd-ai-system/actions/runs/42816321481 — PASS, 649 passed / 2 xfailed.
+- T18 production-path profile: https://github.com/hamtech86/mini4wd-ai-system/actions/runs/42816321395 — PASS.
+
+Latest T18 profile:
+- 31 PWM stages; 3,100 ADC batches; 37,200 ADC slots.
+- 310 one-second loss windows; all PASS; RawLog validation errors 0; Evidence events 10,143; bundle verified.
+- Stage elapsed p50 180.718 ms; p95 217.563 ms; p99/p99.9/max 1,480.460 ms.
+- Final `sequence_complete` phase has one observation at 1,311.032 ms; RawLog finalization for that stage is 1,014.529 ms. A one-observation p99.9 is not statistically meaningful.
+- Profile JSON SHA-256: `d16ad4c22378851b0bdb8f5308a0302e04a61c333be4d80c8f8ec4dbe708e4c6`.
+
+The T18 run used a GitHub-hosted Ubuntu 24.04 runner with ext4 and an in-memory protocol-v2 peer. It is not the target Linux Mint host and does not qualify the target-host 10-second save-stage max/p99.9 distribution. Target-host diagnostic remains NOT RUN.
+
+The legacy source is preserved for historical compatibility only; the current 310 build does not compile or use it. This does not rewrite historical RawLog v1 files or add any v1-to-v2 migration.
