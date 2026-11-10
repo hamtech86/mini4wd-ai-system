@@ -335,7 +335,10 @@ def test_rawlog_bound_session_restores_epoch_clock_and_marks_restart_window_unkn
         _adc_batch(session_id, 10, 600_000, 1)
     )
     assert accepted[0]["device_elapsed_us"] == 200_000
-    assert session._loss_accumulator.window_elapsed_us == 200_000
+    # The batch contains later slots through +25.5 ms; the loss-window clock
+    # reports the batch high-water, not the first sample timestamp.
+    assert accepted[-1]["device_elapsed_us"] == 225_500
+    assert session._loss_accumulator.window_elapsed_us == accepted[-1]["device_elapsed_us"]
     assert session._pending_checkpoint_gap_slots == 0
     assert session._loss_accumulator._gap_slots_by_window[0] == 5
 
