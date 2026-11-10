@@ -1254,9 +1254,15 @@ def test_sequence_controller_persists_protocol_v2_adc_batch_to_rawlog(tmp_path):
         "A0", "A1", "A4", "A5", "A2", "A3",
     ]
     assert all(record["device_epoch_id"] == "123456789ABCDEF0" for record in adc)
-    assert [record["device_elapsed_us"] for record in adc] == [i * 100 for i in range(12)]
+    assert [record["device_elapsed_us"] for record in adc] == [
+        0, None, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100
+    ]
     not_acquired = adc[1]
-    assert not_acquired["validity"] == "invalid"
+    assert not_acquired["validity"] == "unavailable"
+    assert not_acquired["adc_raw"] is None
+    assert not_acquired["device_timestamp_us_u32"] is None
+    assert not_acquired["device_elapsed_us"] is None
+    assert not_acquired["device_timestamp_point"] == "conversion_midpoint"
     assert not_acquired["invalid_reason"] == "NOT_ACQUIRED"
     assert not_acquired["stage_assignment"] == "unresolved"
     assert not_acquired["stage_context_id"] is None
