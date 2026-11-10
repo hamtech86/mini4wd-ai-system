@@ -15,6 +15,7 @@ from .command_intent import AckCorrelator, AckIdentity, CommandIdentity, Durable
 from .epoch_checkpoint import CheckpointStatus
 from .device_loss_accounting import (
     DeviceEpochClockUnwrapper, DeviceLossAccountingError, DeviceLossWindowAccumulator,
+    load_latest_device_clock_checkpoint,
 )
 from .protocol_v1_session import TransportEvidenceJournal
 from .protocol_v2 import (
@@ -89,6 +90,8 @@ class ProtocolV2HostSession:
         self.measurement_session_id: Optional[str] = None
         self._storage_session_id: Optional[str] = None
         self._rearm_inhibit_root: Optional[str] = None
+        self._rawlog_root: Optional[str] = None
+        self._pending_checkpoint_gap_slots = 0
         self.boot_id64: Optional[int] = None
         self.epoch_tag: Optional[int] = None
         self.next_sample_sequence64: Optional[int] = None
@@ -139,6 +142,7 @@ class ProtocolV2HostSession:
         )
         session._storage_session_id = measurement_session_id
         session._rearm_inhibit_root = os.fspath(rawlog_root)
+        session._rawlog_root = os.fspath(rawlog_root)
         return session
 
     @staticmethod
@@ -373,18 +377,78 @@ class ProtocolV2HostSession:
             raise ProtocolV2SessionError("HELLO_ACK has invalid boot identity or next sequence")
         self.boot_id64 = boot_id
         self.epoch_tag = epoch_tag_for_boot_id(boot_id)
-        self._device_clock = DeviceEpochClockUnwrapper(boot_id)
-        # Loss windows are device-epoch scoped, not ARM scoped. Keep the same
-        # accumulator through every stage and finalize it only on STOP.
-        self._loss_accumulator = DeviceLossWindowAccumulator(boot_id)
         if ack.get("device_epoch_tag") != self.epoch_tag:
             self._failed = True
             raise ProtocolV2SessionError("HELLO_ACK epoch correlation mismatch")
+
+        checkpoint = None
+        if self._rawlog_root is not None:
+            try:
+                checkpoint = load_latest_device_clock_checkpoint(self._rawlog_root, boot_id)
+            except DeviceLossAccountingError as exc:
+                self._failed = True
+                raise ProtocolV2SessionError(
+                    f"durable device clock checkpoint is invalid; refusing re-arm: {exc}"
+                ) from exc
+
+        if checkpoint is not None:
+            if host_boot_id64 is not None and host_boot_id64 != boot_id:
+                self._failed = True
+                raise ProtocolV2SessionError(
+                    "RawLog contains the current device boot epoch but host epoch checkpoint disagrees"
+                )
+            checkpoint_next = checkpoint.sample_sequence64 + 1
+            if next_sequence < checkpoint_next:
+                self._failed = True
+                raise ProtocolV2SessionError(
+                    "device sequence rolled back behind the durable RawLog clock checkpoint"
+                )
+            effective_host_boot_id64 = boot_id
+            effective_host_next_sequence64 = max(
+                checkpoint_next,
+                host_next_sequence64 if host_next_sequence64 is not None else 0,
+            )
+            self._pending_checkpoint_gap_slots = max(0, next_sequence - checkpoint_next)
+            self._device_clock = DeviceEpochClockUnwrapper(
+                boot_id,
+                checkpoint_timestamp_us_u32=checkpoint.timestamp_us_u32,
+                checkpoint_elapsed_us=checkpoint.elapsed_us,
+            )
+            # The current 1-second window is partial across process restart.
+            # Preserve the epoch coordinate but mark that window UNATTRIBUTABLE.
+            self._loss_accumulator = DeviceLossWindowAccumulator(
+                boot_id,
+                checkpoint_timestamp_us_u32=checkpoint.timestamp_us_u32,
+                checkpoint_elapsed_us=checkpoint.elapsed_us,
+            )
+            self._append(
+                "DEVICE_CLOCK_CHECKPOINT_RESTORED",
+                boot_id64=boot_id,
+                last_sample_sequence64=checkpoint.sample_sequence64,
+                last_timestamp_us_u32=checkpoint.timestamp_us_u32,
+                device_elapsed_us=checkpoint.elapsed_us,
+                initial_sequence_gap_slots=self._pending_checkpoint_gap_slots,
+            )
+        else:
+            if (self._rawlog_root is not None and host_boot_id64 == boot_id
+                    and (host_next_sequence64 is None or host_next_sequence64 > 0)):
+                self._failed = True
+                raise ProtocolV2SessionError(
+                    "same device boot epoch has prior host samples but no durable RawLog clock checkpoint"
+                )
+            effective_host_boot_id64 = host_boot_id64
+            effective_host_next_sequence64 = host_next_sequence64
+            self._pending_checkpoint_gap_slots = 0
+            self._device_clock = DeviceEpochClockUnwrapper(boot_id)
+            # Loss windows are device-epoch scoped, not ARM scoped. Keep the
+            # same accumulator through every stage and finalize it only on STOP.
+            self._loss_accumulator = DeviceLossWindowAccumulator(boot_id)
+
         resolution = reconcile_device_sequence(
             device_boot_id64=boot_id,
             device_next_sequence64=next_sequence,
-            host_boot_id64=host_boot_id64,
-            host_next_sequence64=host_next_sequence64,
+            host_boot_id64=effective_host_boot_id64,
+            host_next_sequence64=effective_host_next_sequence64,
             device_identity_verified=True,
         )
         if resolution.status in {
@@ -659,6 +723,8 @@ class ProtocolV2HostSession:
                 self._failed = True
                 raise ProtocolV2SessionError("ADC sample stage context does not match active ARM epoch")
         gap_slots = first - self.next_sample_sequence64
+        gap_slots += self._pending_checkpoint_gap_slots
+        self._pending_checkpoint_gap_slots = 0
         try:
             if self._device_clock is None or self._device_clock.boot_id64 != self.boot_id64:
                 raise DeviceLossAccountingError("device-epoch clock is not bound to the active boot identity")
