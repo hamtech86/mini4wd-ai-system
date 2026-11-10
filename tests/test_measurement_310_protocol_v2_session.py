@@ -184,14 +184,17 @@ def test_for_rawlog_session_binds_intent_and_evidence_to_same_uuid(tmp_path):
 
 
 
-def _adc_batch(session_id, first_sequence, start_timestamp, token):
+def _adc_batch(session_id, first_sequence, start_timestamp, token, statuses=None):
     channel_order = (0, 1, 4, 5, 2, 3)
     offsets = (0, 100, 200, 300, 400, 500, 25000, 25100, 25200, 25300, 25400, 25500)
+    statuses = statuses or [0] * 12
     payload = bytearray(struct.pack("<QBBB", first_sequence, 0, 12, 0))
     for index, channel in enumerate(channel_order * 2):
+        status = statuses[index]
+        raw = 0xFFFF if status else 512
         payload.extend(struct.pack(
             "<IBHHBH", (start_timestamp + offsets[index]) & 0xFFFFFFFF,
-            channel, 512, token, 0, 0,
+            channel, raw, token, status, 0,
         ))
     return CODEC.decode(CODEC.encode_message(
         MessageType.ADC_BATCH, session_id=session_id,
@@ -222,3 +225,22 @@ def test_device_elapsed_us_continues_across_arm_stage_accumulator_reset(tmp_path
     assert second_elapsed[-1] == 1_125_500
     assert second_elapsed[0] > first_elapsed[-1]
     assert session._device_clock.boot_id64 == BOOT
+
+
+
+def test_unavailable_adc_slots_do_not_receive_rawlog_device_timestamps(tmp_path):
+    session_id = str(uuid.uuid4())
+    session = make_session(tmp_path, ScriptedTransport(session_id))
+    session.start_session(session_id)
+    session._active_stage = {"token": 1, "stage_context_id": "stage-1"}
+    session._loss_accumulator = DeviceLossWindowAccumulator(BOOT, 1)
+
+    statuses = [0, 1, 2, 3] + [0] * 8
+    accepted = session.accept_adc_batch(_adc_batch(
+        session_id, 0, 2_000_000, 1, statuses=statuses
+    ))
+    assert accepted[0]["device_elapsed_us"] == 2_000_000
+    for index in (1, 2, 3):
+        assert accepted[index]["device_elapsed_us"] is None
+    assert accepted[4]["device_elapsed_us"] > accepted[0]["device_elapsed_us"]
+    assert session.next_sample_sequence64 == 12
