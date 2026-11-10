@@ -120,9 +120,9 @@ def test_wrong_channel_order_fails_closed():
 
 def test_device_epoch_clock_unwraps_micros_across_uint32_wrap():
     clock = DeviceEpochClockUnwrapper(boot_id64=123)
-    assert clock.add(0xFFFFFFF0) == 0xFFFFFFF0
-    assert clock.add(0x00000020) == 0x1_00000020
-    assert clock.elapsed_us == 0x1_00000020
+    assert clock.add(0xFFFFFFF0) == 0
+    assert clock.add(0x00000020) == 0x30
+    assert clock.elapsed_us == 0x30
 
 
 def test_device_epoch_clock_rejects_ambiguous_backward_jump():
