@@ -662,16 +662,14 @@ class ProtocolV2HostSession:
         try:
             if self._device_clock is None or self._device_clock.boot_id64 != self.boot_id64:
                 raise DeviceLossAccountingError("device-epoch clock is not bound to the active boot identity")
-            # RawLog device_elapsed_us is boot-epoch monotonic, not ARM-local.
-            # The clock is deliberately not reset when _loss_accumulator is
-            # replaced at the next stage boundary.
+            # The device-epoch clock is anchored at the first observed slot
+            # and deliberately survives every ARM/stage boundary.
             for sample in samples:
                 device_elapsed = self._device_clock.add(sample["timestamp_us_u32"])
                 # Every scheduled slot advances the device clock so loss
                 # windows and successful ADC_SAMPLE times share one epoch
                 # coordinate. Only a successful conversion has a RawLog
                 # acquisition timestamp; unavailable slots store null.
-                sample["_device_epoch_elapsed_us"] = device_elapsed
                 sample["device_elapsed_us"] = (
                     device_elapsed if sample.get("acquisition_status") == 0 else None
                 )
