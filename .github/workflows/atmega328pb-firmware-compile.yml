@@ -1,0 +1,118 @@
+name: ATmega328PB 16 MHz firmware compile audit
+
+on:
+  pull_request:
+    paths:
+      - "firmware/motor/**"
+      - ".github/workflows/atmega328pb-firmware-compile.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  compile-atmega328pb:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+
+      - name: Set up Arduino CLI
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Install pinned MiniCore
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://mcudude.github.io/MiniCore/package_MCUdude_MiniCore_index.json"
+          arduino-cli core update-index --additional-urls "$URL"
+          arduino-cli core install MiniCore:avr@3.1.3 --additional-urls "$URL"
+          arduino-cli version
+          arduino-cli core list
+          arduino-cli board details --fqbn "MiniCore:avr:328:variant=modelPB,clock=16MHz_external"
+
+      - name: Compile legacy and protocol-v2 motor firmware for ATmega328PB
+        shell: bash
+        run: |
+          set -euo pipefail
+          FQBN="MiniCore:avr:328:variant=modelPB,clock=16MHz_external"
+          ROOT="$RUNNER_TEMP/328pb-audit"
+          ART="$ROOT/artifacts"
+          mkdir -p "$ART"
+
+          compile_sketch() {
+            local name="$1"
+            local source_dir="$2"
+            local sketch_dir="$ROOT/$name"
+            local build_dir="$ROOT/$name-build"
+            mkdir -p "$sketch_dir" "$build_dir"
+            cp "$source_dir/$name.ino" "$sketch_dir/$name.ino"
+            if [[ "$name" == "MotoreRevV2" ]]; then
+              cp firmware/motor/ProtocolV2Codec.h "$sketch_dir/"
+              cp firmware/motor/BootIdentityJournal.h "$sketch_dir/"
+              cp firmware/motor/ProtocolV2Device.h "$sketch_dir/"
+              cp firmware/motor/ProtocolV2TxScheduler.h "$sketch_dir/"
+              cp firmware/motor/ProtocolV2AdcScheduler.h "$sketch_dir/"
+            fi
+            arduino-cli compile --export-binaries --fqbn "$FQBN" \
+              --build-path "$build_dir" \
+              --build-property "compiler.cpp.extra_flags=-DSERIAL_RX_BUFFER_SIZE=24 -DSERIAL_TX_BUFFER_SIZE=24 -fstack-usage -fno-lto" \
+              --build-property "compiler.c.extra_flags=-fstack-usage -fno-lto" \
+              --build-property "compiler.c.elf.extra_flags=-fno-lto -Wl,-Map=$build_dir/$name.map" \
+              "$sketch_dir"
+            local elf
+            local hex
+            elf="$(find "$build_dir" -type f -name '*.elf' -print -quit)"
+            hex="$(find "$sketch_dir" -type f -name '*.hex' -print -quit)"
+            test -n "$elf"
+            test -n "$hex"
+            local avr_bin
+            avr_bin="$(find "$HOME/.arduino15/packages/MiniCore/tools/avr-gcc" -type d -name bin -print -quit)"
+            test -n "$avr_bin"
+            "$avr_bin/avr-size" "$elf" | tee "$ART/$name-avr-size.txt"
+            awk 'NR == 2 { if (($2 + $3) > 900) { print "FAIL: .data + .bss exceeds 900 bytes"; exit 1 } }' "$ART/$name-avr-size.txt"
+            "$avr_bin/avr-objdump" -Cd "$elf" > "$ART/$name-disassembly.txt"
+            cp "$elf" "$ART/$name.elf"
+            cp "$hex" "$ART/$name.hex"
+            cp "$build_dir/$name.map" "$ART/$name.map"
+            (cd "$build_dir" && find . -type f -name '*.su' -print0 | tar --null -czf "$ART/$name-stack-usage.tar.gz" --files-from -)
+            find "$build_dir" -type f -name '*.su' -print0 | xargs -0 cat > "$ART/$name-stack-usage-all.txt"
+          }
+
+          compile_sketch "MotoreRev" "firmware/motor"
+          compile_sketch "MotoreRevV2" "firmware/motor/MotoreRevV2"
+
+          {
+            echo "target_mcu=ATmega328PB"
+            echo "fqbn=$FQBN"
+            echo "clock=16MHz_external"
+            echo "minicore_version=3.1.3"
+            echo "bod_fuse=NOT_CONFIGURED_BY_COMPILE"
+            echo "hardware_upload=NOT_PERFORMED"
+            echo "fuse_or_eeprom_operation=NOT_PERFORMED"
+            echo "checked_out_sha=$(git rev-parse HEAD)"
+            arduino-cli version
+            arduino-cli core list
+            sha256sum "$ART"/*.hex "$ART"/*.elf "$ART"/*.map
+          } > "$ART/build-manifest.txt"
+
+      - name: Compile boot identity provisioner for ATmega328PB (compile-only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          FQBN="MiniCore:avr:328:variant=modelPB,clock=16MHz_external"
+          ROOT="$RUNNER_TEMP/328pb-provisioner"
+          mkdir -p "$ROOT/ProvisionBootIdentity"
+          cp firmware/motor/ProvisionBootIdentity/ProvisionBootIdentity.ino "$ROOT/ProvisionBootIdentity/"
+          cp firmware/motor/BootIdentityJournal.h "$ROOT/ProvisionBootIdentity/"
+          arduino-cli compile --fqbn "$FQBN" "$ROOT/ProvisionBootIdentity"
+          echo "Provisioner compile only: no EEPROM write and no upload."
+
+      - name: Upload compile and static-analysis artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atmega328pb-16mhz-build-audit
+          path: ${{ runner.temp }}/328pb-audit/artifacts/
+          if-no-files-found: warn
+          retention-days: 30
