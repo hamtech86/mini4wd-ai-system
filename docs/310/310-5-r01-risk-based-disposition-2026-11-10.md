@@ -206,9 +206,10 @@ A further v2 source audit found that the prior host candidate copied the ARM-loc
 ### Software correction committed
 
 - Added `DeviceEpochClockUnwrapper`, bound to the HELLO-verified `boot_id64`.
-- The same unwrapper is retained across ARM/stage changes during one continuous `ProtocolV2HostSession`.
-- The per-ARM `DeviceLossWindowAccumulator` remains separate and uses its own local elapsed coordinate solely for 1,000,000µs loss-window accounting.
-- RawLog `device_elapsed_us` is now supplied by the device-epoch unwrapper; the loss-window accumulator no longer writes that field.
+- The `DeviceEpochClockUnwrapper` is retained across all ARM/stage changes during one continuous `ProtocolV2HostSession`; every scheduled slot advances the clock, but only successful conversions receive RawLog acquisition timestamps.
+- A single `DeviceLossWindowAccumulator` is created after HELLO and retained for the full device boot epoch. DISARM/ARM boundaries do not finalize or reset its 1,000,000µs half-open windows; finalization occurs on STOP.
+- Both time trackers start from the first observed scheduled slot in the continuous host session and advance over the same uint32 timestamp stream. A runtime invariant rejects divergence between the device clock and loss-window clock.
+- RawLog `device_elapsed_us` is supplied by the persistent device-epoch unwrapper for successful conversions only; unavailable slots keep it null.
 - Added tests for uint32 `micros()` rollover, ambiguous timestamp jumps, and continuity across two ARM/stage contexts in one host session.
 
 Commits:
@@ -219,7 +220,7 @@ Commits:
 
 ### Remaining qualification
 
-The new clock object is continuous across stages only while the same host process/session remains alive. A host-process restart while the Arduino retains the same boot identity needs a persisted timestamp checkpoint to continue the exact same device-epoch elapsed coordinate; that checkpoint/restart case is **NOT YET IMPLEMENTED OR TESTED**. The current recovery gate prevents automatic re-arm after interrupted work, but does not itself supply that timestamp checkpoint.
+The device clock and loss-window accumulator are continuous across stages only while the same host process/session remains alive. A host-process restart while the Arduino retains the same boot identity needs a persisted timestamp checkpoint to continue the exact same device-epoch elapsed coordinate; that checkpoint/restart case is **NOT YET IMPLEMENTED OR TESTED**. The current recovery gate prevents automatic re-arm after interrupted work, but does not itself supply that timestamp checkpoint.
 
 The four commits above have no CI status/run result available at this update. Their new tests are **NOT RUN**; no pass is claimed. No physical serial, Arduino, firmware upload, motor energization, or 310-second measurement was performed. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains unchanged. 310-5 remains NOT ACCEPTED; 310-6 remains BLOCKED.
 
@@ -241,3 +242,11 @@ Implementation commits:
 - `2f07bb55f3b0335a5815114144153d5b12f0bca0`
 
 The added protocol-session and SequenceController regression tests are NOT RUN until the exact-head workflow completes. No hardware action was performed. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false`; 310-5 remains NOT ACCEPTED and 310-6 remains BLOCKED.
+
+
+The device-epoch loss-window correction and cross-stage regression were added in commits:
+- `f8a682301038f24babe658d6dc902ad4ee8bd000`
+- `bd15dbc048fef82fa0558135590de42a422e4a80`
+- `1208f368e6e2845713d6129e15ee0fd436b9738d`
+
+The new regression exercises a single 1-second half-open loss window spanning two ARM contexts and verifies all six channel counts remain attributable and PASS only after the window closes. This test is NOT RUN pending exact-head CI.
