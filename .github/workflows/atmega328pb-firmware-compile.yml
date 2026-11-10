@@ -1,4 +1,5 @@
 name: ATmega328PB 16 MHz firmware compile audit
+# Compile the current V2 target only; legacy DATA26 is retired by default.
 
 on:
   pull_request:
