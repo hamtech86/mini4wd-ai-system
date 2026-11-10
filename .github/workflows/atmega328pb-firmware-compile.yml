@@ -106,7 +106,6 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          import re
 
           root = Path("${{ runner.temp }}") / "328pb-audit"
           art = root / "artifacts"
@@ -148,10 +147,10 @@ jobs:
 
           ino = Path("firmware/motor/MotoreRevV2/MotoreRevV2.ino").read_text()
           tx = Path("firmware/motor/ProtocolV2TxScheduler.h").read_text()
-          rx_match = re.search(r"kRxWorkspaceSize\s*=\s*(\d+)", ino)
-          if not rx_match:
-              raise SystemExit("RX workspace size declaration not found")
-          rx_bytes = int(rx_match.group(1))
+          if ("static_assert(kRxWorkspaceSize == 194" not in ino
+                  or "static_assert(sizeof(rx_buffer) == 194" not in ino):
+              raise SystemExit("RX workspace 194-byte contract static_assert missing")
+          rx_bytes = 194
           if "static_assert(sizeof(tx_buffer_) == 194" not in tx:
               raise SystemExit("TX workspace 194-byte contract static_assert missing")
           tx_bytes = 194
