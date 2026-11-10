@@ -40,10 +40,50 @@ class DeviceLossWindow:
     status: str
 
 
-class DeviceLossWindowAccumulator:
-    """Accumulate two six-channel scans into [n*1s,(n+1)*1s) windows.
+class DeviceEpochClockUnwrapper:
+    """Unwrap Arduino micros() monotonically for one committed device boot epoch.
 
-    Device micros() is extended relative to the first slot in this ARM epoch.
+    The first observed uint32 timestamp is retained as the boot-relative
+    coordinate. Subsequent timestamps are extended across one uint32 wrap.
+    A delta >= 2^31 us is ambiguous and is rejected rather than guessed.
+    Keep one instance for the whole device_epoch_id, across ARM/stage changes.
+    """
+
+    def __init__(self, boot_id64: int):
+        if isinstance(boot_id64, bool) or not isinstance(boot_id64, int) or not 0 <= boot_id64 <= 0xFFFFFFFFFFFFFFFF:
+            raise ValueError("boot_id64 must be uint64")
+        self.boot_id64 = boot_id64
+        self._last: Optional[int] = None
+        self._elapsed: Optional[int] = None
+
+    @property
+    def elapsed_us(self) -> Optional[int]:
+        return self._elapsed
+
+    def add(self, timestamp_us_u32: int) -> int:
+        if isinstance(timestamp_us_u32, bool) or not isinstance(timestamp_us_u32, int) or not 0 <= timestamp_us_u32 <= UINT32_MASK:
+            raise DeviceLossAccountingError("timestamp_us_u32 must be uint32")
+        if self._last is None:
+            self._last = timestamp_us_u32
+            self._elapsed = timestamp_us_u32
+            return self._elapsed
+        delta = (timestamp_us_u32 - self._last) & UINT32_MASK
+        if delta >= UINT32_HALF:
+            raise DeviceLossAccountingError(
+                "device timestamp ordering is ambiguous within this boot epoch"
+            )
+        self._elapsed = int(self._elapsed) + delta
+        self._last = timestamp_us_u32
+        return self._elapsed
+
+
+class DeviceLossWindowAccumulator:
+    """Accumulate per-channel [n*1s,(n+1)*1s) loss windows for one ARM epoch.
+
+    Its private elapsed coordinate is intentionally ARM-local and is used only
+    to bucket loss windows. RawLog device_elapsed_us is produced separately by
+    DeviceEpochClockUnwrapper, which persists across ARM/stage changes.
+
     A sequence gap or incomplete terminal window is reported UNATTRIBUTABLE;
     it is never spread across channels by guesswork.
     """
@@ -74,7 +114,8 @@ class DeviceLossWindowAccumulator:
         }
 
     @property
-    def device_elapsed_us(self) -> Optional[int]:
+    def window_elapsed_us(self) -> Optional[int]:
+        """ARM-local elapsed coordinate used only for loss-window boundaries."""
         return self._elapsed if self._origin is not None else None
 
     def add_batch(self, samples: list[dict], *, gap_slots: int = 0) -> list[DeviceLossWindow]:
@@ -141,7 +182,6 @@ class DeviceLossWindowAccumulator:
                 counts["invalid"] += 1
             else:
                 counts["not_acquired"] += 1
-            sample["device_elapsed_us"] = self._elapsed
         return completed
 
     def _finish_current(self, *, terminal: bool = False) -> DeviceLossWindow:
