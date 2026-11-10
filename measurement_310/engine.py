@@ -393,9 +393,9 @@ class SequenceController:
                                     "device_timestamp_us_u32": (
                                         int(sample["timestamp_us_u32"]) if valid else None
                                     ),
-                                    "device_timestamp_point": (
-                                        "conversion_midpoint" if valid else "unavailable"
-                                    ),
+                                    # v0.5 fixes the timestamp-point convention.
+                                    # The timestamp itself is null for unavailable slots.
+                                    "device_timestamp_point": "conversion_midpoint",
                                     "device_epoch_id": f"{boot_id:016X}",
                                     "device_elapsed_us": (
                                         int(sample["device_elapsed_us"])
