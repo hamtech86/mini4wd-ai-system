@@ -350,3 +350,23 @@ def test_rawlog_bound_same_epoch_without_clock_checkpoint_fails_closed(tmp_path)
             session_id, host_boot_id64=BOOT, host_next_sequence64=5
         )
     assert [CODEC.decode(x).message["kind"] for x in transport.sent] == ["HELLO"]
+
+
+
+def test_rawlog_bound_initial_sequence_gap_marks_loss_window_unattributable(tmp_path):
+    root = tmp_path / "rawlog"
+    root.mkdir()
+    session_id = str(uuid.uuid4())
+    transport = ScriptedTransport(session_id, next_sequence=5)
+    session = ProtocolV2HostSession.for_rawlog_session(
+        transport, CODEC, root, session_id
+    )
+    session.start_session(
+        session_id, host_boot_id64=BOOT, host_next_sequence64=0
+    )
+    assert session._pending_checkpoint_gap_slots == 5
+    session._active_stage = {"token": 1, "stage_context_id": str(uuid.uuid4())}
+    session.accept_adc_batch(_adc_batch(session_id, 5, 100_000, 1))
+    assert session._pending_checkpoint_gap_slots == 0
+    assert session._loss_accumulator._gap_slots_by_window[0] == 5
+    assert 0 in session._loss_accumulator._unattributable_windows
