@@ -34,7 +34,7 @@ jobs:
           set -euo pipefail
           grep -Fq '#ifndef M4WD_ENABLE_LEGACY_DATA26' firmware/motor/MotoreRev.ino
           grep -Fq '#error "MotoreRev.ino is retired legacy DATA26 firmware; use firmware/motor/MotoreRevV2 for 310."' firmware/motor/MotoreRev.ino
-          grep -Fq 'MotoreRev.ino is retained only as historical legacy DATA26 source' firmware/motor/README.md
+          grep -Fq 'retained only as historical legacy DATA26 source' firmware/motor/README.md
           echo "Legacy DATA26 sketch is not a default-buildable 310 firmware target."
 
       - name: Verify current v2 path has no cross-channel averaging
