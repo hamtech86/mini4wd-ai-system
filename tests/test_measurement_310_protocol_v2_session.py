@@ -211,19 +211,22 @@ def test_device_elapsed_us_continues_across_arm_stage_accumulator_reset(tmp_path
     session._loss_accumulator = DeviceLossWindowAccumulator(BOOT, 1)
     first = session.accept_adc_batch(_adc_batch(session_id, 0, 1_000_000, 1))
     first_elapsed = [sample["device_elapsed_us"] for sample in first]
-    assert first_elapsed[0] == 1_000_000
-    assert first_elapsed[-1] == 1_025_500
+    assert first_elapsed[0] == 0
+    assert first_elapsed[-1] == 25_500
+    loss_accumulator = session._loss_accumulator
+    assert loss_accumulator is not None
+    assert loss_accumulator.window_elapsed_us == 25_500
 
-    # Simulate the normal DISARM/ARM boundary: loss windows reset, but the
-    # device boot epoch and its unwrapped micros clock do not.
-    session._loss_accumulator.finalize()
+    # A later ARM uses a new context token but retains the same device-epoch
+    # clock and loss-window accumulator.
     session._active_stage = {"token": 2, "stage_context_id": "stage-2"}
-    session._loss_accumulator = DeviceLossWindowAccumulator(BOOT, 2)
     second = session.accept_adc_batch(_adc_batch(session_id, 12, 1_100_000, 2))
     second_elapsed = [sample["device_elapsed_us"] for sample in second]
-    assert second_elapsed[0] == 1_100_000
-    assert second_elapsed[-1] == 1_125_500
+    assert second_elapsed[0] == 100_000
+    assert second_elapsed[-1] == 125_500
     assert second_elapsed[0] > first_elapsed[-1]
+    assert session._loss_accumulator is loss_accumulator
+    assert session._loss_accumulator.window_elapsed_us == 125_500
     assert session._device_clock.boot_id64 == BOOT
 
 
