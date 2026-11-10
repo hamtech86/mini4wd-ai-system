@@ -374,6 +374,9 @@ class ProtocolV2HostSession:
         self.boot_id64 = boot_id
         self.epoch_tag = epoch_tag_for_boot_id(boot_id)
         self._device_clock = DeviceEpochClockUnwrapper(boot_id)
+        # Loss windows are device-epoch scoped, not ARM scoped. Keep the same
+        # accumulator through every stage and finalize it only on STOP.
+        self._loss_accumulator = DeviceLossWindowAccumulator(boot_id)
         if ack.get("device_epoch_tag") != self.epoch_tag:
             self._failed = True
             raise ProtocolV2SessionError("HELLO_ACK epoch correlation mismatch")
@@ -515,9 +518,6 @@ class ProtocolV2HostSession:
                 if not self._accept_ack(arm_ack, arm_identity, "ARM_ACK", token, direction=direction):
                     raise ProtocolV2SessionError("ARM_ACK identity mismatch")
                 self._armed = True
-                self._loss_accumulator = DeviceLossWindowAccumulator(
-                    int(self.boot_id64), token
-                )
             identity = CommandIdentity(str(command_id), "PWM_SET", self.measurement_session_id,
                                        int(self.boot_id64), stage_context_id)
             frame = self.codec.encode_pwm_set(session_id=self.measurement_session_id,
@@ -582,7 +582,8 @@ class ProtocolV2HostSession:
             self._append("STAGE_DISARMED", direction="host_internal",
                          stage_context_token=token, stage_context_id=stage_context_id,
                          command_id=command_id)
-            self._finalize_adc_loss_window()
+            # A 1-second device-epoch window may cross this stage boundary.
+            # Do not close or reset loss accounting on DISARM.
             return sent
         except Exception:
             self._failed = True
@@ -665,15 +666,15 @@ class ProtocolV2HostSession:
             # The clock is deliberately not reset when _loss_accumulator is
             # replaced at the next stage boundary.
             for sample in samples:
-                if sample.get("acquisition_status") == 0:
-                    sample["device_elapsed_us"] = self._device_clock.add(
-                        sample["timestamp_us_u32"]
-                    )
-                else:
-                    # Failed/unavailable slots retain their schedule/attempt
-                    # timestamp only inside transport evidence and loss
-                    # accounting. They have no RawLog acquisition timestamp.
-                    sample["device_elapsed_us"] = None
+                device_elapsed = self._device_clock.add(sample["timestamp_us_u32"])
+                # Every scheduled slot advances the device clock so loss
+                # windows and successful ADC_SAMPLE times share one epoch
+                # coordinate. Only a successful conversion has a RawLog
+                # acquisition timestamp; unavailable slots store null.
+                sample["_device_epoch_elapsed_us"] = device_elapsed
+                sample["device_elapsed_us"] = (
+                    device_elapsed if sample.get("acquisition_status") == 0 else None
+                )
             completed_windows = self._loss_accumulator.add_batch(samples, gap_slots=gap_slots)
         except DeviceLossAccountingError as exc:
             self._failed = True
