@@ -13,7 +13,9 @@ from typing import Callable, Optional
 
 from .command_intent import AckCorrelator, AckIdentity, CommandIdentity, DurableIntentJournal
 from .epoch_checkpoint import CheckpointStatus
-from .device_loss_accounting import DeviceLossAccountingError, DeviceLossWindowAccumulator
+from .device_loss_accounting import (
+    DeviceEpochClockUnwrapper, DeviceLossAccountingError, DeviceLossWindowAccumulator,
+)
 from .protocol_v1_session import TransportEvidenceJournal
 from .protocol_v2 import (
     DriveDirection, MessageType, ProtocolV2Codec, ProtocolV2Error, StopReason, epoch_tag_for_boot_id,
@@ -105,6 +107,9 @@ class ProtocolV2HostSession:
         self._armed = False
         self._active_stage: Optional[dict] = None
         self._loss_accumulator: Optional[DeviceLossWindowAccumulator] = None
+        # Unlike the per-ARM loss-window accumulator, this clock remains alive
+        # for the entire committed device boot epoch.
+        self._device_clock: Optional[DeviceEpochClockUnwrapper] = None
         self._failed = False
         # ADC transport evidence is buffered in bounded groups. Command/ACK
         # and lifecycle evidence remains synchronous and durable.
@@ -366,6 +371,7 @@ class ProtocolV2HostSession:
             raise ProtocolV2SessionError("HELLO_ACK has invalid boot identity or next sequence")
         self.boot_id64 = boot_id
         self.epoch_tag = epoch_tag_for_boot_id(boot_id)
+        self._device_clock = DeviceEpochClockUnwrapper(boot_id)
         if ack.get("device_epoch_tag") != self.epoch_tag:
             self._failed = True
             raise ProtocolV2SessionError("HELLO_ACK epoch correlation mismatch")
@@ -651,10 +657,19 @@ class ProtocolV2HostSession:
                 raise ProtocolV2SessionError("ADC sample stage context does not match active ARM epoch")
         gap_slots = first - self.next_sample_sequence64
         try:
+            if self._device_clock is None or self._device_clock.boot_id64 != self.boot_id64:
+                raise DeviceLossAccountingError("device-epoch clock is not bound to the active boot identity")
+            # RawLog device_elapsed_us is boot-epoch monotonic, not ARM-local.
+            # The clock is deliberately not reset when _loss_accumulator is
+            # replaced at the next stage boundary.
+            for sample in samples:
+                sample["device_elapsed_us"] = self._device_clock.add(
+                    sample["timestamp_us_u32"]
+                )
             completed_windows = self._loss_accumulator.add_batch(samples, gap_slots=gap_slots)
         except DeviceLossAccountingError as exc:
             self._failed = True
-            raise ProtocolV2SessionError(f"ADC loss accounting rejected batch: {exc}") from exc
+            raise ProtocolV2SessionError(f"ADC time/loss accounting rejected batch: {exc}") from exc
         self._append("ADC_BATCH_ACCEPTED", first_sample_sequence64=first,
                      next_sample_sequence64=first + len(samples),
                      sample_count=len(samples),
