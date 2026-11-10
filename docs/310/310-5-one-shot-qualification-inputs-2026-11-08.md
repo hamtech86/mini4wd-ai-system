@@ -164,3 +164,77 @@ If this command fails or stalls, preserve the output root and process/storage ev
 - 受入に必要な残りの項目は、Issue #35およびdocs/310/310-5-risk-based-reassessment-2026-11-09.mdの分類と理由に従って確定する。
 
 この訂正も、310-5正式受入、310-6移行、Arduino/serial接続、firmware upload、Fuse/EEPROM操作、motor energization、310秒実測の許可ではない。HARDWARE_CURRENT_LIMIT_CONFIRMED=falseを維持する。
+
+
+---
+
+## 2026-11-10 追記：現行310-5候補のtarget-host T18診断手順
+
+本節は旧Section 7のtarget-host実行例を補正する。旧例の `integration/310-5-unified-candidate` はPR #193の最新コード候補ではないため、現行候補の診断には使用しない。
+
+### 実行対象と位置付け
+
+- PR #193 current branch: `fix/310-5-t18-durable-batching`
+- 現在のPR HEAD: `018cd69ec7a1eb5138de514100e741a236ca55e5`
+- 現行コード検証HEAD: `7d53858db2f7b07a1f1b5d6d17036fa13a4ff089`
+- 018cd69以降は文書更新のみ。測定コードは7d53858を使用する。
+- T18 target-host profileはKEEP（診断）。8,000ms超過のみでFAILにしない。
+- 出力は対象PCの実ファイルシステムで生成し、実測したfsync・finalize・復旧関連の診断値を保存する。
+
+### Linux Mint対象PCでの実行
+
+既存clone、既存artifacts、既存RawLog、既存 `.work`、recovery markerを変更しないよう、新規cloneと新規出力先を使用する。
+
+```bash
+set -euo pipefail
+
+ROOT="$HOME/mini4wd-ai-system-310-5-targethost-20261110"
+OUT="$ROOT/artifacts/310-t18-target-host-20261110-01"
+LOG="$ROOT/310-t18-target-host-20261110.log"
+CODE_HEAD="7d53858db2f7b07a1f1b5d6d17036fa13a4ff089"
+
+if [[ -e "$ROOT" ]]; then
+  echo "BLOCKED: $ROOT already exists; preserve it and choose a new path."
+  exit 2
+fi
+
+git clone --branch fix/310-5-t18-durable-batching --single-branch \
+  https://github.com/hamtech86/mini4wd-ai-system.git "$ROOT"
+
+git -C "$ROOT" diff --quiet "$CODE_HEAD" origin/fix/310-5-t18-durable-batching -- \
+  measurement_310 raw_log_v2 firmware/motor tests .github/workflows
+
+git -C "$ROOT" checkout --detach "$CODE_HEAD"
+test "$(git -C "$ROOT" rev-parse HEAD)" = "$CODE_HEAD"
+
+python3 -c 'import sys; assert sys.version_info >= (3, 10), sys.version'
+test ! -e "$OUT"
+test ! -e "$LOG"
+
+cd "$ROOT"
+python3 -m measurement_310.t18_production_profile \
+  --output-dir "$OUT" 2>&1 | tee "$LOG"
+
+(
+  cd "$OUT"
+  sha256sum -c t18-production-profile.json.sha256
+)
+```
+
+### 成果物と合格判定
+
+出力先 `$OUT` に以下を保存する。
+
+- `t18-production-profile.json`
+- `t18-production-profile.json.sha256`
+- `t18-production-stage-profile.csv`
+- `rawlog/` 以下のRawLog v2一式
+- 実行ログ `$LOG`
+
+確認対象は31 stages、3,100 ADC_BATCH、37,200 ADC_SAMPLE、310 loss-window summaries、RawLog validation errors 0、Evidence bundle verified、normal-completion STOP_REQ 1件、および各保存処理のmax/p99.9診断値である。stage elapsed時間は診断値であり、旧8,000msゲートを復活させない。
+
+このprofileは `InMemoryProtocolV2Transport` と `InMemoryIndependentStopWriter` を使用する。実シリアルポートを開かず、`/dev/ttyACM0`、`/dev/ttyUSB0`に接続せず、Arduino/モーターを操作しない。310秒の実機測定でもない。実ファイルシステムへの保存とfsyncのみを対象PC上で実施する。
+
+失敗・停止時は出力先とログをそのまま保全する。同じ出力先で再実行しない。既存recovery markerを削除・回避しない。
+
+本診断はtarget-hostの保存・復旧挙動を把握するためのものであり、物理STOP、BOD、current limit、配線、発熱、実機 no-auto-resume の証拠にはならない。実機操作の許可も含まない。 `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` を維持する。
