@@ -279,3 +279,73 @@ def test_unavailable_adc_slots_do_not_receive_rawlog_device_timestamps(tmp_path)
         assert accepted[index]["device_elapsed_us"] is None
     assert accepted[4]["device_elapsed_us"] == 400
     assert session.next_sample_sequence64 == 12
+
+
+
+def test_rawlog_bound_session_restores_epoch_clock_and_marks_restart_window_unknown(tmp_path):
+    root = tmp_path / "rawlog"
+    old_records = root / "previous-session" / "records.jsonl"
+    old_records.parent.mkdir(parents=True)
+    epoch_id = f"{BOOT:016X}"
+    prior = [
+        {
+            "record_type": "ADC_SAMPLE",
+            "device_epoch_id": epoch_id,
+            "device_sample_sequence": 3,
+            "device_timestamp_us_u32": 400_000,
+            "device_elapsed_us": 0,
+            "validity": "valid",
+        },
+        {
+            "record_type": "ADC_SAMPLE",
+            "device_epoch_id": epoch_id,
+            "device_sample_sequence": 4,
+            "device_timestamp_us_u32": 500_000,
+            "device_elapsed_us": 100_000,
+            "validity": "valid",
+        },
+    ]
+    old_records.write_text(
+        "".join(json.dumps(record) + "\n" for record in prior),
+        encoding="utf-8",
+    )
+
+    session_id = str(uuid.uuid4())
+    transport = ScriptedTransport(session_id, next_sequence=10)
+    session = ProtocolV2HostSession.for_rawlog_session(
+        transport, CODEC, root, session_id
+    )
+    session.start_session(
+        session_id, host_boot_id64=BOOT, host_next_sequence64=5
+    )
+
+    assert session._device_clock.elapsed_us == 100_000
+    assert session._loss_accumulator.window_elapsed_us == 100_000
+    assert session._pending_checkpoint_gap_slots == 5
+    assert session.sequence_reconciliation.gap_start_sequence64 == 5
+    assert session.sequence_reconciliation.gap_end_sequence64_exclusive == 10
+    assert 0 in session._loss_accumulator._unattributable_windows
+
+    session._active_stage = {"token": 1, "stage_context_id": str(uuid.uuid4())}
+    accepted = session.accept_adc_batch(
+        _adc_batch(session_id, 10, 600_000, 1)
+    )
+    assert accepted[0]["device_elapsed_us"] == 200_000
+    assert session._loss_accumulator.window_elapsed_us == 200_000
+    assert session._pending_checkpoint_gap_slots == 0
+    assert session._loss_accumulator._gap_slots_by_window[0] == 5
+
+
+def test_rawlog_bound_same_epoch_without_clock_checkpoint_fails_closed(tmp_path):
+    root = tmp_path / "rawlog"
+    root.mkdir()
+    session_id = str(uuid.uuid4())
+    transport = ScriptedTransport(session_id, next_sequence=5)
+    session = ProtocolV2HostSession.for_rawlog_session(
+        transport, CODEC, root, session_id
+    )
+    with pytest.raises(ProtocolV2SessionError, match="no durable RawLog clock checkpoint"):
+        session.start_session(
+            session_id, host_boot_id64=BOOT, host_next_sequence64=5
+        )
+    assert [CODEC.decode(x).message["kind"] for x in transport.sent] == ["HELLO"]
