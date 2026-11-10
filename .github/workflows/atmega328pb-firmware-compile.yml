@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Checkout exact PR head
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Set up Arduino CLI
         uses: arduino/setup-arduino-cli@v2
@@ -97,6 +99,91 @@ jobs:
             arduino-cli core list
             sha256sum "$ART"/*.hex "$ART"/*.elf "$ART"/*.map
           } > "$ART/build-manifest.txt"
+
+      - name: Verify ATmega328PB static SRAM and conservative stack bound
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path("${{ runner.temp }}") / "328pb-audit"
+          art = root / "artifacts"
+          stack = (art / "MotoreRevV2-stack-usage-all.txt").read_text()
+          size_lines = (art / "MotoreRevV2-avr-size.txt").read_text().splitlines()
+          fields = size_lines[1].split()
+          data, bss = int(fields[1]), int(fields[2])
+          static_bytes = data + bss
+
+          def frame(fragment):
+              values = []
+              for line in stack.splitlines():
+                  if fragment in line:
+                      parts = line.rsplit(chr(9), 2)
+                      if len(parts) == 3:
+                          try:
+                              values.append(int(parts[1]))
+                          except ValueError:
+                              pass
+              if not values:
+                  raise SystemExit("missing GCC stack-usage frame: " + fragment)
+              return max(values)
+
+          # Disassembly confirms main -> loop -> cached_or_error -> find_cached.
+          # Include 2-byte return addresses, the active UART0 TX ISR, its helper
+          # frame/return address, and the 2-byte PC pushed on interrupt entry.
+          main = frame("int main()")
+          loop = frame("void loop()")
+          cached = frame("cached_or_error")
+          find_cached = frame("find_cached")
+          tx_isr = frame("__vector_19()")
+          tx_helper = frame("HardwareSerial::_tx_udr_empty_irq()")
+          call_returns = 3 * 2
+          isr_helper_return = 2
+          interrupt_pc = 2
+          stack_bound = (main + loop + cached + find_cached + call_returns
+                         + tx_isr + tx_helper + isr_helper_return + interrupt_pc)
+          reserve = 2048 - static_bytes - stack_bound
+
+          ino = Path("firmware/motor/MotoreRevV2/MotoreRevV2.ino").read_text()
+          tx = Path("firmware/motor/ProtocolV2TxScheduler.h").read_text()
+          rx_match = re.search(r"kRxWorkspaceSize\\s*=\\s*(\\d+)", ino)
+          if not rx_match:
+              raise SystemExit("RX workspace size declaration not found")
+          rx_bytes = int(rx_match.group(1))
+          if "static_assert(sizeof(tx_buffer_) == 194" not in tx:
+              raise SystemExit("TX workspace 194-byte contract static_assert missing")
+          tx_bytes = 194
+
+          report = [
+              "target=ATmega328PB",
+              "clock=16MHz_external",
+              f".data={data}",
+              f".bss={bss}",
+              f".data_plus_bss={static_bytes}",
+              f"main_frame={main}",
+              f"loop_frame={loop}",
+              f"cached_or_error_frame={cached}",
+              f"find_cached_frame={find_cached}",
+              f"uart0_tx_isr_frame={tx_isr}",
+              f"uart0_tx_helper_frame={tx_helper}",
+              f"conservative_stack_bound={stack_bound}",
+              f"remaining_sram_after_bound={reserve}",
+              f"rx_workspace={rx_bytes}",
+              f"tx_workspace={tx_bytes}",
+          ]
+          (art / "stack-budget-report.txt").write_text("\\n".join(report) + "\\n")
+          print("\\n".join(report))
+          if static_bytes > 900:
+              raise SystemExit(".data + .bss exceeds 900-byte limit")
+          if stack_bound > 700:
+              raise SystemExit("conservative stack bound exceeds 700-byte limit")
+          if reserve < 448:
+              raise SystemExit("remaining SRAM reserve is below 448 bytes")
+          if rx_bytes > 194 or tx_bytes > 194:
+              raise SystemExit("RX/TX workspace exceeds 194-byte limit")
+          PY
 
       - name: Compile boot identity provisioner for ATmega328PB (compile-only)
         shell: bash
