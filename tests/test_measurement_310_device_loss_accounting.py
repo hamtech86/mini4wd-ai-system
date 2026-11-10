@@ -153,12 +153,12 @@ def test_load_latest_device_clock_checkpoint_from_durable_rawlog_records(tmp_pat
     first.parent.mkdir(parents=True)
     second.parent.mkdir(parents=True)
     first.write_text(
-        json.dumps(_clock_record(10, 100_000, 0)) + "\\n" +
-        json.dumps(_clock_record(11, 200_000, 100_000)) + "\\n",
+        json.dumps(_clock_record(10, 100_000, 0)) + "\n" +
+        json.dumps(_clock_record(11, 200_000, 100_000)) + "\n",
         encoding="utf-8",
     )
     second.write_text(
-        json.dumps(_clock_record(12, 300_000, 200_000)) + "\\n",
+        json.dumps(_clock_record(12, 300_000, 200_000)) + "\n",
         encoding="utf-8",
     )
 
@@ -173,8 +173,8 @@ def test_load_latest_device_clock_checkpoint_rejects_discontinuous_elapsed(tmp_p
     path = tmp_path / "published" / "records.jsonl"
     path.parent.mkdir(parents=True)
     path.write_text(
-        json.dumps(_clock_record(10, 100_000, 0)) + "\\n" +
-        json.dumps(_clock_record(11, 200_000, 900_000)) + "\\n",
+        json.dumps(_clock_record(10, 100_000, 0)) + "\n" +
+        json.dumps(_clock_record(11, 200_000, 900_000)) + "\n",
         encoding="utf-8",
     )
     with pytest.raises(DeviceLossAccountingError, match="discontinuous"):
