@@ -89,7 +89,7 @@ def test_sequence_gap_marks_affected_window_unattributable():
     assert all(item.unattributable_slots == 12 for item in window.channels)
 
 
-def test_micros_wrap_is_extended_within_arm_epoch():
+def test_micros_wrap_is_extended_within_device_epoch():
     start = 0xFFFF0000
     acc = DeviceLossWindowAccumulator(boot_id64=123, stage_context_token=9)
     ten_batches(acc, first_us=start)
