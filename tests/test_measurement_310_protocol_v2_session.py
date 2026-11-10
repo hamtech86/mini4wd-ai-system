@@ -185,17 +185,20 @@ def test_for_rawlog_session_binds_intent_and_evidence_to_same_uuid(tmp_path):
 
 
 
-def _adc_batch(session_id, first_sequence, start_timestamp, token, statuses=None):
+def _adc_batch(session_id, first_sequence, start_timestamp, token, statuses=None, timestamps=None):
     channel_order = (0, 1, 4, 5, 2, 3)
     offsets = (0, 100, 200, 300, 400, 500, 25000, 25100, 25200, 25300, 25400, 25500)
     statuses = statuses or [0] * 12
+    timestamps = timestamps or [
+        (start_timestamp + offset) & 0xFFFFFFFF for offset in offsets
+    ]
     payload = bytearray(struct.pack("<QBBB", first_sequence, 0, 12, 0))
     for index, channel in enumerate(channel_order * 2):
         status = statuses[index]
         raw = 0xFFFF if status else 512
         slot_token = 0 if status == 3 else token
         payload.extend(struct.pack(
-            "<IBHHBH", (start_timestamp + offsets[index]) & 0xFFFFFFFF,
+            "<IBHHBH", timestamps[index],
             channel, raw, slot_token, status, 0,
         ))
     return CODEC.decode(CODEC.encode_message(
@@ -369,4 +372,26 @@ def test_rawlog_bound_initial_sequence_gap_marks_loss_window_unattributable(tmp_
     session.accept_adc_batch(_adc_batch(session_id, 5, 100_000, 1))
     assert session._pending_checkpoint_gap_slots == 0
     assert session._loss_accumulator._gap_slots_by_window[0] == 5
+    assert 0 in session._loss_accumulator._unattributable_windows
+
+
+
+def test_not_acquired_scheduled_timestamp_can_precede_actual_conversion(tmp_path):
+    session_id = str(uuid.uuid4())
+    session = make_session(tmp_path, ScriptedTransport(session_id))
+    session.start_session(session_id)
+    session._active_stage = {"token": 1, "stage_context_id": str(uuid.uuid4())}
+    statuses = [0, 3, 3, 3, 3, 3, 0, 3, 3, 3, 3, 3]
+    timestamps = [
+        2_000_100, 2_000_000, 2_000_000, 2_000_000, 2_000_000, 2_000_000,
+        2_025_100, 2_025_000, 2_025_000, 2_025_000, 2_025_000, 2_025_000,
+    ]
+    accepted = session.accept_adc_batch(_adc_batch(
+        session_id, 0, 2_000_000, 1, statuses=statuses, timestamps=timestamps
+    ))
+    assert accepted[0]["device_elapsed_us"] == 0
+    assert all(accepted[index]["device_elapsed_us"] is None for index in range(1, 6))
+    assert accepted[6]["device_elapsed_us"] == 25_000
+    assert session._device_clock.elapsed_us == 25_000
+    assert session._loss_accumulator.window_elapsed_us == 25_000
     assert 0 in session._loss_accumulator._unattributable_windows
