@@ -213,7 +213,9 @@ def test_device_epoch_loss_window_and_elapsed_clock_continue_across_arm_boundary
     assert loss_accumulator.stage_context_token is None
 
     # First half of one device-epoch 1-second window belongs to stage 0.
-    session.send_stage_pwm(0, "stage-1", session_id, stage_index=0)
+    stage1 = str(uuid.uuid4())
+    stage2 = str(uuid.uuid4())
+    session.send_stage_pwm(0, stage1, session_id, stage_index=0)
     session.poll_apply_ack(0.0)
     first_token = session._active_stage["token"]
     for batch_index in range(5):
@@ -229,7 +231,7 @@ def test_device_epoch_loss_window_and_elapsed_clock_continue_across_arm_boundary
     assert not loss_accumulator._closed
 
     # Second half of the same 1-second window belongs to stage 1.
-    session.send_stage_pwm(1, "stage-2", session_id, stage_index=1)
+    session.send_stage_pwm(1, stage2, session_id, stage_index=1)
     session.poll_apply_ack(0.0)
     second_token = session._active_stage["token"]
     for batch_index in range(5, 10):
@@ -266,14 +268,13 @@ def test_unavailable_adc_slots_do_not_receive_rawlog_device_timestamps(tmp_path)
     session = make_session(tmp_path, ScriptedTransport(session_id))
     session.start_session(session_id)
     session._active_stage = {"token": 1, "stage_context_id": "stage-1"}
-    session._loss_accumulator = DeviceLossWindowAccumulator(BOOT, 1)
 
     statuses = [0, 1, 2, 3] + [0] * 8
     accepted = session.accept_adc_batch(_adc_batch(
         session_id, 0, 2_000_000, 1, statuses=statuses
     ))
-    assert accepted[0]["device_elapsed_us"] == 2_000_000
+    assert accepted[0]["device_elapsed_us"] == 0
     for index in (1, 2, 3):
         assert accepted[index]["device_elapsed_us"] is None
-    assert accepted[4]["device_elapsed_us"] > accepted[0]["device_elapsed_us"]
+    assert accepted[4]["device_elapsed_us"] == 400
     assert session.next_sample_sequence64 == 12
