@@ -151,3 +151,20 @@ The GitHub-hosted T18 production-path profile is software evidence on the runner
 `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains unchanged. The 12 V DC adapter clarification is retained; its unverified current-limit and simultaneous voltage/current performance are not made a prerequisite for unrelated software work, and are not treated as proof of electrical safety.
 
 No Arduino connection, `/dev/ttyACM0` or `/dev/ttyUSB0` access, firmware upload, fuse/EEPROM operation, motor energization, or 310-second measurement was performed or authorized.
+
+
+## 10. Latest exact-head hosted T18 production-path profile
+
+The R02 documentation commit triggered the existing PR #193 T18 workflow on exact head `ef52bff97e0068f6c92acd9db7cf526cecd1490c`.
+
+- Run: https://github.com/hamtech86/mini4wd-ai-system/actions/runs/42815620391
+- Result: PASS.
+- 31 PWM stages; 3,100 ADC batches; 37,200 ADC slots / ADC_SAMPLE records.
+- 310 one-second loss-window summaries; all PASS.
+- RawLog validation errors: 0.
+- Evidence events: 10,143; Evidence bundle verified.
+- Stage elapsed distribution: p50 134.993 ms; p95 440.584 ms; p99/p99.9/max 1,138.249 ms.
+- Final `sequence_complete` phase: one observation, max 1,019.032 ms. Its p99.9 is numerically the same one observation and is not a statistically meaningful percentile. RawLog finalization max for that final stage: 830.447 ms.
+- Profile JSON SHA-256: `a4b4890165b9a1eeaa82621d2071243490fa438716e8bff0716255b4dbab7147`.
+
+Evidence boundary: GitHub runner Ubuntu 26.04 / ext4, in-memory protocol-v2 peer, real host-side RawLog/intent/Evidence files and production fsync calls. No serial device was opened and no physical hardware was used. The profile marks stage timing as observational only. It does not satisfy the target Linux Mint host's 10-second save-stage qualification or its required max/p99.9 distribution. Target-host diagnostic remains NOT RUN.
