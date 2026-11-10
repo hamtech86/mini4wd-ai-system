@@ -676,6 +676,10 @@ class ProtocolV2HostSession:
                     device_elapsed if sample.get("acquisition_status") == 0 else None
                 )
             completed_windows = self._loss_accumulator.add_batch(samples, gap_slots=gap_slots)
+            if self._loss_accumulator.window_elapsed_us != self._device_clock.elapsed_us:
+                raise DeviceLossAccountingError(
+                    "device epoch clock and loss-window clock diverged"
+                )
         except DeviceLossAccountingError as exc:
             self._failed = True
             raise ProtocolV2SessionError(f"ADC time/loss accounting rejected batch: {exc}") from exc
