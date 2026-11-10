@@ -182,3 +182,28 @@ The previous wording in this disposition that implied a general requirement to p
 - **PR #192 recovery correction:** preserve immutable `.recovery/original` source bytes. A derived recovery package may narrowly reconcile unsupported stage attribution while preserving raw ADC values; this is not bulk legacy migration.
 
 Accordingly, the A0/A1 correction must honor the independent v2 schema for new data. It must not carry legacy v1 fields into v2, reinterpret old logs, or introduce automatic migration/column compatibility. DATA26 wire compatibility, if retained for a legacy path, is a separate protocol concern and must not be confused with RawLog v2 semantics.
+
+
+## 2026-11-10 follow-up — device elapsed-time continuity
+
+A further v2 source audit found that the prior host candidate copied the ARM-local elapsed coordinate from `DeviceLossWindowAccumulator` into RawLog v2 `device_elapsed_us`. Because that accumulator is recreated at each ARM, the field reset at every PWM stage boundary, contrary to PR #180's RawLog v2 definition (monotonic unwrapped time within one `device_epoch_id`).
+
+### Software correction committed
+
+- Added `DeviceEpochClockUnwrapper`, bound to the HELLO-verified `boot_id64`.
+- The same unwrapper is retained across ARM/stage changes during one continuous `ProtocolV2HostSession`.
+- The per-ARM `DeviceLossWindowAccumulator` remains separate and uses its own local elapsed coordinate solely for 1,000,000µs loss-window accounting.
+- RawLog `device_elapsed_us` is now supplied by the device-epoch unwrapper; the loss-window accumulator no longer writes that field.
+- Added tests for uint32 `micros()` rollover, ambiguous timestamp jumps, and continuity across two ARM/stage contexts in one host session.
+
+Commits:
+- `7afbe56810b1aa90c26d1558eb3184557069b24b`
+- `759b7731b62ee914d3823cd4cb2624e420ff4f9b`
+- `31712694806a8b2478b7dcd57d7804cb45db605f`
+- `f936b00d431c41653199a8377bba1e2f9ec3c5e5`
+
+### Remaining qualification
+
+The new clock object is continuous across stages only while the same host process/session remains alive. A host-process restart while the Arduino retains the same boot identity needs a persisted timestamp checkpoint to continue the exact same device-epoch elapsed coordinate; that checkpoint/restart case is **NOT YET IMPLEMENTED OR TESTED**. The current recovery gate prevents automatic re-arm after interrupted work, but does not itself supply that timestamp checkpoint.
+
+The four commits above have no CI status/run result available at this update. Their new tests are **NOT RUN**; no pass is claimed. No physical serial, Arduino, firmware upload, motor energization, or 310-second measurement was performed. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains unchanged. 310-5 remains NOT ACCEPTED; 310-6 remains BLOCKED.
