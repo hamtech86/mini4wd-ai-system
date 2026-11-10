@@ -43,10 +43,11 @@ Disposition:
 - ATmega328PB / 16 MHz build configuration: SOFTWARE BUILD PASS.
 - Actual clock source/frequency and board identity: NOT RUN.
 - Actual BOD fuse setting and threshold on the installed MCU: NOT RUN.
-- External voltage-monitor part, threshold tolerance, hysteresis, reset connection, and startup delay: NOT CONFIRMED.
-- External monitor physical threshold/reset behavior: NOT RUN.
+- Actual MCU VCC minimum during operation/transients: NOT MEASURED.
+- Whether an external voltage supervisor is needed: BLOCKED pending the actual VCC/BOD assessment.
+- If an external monitor is used, its part, threshold tolerance, hysteresis, reset connection, and physical trip/release behavior: NOT CONFIRMED / NOT RUN.
 
-A documentary statement or compile option is not sufficient. The monitor design and its actual trip/release behavior must be established before physical safety PASS. The external monitor's lower-bound trip threshold must be selected with tolerances so the MCU cannot continue 16 MHz operation below the datasheet's 4.5 V minimum. Do not infer a final component or threshold from the nominal BOD label alone.
+A 4.3 V BOD selection alone cannot guarantee that a 16 MHz ATmega328PB remains within its 4.5 V minimum operating range. The current power-drop strategy must be assessed against the actual MCU VCC rail and the installed fuse configuration. Issue #35 classifies an external supervisor as an INVESTIGATE item rather than a universal blanket requirement. If the chosen design uses an external monitor, a document-only claim is insufficient: its actual threshold and reset behavior must be physically verified before PASS. No fuse operation or live test is authorized here.
 
 ## 3. Reset-time output state
 
@@ -73,17 +74,19 @@ All are NOT RUN / BLOCKED. No reset or brownout test is authorized by this docum
 - The v2 host session uses a dedicated independent STOP writer with a bounded caller wait. Command transport write/flush has a separate timeout and becomes fail-closed with UNKNOWN outcome after a timeout. The normal command timestamp is captured after write/flush completion.
 - The firmware services the single `Serial` RX stream in bounded 24-byte foreground batches before its TX scheduler. This avoids waiting for the TX queue to drain before processing already-received STOP bytes, but does not make a STOP frame jump ahead of earlier bytes already queued on that same UART.
 
-### Physical endpoint mismatch
+### Known endpoint mapping gap
 
-The real v2 host-session factory deliberately refuses a real serial configuration unless a dedicated STOP endpoint is supplied and is physically distinct from the command port. The known device mapping is:
+The real v2 host-session factory currently refuses a real serial configuration unless a dedicated STOP writer endpoint is supplied and is physically distinct from the command port. The known device mapping is:
 - motor command MCU: `/dev/ttyACM0`;
 - battery-discharge controller: `/dev/ttyUSB0`.
 
 The battery-discharge port is not an available motor STOP endpoint and must not be repurposed. No third dedicated safety-controller/STOP endpoint or wiring path is identified in the current motor circuit description. The firmware's reviewed RX path is the single `Serial` input; a second host pathname alone does not create an independent electrical route to that input or to the L298N enable path.
 
+Issue #35's 2026-11-09 risk decision classifies an independent STOP circuit / independent driver cutoff as **INVESTIGATE**, not a universal blanket requirement. The binding requirement in this assignment is the outcome: STOP must not be blocked by the normal command queue, writer lock, fsync, or a full TX wait. The current implementation's dedicated-endpoint strategy is not mapped to the known hardware, so its real-hardware STOP path is BLOCKED. An alternative software/transport design may be evaluated, but it must demonstrate bounded STOP delivery without byte interleaving, unsafe partial-frame handling, or reliance on the normal durability/TX path. If a separate hardware inhibit is proposed, assess its risk reduction and cost under Issue #35 rather than assuming it is automatically mandatory.
+
 Therefore:
 - host-side STOP scheduling/timeout design: SOFTWARE CANDIDATE PASS;
-- STOP endpoint mapped to the actual motor hardware: BLOCKED;
+- current dedicated STOP endpoint mapped to actual motor hardware: BLOCKED;
 - STOP bypass of physical command queue / writer lock / fsync / TX wait: NOT QUALIFIED on the installed circuit;
 - physical PWM=0, direction LOW, ARM invalid after STOP: NOT RUN;
 - physical STOP latency and no-auto-resume: NOT RUN.
@@ -96,7 +99,7 @@ The previously shared circuit description places the physical main switch in the
 
 This is a topology-based risk, not a claim that a live test was performed. Operator confirmation that the motor supply is OFF and the rotor is stopped is not equivalent to an independent MCU STOP latch or proof that the enable path remains inhibited on power restoration.
 
-A reviewed hardware interlock / default-disabled enable path and physical recovery test are required before this item can be PASS. Any wiring change requires upper approval. No hardware modification or test is authorized here.
+Issue #35 permits operator main-switch mitigation only when the switch is accessible and the residual risk is explicitly assessed; the switch is not equivalent to an MCU STOP latch. A separate hardware interlock is an investigation option, not an automatic requirement. The actual default-disabled behavior and recovery risk must be established before PASS. Any wiring change requires upper approval. No hardware modification or test is authorized here.
 
 ## 6. A0–A5 and loss accounting
 
@@ -197,3 +200,8 @@ Latest T18 profile:
 The T18 run used a GitHub-hosted Ubuntu 24.04 runner with ext4 and an in-memory protocol-v2 peer. It is not the target Linux Mint host and does not qualify the target-host 10-second save-stage max/p99.9 distribution. Target-host diagnostic remains NOT RUN.
 
 The legacy source is preserved for historical compatibility only; the current 310 build does not compile or use it. This does not rewrite historical RawLog v1 files or add any v1-to-v2 migration.
+
+
+## 12. Protocol v2 sample-slot size clarification
+
+The earlier source-audit concern about the v0.5 14-byte sample representation versus the Protocol v2 12-slot batch representation is withdrawn. The 2026-11-05 protocol v2 amendment recorded in PR #183 explicitly assigns a full-width first sample sequence in the ADC_BATCH header and 12 implicit contiguous sample slots. PR #188's protocol-v2 implementation and the current v2 firmware use that amended batch contract. The 12-slot representation is therefore an intentional protocol-v2 amendment, not an unresolved 14-byte/12-byte implementation mismatch. The amendment does not waive the requirement that Issue #35 remains the normative authority.
