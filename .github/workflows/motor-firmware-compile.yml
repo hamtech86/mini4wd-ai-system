@@ -52,7 +52,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          g++ -std=c++11 -Wall -Wextra -I tests/firmware_safety \
+          g++ -std=c++11 -Wall -Wextra -DM4WD_ENABLE_LEGACY_DATA26=1 -I tests/firmware_safety \
             tests/firmware_safety/test_motor_firmware_safety.cpp \
             -o "$RUNNER_TEMP/motor_firmware_safety_test"
           "$RUNNER_TEMP/motor_firmware_safety_test"
