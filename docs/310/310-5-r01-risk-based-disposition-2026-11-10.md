@@ -155,7 +155,7 @@ The source audit was extended beyond the firmware producer. This is a static sou
    - **DATA26 legacy serial grammar:** it is a firmware/host protocol compatibility concern, not permission to make v2 inherit the old CSV field meanings. Any continued legacy serial support must remain explicitly separated from the v2 data contract; do not silently change the fixed-width legacy parser or relabel its old fields as v2 fields.
    - **Crash recovery:** PR #181 preserves the complete work tree byte-for-byte under `.recovery`. PR #192 further confirms that the immutable `.recovery/original` source bytes stay unchanged, while a separately published derived recovery package may correct unsupported stage attribution (e.g. demote an ADC sample to `unresolved`) and retain the raw ADC values. This narrowly scoped recovery reconciliation is not a general v1-to-v2 migration policy.
 6. Therefore the corrective 310-4 implementation must use the accepted independent v2 schema for new measurement data and ensure A0 alone supplies winding-current/control/torque input while A1 remains an independent brush-stability observation. It must not introduce a v1-to-v2 migration, automatic reclassification, or v1-column compatibility layer as a shortcut.
-7. Until that coordinated source correction and regression testing are complete, current A0/A1 source contract remains **FAIL**. This finding blocks 310-5 acceptance. No physical test or firmware upload is authorized by this audit.
+7. The legacy ASCII `MotoreRev.ino` / DATA26 path remains **FAIL** and must not be treated as the current 310 measurement path. The independent Protocol v2 / RawLog v2 path is assessed separately below. No physical test or firmware upload is authorized by this audit.
 
 ### Required regression coverage before re-review
 
@@ -170,7 +170,22 @@ The source audit was extended beyond the firmware producer. This is a static sou
 
 ### Status
 
-**FAIL — A0/A1 firmware and legacy consumer semantics remain nonconforming.** The audit defines the coordinated correction boundary; it does not claim the correction has been implemented. 310-5 remains NOT ACCEPTED and 310-6 remains BLOCKED.
+**FAIL — legacy ASCII MotoreRev.ino / DATA26 path.** The independent Protocol v2 / RawLog v2 path has a separate source-level channel audit below; this legacy finding must not be generalized to the v2 path. 310-5 remains NOT ACCEPTED and 310-6 remains BLOCKED.
+
+
+## 2026-11-10 follow-up — separate audit of the independent v2 acquisition path
+
+The earlier A0/A1 finding is scoped to the legacy ASCII `MotoreRev.ino` / DATA26 / legacy Measurement consumer path. The independent v2 path was inspected separately on `integration/310-5-unified-candidate` and the integrated PR #193 branch.
+
+Source-level findings for the v2 path:
+- `MotoreRevV2.ino` acquires channel codes independently in the order A0, A1, A4, A5, A2, A3 and places each conversion into its own ADC_BATCH slot with an individual timestamp and context token.
+- `raw_log_v2.validator.CHANNELS` defines A0 as `winding_current` and A1 as `brush_stability_observation`; the validator explicitly rejects A1 `converted_value` / `converted_unit`.
+- `SequenceController` persists each received slot as a separate `ADC_SAMPLE`; it does not create an A0/A1 average. A2/A3 remain reference roles and A4/A5 remain separate voltage roles.
+- The v2 source path therefore passes the **static channel-separation review**. This is not a physical measurement claim, does not qualify analog accuracy/calibration, and does not establish that the installed Arduino is running the v2 sketch.
+- The legacy ASCII sketch still contains A0/A1 averaging and downstream legacy consumers still reference the old derived fields. That path remains FAIL unless it is explicitly retired/isolated from current use or corrected under a separately versioned legacy-protocol change. No silent DATA26 grammar or historical RawLog v1 rewrite is authorized.
+
+The exact-head regression for the subsequent device-clock correction is not yet available: the newly added tests are NOT RUN because no CI run/status was returned for the latest commits. Accordingly, v2 channel separation is a source-review result only, not a full 310-4 acceptance.
+
 
 
 ## 2026-11-10 correction — authoritative historical RawLog policy rechecked
