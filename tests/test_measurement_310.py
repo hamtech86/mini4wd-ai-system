@@ -1483,7 +1483,7 @@ def test_protocol_v2_failed_adc_slots_map_to_rawlog_unavailable(tmp_path):
         assert record["device_timestamp_us_u32"] is None
         assert record["device_elapsed_us"] is None
         assert record["invalid_reason"] == reason
-        assert record["device_timestamp_point"] == "unavailable"
+        assert record["device_timestamp_point"] == "conversion_midpoint"
     assert a5["stage_assignment"] == "unresolved"
     assert a5["stage_context_id"] is None
     assert [r["device_sample_sequence"] for r in adc] == list(range(12))
