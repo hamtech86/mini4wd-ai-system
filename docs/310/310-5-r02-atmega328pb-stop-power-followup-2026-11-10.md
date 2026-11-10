@@ -205,3 +205,66 @@ The legacy source is preserved for historical compatibility only; the current 31
 ## 12. Protocol v2 sample-slot size clarification
 
 The earlier source-audit concern about the v0.5 14-byte sample representation versus the Protocol v2 12-slot batch representation is withdrawn. The 2026-11-05 protocol v2 amendment recorded in PR #183 explicitly assigns a full-width first sample sequence in the ADC_BATCH header and 12 implicit contiguous sample slots. PR #188's protocol-v2 implementation and the current v2 firmware use that amended batch contract. The 12-slot representation is therefore an intentional protocol-v2 amendment, not an unresolved 14-byte/12-byte implementation mismatch. The amendment does not waive the requirement that Issue #35 remains the normative authority.
+
+
+---
+
+## 13. 2026-11-10 PR #193 exact-head artifact audit
+
+### PR #193 hosted verification at head 018cd69
+
+The PR #193 workflows below completed successfully on head `018cd69ec7a1eb5138de514100e741a236ca55e5`. The code-bearing commit is `7d53858db2f7b07a1f1b5d6d17036fa13a4ff089`; the intervening commit is documentation-only.
+
+- Full regression run `42817063013`: PASS, 649 passed / 2 xfailed.
+- T18 production-path run `42817062897`: PASS.
+- ATmega328PB compile run `42817062970`: PASS.
+- Legacy DATA26 retirement/native safety run `42817063175`: PASS.
+
+T18 artifact:
+- Artifact ID: `13765556426`
+- Artifact ZIP SHA-256: `cf4d47373f9e309dff01a8c1823b734c15bc2c5ff8c990c108823e62870f8354`
+- Profile JSON SHA-256: `39b4f2bae978ff62d02f4d1e6de0dee08a9de6368b7071d95c8d306aa840ebe3`
+- 31 PWM stages; 3,100 ADC_BATCH; 37,200 ADC_SAMPLE; 310 loss-window summaries, all PASS.
+- Evidence events: 10,143; Evidence bundle verified; RawLog validation errors: 0; normal-completion STOP_REQ: 1.
+- Stage elapsed p50 196.871 ms; p95 658.370 ms; p99/p99.9/max 1,638.843 ms. These are observational only.
+- Runner: Linux 7.0.0-1019-azure, Python 3.10.22; in-memory Protocol V2 peer; production RawLog/intent/Evidence files and fsync. No physical device or serial port was opened.
+
+Independent RawLog artifact inspection:
+- 6,200 ADC_SAMPLE records each for A0, A1, A2, A3, A4 and A5.
+- Roles are respectively `winding_current`, `brush_stability_observation`, `magnetic_reference`, `thermistor_reference`, `voltage_v4`, and `voltage_v5`.
+- A1 has no `converted_value` or `converted_unit`.
+- The 37,200 device sample sequence values are contiguous from 0 through 37,199; available `device_elapsed_us` values are monotonic from 0 through 309,991,666.
+- Evidence sidecar SHA-256 matches its bundle manifest; the intent journal contains 93 records.
+
+This validates the hosted production-path artifact and channel separation. It is not a target Linux Mint host result, physical ADC accuracy proof, or hardware qualification.
+
+### SRAM audit artifact cross-reference
+
+The dedicated PR #194 audit run `42816586095` produced artifact ID `13765675712` (ZIP SHA-256 `f2d526df9c1da539f9fb9dae40137bb5b806c6b75240e169594c430fdbda6267`). Its checked-out commit is `fe41e491ae292d93dc87765e6a163f9da0284c29`.
+
+The following six firmware source-file blob SHAs were independently compared between PR #193's current branch and PR #194's audit branch and were identical:
+- `MotoreRevV2.ino`: `39bfc97adadd6467280f88ea5603f5bc0f5dcf76`
+- `ProtocolV2Codec.h`: `73a00077f8c9594c500e7fc9532a5e001c740c6f`
+- `BootIdentityJournal.h`: `4dca7dc6cc41a61bfa2cc3fc77be5a93d1ab78f4`
+- `ProtocolV2Device.h`: `41f7d69114232f4a8794de405dfc84199033cce6`
+- `ProtocolV2TxScheduler.h`: `fdf1d244f8f0f0c374a8a621558c863900a8fdcb`
+- `ProtocolV2AdcScheduler.h`: `4204fb673b92b1680eb395f9d82ea9cd68f905ca`
+
+The audited build used MiniCore 3.1.3, `MiniCore:avr:328:variant=modelPB,clock=16MHz_external`, and compile-only settings. Its retained stack report states:
+- `.data=146 B`, `.bss=747 B`, total `893 B`.
+- Conservative stack bound `294 B`.
+- Remaining SRAM after the bound `861 B`.
+- RX workspace `194 B`, TX workspace `194 B`.
+- The disassembly confirms the audited `__vector_19` ISR calls `HardwareSerial::_tx_udr_empty_irq()`; the stack report includes both frames.
+
+This is source-equivalent evidence for the current PR #193 firmware because the six firmware blobs match exactly. It is not an exact-PR-HEAD audit run: PR #194 remains a separate Draft/Open branch based on an earlier PR #193 commit. No upload, fuse change, EEPROM write or hardware connection occurred.
+
+### Remaining qualification boundary
+
+The exact-head hosted evidence does not close:
+- Target Linux Mint T18 diagnostic and its actual max/p99.9 filesystem timing.
+- Physical reset/BOD output state and no-auto-resume.
+- STOP behavior on the installed wiring; the independent STOP endpoint is not mapped.
+- Current limit, supply/wiring/protection and thermal qualification.
+
+The target-host T18 profile is KEEP as a diagnostic, not an 8,000 ms acceptance gate. Physical current-limit/power/wiring/thermal safety remains KEEP and highest priority. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false`; 310-5 remains NOT ACCEPTED and 310-6 remains BLOCKED.
