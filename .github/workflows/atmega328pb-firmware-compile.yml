@@ -31,7 +31,12 @@ jobs:
           arduino-cli core install MiniCore:avr@3.1.3 --additional-urls "$URL"
           arduino-cli version
           arduino-cli core list
-          arduino-cli board details --fqbn "MiniCore:avr:328:variant=modelPB,clock=16MHz_external"
+          FQBN="MiniCore:avr:328:variant=modelPB,clock=16MHz_external"
+          arduino-cli board details --fqbn "$FQBN"
+          PROPERTIES="$(arduino-cli compile --show-properties=expanded --fqbn "$FQBN" firmware/motor/MotoreRevV2)"
+          printf '%s\\n' "$PROPERTIES" | grep -Fx 'build.mcu=atmega328pb'
+          printf '%s\\n' "$PROPERTIES" | grep -Fx 'build.f_cpu=16000000L'
+          printf '%s\\n' "$PROPERTIES" | grep -Fx 'build.variant=pb-variant'
 
       - name: Compile legacy and protocol-v2 motor firmware for ATmega328PB
         shell: bash
