@@ -2,6 +2,7 @@ import pytest
 
 from measurement_310.device_loss_accounting import (
     CHANNEL_ORDER,
+    DeviceEpochClockUnwrapper,
     DeviceLossAccountingError,
     DeviceLossWindowAccumulator,
 )
@@ -114,3 +115,18 @@ def test_wrong_channel_order_fails_closed():
     samples[2]["channel_code"] = 2
     with pytest.raises(DeviceLossAccountingError, match="channel order"):
         acc.add_batch(samples)
+
+
+
+def test_device_epoch_clock_unwraps_micros_across_uint32_wrap():
+    clock = DeviceEpochClockUnwrapper(boot_id64=123)
+    assert clock.add(0xFFFFFFF0) == 0xFFFFFFF0
+    assert clock.add(0x00000020) == 0x1_00000020
+    assert clock.elapsed_us == 0x1_00000020
+
+
+def test_device_epoch_clock_rejects_ambiguous_backward_jump():
+    clock = DeviceEpochClockUnwrapper(boot_id64=123)
+    clock.add(2_000_000)
+    with pytest.raises(DeviceLossAccountingError, match="ambiguous"):
+        clock.add(1_000_000)
