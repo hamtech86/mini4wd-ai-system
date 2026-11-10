@@ -148,7 +148,7 @@ jobs:
 
           ino = Path("firmware/motor/MotoreRevV2/MotoreRevV2.ino").read_text()
           tx = Path("firmware/motor/ProtocolV2TxScheduler.h").read_text()
-          rx_match = re.search(r"kRxWorkspaceSize\\s*=\\s*(\\d+)", ino)
+          rx_match = re.search(r"kRxWorkspaceSize\s*=\s*(\d+)", ino)
           if not rx_match:
               raise SystemExit("RX workspace size declaration not found")
           rx_bytes = int(rx_match.group(1))
@@ -173,8 +173,8 @@ jobs:
               f"rx_workspace={rx_bytes}",
               f"tx_workspace={tx_bytes}",
           ]
-          (art / "stack-budget-report.txt").write_text("\\n".join(report) + "\\n")
-          print("\\n".join(report))
+          (art / "stack-budget-report.txt").write_text("\n".join(report) + "\n")
+          print("\n".join(report))
           if static_bytes > 900:
               raise SystemExit(".data + .bss exceeds 900-byte limit")
           if stack_bound > 700:
