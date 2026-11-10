@@ -222,7 +222,7 @@ Commits:
 
 The device clock and loss-window accumulator are continuous across stages only while the same host process/session remains alive. A host-process restart while the Arduino retains the same boot identity needs a persisted timestamp checkpoint to continue the exact same device-epoch elapsed coordinate; that checkpoint/restart case is **NOT YET IMPLEMENTED OR TESTED**. The current recovery gate prevents automatic re-arm after interrupted work, but does not itself supply that timestamp checkpoint.
 
-The four commits above have no CI status/run result available at this update. Their new tests are **NOT RUN**; no pass is claimed. No physical serial, Arduino, firmware upload, motor energization, or 310-second measurement was performed. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains unchanged. 310-5 remains NOT ACCEPTED; 310-6 remains BLOCKED.
+The exact-head CI result and production-path profile are recorded below. No physical serial, Arduino, firmware upload, motor energization, or 310-second measurement was performed. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains unchanged. 310-5 remains NOT ACCEPTED; 310-6 remains BLOCKED.
 
 
 ## 2026-11-10 follow-up — ADC acquisition failure mapping
@@ -241,7 +241,7 @@ Implementation commits:
 - `658b1aa6ce73cf3cd2601c73e0165787075448cc`
 - `2f07bb55f3b0335a5815114144153d5b12f0bca0`
 
-The added protocol-session and SequenceController regression tests are NOT RUN until the exact-head workflow completes. No hardware action was performed. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false`; 310-5 remains NOT ACCEPTED and 310-6 remains BLOCKED.
+The exact-head regression is recorded below. No hardware action was performed. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false`; 310-5 remains NOT ACCEPTED and 310-6 remains BLOCKED.
 
 
 The device-epoch loss-window correction and cross-stage regression were added in commits:
@@ -250,3 +250,26 @@ The device-epoch loss-window correction and cross-stage regression were added in
 - `1208f368e6e2845713d6129e15ee0fd436b9738d`
 
 The new regression exercises a single 1-second half-open loss window spanning two ARM contexts and verifies all six channel counts remain attributable and PASS only after the window closes. This test is NOT RUN pending exact-head CI.
+
+
+## 2026-11-10 exact-head software verification — latest branch head `814c4555deba4fe6e13d72d706bc454252c2b813`
+
+### Break-in and Battery Tests workflow #1768
+- Run ID: `42807484495`
+- Result: **all four jobs PASS** — test-breakin, test-battery, test-raw-log-and-sequence, test-full-suite.
+- Full suite: **641 passed, 2 xfailed**.
+- The first exact-head regression attempt exposed two stale test assumptions; after correcting the expected unavailable mapping and NOT_ACQUIRED context token, the final exact-head suite passed.
+
+### T18 production-path profile #109
+- Run ID: `42807484430`
+- Result: **PASS**.
+- 31 PWM stages; 3,100 ADC batches; 37,200 ADC slots / ADC_SAMPLE records.
+- 310 device-epoch 1,000,000µs loss-window summaries; all PASS.
+- RawLog validation errors: 0; Evidence events: 10,143; Evidence bundle verified.
+- Stage elapsed diagnostics: p50 162.506ms, p95 1,203.918ms, p99/p99.9/max 1,692.983ms.
+- RawLog v2 package remains exactly `manifest.json + records.jsonl`; transport Evidence is a separate sidecar and companion manifest.
+- Artifact ZIP SHA-256: `0b8341a220245ae00493e1034ec42e41c41b140146d351cb8ae93fa3f5e59c56`.
+
+Artifact inspection independently confirmed 6,200 samples for each of A0–A5, correct named roles, one device epoch, sequences 0–37,199, monotonic `device_elapsed_us` from 0 to 309,991,666µs with no resets, and no A1 `converted_value` fields.
+
+**Evidence boundary:** these are GitHub-hosted software tests using an in-memory protocol-v2 peer and real host-side RawLog/intent/Evidence files on the runner's ext4 filesystem. They do not constitute the user's target-host fsync diagnostic, physical serial interoperability, MCU/BOD/EEPROM proof, current-limit qualification, physical STOP test, or motor test. Target-host T18 remains NOT RUN; all physical qualification remains NOT RUN/BLOCKED. 310-5 is NOT ACCEPTED and 310-6 remains BLOCKED.
