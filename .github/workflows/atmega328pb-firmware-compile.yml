@@ -67,7 +67,9 @@ jobs:
             test -n "$elf"
             test -n "$hex"
             local avr_bin
-            avr_bin="$(find "$HOME/.arduino15/packages/MiniCore/tools/avr-gcc" -type d -name bin -print -quit)"
+            avr_size_path="$(find "$HOME/.arduino15/packages" -type f -path "*/tools/avr-gcc/*/bin/avr-size" -print -quit)"
+            test -n "$avr_size_path"
+            avr_bin="$(dirname "$avr_size_path")"
             test -n "$avr_bin"
             "$avr_bin/avr-size" "$elf" | tee "$ART/$name-avr-size.txt"
             awk 'NR == 2 { if (($2 + $3) > 900) { print "FAIL: .data + .bss exceeds 900 bytes"; exit 1 } }' "$ART/$name-avr-size.txt"
