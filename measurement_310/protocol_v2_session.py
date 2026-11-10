@@ -739,14 +739,23 @@ class ProtocolV2HostSession:
             # The device-epoch clock is anchored at the first observed slot
             # and deliberately survives every ARM/stage boundary.
             for sample in samples:
-                device_elapsed = self._device_clock.add(sample["timestamp_us_u32"])
-                # Every scheduled slot advances the device clock so loss
-                # windows and successful ADC_SAMPLE times share one epoch
-                # coordinate. Only a successful conversion has a RawLog
-                # acquisition timestamp; unavailable slots store null.
-                sample["device_elapsed_us"] = (
-                    device_elapsed if sample.get("acquisition_status") == 0 else None
-                )
+                status = sample.get("acquisition_status")
+                if status == 3:
+                    window_elapsed, before_origin = self._device_clock.map_scheduled(
+                        sample["timestamp_us_u32"]
+                    )
+                    sample["_loss_window_elapsed_us"] = window_elapsed
+                    sample["_loss_window_unattributable"] = before_origin
+                    sample["device_elapsed_us"] = None
+                else:
+                    device_elapsed = self._device_clock.add_actual(
+                        sample["timestamp_us_u32"]
+                    )
+                    sample["_loss_window_elapsed_us"] = device_elapsed
+                    sample["_loss_window_unattributable"] = False
+                    sample["device_elapsed_us"] = (
+                        device_elapsed if status == 0 else None
+                    )
             completed_windows = self._loss_accumulator.add_batch(samples, gap_slots=gap_slots)
             if self._loss_accumulator.window_elapsed_us != self._device_clock.elapsed_us:
                 raise DeviceLossAccountingError(
