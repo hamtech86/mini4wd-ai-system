@@ -108,7 +108,9 @@ class ProtocolV2HostSession:
         self._active_stage: Optional[dict] = None
         self._loss_accumulator: Optional[DeviceLossWindowAccumulator] = None
         # Unlike the per-ARM loss-window accumulator, this clock remains alive
-        # for the entire committed device boot epoch.
+        # across ARM/stage changes for this continuous host session. A new host
+        # process needs a persisted timestamp checkpoint to continue the same
+        # device boot epoch without resetting its elapsed-time origin.
         self._device_clock: Optional[DeviceEpochClockUnwrapper] = None
         self._failed = False
         # ADC transport evidence is buffered in bounded groups. Command/ACK
