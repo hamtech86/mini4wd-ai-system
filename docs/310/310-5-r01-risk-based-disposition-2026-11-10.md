@@ -222,3 +222,22 @@ Commits:
 The new clock object is continuous across stages only while the same host process/session remains alive. A host-process restart while the Arduino retains the same boot identity needs a persisted timestamp checkpoint to continue the exact same device-epoch elapsed coordinate; that checkpoint/restart case is **NOT YET IMPLEMENTED OR TESTED**. The current recovery gate prevents automatic re-arm after interrupted work, but does not itself supply that timestamp checkpoint.
 
 The four commits above have no CI status/run result available at this update. Their new tests are **NOT RUN**; no pass is claimed. No physical serial, Arduino, firmware upload, motor energization, or 310-second measurement was performed. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains unchanged. 310-5 remains NOT ACCEPTED; 310-6 remains BLOCKED.
+
+
+## 2026-11-10 follow-up — ADC acquisition failure mapping
+
+The v0.5 ADC mapping table in PR #183 requires acquisition statuses 1/2/3 to be represented in RawLog v2 as unavailable observations, not malformed/invalid ADC values:
+
+- `PRECONDITION_INVALID`, `CONVERSION_TIMEOUT`, and `NOT_ACQUIRED` now map to `validity="unavailable"`, `adc_raw=null`, `device_timestamp_us_u32=null`, `device_elapsed_us=null`, and their explicit `invalid_reason`.
+- Successful status-0 samples alone populate the RawLog device timestamp and device elapsed coordinate.
+- The fixed v0.5 `device_timestamp_point="conversion_midpoint"` convention is retained; unavailable records have no timestamp value.
+- Device sample sequence is retained for every slot. The original status byte and attempt/scheduled timestamp remain available in the transport Evidence frame; internal loss accounting may use the scheduler timestamp to classify its 1-second window, but that timestamp is not copied into the RawLog ADC_SAMPLE acquisition-time field.
+- The loss accumulator still counts statuses 1/2 as attempted+invalid and status 3 as missing/not-acquired. This is separate from the RawLog `validity="unavailable"` encoding and preserves the adopted loss formula.
+
+Implementation commits:
+- `dd608e251eba35239492a2fcda9fed1c9c4141ce`
+- `ca6bab91ac42b539c158eacae8723c53ca12bf5b`
+- `658b1aa6ce73cf3cd2601c73e0165787075448cc`
+- `2f07bb55f3b0335a5815114144153d5b12f0bca0`
+
+The added protocol-session and SequenceController regression tests are NOT RUN until the exact-head workflow completes. No hardware action was performed. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false`; 310-5 remains NOT ACCEPTED and 310-6 remains BLOCKED.
