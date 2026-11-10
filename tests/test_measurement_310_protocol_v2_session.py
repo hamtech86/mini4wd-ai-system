@@ -192,9 +192,10 @@ def _adc_batch(session_id, first_sequence, start_timestamp, token, statuses=None
     for index, channel in enumerate(channel_order * 2):
         status = statuses[index]
         raw = 0xFFFF if status else 512
+        slot_token = 0 if status == 3 else token
         payload.extend(struct.pack(
             "<IBHHBH", (start_timestamp + offsets[index]) & 0xFFFFFFFF,
-            channel, raw, token, status, 0,
+            channel, raw, slot_token, status, 0,
         ))
     return CODEC.decode(CODEC.encode_message(
         MessageType.ADC_BATCH, session_id=session_id,
