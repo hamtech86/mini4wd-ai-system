@@ -202,31 +202,61 @@ def _adc_batch(session_id, first_sequence, start_timestamp, token, statuses=None
     )).message
 
 
-def test_device_elapsed_us_continues_across_arm_stage_accumulator_reset(tmp_path):
+def test_device_epoch_loss_window_and_elapsed_clock_continue_across_arm_boundary(tmp_path):
     session_id = str(uuid.uuid4())
-    session = make_session(tmp_path, ScriptedTransport(session_id))
+    transport = ScriptedTransport(session_id)
+    session = make_session(tmp_path, transport)
     session.start_session(session_id)
 
-    session._active_stage = {"token": 1, "stage_context_id": "stage-1"}
-    session._loss_accumulator = DeviceLossWindowAccumulator(BOOT, 1)
-    first = session.accept_adc_batch(_adc_batch(session_id, 0, 1_000_000, 1))
-    first_elapsed = [sample["device_elapsed_us"] for sample in first]
-    assert first_elapsed[0] == 0
-    assert first_elapsed[-1] == 25_500
     loss_accumulator = session._loss_accumulator
     assert loss_accumulator is not None
-    assert loss_accumulator.window_elapsed_us == 25_500
+    assert loss_accumulator.stage_context_token is None
 
-    # A later ARM uses a new context token but retains the same device-epoch
-    # clock and loss-window accumulator.
-    session._active_stage = {"token": 2, "stage_context_id": "stage-2"}
-    second = session.accept_adc_batch(_adc_batch(session_id, 12, 1_100_000, 2))
-    second_elapsed = [sample["device_elapsed_us"] for sample in second]
-    assert second_elapsed[0] == 100_000
-    assert second_elapsed[-1] == 125_500
-    assert second_elapsed[0] > first_elapsed[-1]
+    # First half of one device-epoch 1-second window belongs to stage 0.
+    session.send_stage_pwm(0, "stage-1", session_id, stage_index=0)
+    session.poll_apply_ack(0.0)
+    first_token = session._active_stage["token"]
+    for batch_index in range(5):
+        accepted = session.accept_adc_batch(
+            _adc_batch(session_id, batch_index * 12, batch_index * 100_000, first_token)
+        )
+    assert accepted[-1]["device_elapsed_us"] == 425_500
+    assert loss_accumulator.window_elapsed_us == 425_500
+
+    # DISARM must not finalize/reset a device-epoch window.
+    session.disarm_stage()
     assert session._loss_accumulator is loss_accumulator
-    assert session._loss_accumulator.window_elapsed_us == 125_500
+    assert not loss_accumulator._closed
+
+    # Second half of the same 1-second window belongs to stage 1.
+    session.send_stage_pwm(1, "stage-2", session_id, stage_index=1)
+    session.poll_apply_ack(0.0)
+    second_token = session._active_stage["token"]
+    for batch_index in range(5, 10):
+        accepted = session.accept_adc_batch(
+            _adc_batch(session_id, batch_index * 12, batch_index * 100_000, second_token)
+        )
+    assert accepted[-1]["device_elapsed_us"] == 925_500
+    assert loss_accumulator.window_elapsed_us == 925_500
+
+    # The next batch crosses 1,000,000 us and closes the shared half-open window.
+    session.accept_adc_batch(_adc_batch(session_id, 120, 1_000_000, second_token))
+    summaries = [
+        item for item in session._pending_evidence_events
+        if item["event"] == "ADC_LOSS_WINDOW_SUMMARY"
+    ]
+    assert len(summaries) == 1
+    summary = summaries[0]["payload"]["summary"]
+    assert summary["status"] == "PASS"
+    assert summary["stage_context_token"] is None
+    for channel in summary["channels"]:
+        assert channel["expected"] == 20
+        assert channel["attempted"] == 20
+        assert channel["valid"] == 20
+        assert channel["invalid"] == 0
+        assert channel["missing"] == 0
+        assert channel["status"] == "PASS"
+    assert session._loss_accumulator is loss_accumulator
     assert session._device_clock.boot_id64 == BOOT
 
 
