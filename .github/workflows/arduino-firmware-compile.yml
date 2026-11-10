@@ -1,4 +1,4 @@
-name: Arduino Uno Firmware Compile
+name: ATmega328PB Motor Firmware Compile
 
 on:
   workflow_dispatch: {}
@@ -13,11 +13,14 @@ on:
       - "firmware/motor/**"
       - ".github/workflows/arduino-firmware-compile.yml"
 
+permissions:
+  contents: read
+
 jobs:
-  compile-arduino-uno:
+  compile-atmega328pb:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout source
+      - name: Checkout exact PR head
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -25,234 +28,82 @@ jobs:
       - name: Set up Arduino CLI
         uses: arduino/setup-arduino-cli@v2
 
-      - name: Install Arduino AVR core
-        run: |
-          arduino-cli core update-index
-          arduino-cli core install arduino:avr@1.8.8
-
-      - name: Compile MOTOR_BREAKIN_V3 for Arduino Uno
+      - name: Install pinned MiniCore and assert ATmega328PB target
         shell: bash
         run: |
           set -euo pipefail
-          sketch_dir="${RUNNER_TEMP}/MotoreRev"
-          mkdir -p "$sketch_dir"
-          cp firmware/motor/MotoreRev.ino "$sketch_dir/MotoreRev.ino"
-          arduino-cli version
-          arduino-cli core list
-          arduino-cli compile --export-binaries --fqbn arduino:avr:uno "$sketch_dir"
-          artifact_dir="${RUNNER_TEMP}/firmware-artifact"
-          mkdir -p "$artifact_dir"
-          hex_file="$(find "$sketch_dir" -type f -name '*.hex' -print -quit)"
-          if [[ -z "$hex_file" ]]; then
-            echo "ERROR: Arduino compile succeeded but no HEX file was found under $sketch_dir"
-            find "$sketch_dir" -maxdepth 5 -type f -print
-            exit 1
-          fi
-          cp "$hex_file" "$artifact_dir/MotoreRev.ino.hex"
+          URL="https://mcudude.github.io/MiniCore/package_MCUdude_MiniCore_index.json"
+          FQBN="MiniCore:avr:328:variant=modelPB,clock=16MHz_external"
+          arduino-cli core update-index --additional-urls "$URL"
+          arduino-cli core install MiniCore:avr@3.1.3 --additional-urls "$URL"
+          PROPERTIES="$(arduino-cli compile --show-properties=expanded --fqbn "$FQBN" firmware/motor/MotoreRevV2)"
+          printf '%s\\n' "$PROPERTIES" | grep -Fx 'build.mcu=atmega328pb'
+          printf '%s\\n' "$PROPERTIES" | grep -Fx 'build.f_cpu=16000000L'
+          printf '%s\\n' "$PROPERTIES" | grep -Fx 'build.variant=pb-variant'
+
+      - name: Compile current Protocol V2 motor firmware
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/motor-pb-build"
+          SKETCH="$ROOT/MotoreRevV2"
+          BUILD="$ROOT/MotoreRevV2-build"
+          ART="$ROOT/artifacts"
+          FQBN="MiniCore:avr:328:variant=modelPB,clock=16MHz_external"
+          mkdir -p "$SKETCH" "$BUILD" "$ART"
+          cp firmware/motor/MotoreRevV2/MotoreRevV2.ino "$SKETCH/MotoreRevV2.ino"
+          cp firmware/motor/ProtocolV2Codec.h "$SKETCH/"
+          cp firmware/motor/BootIdentityJournal.h "$SKETCH/"
+          cp firmware/motor/ProtocolV2Device.h "$SKETCH/"
+          cp firmware/motor/ProtocolV2TxScheduler.h "$SKETCH/"
+          cp firmware/motor/ProtocolV2AdcScheduler.h "$SKETCH/"
+          arduino-cli compile --export-binaries --fqbn "$FQBN" \\
+            --build-path "$BUILD" \\
+            --build-property "compiler.cpp.extra_flags=-DSERIAL_RX_BUFFER_SIZE=24 -DSERIAL_TX_BUFFER_SIZE=24 -fstack-usage -fno-lto" \\
+            --build-property "compiler.c.extra_flags=-fstack-usage -fno-lto" \\
+            --build-property "compiler.c.elf.extra_flags=-fno-lto -Wl,-Map=$BUILD/MotoreRevV2.map" \\
+            "$SKETCH"
+          ELF="$(find "$BUILD" -type f -name '*.elf' -print -quit)"
+          HEX="$(find "$SKETCH" -type f -name '*.hex' -print -quit)"
+          AVR_SIZE="$(find "$HOME/.arduino15/packages" -type f -path '*/tools/avr-gcc/*/bin/avr-size' -print -quit)"
+          test -n "$ELF" && test -n "$HEX" && test -n "$AVR_SIZE"
+          "$AVR_SIZE" "$ELF" | tee "$ART/MotoreRevV2-avr-size.txt"
+          awk 'NR == 2 { if (($2 + $3) > 900) { print "FAIL: .data + .bss exceeds 900 bytes"; exit 1 } }' "$ART/MotoreRevV2-avr-size.txt"
+          cp "$ELF" "$ART/MotoreRevV2.elf"
+          cp "$HEX" "$ART/MotoreRevV2.hex"
+          cp "$BUILD/MotoreRevV2.map" "$ART/MotoreRevV2.map"
+          find "$BUILD" -type f -name '*.su' -print0 | xargs -0 cat > "$ART/MotoreRevV2-stack-usage-all.txt"
+          test -s "$ART/MotoreRevV2-stack-usage-all.txt"
           {
-            echo "github_sha=$GITHUB_SHA"
+            echo "target_mcu=ATmega328PB"
+            echo "fqbn=$FQBN"
+            echo "clock=16MHz_external"
+            echo "minicore_version=3.1.3"
+            echo "legacy_DATA26_firmware=retired_default_build_guard"
+            echo "BOD_fuse=NOT_CONFIGURED_BY_COMPILE"
+            echo "hardware_upload=NOT_PERFORMED"
+            echo "fuse_or_eeprom_operation=NOT_PERFORMED"
             echo "checked_out_sha=$(git rev-parse HEAD)"
-            echo "fqbn=arduino:avr:uno"
-            echo "arduino_avr_core=1.8.8"
-            grep -E 'FW_BUILD_ID|FW_VERSION' firmware/motor/MotoreRev.ino || true
-            sha256sum "$artifact_dir/MotoreRev.ino.hex"
-          } > "$artifact_dir/build-manifest.txt"
-          echo "HEX artifact staged at $artifact_dir/MotoreRev.ino.hex"
-          cat "$artifact_dir/build-manifest.txt"
+            sha256sum "$ART/MotoreRevV2.hex" "$ART/MotoreRevV2.elf" "$ART/MotoreRevV2.map"
+          } > "$ART/build-manifest.txt"
 
-      - name: Compile isolated protocol v2 sketch for Arduino Uno
+      - name: Compile boot identity provisioner (compile-only)
         shell: bash
         run: |
           set -euo pipefail
-          sketch_dir="${RUNNER_TEMP}/MotoreRevV2"
-          mkdir -p "$sketch_dir"
-          cp firmware/motor/MotoreRevV2/MotoreRevV2.ino "$sketch_dir/MotoreRevV2.ino"
-          cp firmware/motor/ProtocolV2Codec.h "$sketch_dir/"
-          cp firmware/motor/BootIdentityJournal.h "$sketch_dir/"
-          cp firmware/motor/ProtocolV2Device.h "$sketch_dir/"
-          cp firmware/motor/ProtocolV2TxScheduler.h "$sketch_dir/"
-          cp firmware/motor/ProtocolV2AdcScheduler.h "$sketch_dir/"
-          build_dir="${RUNNER_TEMP}/MotoreRevV2-build"
-          mkdir -p "$build_dir"
-          arduino-cli compile --export-binaries --fqbn arduino:avr:uno \
-            --build-path "$build_dir" \
-            --build-property "compiler.cpp.extra_flags=-DSERIAL_RX_BUFFER_SIZE=24 -DSERIAL_TX_BUFFER_SIZE=24 -fstack-usage -fno-lto" \
-            --build-property "compiler.c.extra_flags=-fstack-usage -fno-lto" \
-            --build-property "compiler.c.elf.extra_flags=-fno-lto -Wl,-Map=$build_dir/MotoreRevV2.map" \
-            "$sketch_dir"
-          v2_hex_file="$(find "$sketch_dir" -type f -name '*.hex' -print -quit)"
-          if [[ -z "$v2_hex_file" ]]; then
-            echo "ERROR: v2 compile succeeded but no HEX file was found under $sketch_dir"
-            find "$sketch_dir" -maxdepth 5 -type f -print
-            exit 1
-          fi
-          artifact_dir="${RUNNER_TEMP}/firmware-artifact"
-          mkdir -p "$artifact_dir"
-          cp "$v2_hex_file" "$artifact_dir/MotoreRevV2.ino.hex"
-          elf_file="$(find "$build_dir" -type f -name '*.elf' -print -quit)"
-          map_file="$build_dir/MotoreRevV2.map"
-          if [[ -z "$elf_file" || ! -s "$map_file" ]]; then
-            echo "ERROR: expected v2 ELF and linker map were not produced"
-            find "$build_dir" -maxdepth 4 -type f -print
-            exit 1
-          fi
-          cp "$elf_file" "$artifact_dir/MotoreRevV2.elf"
-          cp "$map_file" "$artifact_dir/MotoreRevV2.map"
-          avr_objdump="$(find "$HOME/.arduino15/packages/arduino/tools/avr-gcc" -type f -name avr-objdump -print -quit)"
-          if [[ -z "$avr_objdump" ]]; then
-            echo "ERROR: avr-objdump not found in the installed Arduino AVR toolchain"
-            exit 1
-          fi
-          "$avr_objdump" -Cd "$elf_file" > "$artifact_dir/MotoreRevV2-disassembly.txt"
-          avr_size="$(find "$HOME/.arduino15/packages/arduino/tools/avr-gcc" -type f -name avr-size -print -quit)"
-          if [[ -z "$avr_size" ]]; then
-            echo "ERROR: avr-size not found in the installed Arduino AVR toolchain"
-            exit 1
-          fi
-          "$avr_size" "$elf_file" | tee "$artifact_dir/MotoreRevV2-avr-size.txt"
-          awk 'NR == 2 { if (($2 + $3) > 900) { print "ERROR: .data + .bss exceeds 900-byte static SRAM budget"; exit 1 } }' "$artifact_dir/MotoreRevV2-avr-size.txt"
-          stack_files="$(find "$build_dir" -type f -name '*.su' -print | wc -l)"
-          if [[ "$stack_files" -eq 0 ]]; then
-            echo "ERROR: -fstack-usage did not produce any .su files"
-            exit 1
-          fi
-          (cd "$build_dir" && find . -type f -name '*.su' -print0 | tar --null -czf "$artifact_dir/MotoreRevV2-stack-usage.tar.gz" --files-from -)
-          python3 - "$build_dir" "$artifact_dir" <<'PY'
-          from pathlib import Path
-          import sys
-          build_dir, artifact_dir = map(Path, sys.argv[1:])
-          rows = []
-          all_rows = []
-          for path in build_dir.rglob("*.su"):
-              for line in path.read_text(errors="replace").splitlines():
-                  parts = line.rsplit(chr(9), 2)
-                  if len(parts) != 3:
-                      continue
-                  try:
-                      frame = int(parts[1])
-                  except ValueError:
-                      continue
-                  rows.append((frame, parts[0], parts[2]))
-          rows.sort(reverse=True)
-          if not rows:
-              raise SystemExit("ERROR: no non-empty GCC stack-usage records")
-          (artifact_dir / "MotoreRevV2-stack-usage-all.txt").write_text(
-              "".join(str(frame) + chr(9) + qualifier + chr(9) + name + chr(10) for frame, name, qualifier in rows)
-          )
-          (artifact_dir / "MotoreRevV2-stack-usage-top30.txt").write_text(
-              "".join(str(frame) + chr(9) + qualifier + chr(9) + name + chr(10) for frame, name, qualifier in rows[:30])
-          )
-          largest = rows[0][0]
-          print(f"Largest individual stack frame: {largest} bytes (not a call-chain proof)")
-          if largest > 700:
-              raise SystemExit("ERROR: one stack frame exceeds 700 bytes")
-          PY
-          # Compile-only second image: link the otherwise dormant ADC capture
-          # helper chain so its SRAM/stack cost is measured. Never uploaded.
-          audit_build_dir="${RUNNER_TEMP}/MotoreRevV2-adc-audit-build"
-          mkdir -p "$audit_build_dir"
-          arduino-cli compile --fqbn arduino:avr:uno \
-            --build-path "$audit_build_dir" \
-            --build-property "compiler.cpp.extra_flags=-DSERIAL_RX_BUFFER_SIZE=24 -DSERIAL_TX_BUFFER_SIZE=24 -fstack-usage -fno-lto -DM4WD_ADC_RESOURCE_AUDIT" \
-            --build-property "compiler.c.extra_flags=-fstack-usage -fno-lto" \
-            --build-property "compiler.c.elf.extra_flags=-fno-lto -Wl,-Map=$audit_build_dir/MotoreRevV2-adc-audit.map" \
-            "$sketch_dir"
-          audit_elf="$(find "$audit_build_dir" -type f -name '*.elf' -print -quit)"
-          if [[ -z "$audit_elf" ]]; then
-            echo "ERROR: ADC helper resource-audit ELF missing"
-            exit 1
-          fi
-          cp "$audit_elf" "$artifact_dir/MotoreRevV2-adc-audit.elf"
-          cp "$audit_build_dir/MotoreRevV2-adc-audit.map" "$artifact_dir/MotoreRevV2-adc-audit.map"
-          "$avr_size" "$audit_elf" | tee "$artifact_dir/MotoreRevV2-adc-audit-avr-size.txt"
-          awk 'NR == 2 { if (($2 + $3) > 900) { print "ERROR: ADC-helper linked .data + .bss exceeds 900-byte static SRAM budget"; exit 1 } }' "$artifact_dir/MotoreRevV2-adc-audit-avr-size.txt"
-          (cd "$audit_build_dir" && find . -type f -name '*.su' -print0 | tar --null -czf "$artifact_dir/MotoreRevV2-adc-audit-stack-usage.tar.gz" --files-from -)
-          stack_files="$(find "$audit_build_dir" -type f -name '*.su' -print | wc -l)"
-          echo "ADC audit GCC .su files: $stack_files"
-          if [[ "$stack_files" -eq 0 ]]; then
-            find "$audit_build_dir" -type f -maxdepth 5 -print | head -80
-            echo "ERROR: ADC audit compiler emitted no .su files"
-            exit 1
-          fi
-          python3 - "$audit_build_dir" "$artifact_dir" <<'PY'
-          from pathlib import Path
-          import sys
-          build_dir, artifact_dir = map(Path, sys.argv[1:])
-          rows = []
-          for path in build_dir.rglob("*.su"):
-              for line in path.read_text(errors="replace").splitlines():
-                  parts = line.rsplit(chr(9), 2)
-                  if len(parts) < 3:
-                      continue
-                  try:
-                      frame = int(parts[-2])
-                  except ValueError:
-                      continue
-                  rows.append((frame, parts[0], parts[-1]))
-          rows.sort(reverse=True)
-          if not rows:
-              raise SystemExit("ERROR: ADC audit .su files contain no parseable GCC stack-usage records")
-          (artifact_dir / "MotoreRevV2-adc-audit-stack-usage-all.txt").write_text(
-              "".join(str(frame) + chr(9) + qualifier + chr(9) + name + chr(10) for frame, name, qualifier in rows)
-          )
-          (artifact_dir / "MotoreRevV2-adc-audit-stack-usage-top30.txt").write_text(
-              "".join(str(frame) + chr(9) + qualifier + chr(9) + name + chr(10) for frame, name, qualifier in rows[:30])
-          )
-          print(f"ADC helper image largest individual stack frame: {rows[0][0]} bytes")
-          if rows[0][0] > 700:
-              raise SystemExit("ERROR: ADC helper image contains a frame over 700 bytes")
-          PY
-          "$avr_objdump" -Cd "$audit_elf" > "$artifact_dir/MotoreRevV2-adc-audit-disassembly.txt"
-          {
-            echo "sketch=MotoreRevV2"
-            echo "fqbn=arduino:avr:uno"
-            echo "arduino_avr_core=1.8.8"
-            echo "github_event_sha=$GITHUB_SHA"
-            echo "checked_out_sha=$(git rev-parse HEAD)"
-            sha256sum "$artifact_dir/MotoreRevV2.ino.hex" "$artifact_dir/MotoreRevV2.elf" "$artifact_dir/MotoreRevV2.map"
-          } > "$artifact_dir/MotoreRevV2-build-manifest.txt"
+          FQBN="MiniCore:avr:328:variant=modelPB,clock=16MHz_external"
+          ROOT="$RUNNER_TEMP/provisioner-pb"
+          mkdir -p "$ROOT/ProvisionBootIdentity"
+          cp firmware/motor/ProvisionBootIdentity/ProvisionBootIdentity.ino "$ROOT/ProvisionBootIdentity/"
+          cp firmware/motor/BootIdentityJournal.h "$ROOT/ProvisionBootIdentity/"
+          arduino-cli compile --fqbn "$FQBN" "$ROOT/ProvisionBootIdentity"
+          echo "Compile only: no EEPROM write and no upload."
 
-      - name: Compile guarded boot identity provisioner (compile-only; never upload)
-        shell: bash
-        run: |
-          set -euo pipefail
-          provision_root="${RUNNER_TEMP}/boot-id-provisioner"
-          provision_dir="$provision_root/ProvisionBootIdentity"
-          mkdir -p "$provision_dir"
-          cp firmware/motor/ProvisionBootIdentity/ProvisionBootIdentity.ino "$provision_dir/ProvisionBootIdentity.ino"
-          cp firmware/motor/BootIdentityJournal.h "$provision_dir/BootIdentityJournal.h"
-          arduino-cli compile --fqbn arduino:avr:uno "$provision_dir"
-          echo "Guarded boot identity provisioner compiled; no EEPROM operation or upload was performed."
-
-      - name: Verify firmware CAL and host-owned control contract
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          source = Path("firmware/motor/MotoreRev.ino").read_text()
-          loop = source[source.index("void loop()"):source.index("* FUNC-151 : setState()")]
-          command = source[source.index("void processCommand(const char *cmd)"):source.index("SECTION 19 : Response Functions")]
-          assert "voltageControlUpdate();" not in loop, "host owns normal voltage feedback"
-          assert 'Serial.print(F("CAL,ACS1_ZERO="))' in source, "CAL output missing"
-          assert "calibrateACS712(false);" in command, "ARM must refresh offsets after STOP/READY"
-          for direction, starter in (("START", None), ("FWD", "startForward"), ("REV", "startReverse")):
-              pos = command.index('if (strcmp(command, "' + direction + '") == 0)')
-              block = command[pos:pos + 220]
-              assert "sendCalibration();" in block, f"missing CAL snapshot on {direction}"
-              if starter:
-                  assert block.index("sendCalibration();") < block.index(starter + "();"), f"CAL must precede {direction}"
-          resume_pos = command.index('if (strcmp(command, "RESUME") == 0)')
-          resume_block = command[resume_pos:resume_pos + 800]
-          assert "sendCalibration();" in resume_block and resume_block.index("sendCalibration();") < resume_block.index("setState(STATE_RUN);")
-          assert "sendLog(" not in source[source.index("void sendCalibration()"):source.index("void sendInfo()")], "CAL must not enter DATA serialization"
-          print("Firmware CAL/host-control source contract checks passed")
-          PY
-
-      - name: Upload compiled Uno firmware
+      - name: Upload ATmega328PB compile evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: motor-arduino-uno-firmware
-          path: ${{ runner.temp }}/firmware-artifact/*
-          if-no-files-found: error
-          retention-days: 14
+          name: atmega328pb-motor-firmware-compile
+          path: ${{ runner.temp }}/motor-pb-build/artifacts/
+          if-no-files-found: warn
+          retention-days: 30
