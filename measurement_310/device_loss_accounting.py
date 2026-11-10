@@ -66,7 +66,7 @@ class DeviceEpochClockUnwrapper:
             raise DeviceLossAccountingError("timestamp_us_u32 must be uint32")
         if self._last is None:
             self._last = timestamp_us_u32
-            self._elapsed = timestamp_us_u32
+            self._elapsed = 0
             return self._elapsed
         delta = (timestamp_us_u32 - self._last) & UINT32_MASK
         if delta >= UINT32_HALF:
