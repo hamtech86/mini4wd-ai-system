@@ -175,7 +175,8 @@ If this command fails or stalls, preserve the output root and process/storage ev
 ### 実行対象と位置付け
 
 - PR #193 current branch: `fix/310-5-t18-durable-batching`
-- 現在のPR HEAD: `018cd69ec7a1eb5138de514100e741a236ca55e5`
+- この追記直前のPR HEAD: `018cd69ec7a1eb5138de514100e741a236ca55e5`
+- この追記を反映した文書commit: `7f7ed66822b37d7851752eecbbe6db5906241d3a`（文書のみ）
 - 現行コード検証HEAD: `7d53858db2f7b07a1f1b5d6d17036fa13a4ff089`
 - 018cd69以降は文書更新のみ。測定コードは7d53858を使用する。
 - T18 target-host profileはKEEP（診断）。8,000ms超過のみでFAILにしない。
