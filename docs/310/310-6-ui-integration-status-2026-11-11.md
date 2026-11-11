@@ -2,7 +2,7 @@
 
 ## 現在の状態
 
-- 実装PR: #198（Draft）
+- 実装PR: #198（Ready for review）
 - 基点: 310-5 条件付き受入済み integration branch
 - UI/host統合: 実装中
 - 実機接続・firmware upload・motor energization・310秒実機測定: NOT RUN
@@ -52,10 +52,11 @@
 
 ## 検証
 
-最新HEAD `996899e671923a2eb80cdec84ba34eb5dbd91cf3`:
-- Host regression / UI smoke: **660 passed, 2 xfailed** — PASS (run 43025910511)
-- ATmega328PB compile: PASS。HEX/ELF/MAPとboot identity provisioner compile-only artifact (run 43025910441, artifact 13857695152)
-- 310 T18 production-path workflow: PASS (run 43025910396)
+最新実装HEAD `4a7179675e2c45b31228f24aabc1e4d646841cf1`:
+- Host regression / UI smoke: **661 passed, 2 xfailed** — PASS (run 43026233332)
+- ATmega328PB compile: PASS。HEX/ELF/MAPとboot identity provisioner compile-only artifact (run 43026233493, artifact 13856624486)
+- 310 T18 production-path workflow: PASS (run 43026233582)
+- Host tests include Qt tick coalescing, RawLog ID/instance association, Evidence bundle export, and recovery work inspection.
 
 ATmega328PB compileはMiniCore 3.1.3 / 16MHz external clock target。upload、EEPROM write、fuse operationは未実施。
 
@@ -64,9 +65,7 @@ CI/compileはhost・compile範囲の証拠であり、実機通信、STOP pin、
 
 ## 残件
 
-1. 最新HEADでHost regression / UI smoke testsを再PASSさせる。
-2. ATmega328PB compileとHEX/ELF/map artifactを確認。
-3. PR #198 review後、310-6の正式なUI/host受入を行う。
-4. 実機ベンチマークは別途明示的な実施指示と運用条件の下で行い、そこで得たログから実用上の不具合を修正する。
+1. PR #198のreview/統合と310-6ソフトウェア範囲の正式受入。
+2. 実機ベンチマークは別途明示的な実施指示と運用条件の下で行い、そこで得たログから実用上の不具合を修正する。
 
 この文書は310-6のソフトウェア実装状況であり、実機運転許可ではない。
