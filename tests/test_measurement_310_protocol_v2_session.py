@@ -239,7 +239,7 @@ def test_pyserial_priority_stop_bypasses_normal_flush_wait():
     worker.start()
     assert serial.flush_started.wait(0.5)
 
-    with pytest.raises(TransportError, match="flush deadline expired"):
+    with pytest.raises(TransportError, match="priority STOP deadline expired"):
         transport.send_stop_priority(b"stop-frame", timeout_s=0.02)
 
     # STOP's delimiter and full frame are written while normal flush is still
