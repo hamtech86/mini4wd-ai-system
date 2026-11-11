@@ -5,6 +5,8 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any, Dict
 from .manager import RawLogLibrary
+from measurement_310.evidence_bundle import verify_evidence_bundle
+from measurement_310.protocol_v1_session import TransportEvidenceJournal
 
 DEFAULT_REPOSITORY="hamtech86/mini4wd-raw-logs"
 DEFAULT_API="https://api.github.com"
