@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 import threading
+import time
 from typing import Optional, Protocol
 
 class TransportError(RuntimeError):
@@ -31,13 +32,119 @@ class MessageCodec(Protocol):
 class SerialTransport(Protocol):
     def connect(self) -> None: ...
     def disconnect(self) -> None: ...
-    def send(self, payload: bytes) -> None: ...
+    def _flush_with_deadline(self, timeout_s: float, *, label: str) -> None:
+        # pySerial.flush() has no timeout parameter. Keep it outside the write
+        # lock so a priority STOP can append after the current complete frame.
+        finished = threading.Event()
+        errors = []
+        def flush_worker():
+            try:
+                self._serial.flush()
+            except Exception as exc:
+                errors.append(exc)
+            finally:
+                finished.set()
+        worker = threading.Thread(target=flush_worker, name=f"310-{label}-flush", daemon=True)
+        worker.start()
+        if not finished.wait(max(0.0, timeout_s)):
+            self._flush_failed = True
+            raise TransportError(f"{label} flush deadline expired; delivery outcome unknown")
+        if errors:
+            self._flush_failed = True
+            raise TransportError(f"{label} flush failed; delivery outcome unknown: {errors[0]}")
+
+    def send(self, payload: bytes) -> None:
+        if self._serial is None:
+            raise TransportError("serial port is not connected")
+        with self._state_lock:
+            if self._stop_requested:
+                raise TransportError("STOP has priority; normal TX is permanently inhibited")
+        if self._flush_failed:
+            raise TransportError("serial TX flush previously timed out; delivery outcome unknown")
+        if not self._write_lock.acquire(timeout=self.write_timeout_s):
+            raise TransportError("serial TX writer deadline expired; delivery outcome unknown")
+        try:
+            with self._state_lock:
+                if self._stop_requested:
+                    raise TransportError("STOP has priority; normal TX is permanently inhibited")
+            written = self._serial.write(payload)
+            if written != len(payload):
+                self._flush_failed = True
+                raise TransportError("short serial write; delivery outcome unknown")
+        except Exception as exc:
+            self._flush_failed = True
+            raise TransportError(f"serial send failed: {exc}") from exc
+        finally:
+            self._write_lock.release()
+        try:
+            self._flush_with_deadline(self.write_timeout_s, label="serial")
+        except Exception as exc:
+            raise TransportError(f"serial send failed: {exc}") from exc
+
+    def send_stop_priority(self, payload: bytes, *, timeout_s: float = 0.25) -> None:
+        """Send STOP ahead of normal frames on this one serialized UART.
+
+        The write lock covers only an in-flight serial.write(), never flush(),
+        RawLog work, or a normal command queue. A leading COBS delimiter safely
+        terminates a partial frame before STOP. Once requested, later normal
+        writes are rejected. Caller wait is bounded; timeout remains UNKNOWN.
+        """
+        if self._serial is None:
+            raise TransportError("serial port is not connected; STOP outcome unknown")
+        if (not isinstance(payload, (bytes, bytearray, memoryview)) or not payload
+                or timeout_s <= 0):
+            raise ValueError("STOP payload and positive timeout are required")
+        with self._state_lock:
+            self._stop_requested = True
+
+        finished = threading.Event()
+        errors = []
+
+        def stop_worker():
+            acquired = self._write_lock.acquire(
+                timeout=max(0.0, min(timeout_s, self.write_timeout_s))
+            )
+            if not acquired:
+                errors.append(TransportError(
+                    "STOP could not acquire the bounded in-flight serial writer"
+                ))
+                finished.set()
+                return
+            try:
+                # Empty delimiter after a complete frame is ignored; after a
+                # partial frame it discards that frame. Never splice bytes.
+                stop_wire = b"\\x00" + bytes(payload)
+                written = self._serial.write(stop_wire)
+                if written != len(stop_wire):
+                    raise TransportError("short priority STOP write; delivery outcome unknown")
+            except Exception as exc:
+                errors.append(exc)
+                finished.set()
+                self._write_lock.release()
+                return
+            self._write_lock.release()
+            try:
+                self._serial.flush()
+            except Exception as exc:
+                errors.append(exc)
+            finally:
+                finished.set()
+
+        worker = threading.Thread(target=stop_worker, name="310-priority-stop", daemon=True)
+        worker.start()
+        if not finished.wait(timeout_s):
+            self._flush_failed = True
+            raise TransportError("priority STOP deadline expired; delivery outcome unknown")
+        if errors:
+            self._flush_failed = True
+            raise TransportError(f"priority STOP outcome unknown: {errors[0]}") from errors[0]
+
     def receive(self, timeout_s: float) -> Optional[bytes]: ...
 
 class PySerialTransport:
     """Lazy pySerial adapter; construction never opens a port."""
     def __init__(self, port: str, baudrate: int, timeout_s: float = 0.1,
-                 write_timeout_s: float = 0.25):
+                 write_timeout_s: float = 0.10):
         if (not port or baudrate <= 0 or timeout_s < 0
                 or write_timeout_s <= 0):
             raise ValueError("invalid serial configuration")
@@ -45,6 +152,10 @@ class PySerialTransport:
         self.write_timeout_s = write_timeout_s
         self._serial = None
         self._flush_failed = False
+        # Only serial.write() is protected; flush waiters never hold this lock.
+        self._write_lock = threading.Lock()
+        self._state_lock = threading.Lock()
+        self._stop_requested = False
 
     def connect(self) -> None:
         if self._serial is not None:
