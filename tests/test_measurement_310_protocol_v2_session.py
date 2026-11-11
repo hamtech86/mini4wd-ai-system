@@ -172,7 +172,12 @@ def test_v2_stop_uses_same_uart_priority_transport_without_second_endpoint(tmp_p
     session = ProtocolV2HostSession.for_rawlog_session(
         transport, CODEC, tmp_path, session_id, stop_timeout_s=0.25,
     )
+    finalized = []
+    session._finalize_adc_loss_window = lambda: finalized.append("finalized")
     assert session.send_stop_best_effort(stop_reason=1, stop_request_id=7) == 7
+    assert finalized == []
+    session.finalize_after_stop_attempt()
+    assert finalized == ["finalized"]
     assert len(transport.priority_frames) == 1
     frame, timeout_s = transport.priority_frames[0]
     message = CODEC.decode(frame).message
