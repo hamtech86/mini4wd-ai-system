@@ -97,7 +97,10 @@ class RawLogDatabaseManager(QDialog):
                 package_root = Path(__file__).resolve().parents[1] / "data" / "raw_logs_v2"
                 package_dir = package_root / record.log_id
                 if (package_dir / "manifest.json").is_file() and (package_dir / "records.jsonl").is_file():
-                    return "OK"
+                    evidence_dir = package_root / ".transport-evidence" / str(record.measurement_session_id)
+                    if (evidence_dir / "transport-evidence-v1.jsonl").is_file() and (evidence_dir / "bundle-manifest.json").is_file():
+                        return "OK"
+                    return "ERROR"
                 work_dir = package_root / ".work" / record.log_id
                 if (work_dir / "work_state.json").is_file() and (work_dir / "records.jsonl").is_file():
                     return "INCOMPLETE"
@@ -239,7 +242,12 @@ class RawLogDatabaseManager(QDialog):
                 if (package_dir / "manifest.json").is_file():
                     manifest = (package_dir / "manifest.json").read_text(encoding="utf-8")
                     records = (package_dir / "records.jsonl").read_text(encoding="utf-8")
-                    body = "=== manifest.json ===\\n" + manifest + "\\n=== records.jsonl ===\\n" + records
+                    evidence_dir = package_root / ".transport-evidence" / str(record.measurement_session_id)
+                    evidence = (evidence_dir / "transport-evidence-v1.jsonl").read_text(encoding="utf-8")
+                    bundle = (evidence_dir / "bundle-manifest.json").read_text(encoding="utf-8")
+                    body = ("=== manifest.json ===\\n" + manifest + "\\n=== records.jsonl ===\\n" + records
+                            + "\\n=== bundle-manifest.json ===\\n" + bundle
+                            + "\\n=== transport-evidence-v1.jsonl ===\\n" + evidence)
                 else:
                     work_dir = package_root / ".work" / record.log_id
                     state = (work_dir / "work_state.json").read_text(encoding="utf-8")
