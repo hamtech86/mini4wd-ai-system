@@ -114,6 +114,237 @@ class RawLogLibrary:
         self._append_index(self._index_row(record, raw_path))
         return raw_path
 
+    def register_v2_aux(
+        self, log_id: str, records, parse_errors=None, measurement_session_id=None
+    ) -> Optional[Dict[str, str]]:
+        """Persist AUX v2 beside an existing immutable RawLog body.
+
+        Legacy DATA bodies and index/metadata schemas are deliberately untouched.
+        A v2 manifest is created only when this log actually has AUX content.
+        """
+        import os
+        from dataclasses import is_dataclass
+
+        _, raw_path, _ = self.get(log_id)
+        parse_errors = list(parse_errors or [])
+        normalized = []
+        sample_ids = set()
+        for record in records or []:
+            value = asdict(record) if is_dataclass(record) else dict(record)
+            required_aux = {
+                "protocol_version", "session_id", "sequence", "phase",
+                "direction", "pwm", "run_state", "channel", "adc_raw",
+                "timestamp_us", "raw_line",
+            }
+            missing_aux = required_aux - set(value)
+            if missing_aux:
+                raise ValueError(f"AUX record missing fields: {sorted(missing_aux)}")
+            if value["protocol_version"] != 2:
+                raise ValueError("unsupported AUX protocol_version")
+            session_id = value["session_id"]
+            sequence = value["sequence"]
+            channel = value["channel"]
+            if not isinstance(session_id, str) or not session_id:
+                raise ValueError("AUX session_id must be a non-empty string")
+            if type(sequence) is not int or not 0 <= sequence <= 0xFFFFFFFF:
+                raise ValueError("AUX sequence must be an unsigned 32-bit integer")
+            if channel not in {"A0", "A1", "A4", "A5"}:
+                raise ValueError("AUX channel is invalid")
+            sample_id = f"{session_id}:{sequence}:{channel}"
+            if sample_id in sample_ids:
+                raise ValueError(f"duplicate AUX sample_id: {sample_id}")
+            sample_ids.add(sample_id)
+            value["sample_id"] = sample_id
+            normalized.append(value)
+        if not normalized and not parse_errors:
+            return None
+
+        aux_path = raw_path.with_suffix(".aux.jsonl")
+        manifest_path = raw_path.with_suffix(".manifest.json")
+        if aux_path.exists() or manifest_path.exists():
+            raise FileExistsError(f"RawLog v2 sidecar already exists for {log_id}")
+
+        def atomic_write(path: Path, content: str) -> None:
+            temporary = path.with_name(path.name + ".tmp")
+            try:
+                temporary.write_text(content, encoding="utf-8", newline="")
+                os.replace(temporary, path)
+            finally:
+                if temporary.exists():
+                    temporary.unlink()
+
+        aux_lines = []
+        for value in normalized:
+            aux_lines.append(json.dumps({
+                "record_type": "AUX",
+                "sample_id": value.get("sample_id"),
+                "protocol_version": value.get("protocol_version"),
+                "session_id": value.get("session_id"),
+                "sequence": value.get("sequence"),
+                "phase": value.get("phase"),
+                "direction": value.get("direction"),
+                "pwm": value.get("pwm"),
+                "run_state": value.get("run_state"),
+                "channel": value.get("channel"),
+                "adc_raw": value.get("adc_raw"),
+                "timestamp_us": value.get("timestamp_us"),
+                "raw_line": value.get("raw_line"),
+            }, ensure_ascii=False, separators=(",", ":")))
+        if normalized:
+            atomic_write(aux_path, "".join(line + "\n" for line in aux_lines))
+
+        manifest = {
+            "schema": "mini4wd.rawlog.v2",
+            "log_id": log_id,
+            "measurement_session_id": measurement_session_id,
+            "raw_body": raw_path.name,
+            "raw_body_format": "legacy_serial_text_immutable",
+            "aux_records": aux_path.name if normalized else None,
+            "aux_record_count": len(normalized),
+            "aux_session_ids": sorted({item["session_id"] for item in normalized}),
+            "aux_parse_errors": parse_errors,
+            "derived_records": None,
+            "derived_status": "NOT_GENERATED",
+        }
+        atomic_write(manifest_path, json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
+        return {
+            "manifest_path": str(manifest_path),
+            "aux_path": str(aux_path) if normalized else "",
+        }
+
+    def register_v2_derived(self, log_id: str, records) -> Optional[str]:
+        """Persist reproducible derived outputs without performing analysis."""
+        import math
+        import os
+
+        _, raw_path, _ = self.get(log_id)
+        normalized = []
+        required = {
+            "metric", "algorithm_id", "algorithm_version",
+            "input_sample_ids", "value", "unit", "valid", "invalid_reason",
+        }
+        for item in records or []:
+            value = dict(item)
+            missing = required - set(value)
+            if missing:
+                raise ValueError(f"derived record missing fields: {sorted(missing)}")
+            if not isinstance(value["metric"], str) or not value["metric"].strip():
+                raise ValueError("derived metric must be a non-empty string")
+            if not isinstance(value["algorithm_id"], str) or not value["algorithm_id"].strip():
+                raise ValueError("derived algorithm_id must be a non-empty string")
+            if not isinstance(value["algorithm_version"], str) or not value["algorithm_version"].strip():
+                raise ValueError("derived algorithm_version must be a non-empty string")
+            ids = value["input_sample_ids"]
+            if not isinstance(ids, list) or not ids or any(not isinstance(x, str) or not x for x in ids):
+                raise ValueError("input_sample_ids must be a non-empty list of sample IDs")
+            if type(value["valid"]) is not bool:
+                raise ValueError("derived valid must be boolean")
+            if value["valid"]:
+                if value["value"] is None or value["invalid_reason"] not in (None, ""):
+                    raise ValueError("valid derived records require a value and no invalid_reason")
+                if isinstance(value["value"], bool) or not isinstance(value["value"], (int, float)):
+                    raise ValueError("valid derived value must be numeric")
+                if not math.isfinite(float(value["value"])):
+                    raise ValueError("valid derived value must be finite")
+            elif not isinstance(value["invalid_reason"], str) or not value["invalid_reason"].strip():
+                raise ValueError("invalid derived records require an invalid_reason")
+            normalized.append({
+                "record_type": "DERIVED",
+                **{key: value[key] for key in sorted(required)},
+            })
+        if not normalized:
+            return None
+
+        manifest_path = raw_path.with_suffix(".manifest.json")
+        derived_path = raw_path.with_suffix(".derived.jsonl")
+        if not manifest_path.is_file():
+            raise ValueError(
+                "Derived records require an existing RawLog v2 manifest; "
+                "legacy v1 logs are never reclassified by analysis output"
+            )
+        manifest = self.read_v2_manifest(log_id)
+        if derived_path.exists():
+            raise FileExistsError(f"Derived sidecar already exists for {log_id}")
+        known_sample_ids = {
+            item.get("sample_id") for item in self.read_v2_aux(log_id)
+            if isinstance(item, dict)
+        }
+        for item in normalized:
+            unknown = set(item["input_sample_ids"]) - known_sample_ids
+            if unknown:
+                raise ValueError(
+                    f"derived input_sample_ids reference unknown AUX samples: {sorted(unknown)}"
+                )
+
+        def atomic_write(path: Path, content: str) -> None:
+            temporary = path.with_name(path.name + ".tmp")
+            try:
+                temporary.write_text(content, encoding="utf-8", newline="")
+                os.replace(temporary, path)
+            finally:
+                if temporary.exists():
+                    temporary.unlink()
+
+        payload = "".join(
+            json.dumps(item, ensure_ascii=False, separators=(",", ":")) + "\n"
+            for item in normalized
+        )
+        atomic_write(derived_path, payload)
+        manifest["derived_records"] = derived_path.name
+        manifest["derived_record_count"] = len(normalized)
+        manifest["derived_status"] = "AVAILABLE"
+        atomic_write(manifest_path, json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
+        return str(derived_path)
+
+    def read_v2_derived(self, log_id: str) -> List[Dict[str, object]]:
+        manifest = self.read_v2_manifest(log_id)
+        if manifest is None or not manifest.get("derived_records"):
+            return []
+        _, raw_path, _ = self.get(log_id)
+        derived_path = raw_path.with_suffix(".derived.jsonl")
+        if not derived_path.is_file():
+            raise FileNotFoundError(f"RawLog v2 Derived sidecar is missing: {derived_path}")
+        with derived_path.open("r", encoding="utf-8", newline="") as fh:
+            return [json.loads(line) for line in fh if line.strip()]
+
+    def read_v2_manifest(self, log_id: str) -> Optional[Dict[str, object]]:
+        """Read an explicitly registered v2 manifest; v1 logs return None."""
+        _, raw_path, _ = self.get(log_id)
+        manifest_path = raw_path.with_suffix(".manifest.json")
+        if not manifest_path.exists():
+            return None
+        value = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if not isinstance(value, dict):
+            raise ValueError(f"invalid RawLog v2 manifest: {manifest_path}")
+        if value.get("schema") != "mini4wd.rawlog.v2" or value.get("log_id") != log_id:
+            raise ValueError(f"invalid RawLog v2 manifest: {manifest_path}")
+        # Manifest references are data, not trusted paths. Restrict each
+        # sidecar to its exact log-scoped filename before any filesystem read.
+        expected = {
+            "raw_body": raw_path.name,
+            "aux_records": raw_path.with_suffix(".aux.jsonl").name,
+            "derived_records": raw_path.with_suffix(".derived.jsonl").name,
+        }
+        for key, filename in expected.items():
+            referenced = value.get(key)
+            if key == "raw_body":
+                if referenced != filename:
+                    raise ValueError(f"invalid RawLog v2 {key} reference: {referenced!r}")
+            elif referenced is not None and referenced != filename:
+                raise ValueError(f"invalid RawLog v2 {key} reference: {referenced!r}")
+        return value
+
+    def read_v2_aux(self, log_id: str) -> List[Dict[str, object]]:
+        manifest = self.read_v2_manifest(log_id)
+        if manifest is None or not manifest.get("aux_records"):
+            return []
+        _, raw_path, _ = self.get(log_id)
+        aux_path = raw_path.with_suffix(".aux.jsonl")
+        if not aux_path.is_file():
+            raise FileNotFoundError(f"RawLog v2 AUX sidecar is missing: {aux_path}")
+        with aux_path.open("r", encoding="utf-8", newline="") as fh:
+            return [json.loads(line) for line in fh if line.strip()]
+
     def update_metadata(self, *args: str, **changes: str) -> RawLog:
         # Keep log_id positional-only so attempts to mutate it via keyword
         # reach the immutability check instead of Python's duplicate-arg error.

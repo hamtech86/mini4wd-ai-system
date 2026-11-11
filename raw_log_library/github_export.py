@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64, json, os, urllib.error, urllib.request
 from dataclasses import asdict
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict
 from .manager import RawLogLibrary
 
@@ -35,14 +36,48 @@ class GitHubRawLogExporter:
                         repository=self.repository,raw_path=raw_rel,metadata_path=metadata_rel)
         try:
             raw_result=self._put_file(raw_rel,raw_body,f"Register Raw Log {log_id}",allow_update=False)
+            manifest = self.library.read_v2_manifest(log_id)
+            sidecar_results = []
+            remote_files = {}
+            if manifest is not None:
+                for key in ("aux_records", "derived_records"):
+                    filename = manifest.get(key)
+                    if not filename:
+                        continue
+                    if Path(filename).name != filename:
+                        raise GitHubRegistrationError(f"Unsafe RawLog sidecar filename: {filename!r}")
+                    local_sidecar = raw_path.parent / filename
+                    if not local_sidecar.is_file():
+                        raise GitHubRegistrationError(f"RawLog sidecar is missing: {local_sidecar}")
+                    remote_path = raw_rel.rsplit("/", 1)[0] + "/" + filename
+                    content = local_sidecar.read_text(encoding="utf-8")
+                    uploaded = self._put_file(remote_path, content, f"Register Raw Log sidecar {log_id}: {filename}", allow_update=False)
+                    sidecar_results.append(uploaded)
+                    remote_files[key] = remote_path
+                remote_manifest = dict(manifest)
+                remote_manifest["raw_body"] = raw_rel
+                remote_manifest["aux_records"] = remote_files.get("aux_records")
+                remote_manifest["derived_records"] = remote_files.get("derived_records")
+                manifest_rel = raw_rel.rsplit("/", 1)[0] + "/" + f"{log_id}.manifest.json"
+                manifest_result = self._put_file(
+                    manifest_rel, json.dumps(remote_manifest, ensure_ascii=False, indent=2)+"\n",
+                    f"Register Raw Log v2 manifest {log_id}", allow_update=False,
+                )
+                sidecar_results.append(manifest_result)
+                metadata["rawlog_v2_manifest"] = manifest_rel
+                metadata["rawlog_v2_schema"] = manifest.get("schema")
             metadata_result=self._put_file(metadata_rel,json.dumps(metadata,ensure_ascii=False,indent=2)+"\n",
                                            f"Register Metadata {log_id}",allow_update=False)
         except Exception as exc:
             self.library.set_github_status(log_id,status="FAILED",error=str(exc))
             raise GitHubRegistrationError(str(exc)) from exc
-        commit=metadata_result.get("commit",{}).get("sha") or raw_result.get("commit",{}).get("sha")
+        commit=(metadata_result.get("commit",{}).get("sha")
+                or next((item.get("commit",{}).get("sha") for item in reversed(sidecar_results)
+                         if item.get("commit",{}).get("sha")),None)
+                or raw_result.get("commit",{}).get("sha"))
         result={"status":"REGISTERED","repository":self.repository,"raw_path":raw_rel,
-                "metadata_path":metadata_rel,"commit":commit,"registered_at":metadata["registered_at"]}
+                "metadata_path":metadata_rel,"commit":commit,"registered_at":metadata["registered_at"],
+                "sidecar_paths":remote_files}
         self.library.set_github_status(log_id,**result)
         return result
 

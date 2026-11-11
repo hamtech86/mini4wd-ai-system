@@ -142,6 +142,19 @@ class LocalRawLogBreakinController(BreakinController):
             notes=notes,
         )
         path = self.raw_log_library.register(record, raw_body)
+        # AUX is stored as a v2 sidecar only when the active serial session
+        # actually supplied AUX records or diagnostics. Legacy logs remain v1.
+        drain_aux = getattr(self.serial, "drain_aux_records", None)
+        drain_errors = getattr(self.serial, "drain_aux_parse_errors", None)
+        if hasattr(self.raw_log_library, "register_v2_aux") and callable(drain_aux):
+            aux_records = drain_aux()
+            aux_errors = drain_errors() if callable(drain_errors) else []
+            self.raw_log_library.register_v2_aux(
+                record.log_id,
+                aux_records,
+                aux_errors,
+                measurement_session_id=session_id,
+            )
         self.last_raw_log_id = record.log_id
         self.last_raw_log_path = path
         self._registered_raw_log_ids.append(record.log_id)
