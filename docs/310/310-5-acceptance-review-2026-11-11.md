@@ -23,6 +23,8 @@
 | Database path safety phase 2 | PASS | run 43006802251 |
 | Target-host T18 profile / checksum | PASS | 2026-11-11 owner-run report: docs/310/310-5-target-host-t18-results-2026-11-11.md |
 
+補足: target-host T18 runはcode HEAD 7d53858db2f7b07a1f1b5d6d17036fa13a4ff089で実行され、in-memory protocol peer / in-memory independent STOP writerを使用した。このrunはPR #197のsame-UART transport変更より前であり、新しい実serial STOP pathを検証したものではない。新same-UART host pathは、統合後の全リポジトリ回帰run 43007309667のhost regression testsで検証している。
+
 Target-host T18の主な結果:
 - 31 stages / 3,100 ADC_BATCH / 37,200 ADC slots / 10,143 Evidence events。
 - profile status PASS、checksum OK。
