@@ -478,7 +478,7 @@ def test_pyserial_priority_stop_bypasses_normal_flush_wait():
 def test_rawlog_bound_production_actuation_is_blocked_by_recovery_marker(tmp_path, marker_name):
     root = tmp_path / "rawlog"
     root.mkdir()
-    (root / marker_name).write_text("operator reconciliation required\\n", encoding="utf-8")
+    (root / marker_name).write_text("operator reconciliation required\n", encoding="utf-8")
     session_id = str(uuid.uuid4())
     transport = ScriptedTransport(session_id)
     session = ProtocolV2HostSession.for_rawlog_session(
