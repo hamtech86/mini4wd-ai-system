@@ -24,6 +24,14 @@ SESSION_STATUSES = {"STARTED", "COMPLETE", "STOPPED", "INTERRUPTED", "FAULTED"}
 MEASUREMENT_STRING_FIELDS = ("device_model", "instance_id", "state", "raw_wire_line")
 MEASUREMENT_INTEGER_FIELDS = ("pwm", "firmware_elapsed_time_ms")
 MEASUREMENT_FIELDS = set(MEASUREMENT_STRING_FIELDS) | set(MEASUREMENT_INTEGER_FIELDS) | {"direction"}
+FORBIDDEN_LEGACY_MEASUREMENT_FIELDS = {
+    "raw_acs1", "raw_acs2", "current1_a", "current2_a",
+    "voltage1_v", "voltage2_v", "motor_voltage_v",
+    "current_avg_a", "power_w", "current_ripple_a", "voltage_ripple_v",
+    "peak_power_w", "peak_current_a", "peak_voltage_v", "peak_pwm",
+    "brush_peak_current_a", "raw_magnetic", "magnetic_level",
+    "motor_temperature_c",
+}
 COMMON_FIELDS = {
     "schema", "record_type", "log_id", "measurement_session_id",
     "record_id", "sequence", "elapsed_time_ms", "recorded_at",
@@ -97,6 +105,9 @@ def _validate_unavailable_fields(record: Mapping) -> set[str]:
 
 
 def _validate_measurement(record: Mapping) -> None:
+    forbidden = sorted(FORBIDDEN_LEGACY_MEASUREMENT_FIELDS & set(record))
+    if forbidden:
+        _fail("legacy DATA-derived fields are forbidden in v2 MEASUREMENT: " + ", ".join(forbidden))
     required = MEASUREMENT_FIELDS
     _require(record, required, "MEASUREMENT")
 
