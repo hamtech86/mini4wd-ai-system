@@ -52,12 +52,13 @@
 
 ## 検証
 
-2026-11-11時点で、commit `cd6229b415e208ff33ff471dfd3331a7f664f5d9` のCI:
-- 660 passed
-- 2 xfailed
-- Break-in / Battery / RawLog & Sequence workflow jobs PASS
+最新HEAD `996899e671923a2eb80cdec84ba34eb5dbd91cf3`:
+- Host regression / UI smoke: **660 passed, 2 xfailed** — PASS (run 43025910511)
+- ATmega328PB compile: PASS。HEX/ELF/MAPとboot identity provisioner compile-only artifact (run 43025910441, artifact 13857695152)
+- 310 T18 production-path workflow: PASS (run 43025910396)
 
-その後、Protocol V2 UI adapter、recovery Evidence binding、UI表示を更新したため、最新HEADのCIを再実行中。ATmega328PB compile workflowもUI/Protocol V2変更で実行されるようpath filterを追加した。
+ATmega328PB compileはMiniCore 3.1.3 / 16MHz external clock target。upload、EEPROM write、fuse operationは未実施。
+
 
 CI/compileはhost・compile範囲の証拠であり、実機通信、STOP pin、電流遮断、current limit、thermal qualificationの実証ではない。
 
