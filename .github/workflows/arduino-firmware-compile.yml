@@ -5,6 +5,12 @@ on:
   pull_request:
     paths:
       - "firmware/motor/**"
+      - "measurement_310/**"
+      - "raw_log_v2/**"
+      - "raw_log_library/**"
+      - "ui/winding_sweep_panel.py"
+      - "ui/main_window.py"
+      - "app/main.py"
       - ".github/workflows/arduino-firmware-compile.yml"
   push:
     branches:
