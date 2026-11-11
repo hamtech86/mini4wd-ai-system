@@ -13,6 +13,7 @@ from PyQt5.QtWidgets import (
 from controllers.recipe_engine import RecipeEngine
 from controllers.current_display import format_driver_input_current, format_input_voltage, format_motor_voltage
 from database.path_resolver import connect_database, configure_shared_database_path, resolve_database_path
+from ui.winding_sweep_panel import WindingSweepPanel
 
 
 class BreakinWorker(QThread):
@@ -124,6 +125,12 @@ class MainWindow(QMainWindow):
         self.description.setWordWrap(True)
         pv.addWidget(self.description)
         main.addWidget(pre)
+        self.sweep_panel = WindingSweepPanel(
+            self, root,
+            get_instance_id=lambda: self.instance.currentData(),
+            get_breakin_controller=lambda: self.breakin_controller,
+        )
+        main.addWidget(self.sweep_panel)
 
         run = QGroupBox("② 駆動中：プログレス / LIVE DATA")
         rv = QVBoxLayout(run)
