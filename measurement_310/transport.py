@@ -123,37 +123,61 @@ class PySerialTransport:
 
         The write lock covers only an in-flight serial.write(), never flush(),
         RawLog work, or a normal command queue. A leading COBS delimiter safely
-        terminates any partial frame before the STOP frame. Once requested,
-        all later normal writes are rejected. This is host transport priority,
-        not an independent electrical stop or a guarantee during UART failure.
+        terminates any partial frame before STOP. Once requested, all later
+        normal writes are rejected. Caller wait is bounded; a timeout is UNKNOWN.
+        This is transport priority, not an independent electrical stop.
         """
         if self._serial is None:
             raise TransportError("serial port is not connected; STOP outcome unknown")
-        if not isinstance(payload, (bytes, bytearray, memoryview)) or not payload:
-            raise ValueError("STOP payload must be non-empty bytes")
+        if (not isinstance(payload, (bytes, bytearray, memoryview)) or not payload
+                or timeout_s <= 0):
+            raise ValueError("STOP payload and positive timeout are required")
         with self._state_lock:
             self._stop_requested = True
-        started = time.monotonic()
-        acquired = self._write_lock.acquire(timeout=max(0.0, min(timeout_s, self.write_timeout_s)))
-        if not acquired:
-            self._flush_failed = True
-            raise TransportError("STOP could not acquire the bounded in-flight serial writer; outcome unknown")
-        try:
-            # COBS frames terminate at NUL. This delimiter is harmless after a
-            # complete frame and discards a partial frame after an interrupted
-            # write, so STOP is never spliced into the previous frame.
-            stop_wire = b"\x00" + bytes(payload)
-            written = self._serial.write(stop_wire)
-            if written != len(stop_wire):
-                self._flush_failed = True
-                raise TransportError("short priority STOP write; delivery outcome unknown")
-        except Exception as exc:
-            self._flush_failed = True
-            raise TransportError(f"priority STOP write outcome unknown: {exc}") from exc
-        finally:
+
+        finished = threading.Event()
+        errors = []
+
+        def stop_worker():
+            acquired = self._write_lock.acquire(
+                timeout=max(0.0, min(timeout_s, self.write_timeout_s))
+            )
+            if not acquired:
+                errors.append(TransportError(
+                    "STOP could not acquire the bounded in-flight serial writer"
+                ))
+                finished.set()
+                return
+            try:
+                # An empty COBS delimiter is ignored after a complete frame and
+                # discards an incomplete one. STOP is never spliced mid-frame.
+                stop_wire = b"\\x00" + bytes(payload)
+                written = self._serial.write(stop_wire)
+                if written != len(stop_wire):
+                    raise TransportError("short priority STOP write; delivery outcome unknown")
+            except Exception as exc:
+                errors.append(exc)
+                finished.set()
+                self._write_lock.release()
+                return
             self._write_lock.release()
-        remaining = timeout_s - (time.monotonic() - started)
-        self._flush_with_deadline(remaining, label="priority-STOP")
+            try:
+                # This flush may overlap a normal sender's flush waiter. The
+                # single write lock still guarantees serialized frame bytes.
+                self._serial.flush()
+            except Exception as exc:
+                errors.append(exc)
+            finally:
+                finished.set()
+
+        worker = threading.Thread(target=stop_worker, name="310-priority-stop", daemon=True)
+        worker.start()
+        if not finished.wait(timeout_s):
+            self._flush_failed = True
+            raise TransportError("priority STOP deadline expired; delivery outcome unknown")
+        if errors:
+            self._flush_failed = True
+            raise TransportError(f"priority STOP outcome unknown: {errors[0]}") from errors[0]
 
     def receive(self, timeout_s: float) -> Optional[bytes]:
         if self._serial is None:
