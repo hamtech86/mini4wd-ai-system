@@ -4,7 +4,9 @@ import sys
 import uuid
 
 import pytest
+from PyQt5.QtWidgets import QApplication
 
+from ui.winding_sweep_panel import WindingSweepPanel
 from measurement_310.evidence_bundle import write_evidence_bundle_manifest
 from measurement_310.protocol_v1_session import TransportEvidenceJournal
 from measurement_310.transport import PySerialTransport
@@ -130,3 +132,34 @@ def test_pyserial_transport_waits_for_configured_uno_startup_delay(monkeypatch):
 def test_pyserial_transport_rejects_negative_startup_delay():
     with pytest.raises(ValueError, match="invalid serial configuration"):
         PySerialTransport("/dev/fake-motor", 57600, startup_delay_s=-0.1)
+
+
+
+def test_qt_tick_queue_coalesces_pending_worker_ticks(tmp_path):
+    app = QApplication.instance() or QApplication([])
+    panel = WindingSweepPanel(
+        None, tmp_path,
+        get_instance_id=lambda: "42",
+        get_breakin_controller=lambda: None,
+    )
+    panel._worker = object()
+    queued = []
+    panel.tick_requested.connect(lambda: queued.append("tick"))
+
+    panel._queue_tick()
+    panel._queue_tick()
+    assert queued == ["tick"]
+    assert panel._tick_pending is True
+
+    panel._on_progress({
+        "state": "RUNNING",
+        "stage_index": 0,
+        "pwm": 0,
+        "elapsed_seconds": 0.1,
+    })
+    panel._queue_tick()
+    assert queued == ["tick", "tick"]
+
+    panel.timer.stop()
+    panel.close()
+    app.processEvents()
