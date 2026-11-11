@@ -12,6 +12,8 @@ from PyQt5.QtWidgets import (
 )
 
 from measurement_310.engine import SequenceController, SequenceState
+from measurement_310.evidence_bundle import write_evidence_bundle_manifest
+from measurement_310.protocol_v1_session import TransportEvidenceJournal
 from measurement_310.protocol_v2 import (
     DriveDirection, PROTOCOL_V2_MAGIC, PROTOCOL_V2_VERSION,
     ProtocolV2Codec, StopReason,
@@ -43,7 +45,32 @@ class WindingSweepWorker(QObject):
     @pyqtSlot()
     def start(self):
         try:
-            self.sequence.startup_recover()
+            recovered = self.sequence.startup_recover()
+            for item in recovered:
+                recovered_id = item.get("log_id") if isinstance(item, dict) else None
+                if not isinstance(recovered_id, str):
+                    continue
+                recovered_manifest = self.package_root / recovered_id / "manifest.json"
+                if not recovered_manifest.is_file():
+                    continue
+                try:
+                    manifest_body = json.loads(recovered_manifest.read_text(encoding="utf-8"))
+                    recovered_session = manifest_body.get("measurement_session_id")
+                    if not isinstance(recovered_session, str):
+                        continue
+                    evidence_path = (
+                        self.package_root / ".transport-evidence" / recovered_session
+                        / "transport-evidence-v1.jsonl"
+                    )
+                    if evidence_path.is_file():
+                        journal = TransportEvidenceJournal(evidence_path)
+                        write_evidence_bundle_manifest(
+                            self.package_root / recovered_id, journal, recovered_session
+                        )
+                except Exception:
+                    # Preserve the recovered package and persistent re-arm
+                    # inhibition; never synthesize or downgrade Evidence.
+                    pass
             self.sequence.start()
             state = self.sequence.state
             if state in {SequenceState.FAULT, SequenceState.ABORTED}:
