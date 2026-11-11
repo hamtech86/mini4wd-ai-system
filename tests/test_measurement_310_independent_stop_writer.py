@@ -186,13 +186,38 @@ def test_session_opens_stop_endpoint_before_command_and_closes_both(tmp_path):
     assert events[-2:] == ["command-disconnect", "stop-disconnect"]
 
 
-def test_real_serial_factory_rejects_missing_independent_stop_writer(tmp_path):
+def test_real_serial_factory_accepts_same_uart_priority_stop_without_independent_endpoint(tmp_path):
     session_id = str(uuid.uuid4())
     command = PySerialTransport("/dev/ttyACM0", 57600)
     codec = ProtocolV2Codec(PROTOCOL_V2_MAGIC, PROTOCOL_V2_VERSION)
-    with pytest.raises(ValueError, match="dedicated independent STOP endpoint"):
+    session = ProtocolV2HostSession.for_rawlog_session(
+        command, codec, tmp_path, session_id,
+    )
+    assert session.stop_writer is None
+    assert callable(command.send_stop_priority)
+
+
+def test_real_serial_factory_still_rejects_transport_without_priority_or_independent_stop(tmp_path):
+    class SerialTransportWithoutPriority:
+        port = "/dev/ttyACM0"
+
+        def connect(self):
+            pass
+
+        def disconnect(self):
+            pass
+
+        def send(self, payload):
+            pass
+
+        def receive(self, timeout_s):
+            return None
+
+    session_id = str(uuid.uuid4())
+    codec = ProtocolV2Codec(PROTOCOL_V2_MAGIC, PROTOCOL_V2_VERSION)
+    with pytest.raises(ValueError, match="same-UART priority STOP support"):
         ProtocolV2HostSession.for_rawlog_session(
-            command, codec, tmp_path, session_id,
+            SerialTransportWithoutPriority(), codec, tmp_path, session_id,
         )
 
 
