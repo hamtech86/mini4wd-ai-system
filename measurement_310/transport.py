@@ -151,7 +151,7 @@ class PySerialTransport:
             try:
                 # Empty delimiter after a complete frame is ignored; after a
                 # partial frame it discards that frame. Never splice bytes.
-                stop_wire = b"\\x00" + bytes(payload)
+                stop_wire = b"\x00" + bytes(payload)
                 written = self._serial.write(stop_wire)
                 if written != len(stop_wire):
                     raise TransportError("short priority STOP write; delivery outcome unknown")
