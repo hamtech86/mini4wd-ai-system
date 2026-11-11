@@ -63,6 +63,7 @@ class WindingPwmSweepController:
         log_id: str,
         measurement_session_id: str,
         measurement_plan_id: str = "WINDING_PWM_SWEEP_0_30",
+        motor_instance_id: str | None = None,
     ) -> bool:
         """Create a v2 package, ARM the identified device, and begin PWM 0."""
         if self.active:
@@ -101,6 +102,7 @@ class WindingPwmSweepController:
             "device": device_info,
             "firmware": firmware_info,
             "measurement_plan": plan,
+            "motor_instance_id": motor_instance_id,
         })
 
         self.active = True
