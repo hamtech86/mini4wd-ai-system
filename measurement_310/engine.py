@@ -690,6 +690,17 @@ class SequenceController:
                 self.send_stop()
             except Exception as exc:
                 self._last_fault = f"{self._last_fault or reason}; STOP send failed: {exc}"
+        # Protocol evidence finalization is deliberately after the STOP send
+        # attempt; no ADC-window journal/fsync may delay the safety transmission.
+        if self.protocol_session is not None:
+            try:
+                finalize_stop = getattr(
+                    self.protocol_session, "finalize_after_stop_attempt", None
+                )
+                if callable(finalize_stop):
+                    finalize_stop()
+            except Exception as exc:
+                self._last_fault = f"{self._last_fault or reason}; STOP evidence finalization failed: {exc}"
         if not self._finalization_started and not self._log_write_failed:
             try:
                 self._record_aborted_stage(reason)
