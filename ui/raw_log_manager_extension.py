@@ -175,7 +175,12 @@ class RawLogManagerExtension:
                 if (package_dir / "manifest.json").is_file():
                     manifest = (package_dir / "manifest.json").read_text(encoding="utf-8")
                     records = (package_dir / "records.jsonl").read_text(encoding="utf-8")
-                    body = "=== manifest.json ===\\n" + manifest + "\\n=== records.jsonl ===\\n" + records
+                    evidence_dir = package_root / ".transport-evidence" / str(record.measurement_session_id)
+                    evidence = (evidence_dir / "transport-evidence-v1.jsonl").read_text(encoding="utf-8")
+                    bundle = (evidence_dir / "bundle-manifest.json").read_text(encoding="utf-8")
+                    body = ("=== manifest.json ===\\n" + manifest + "\\n=== records.jsonl ===\\n" + records
+                            + "\\n=== bundle-manifest.json ===\\n" + bundle
+                            + "\\n=== transport-evidence-v1.jsonl ===\\n" + evidence)
                 else:
                     work_dir = package_root / ".work" / self.selected_log_id
                     state = (work_dir / "work_state.json").read_text(encoding="utf-8")
