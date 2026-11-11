@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import uuid
 
-from PyQt5.QtCore import QTimer
+from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtWidgets import (
     QComboBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QMessageBox,
     QPushButton, QVBoxLayout, QWidget,
@@ -193,7 +193,7 @@ class WindingSweepPanel(QGroupBox):
         try:
             from ui.raw_log_database_manager import RawLogDatabaseManager
             self.library_window = RawLogDatabaseManager(self.owner)
-            self.library_window.setAttribute(self.library_window.WA_DeleteOnClose, True)
+            self.library_window.setAttribute(Qt.WA_DeleteOnClose, True)
             self.library_window.show()
             self.library_window.raise_()
             self.library_window.activateWindow()
