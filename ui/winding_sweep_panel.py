@@ -246,7 +246,8 @@ class WindingSweepPanel(QGroupBox):
             return "NOT CREATED"
         path = self.root / "data" / "raw_logs_v2" / self.log_id / "manifest.json"
         try:
-            return str(json.loads(path.read_text(encoding="utf-8")).get("status", "UNKNOWN"))
+            status = str(json.loads(path.read_text(encoding="utf-8")).get("status", "UNKNOWN"))
+            return "INCOMPLETE" if status == "STARTED" else status
         except Exception:
             return "INCOMPLETE"
 
