@@ -490,3 +490,21 @@ def test_rawlog_bound_production_actuation_is_blocked_by_recovery_marker(tmp_pat
         session.send_stage_pwm(10, str(uuid.uuid4()), session_id, stage_index=0)
 
     assert transport.sent == []
+
+
+def test_disconnected_priority_stop_still_latches_normal_tx_inhibit():
+    class RecordingSerial:
+        def write(self, payload):
+            return len(payload)
+
+        def flush(self):
+            pass
+
+    transport = PySerialTransport("/dev/fake-motor", 57600)
+    with pytest.raises(TransportError, match="not connected"):
+        transport.send_stop_priority(b"stop-frame", timeout_s=0.25)
+
+    # Reconnecting the same transport object must not clear the STOP latch.
+    transport._serial = RecordingSerial()
+    with pytest.raises(TransportError, match="STOP has priority"):
+        transport.send(b"late-normal-frame")
