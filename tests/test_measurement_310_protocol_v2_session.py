@@ -154,6 +154,34 @@ def test_v2_stop_can_be_sent_without_established_session(tmp_path):
     assert message["measurement_session_id"] == "00000000-0000-0000-0000-000000000000"
 
 
+def test_v2_stop_uses_same_uart_priority_transport_without_second_endpoint(tmp_path):
+    class PriorityScriptedTransport(ScriptedTransport):
+        port = "/dev/ttyACM0"
+
+        def __init__(self, session_id):
+            super().__init__(session_id)
+            self.priority_frames = []
+
+        def send_stop_priority(self, payload, *, timeout_s):
+            self.priority_frames.append((bytes(payload), timeout_s))
+
+    session_id = str(uuid.uuid4())
+    transport = PriorityScriptedTransport(session_id)
+    session = ProtocolV2HostSession(
+        transport, CODEC,
+        DurableIntentJournal(tmp_path / "intent-priority.jsonl"),
+        TransportEvidenceJournal(tmp_path / "transport-priority.jsonl"),
+        stop_timeout_s=0.25,
+    )
+    assert session.send_stop_best_effort(stop_reason=1, stop_request_id=7) == 7
+    assert len(transport.priority_frames) == 1
+    frame, timeout_s = transport.priority_frames[0]
+    message = CODEC.decode(frame).message
+    assert message["kind"] == "STOP_REQ"
+    assert message["stop_request_id"] == 7
+    assert timeout_s == 0.25
+
+
 @pytest.mark.parametrize("value", ["", "not-a-uuid", "00000000-0000-0000-0000-000000000000"])
 def test_v2_session_rejects_invalid_measurement_session_id(tmp_path, value):
     session = make_session(tmp_path, ScriptedTransport(value))
