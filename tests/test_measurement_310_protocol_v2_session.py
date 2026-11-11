@@ -169,11 +169,8 @@ def test_v2_stop_uses_same_uart_priority_transport_without_second_endpoint(tmp_p
 
     session_id = str(uuid.uuid4())
     transport = PriorityScriptedTransport(session_id)
-    session = ProtocolV2HostSession(
-        transport, CODEC,
-        DurableIntentJournal(tmp_path / "intent-priority.jsonl"),
-        TransportEvidenceJournal(tmp_path / "transport-priority.jsonl"),
-        stop_timeout_s=0.25,
+    session = ProtocolV2HostSession.for_rawlog_session(
+        transport, CODEC, tmp_path, session_id, stop_timeout_s=0.25,
     )
     assert session.send_stop_best_effort(stop_reason=1, stop_request_id=7) == 7
     assert len(transport.priority_frames) == 1
@@ -249,6 +246,8 @@ def test_pyserial_priority_stop_bypasses_normal_flush_wait():
     # blocked; it is not interleaved with the ordinary frame.
     assert serial.writes == [b"normal-frame", b"\x00stop-frame"]
     assert worker.is_alive()
+    with pytest.raises(TransportError, match="STOP has priority"):
+        transport.send(b"late-normal-frame")
 
     serial.release_flush.set()
     worker.join(0.5)
