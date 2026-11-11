@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 import threading
-import time
 from typing import Optional, Protocol
 
 class TransportError(RuntimeError):
@@ -127,13 +126,15 @@ class PySerialTransport:
         terminates a partial frame before STOP. Once requested, later normal
         writes are rejected. Caller wait is bounded; timeout remains UNKNOWN.
         """
-        if self._serial is None:
-            raise TransportError("serial port is not connected; STOP outcome unknown")
         if (not isinstance(payload, (bytes, bytearray, memoryview)) or not payload
                 or timeout_s <= 0):
             raise ValueError("STOP payload and positive timeout are required")
+        # Latch first, including the disconnected-port case. Reconnecting this
+        # transport must never silently re-enable ordinary TX after STOP intent.
         with self._state_lock:
             self._stop_requested = True
+        if self._serial is None:
+            raise TransportError("serial port is not connected; STOP outcome unknown")
 
         finished = threading.Event()
         errors = []
