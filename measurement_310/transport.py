@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 import threading
+import time
 from typing import Optional, Protocol
 
 class TransportError(RuntimeError):
@@ -141,7 +142,7 @@ class PySerialTransport:
             # COBS frames terminate at NUL. This delimiter is harmless after a
             # complete frame and discards a partial frame after an interrupted
             # write, so STOP is never spliced into the previous frame.
-            stop_wire = b"\\x00" + bytes(payload)
+            stop_wire = b"\x00" + bytes(payload)
             written = self._serial.write(stop_wire)
             if written != len(stop_wire):
                 self._flush_failed = True
