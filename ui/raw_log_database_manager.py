@@ -94,8 +94,14 @@ class RawLogDatabaseManager(QDialog):
             if not (raw_path.exists() and metadata_path.exists()):
                 return "ERROR"
             if raw_path.suffix == ".v2ref":
-                package_dir = Path(__file__).resolve().parents[1] / "data" / "raw_logs_v2" / record.log_id
-                return "OK" if (package_dir / "manifest.json").is_file() and (package_dir / "records.jsonl").is_file() else "ERROR"
+                package_root = Path(__file__).resolve().parents[1] / "data" / "raw_logs_v2"
+                package_dir = package_root / record.log_id
+                if (package_dir / "manifest.json").is_file() and (package_dir / "records.jsonl").is_file():
+                    return "OK"
+                work_dir = package_root / ".work" / record.log_id
+                if (work_dir / "work_state.json").is_file() and (work_dir / "records.jsonl").is_file():
+                    return "INCOMPLETE"
+                return "ERROR"
             return "OK"
         except Exception: return "ERROR"
 
@@ -228,10 +234,17 @@ class RawLogDatabaseManager(QDialog):
         try:
             _, raw_path, _ = self.library.get(record.log_id)
             if raw_path.suffix == ".v2ref":
-                package_dir = Path(__file__).resolve().parents[1] / "data" / "raw_logs_v2" / record.log_id
-                manifest = (package_dir / "manifest.json").read_text(encoding="utf-8")
-                records = (package_dir / "records.jsonl").read_text(encoding="utf-8")
-                body = "=== manifest.json ===\\n" + manifest + "\\n=== records.jsonl ===\\n" + records
+                package_root = Path(__file__).resolve().parents[1] / "data" / "raw_logs_v2"
+                package_dir = package_root / record.log_id
+                if (package_dir / "manifest.json").is_file():
+                    manifest = (package_dir / "manifest.json").read_text(encoding="utf-8")
+                    records = (package_dir / "records.jsonl").read_text(encoding="utf-8")
+                    body = "=== manifest.json ===\\n" + manifest + "\\n=== records.jsonl ===\\n" + records
+                else:
+                    work_dir = package_root / ".work" / record.log_id
+                    state = (work_dir / "work_state.json").read_text(encoding="utf-8")
+                    records = (work_dir / "records.jsonl").read_text(encoding="utf-8")
+                    body = "=== INCOMPLETE WORK STATE ===\\n" + state + "\\n=== RECORDS ===\\n" + records
             else:
                 body = self.library.read_raw(record.log_id)
         except Exception as exc: QMessageBox.critical(self, "RawLog", str(exc)); return
