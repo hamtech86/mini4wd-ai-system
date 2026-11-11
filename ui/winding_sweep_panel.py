@@ -89,6 +89,13 @@ class WindingSweepPanel(QGroupBox):
         instance_widget = getattr(self.owner, "instance", None)
         if instance_widget is not None:
             instance_widget.setEnabled(not running)
+        for name in ("start", "manager", "recipe"):
+            widget = getattr(self.owner, name, None)
+            if widget is not None:
+                widget.setEnabled(not running)
+        emergency_button = getattr(self.owner, "stop", None)
+        if emergency_button is not None:
+            emergency_button.setEnabled(running)
 
     def start_sweep(self):
         instance_id = self.get_instance_id()
@@ -203,6 +210,19 @@ class WindingSweepPanel(QGroupBox):
         status = self._manifest_status()
         self.package_label.setText("PACKAGE: " + status)
         self.status.setText((status if ok else "STOP RESULT UNKNOWN") + " / physical stop not inferred")
+
+
+    def emergency_stop(self):
+        if self.controller is None or not self.controller.active:
+            return
+        self.status.setText("EMERGENCY STOP REQUESTED")
+        ok = self.controller.emergency_stop("OPERATOR_EMERGENCY_STOP")
+        self.timer.stop()
+        self._sync_library_metadata()
+        self._set_running_controls(False)
+        status = self._manifest_status()
+        self.package_label.setText("PACKAGE: " + status)
+        self.status.setText((status if ok else "STOP RESULT UNKNOWN") + " / physical stop not confirmed")
 
     def record_observation(self):
         if self.controller is None or not self.controller.active:
