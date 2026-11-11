@@ -271,6 +271,17 @@ class WindingSweepPanel(QGroupBox):
             return
 
         legacy_serial = getattr(breakin, "serial", None)
+        stop_check = getattr(legacy_serial, "_stop_requested", None)
+        if callable(stop_check) and stop_check():
+            QMessageBox.warning(self, "Winding Sweep", "既存SerialControllerにSTOP latchがあります。新しいアプリケーションセッションが必要です。")
+            return
+        confirmation = QMessageBox.question(
+            self, "Driver Power Isolation",
+            "USBシリアルを開くとArduinoがリセットされます。L298Nの12Vドライバー電源スイッチをOFFにしたことを確認してください。\n\nOFFにしてからProtocol v2セッションを開始しますか？",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if confirmation != QMessageBox.Yes:
+            return
         if legacy_serial is not None and getattr(legacy_serial, "connected", False):
             try:
                 legacy_serial.disconnect()
