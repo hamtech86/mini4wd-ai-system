@@ -91,7 +91,12 @@ class RawLogDatabaseManager(QDialog):
     def _record_integrity(self, record):
         try:
             _, raw_path, metadata_path = self.library.get(record.log_id)
-            return "OK" if raw_path.exists() and metadata_path.exists() else "ERROR"
+            if not (raw_path.exists() and metadata_path.exists()):
+                return "ERROR"
+            if raw_path.suffix == ".v2ref":
+                package_dir = Path(__file__).resolve().parents[1] / "data" / "raw_logs_v2" / record.log_id
+                return "OK" if (package_dir / "manifest.json").is_file() and (package_dir / "records.jsonl").is_file() else "ERROR"
+            return "OK"
         except Exception: return "ERROR"
 
     def _date_key(self, value):
@@ -220,7 +225,15 @@ class RawLogDatabaseManager(QDialog):
     def view_raw_body(self):
         record = self._selected_record()
         if not record: return
-        try: body = self.library.read_raw(record.log_id)
+        try:
+            _, raw_path, _ = self.library.get(record.log_id)
+            if raw_path.suffix == ".v2ref":
+                package_dir = Path(__file__).resolve().parents[1] / "data" / "raw_logs_v2" / record.log_id
+                manifest = (package_dir / "manifest.json").read_text(encoding="utf-8")
+                records = (package_dir / "records.jsonl").read_text(encoding="utf-8")
+                body = "=== manifest.json ===\\n" + manifest + "\\n=== records.jsonl ===\\n" + records
+            else:
+                body = self.library.read_raw(record.log_id)
         except Exception as exc: QMessageBox.critical(self, "RawLog", str(exc)); return
         dialog = QDialog(self); dialog.setWindowTitle(f"Raw Body — {record.log_id}"); dialog.resize(1000, 700)
         layout = QVBoxLayout(dialog); from PyQt5.QtWidgets import QPlainTextEdit
