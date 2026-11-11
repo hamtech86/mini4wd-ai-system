@@ -21,6 +21,7 @@ class WindingSweepWorker(QObject):
     started = pyqtSignal(bool, str)
     progress = pyqtSignal(dict)
     completed = pyqtSignal(str, str)
+    observation_result = pyqtSignal(bool, str)
 
     def __init__(self, controller, log_id, package_root, start_args):
         super().__init__()
@@ -55,6 +56,17 @@ class WindingSweepWorker(QObject):
         self.progress.emit(snapshot)
         if not self.controller.active:
             self._complete("")
+
+    @pyqtSlot(str)
+    def observe(self, label):
+        if self._completed or not self.controller.active:
+            self.observation_result.emit(False, "Sweep is not active.")
+            return
+        try:
+            self.controller.record_rotation_observation(label)
+            self.observation_result.emit(True, "目視注釈をRawLog v2 EVENTとして保存しました。")
+        except Exception as exc:
+            self.observation_result.emit(False, f"{type(exc).__name__}: {exc}")
 
     @pyqtSlot()
     def stop(self):
@@ -99,6 +111,7 @@ class WindingSweepPanel(QGroupBox):
     tick_requested = pyqtSignal()
     stop_requested = pyqtSignal()
     emergency_requested = pyqtSignal()
+    observe_requested = pyqtSignal(str)
 
     def __init__(self, parent, root: Path, get_instance_id, get_breakin_controller):
         super().__init__("④ 巻線 PWM スイープ / RawLog v2")
@@ -173,7 +186,7 @@ class WindingSweepPanel(QGroupBox):
     def _set_running_controls(self, running: bool):
         self.start_button.setEnabled(not running)
         self.stop_button.setEnabled(running)
-        self.observe_button.setEnabled(running)
+        self.observe_button.setEnabled(False)
         instance_widget = getattr(self.owner, "instance", None)
         if instance_widget is not None:
             instance_widget.setEnabled(not running)
@@ -198,9 +211,11 @@ class WindingSweepPanel(QGroupBox):
         self.tick_requested.connect(self._worker.tick, Qt.QueuedConnection)
         self.stop_requested.connect(self._worker.stop, Qt.QueuedConnection)
         self.emergency_requested.connect(self._worker.emergency_stop, Qt.QueuedConnection)
+        self.observe_requested.connect(self._worker.observe, Qt.QueuedConnection)
         self._worker.started.connect(self._on_worker_started)
         self._worker.progress.connect(self._on_progress)
         self._worker.completed.connect(self._on_worker_completed)
+        self._worker.observation_result.connect(self._on_observation_result)
         self._worker.completed.connect(self._thread.quit)
         self._thread.finished.connect(self._worker.deleteLater)
         self._thread.finished.connect(self._on_worker_thread_finished)
@@ -291,6 +306,7 @@ class WindingSweepPanel(QGroupBox):
 
     def _on_worker_started(self, ok, detail):
         if ok:
+            self.observe_button.setEnabled(True)
             self.status.setText("RUNNING")
             self.package_label.setText("PACKAGE: STARTED")
             self.timer.start()
@@ -340,16 +356,13 @@ class WindingSweepPanel(QGroupBox):
         self.emergency_requested.emit()
 
     def record_observation(self):
-        if self.controller is None or not self.controller.active:
-            return
         label = self.rotation_label.currentData()
-        if label is None:
+        if label is None or self._worker is None:
             return
-        try:
-            self.controller.record_rotation_observation(label)
-            self.note.setText("目視注釈をRawLog v2 EVENTとして保存しました。")
-        except Exception as exc:
-            QMessageBox.warning(self, "Winding Sweep", f"注釈を保存できません。\n{type(exc).__name__}: {exc}")
+        self.observe_requested.emit(label)
+
+    def _on_observation_result(self, ok, message):
+        self.note.setText(message)
 
     def open_library(self):
         try:
