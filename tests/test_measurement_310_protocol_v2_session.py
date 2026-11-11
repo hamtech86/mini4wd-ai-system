@@ -460,7 +460,7 @@ def test_pyserial_priority_stop_bypasses_normal_flush_wait():
     with pytest.raises(TransportError, match="priority STOP deadline expired"):
         transport.send_stop_priority(b"stop-frame", timeout_s=0.02)
 
-    assert serial.writes == [b"normal-frame", b"\\x00stop-frame"]
+    assert serial.writes == [b"normal-frame", b"\x00stop-frame"]
     assert worker.is_alive()
     with pytest.raises(TransportError, match="STOP has priority"):
         transport.send(b"late-normal-frame")
