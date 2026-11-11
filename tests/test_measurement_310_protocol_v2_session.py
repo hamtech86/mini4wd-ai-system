@@ -469,3 +469,23 @@ def test_pyserial_priority_stop_bypasses_normal_flush_wait():
     worker.join(0.5)
     assert not worker.is_alive()
     assert normal_errors == []
+
+
+@pytest.mark.parametrize("marker_name", [
+    ".310-rearm-inhibited",
+    ".310-evidence-reconciliation-required",
+])
+def test_rawlog_bound_production_actuation_is_blocked_by_recovery_marker(tmp_path, marker_name):
+    root = tmp_path / "rawlog"
+    root.mkdir()
+    (root / marker_name).write_text("operator reconciliation required\\n", encoding="utf-8")
+    session_id = str(uuid.uuid4())
+    transport = ScriptedTransport(session_id)
+    session = ProtocolV2HostSession.for_rawlog_session(
+        transport, CODEC, root, session_id,
+    )
+
+    with pytest.raises(ProtocolV2SessionError, match="automatic re-arm is inhibited"):
+        session.send_stage_pwm(10, str(uuid.uuid4()), session_id, stage_index=0)
+
+    assert transport.sent == []
