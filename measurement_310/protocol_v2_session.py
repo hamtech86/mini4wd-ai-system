@@ -611,8 +611,8 @@ class ProtocolV2HostSession:
         return self._last_stop_request_id
 
     def send_stop_best_effort(self, *, stop_reason: int, stop_request_id: Optional[int] = None) -> int:
-        if self.stop_writer is None:
-            raise ProtocolV2SessionError("independent STOP writer is not configured")
+        if self.stop_writer is None and not callable(getattr(self.transport, "send_stop_priority", None)):
+            raise ProtocolV2SessionError("no independent or same-UART priority STOP writer is configured")
         valid = {int(reason) for reason in StopReason}
         if isinstance(stop_reason, bool) or not isinstance(stop_reason, int) or stop_reason not in valid:
             raise ValueError("stop_reason must use an assigned StopReason code")
