@@ -1,7 +1,8 @@
-"""Qt UI adapter for the Python-coordinated 310-second winding PWM sweep."""
+"""Qt UI adapter for the production 310 protocol-v2 sequence."""
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import time
 import uuid
 
 from PyQt5.QtCore import QObject, QThread, QTimer, Qt, pyqtSignal, pyqtSlot
@@ -10,60 +11,86 @@ from PyQt5.QtWidgets import (
     QPushButton, QVBoxLayout,
 )
 
-from controllers.winding_pwm_sweep_controller import WindingPwmSweepController
+from measurement_310.engine import SequenceController, SequenceState
+from measurement_310.protocol_v2 import (
+    DriveDirection, PROTOCOL_V2_MAGIC, PROTOCOL_V2_VERSION,
+    ProtocolV2Codec, StopReason,
+)
+from measurement_310.protocol_v2_session import ProtocolV2HostSession
+from measurement_310.transport import PySerialTransport
 from raw_log_library.manager import RawLog, RawLogLibrary
-from raw_log_library.v2_store import RawLogV2Store
+from raw_log_v2.storage import RawLogV2Writer
 
 
 class WindingSweepWorker(QObject):
-    """Owns all serial/controller work on a dedicated Qt worker thread."""
+    """All serial, protocol, sequence and RawLog work stays off the Qt UI thread."""
 
     started = pyqtSignal(bool, str)
     progress = pyqtSignal(dict)
     completed = pyqtSignal(str, str)
     observation_result = pyqtSignal(bool, str)
 
-    def __init__(self, controller, log_id, package_root, start_args):
+    def __init__(self, sequence, protocol_session, stop_reason_box, log_id, package_root):
         super().__init__()
-        self.controller = controller
+        self.sequence = sequence
+        self.protocol_session = protocol_session
+        self.stop_reason_box = stop_reason_box
         self.log_id = log_id
         self.package_root = Path(package_root)
-        self.start_args = dict(start_args)
         self._completed = False
+        self._operator_stop = False
 
     @pyqtSlot()
     def start(self):
         try:
-            ok = self.controller.start(**self.start_args)
-            self.started.emit(bool(ok), "" if ok else "START_REJECTED")
-            if not ok:
-                self._complete("START_REJECTED")
+            self.sequence.startup_recover()
+            self.sequence.start()
+            state = self.sequence.state
+            if state in {SequenceState.FAULT, SequenceState.ABORTED}:
+                self.started.emit(False, self.sequence._last_fault or state.value)
+                self._complete(self.sequence._last_fault or state.value)
+                return
+            self.started.emit(True, "")
         except Exception as exc:
-            if self.controller.active:
-                try:
-                    self.controller.emergency_stop("START_EXCEPTION")
-                except Exception:
-                    pass
             self.started.emit(False, f"{type(exc).__name__}: {exc}")
-            self._complete(f"START_EXCEPTION: {type(exc).__name__}: {exc}")
+            self._complete(f"{type(exc).__name__}: {exc}")
 
     @pyqtSlot()
     def tick(self):
-        if self._completed or not self.controller.active:
-            self._complete("")
+        if self._completed:
             return
-        snapshot = self.controller.tick()
-        self.progress.emit(snapshot)
-        if not self.controller.active:
-            self._complete("")
+        state = self.sequence.poll()
+        stage_index = int(self.sequence.stage_index)
+        elapsed = 0.0
+        if self.sequence.stage_start_ns is not None:
+            elapsed = max(0.0, (time.monotonic_ns() - self.sequence.stage_start_ns) / 1_000_000_000)
+        self.progress.emit({
+            "state": state.value,
+            "stage_index": stage_index,
+            "pwm": stage_index if stage_index >= 0 else None,
+            "elapsed_seconds": elapsed,
+            "boot_id64": getattr(self.protocol_session, "boot_id64", None),
+        })
+        if state in {SequenceState.COMPLETED, SequenceState.ABORTED, SequenceState.FAULT}:
+            self._complete(self.sequence._last_fault or "")
 
     @pyqtSlot(str)
     def observe(self, label):
-        if self._completed or not self.controller.active:
-            self.observation_result.emit(False, "Sweep is not active.")
+        if self._completed or self.sequence.state != SequenceState.RUNNING:
+            self.observation_result.emit(False, "スイープ実行中のみ注釈を記録できます。")
+            return
+        if label == "ROTATION":
+            event = "ROTATION_START_CONFIRMED"
+        elif label == "NO_ROTATION":
+            event = "ROTATION_NOT_OBSERVED_AT_STAGE"
+        else:
+            self.observation_result.emit(False, "UNKNOWNは注釈を追加せず、推測もしません。")
             return
         try:
-            self.controller.record_rotation_observation(label)
+            self.sequence.record_visual_event(
+                event, "operator",
+                datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+            )
             self.observation_result.emit(True, "目視注釈をRawLog v2 EVENTとして保存しました。")
         except Exception as exc:
             self.observation_result.emit(False, f"{type(exc).__name__}: {exc}")
@@ -72,40 +99,49 @@ class WindingSweepWorker(QObject):
     def stop(self):
         if self._completed:
             return
-        if self.controller.active:
-            ok = self.controller.stop("USER_STOP")
-            self._complete("" if ok else "STOP_RESULT_UNKNOWN")
-        else:
-            self._complete("STOP_REQUESTED_BEFORE_ACTIVE")
+        self._operator_stop = True
+        self.stop_reason_box["reason"] = StopReason.OPERATOR_REQUEST
+        self.sequence.abort("user_stop")
+        self._complete(self.sequence._last_fault or "")
 
     @pyqtSlot()
     def emergency_stop(self):
         if self._completed:
             return
-        if self.controller.active:
-            ok = self.controller.emergency_stop("OPERATOR_EMERGENCY_STOP")
-            self._complete("" if ok else "STOP_RESULT_UNKNOWN")
-        else:
-            # The start slot is serialized ahead of this queued request. If it
-            # never made the package active, preserve the visible incomplete state.
-            self._complete("EMERGENCY_STOP_REQUESTED")
+        self._operator_stop = True
+        self.stop_reason_box["reason"] = StopReason.OPERATOR_REQUEST
+        self.sequence.abort("safety_stop")
+        self._complete(self.sequence._last_fault or "")
+
+    def _package_status(self):
+        final_manifest = self.package_root / self.log_id / "manifest.json"
+        work_dir = self.package_root / ".work" / self.log_id
+        try:
+            if final_manifest.is_file():
+                return str(json.loads(final_manifest.read_text(encoding="utf-8")).get("status", "UNKNOWN"))
+            if (work_dir / "records.jsonl").is_file() and (work_dir / "work_state.json").is_file():
+                return "incomplete"
+        except Exception:
+            pass
+        return "not_started"
 
     def _complete(self, detail):
         if self._completed:
             return
         self._completed = True
-        path = self.package_root / self.log_id / "manifest.json"
         try:
-            status = str(json.loads(path.read_text(encoding="utf-8")).get("status", "UNKNOWN"))
-            if status == "STARTED":
-                status = "INCOMPLETE"
-        except Exception:
-            status = "INCOMPLETE"
-        self.completed.emit(status, detail)
+            self.protocol_session.flush_evidence()
+        except Exception as exc:
+            detail = (detail + "; " if detail else "") + f"Evidence flush: {type(exc).__name__}: {exc}"
+        try:
+            self.protocol_session.disconnect()
+        except Exception as exc:
+            detail = (detail + "; " if detail else "") + f"Transport disconnect: {type(exc).__name__}: {exc}"
+        self.completed.emit(self._package_status(), detail)
 
 
 class WindingSweepPanel(QGroupBox):
-    """Non-blocking UI adapter; timer only queues work to the serial worker."""
+    """Qt timer queues sequence polls; it never performs serial I/O itself."""
 
     start_requested = pyqtSignal()
     tick_requested = pyqtSignal()
@@ -114,20 +150,21 @@ class WindingSweepPanel(QGroupBox):
     observe_requested = pyqtSignal(str)
 
     def __init__(self, parent, root: Path, get_instance_id, get_breakin_controller):
-        super().__init__("④ 巻線 PWM スイープ / RawLog v2")
+        super().__init__("④ 巻線 PWM スイープ / Protocol v2")
         self.owner = parent
         self.root = Path(root)
         self.get_instance_id = get_instance_id
         self.get_breakin_controller = get_breakin_controller
         self.library = RawLogLibrary(self.root / "data" / "raw_logs")
-        self.store = None
-        self.controller = None
         self.log_id = None
         self.measurement_session_id = None
+        self.sequence = None
+        self.protocol_session = None
         self._record_registered = False
         self._tick_pending = False
         self._thread = None
         self._worker = None
+        self._session_started = False
 
         layout = QVBoxLayout(self)
         status = QGridLayout()
@@ -138,12 +175,9 @@ class WindingSweepPanel(QGroupBox):
         self.elapsed_label = QLabel("ELAPSED: --")
         self.package_label = QLabel("PACKAGE: NOT CREATED")
         for row, (name, widget) in enumerate((
-            ("STATUS", self.status),
-            ("LOG", self.log_label),
-            ("MOTOR INSTANCE", self.instance_label),
-            ("STAGE", self.stage_label),
-            ("ELAPSED", self.elapsed_label),
-            ("RAWLOG", self.package_label),
+            ("STATUS", self.status), ("LOG", self.log_label),
+            ("MOTOR INSTANCE", self.instance_label), ("STAGE", self.stage_label),
+            ("ELAPSED", self.elapsed_label), ("RAWLOG", self.package_label),
         )):
             status.addWidget(QLabel(name + ":"), row // 2, (row % 2) * 2)
             status.addWidget(widget, row // 2, (row % 2) * 2 + 1)
@@ -168,9 +202,9 @@ class WindingSweepPanel(QGroupBox):
         self.rotation_label.addItem("記録しない", None)
         self.rotation_label.addItem("回転なし", "NO_ROTATION")
         self.rotation_label.addItem("回転あり", "ROTATION")
-        self.rotation_label.addItem("不明", "UNKNOWN")
+        self.rotation_label.addItem("不明（記録しない）", "UNKNOWN")
         observation.addWidget(self.rotation_label, 1)
-        self.note = QLabel("目視ラベルは任意注釈。測定値・Derived値には混入しません。")
+        self.note = QLabel("A0/A1/A4/A5等のADC raw sampleとは独立した人手注釈です。")
         self.note.setWordWrap(True)
         observation.addWidget(self.note, 2)
         self.observe_button = QPushButton("注釈を記録")
@@ -184,27 +218,23 @@ class WindingSweepPanel(QGroupBox):
         self.timer.timeout.connect(self._queue_tick)
 
     def _set_running_controls(self, running: bool):
-        self.start_button.setEnabled(not running)
+        self.start_button.setEnabled(not running and not self._session_started)
         self.stop_button.setEnabled(running)
         self.observe_button.setEnabled(False)
-        instance_widget = getattr(self.owner, "instance", None)
-        if instance_widget is not None:
-            instance_widget.setEnabled(not running)
-        for name in ("start", "manager", "recipe"):
+        for name in ("start", "manager", "recipe", "motor_connect", "motor_disconnect", "motor_arm"):
             widget = getattr(self.owner, name, None)
             if widget is not None:
-                widget.setEnabled(not running)
-        emergency_button = getattr(self.owner, "stop", None)
-        if emergency_button is not None:
-            emergency_button.setEnabled(running)
+                widget.setEnabled(not running and not self._session_started)
+        for name in ("stop", "emergency_stop_fixed"):
+            widget = getattr(self.owner, name, None)
+            if widget is not None:
+                widget.setEnabled(True if name == "emergency_stop_fixed" else running)
 
-    def _start_worker(self, serial_controller, start_args):
+    def _start_worker(self, start_args):
         self._thread = QThread(self)
         self._worker = WindingSweepWorker(
-            self.controller,
-            self.log_id,
-            self.root / "data" / "raw_logs_v2",
-            start_args,
+            self.sequence, self.protocol_session, start_args["stop_reason_box"],
+            self.log_id, self.root / "data" / "raw_logs_v2",
         )
         self._worker.moveToThread(self._thread)
         self.start_requested.connect(self._worker.start, Qt.QueuedConnection)
@@ -223,78 +253,102 @@ class WindingSweepPanel(QGroupBox):
         self.start_requested.emit()
 
     def start_sweep(self):
+        if self._worker is not None or self._thread is not None:
+            return
         instance_id = self.get_instance_id()
         if instance_id is None:
             QMessageBox.warning(self, "Winding Sweep", "Motor Instanceを選択してください。")
             return
-
         breakin = self.get_breakin_controller()
-        if breakin is None:
-            QMessageBox.warning(self, "Winding Sweep", "BreakinControllerがありません。")
+        if breakin is None or getattr(breakin, "running", False):
+            QMessageBox.warning(self, "Winding Sweep", "既存のBreak-in/Benchmark実行中、またはController不在のため開始できません。")
             return
-        if getattr(breakin, "running", False):
-            QMessageBox.warning(self, "Winding Sweep", "既存のBreak-in/Benchmark実行中は開始できません。")
+        if getattr(self.owner, "_stop_latched", False):
+            QMessageBox.warning(self, "Winding Sweep", "STOP latch中です。新しいアプリケーションセッションが必要です。")
             return
-        serial_controller = getattr(breakin, "serial", None)
-        if serial_controller is None or not getattr(serial_controller, "connected", False):
-            QMessageBox.warning(self, "Winding Sweep", "既存のモーターUARTが接続されていません。")
-            return
-        if not getattr(serial_controller, "identity_verified", False):
-            QMessageBox.warning(self, "Winding Sweep", "FW identity未確認のため開始できません。")
-            return
-        stop_check = getattr(serial_controller, "_stop_requested", None)
-        if callable(stop_check) and stop_check():
-            QMessageBox.warning(self, "Winding Sweep", "STOPラッチ中です。新しいアプリケーションセッションが必要です。")
+        if getattr(self.owner, "_arm_accepted", False):
+            QMessageBox.warning(self, "Winding Sweep", "既存ASCII ARM状態を解除してから開始してください。")
             return
 
-        info = getattr(serial_controller, "device_info", None) or {}
-        required = ("TYPE", "MODEL", "FW", "BUILD", "ID")
-        if any(not isinstance(info.get(key), str) or not info[key].strip() for key in required):
-            QMessageBox.warning(self, "Winding Sweep", "FW identity情報が不完全です。")
-            return
-        if info.get("TYPE") != "MOTOR" or info.get("MODEL") != "MOTOR_BREAKIN_V3":
-            QMessageBox.warning(self, "Winding Sweep", "対象外デバイスです。")
-            return
+        legacy_serial = getattr(breakin, "serial", None)
+        if legacy_serial is not None and getattr(legacy_serial, "connected", False):
+            try:
+                legacy_serial.disconnect()
+            except Exception as exc:
+                QMessageBox.critical(self, "Winding Sweep", f"既存UARTを解放できません。\n{type(exc).__name__}: {exc}")
+                return
 
+        port = getattr(legacy_serial, "serial_port", "/dev/ttyACM0")
+        baudrate = int(getattr(legacy_serial, "baudrate", 57600))
         session_id = str(uuid.uuid4())
-        acquired_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+        acquired_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
         record = RawLog(
             device_type="MOTOR",
-            device_model=info["MODEL"],
-            firmware_version=info["FW"],
+            device_model="MOTOR_BREAKIN_V3",
+            firmware_version=None,
             device_instance_id=str(instance_id),
             motor_id=str(instance_id),
             measurement_session_id=session_id,
             acquired_at=acquired_at,
-            measurement_condition="WINDING_PWM_SWEEP_0_30; 31 stages x 10 seconds; Python orchestrated",
-            notes=f"RawLog v2 winding sweep; firmware_device_id={info['ID']}; DATA wire lines retained without DATA26 field promotion",
+            measurement_condition="Protocol v2; FWD; PWM 0..30; 31 stages x 10 seconds; Python orchestrated",
+            notes="Protocol v2 HELLO boot identity; firmware version/model is not returned by current HELLO_ACK. No DATA26 conversion.",
         )
         try:
             self.library.register_v2_reference(record)
             self.log_id = record.log_id
             self._record_registered = True
             self.measurement_session_id = session_id
-            self.store = RawLogV2Store(self.root / "data" / "raw_logs_v2")
-            self.controller = WindingPwmSweepController(serial_controller, self.store)
-            start_args = {
+            package_root = self.root / "data" / "raw_logs_v2"
+            writer = RawLogV2Writer(package_root)
+            transport = PySerialTransport(
+                port, baudrate, timeout_s=0.0, write_timeout_s=0.10,
+                startup_delay_s=2.0,
+            )
+            codec = ProtocolV2Codec(PROTOCOL_V2_MAGIC, PROTOCOL_V2_VERSION)
+            self.protocol_session = ProtocolV2HostSession.for_rawlog_session(
+                transport, codec, package_root, session_id,
+            )
+            stop_reason_box = {"reason": StopReason.INTERNAL_HOST_FAULT}
+
+            def send_stop():
+                reason = stop_reason_box["reason"]
+                self.protocol_session.send_stop_best_effort(stop_reason=int(reason))
+
+            def send_normal_stop():
+                self.protocol_session.send_stop_best_effort(
+                    stop_reason=int(StopReason.NORMAL_COMPLETION)
+                )
+
+            manifest_fields = {
                 "log_id": self.log_id,
                 "measurement_session_id": session_id,
-                "measurement_plan_id": "WINDING_PWM_SWEEP_0_30",
                 "motor_instance_id": str(instance_id),
+                "device": {
+                    "type": "MOTOR", "model": None, "firmware_version": None,
+                    "firmware_build": None, "firmware_id": None,
+                    "adc_resolution_bits": 10,
+                },
+                "measurement_conditions": {
+                    "direction": "FWD", "voltage_control_mode": "UNKNOWN",
+                    "sweep_pwm_min": 0, "sweep_pwm_max": 30,
+                    "stage_duration_ms": 10000, "schedule_owner": "PYTHON",
+                },
             }
+            self.sequence = SequenceController.with_protocol_session(
+                writer, manifest_fields, self.protocol_session,
+                send_stop=send_stop, send_normal_stop=send_normal_stop,
+                stage_direction=lambda _index: int(DriveDirection.FWD),
+            )
             self.log_label.setText("LOG: " + self.log_id)
             self.instance_label.setText("INSTANCE: " + str(instance_id))
             self.rotation_label.setCurrentIndex(0)
-            self.status.setText("STARTING")
+            self.status.setText("STARTING / V2 HELLO")
             self.package_label.setText("PACKAGE: STARTING")
             self._set_running_controls(True)
-            self._start_worker(serial_controller, start_args)
+            self._start_worker({"stop_reason_box": stop_reason_box})
+            if hasattr(self.owner, "motor_serial_status"):
+                self.owner.motor_serial_status.setText("MOTOR: PROTOCOL V2 SESSION STARTING")
         except Exception as exc:
-            if self.controller is not None and self.controller.active:
-                try:
-                    self.controller.emergency_stop("START_EXCEPTION")
-                except Exception:
-                    pass
             if self.log_id:
                 try:
                     self._sync_library_metadata(f"START_FAILED: {type(exc).__name__}: {exc}")
@@ -307,12 +361,12 @@ class WindingSweepPanel(QGroupBox):
     def _on_worker_started(self, ok, detail):
         if ok:
             self.observe_button.setEnabled(True)
-            self.status.setText("RUNNING")
-            self.package_label.setText("PACKAGE: STARTED")
+            self.status.setText("RUNNING / PROTOCOL V2")
+            self.package_label.setText("PACKAGE: INCOMPLETE (RECORDING)")
             self.timer.start()
-            return
-        self.status.setText("START FAILED / " + (detail or "UNKNOWN"))
-        self.timer.stop()
+        else:
+            self.status.setText("START FAILED / " + (detail or "UNKNOWN"))
+            self.timer.stop()
 
     def _queue_tick(self):
         if self._tick_pending or self._worker is None:
@@ -322,24 +376,45 @@ class WindingSweepPanel(QGroupBox):
 
     def _on_progress(self, snapshot):
         self._tick_pending = False
-        self.status.setText(str(snapshot.get("status", "UNKNOWN")))
+        self.status.setText(str(snapshot.get("state", "UNKNOWN")).upper())
+        stage_index = snapshot.get("stage_index", -1)
+        pwm = snapshot.get("pwm")
         self.stage_label.setText(
-            f"PWM: {snapshot.get('pwm', '--')} / 30  ({int(snapshot.get('stage_index', -1)) + 1}/31)"
+            f"PWM: {pwm if pwm is not None else '--'} / 30  ({int(stage_index) + 1}/31)"
         )
         self.elapsed_label.setText(f"ELAPSED: {float(snapshot.get('elapsed_seconds', 0.0)):.1f} s")
+        boot_id = snapshot.get("boot_id64")
+        if boot_id:
+            self.package_label.setText(f"PACKAGE: RECORDING / BOOT {int(boot_id):016X}")
 
     def _on_worker_completed(self, status, detail):
         self.timer.stop()
         self._tick_pending = False
         self._sync_library_metadata(detail)
-        self.package_label.setText("PACKAGE: " + status)
-        suffix = " / physical stop not inferred" if status in {"STOPPED", "INTERRUPTED", "FAULTED", "INCOMPLETE"} else ""
-        self.status.setText(status + suffix + ((" / " + detail) if detail else ""))
+        self.package_label.setText("PACKAGE: " + status.upper())
+        suffix = " / physical motor state not inferred"
+        self.status.setText(status.upper() + suffix + ((" / " + detail) if detail else ""))
 
     def _on_worker_thread_finished(self):
         self._worker = None
         self._thread = None
+        self._session_started = True
         self._set_running_controls(False)
+        if hasattr(self.owner, "_stop_latched"):
+            self.owner._stop_latched = True
+        if hasattr(self.owner, "_arm_accepted"):
+            self.owner._arm_accepted = False
+        if hasattr(self.owner, "motor_arm"):
+            self.owner.motor_arm.setEnabled(False)
+        if hasattr(self.owner, "motor_connect"):
+            self.owner.motor_connect.setEnabled(False)
+        if hasattr(self.owner, "motor_disconnect"):
+            self.owner.motor_disconnect.setEnabled(False)
+        if hasattr(self.owner, "motor_serial_status"):
+            self.owner.motor_serial_status.setText(
+                "MOTOR: V2 SESSION ENDED / RESTART REQUIRED; DRIVER SUPPLY OFF BEFORE NEXT SESSION"
+            )
+        self.start_button.setEnabled(False)
 
     def stop_sweep(self):
         if self._worker is None:
@@ -377,19 +452,24 @@ class WindingSweepPanel(QGroupBox):
 
     def _manifest_status(self):
         if not self.log_id:
-            return "NOT CREATED"
-        path = self.root / "data" / "raw_logs_v2" / self.log_id / "manifest.json"
+            return "not_created"
+        root = self.root / "data" / "raw_logs_v2"
+        manifest = root / self.log_id / "manifest.json"
+        work = root / ".work" / self.log_id / "work_state.json"
         try:
-            status = str(json.loads(path.read_text(encoding="utf-8")).get("status", "UNKNOWN"))
-            return "INCOMPLETE" if status == "STARTED" else status
+            if manifest.is_file():
+                return str(json.loads(manifest.read_text(encoding="utf-8")).get("status", "unknown"))
+            if work.is_file():
+                return "incomplete"
         except Exception:
-            return "INCOMPLETE"
+            pass
+        return "not_started"
 
     def _sync_library_metadata(self, extra_note=""):
         if not self.log_id or not self._record_registered:
             return
         status = self._manifest_status()
-        note = f"RawLog v2 status={status}"
+        note = f"Protocol v2 RawLog status={status}"
         if extra_note:
             note += "; " + extra_note
         self.library.update_metadata(self.log_id, notes=note)
