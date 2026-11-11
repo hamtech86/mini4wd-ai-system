@@ -168,7 +168,30 @@ class RawLogManagerExtension:
             QMessageBox.information(self.manager, "Raw Log", "Raw Logを選択してください。")
             return
         try:
-            body = self.library.read_raw(self.selected_log_id)
+            record, raw_path, _ = self.library.get(self.selected_log_id)
+            if raw_path.suffix == ".v2ref":
+                package_root = self.library.root.parent / "raw_logs_v2"
+                package_dir = package_root / self.selected_log_id
+                if (package_dir / "manifest.json").is_file():
+                    manifest = (package_dir / "manifest.json").read_text(encoding="utf-8")
+                    records = (package_dir / "records.jsonl").read_text(encoding="utf-8")
+                    evidence_dir = package_root / ".transport-evidence" / str(record.measurement_session_id)
+                    evidence = (evidence_dir / "transport-evidence-v1.jsonl").read_text(encoding="utf-8")
+                    bundle = (evidence_dir / "bundle-manifest.json").read_text(encoding="utf-8")
+                    body = ("=== manifest.json ===\\n" + manifest + "\\n=== records.jsonl ===\\n" + records
+                            + "\\n=== bundle-manifest.json ===\\n" + bundle
+                            + "\\n=== transport-evidence-v1.jsonl ===\\n" + evidence)
+                else:
+                    work_dir = package_root / ".work" / self.selected_log_id
+                    state = (work_dir / "work_state.json").read_text(encoding="utf-8")
+                    records = (work_dir / "records.jsonl").read_text(encoding="utf-8")
+                    evidence_dir = package_root / ".transport-evidence" / str(record.measurement_session_id)
+                    evidence_path = evidence_dir / "transport-evidence-v1.jsonl"
+                    evidence = evidence_path.read_text(encoding="utf-8") if evidence_path.is_file() else "(Evidence sidecar not present)"
+                    body = ("=== INCOMPLETE WORK STATE ===\\n" + state + "\\n=== RECORDS ===\\n" + records
+                            + "\\n=== TRANSPORT EVIDENCE ===\\n" + evidence)
+            else:
+                body = self.library.read_raw(self.selected_log_id)
         except Exception as exc:
             QMessageBox.critical(self.manager, "Raw Log", str(exc))
             return

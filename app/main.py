@@ -671,6 +671,19 @@ class MainWindow(BaseMainWindow):
             self.result["STATUS"].setText("ERROR / STOP LATCHED")
 
     def stop_run(self):
+        sweep_panel = getattr(self, "sweep_panel", None)
+        if sweep_panel is not None and getattr(sweep_panel, "_worker", None) is not None:
+            self._stop_latched = True
+            self._arm_accepted = False
+            sweep_panel.emergency_stop()
+            if hasattr(self, "motor_arm"):
+                self.motor_arm.setEnabled(False)
+            if hasattr(self, "motor_serial_status"):
+                self.motor_serial_status.setText("MOTOR: V2 EMERGENCY STOP REQUESTED / PHYSICAL STOP UNCONFIRMED")
+            if hasattr(self, "sequence_status"):
+                self.sequence_status.setText("Protocol v2 emergency STOP requested; physical stop is unconfirmed.")
+            self._log_event("Protocol v2 emergency STOP queued to the dedicated worker; no physical stop claim.")
+            return
         self._stop_latched = True
         self._arm_accepted = False
         stop_errors = []

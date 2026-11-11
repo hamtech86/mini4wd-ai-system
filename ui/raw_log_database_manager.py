@@ -91,7 +91,21 @@ class RawLogDatabaseManager(QDialog):
     def _record_integrity(self, record):
         try:
             _, raw_path, metadata_path = self.library.get(record.log_id)
-            return "OK" if raw_path.exists() and metadata_path.exists() else "ERROR"
+            if not (raw_path.exists() and metadata_path.exists()):
+                return "ERROR"
+            if raw_path.suffix == ".v2ref":
+                package_root = Path(__file__).resolve().parents[1] / "data" / "raw_logs_v2"
+                package_dir = package_root / record.log_id
+                if (package_dir / "manifest.json").is_file() and (package_dir / "records.jsonl").is_file():
+                    evidence_dir = package_root / ".transport-evidence" / str(record.measurement_session_id)
+                    if (evidence_dir / "transport-evidence-v1.jsonl").is_file() and (evidence_dir / "bundle-manifest.json").is_file():
+                        return "OK"
+                    return "ERROR"
+                work_dir = package_root / ".work" / record.log_id
+                if (work_dir / "work_state.json").is_file() and (work_dir / "records.jsonl").is_file():
+                    return "INCOMPLETE"
+                return "ERROR"
+            return "OK"
         except Exception: return "ERROR"
 
     def _date_key(self, value):
@@ -220,7 +234,31 @@ class RawLogDatabaseManager(QDialog):
     def view_raw_body(self):
         record = self._selected_record()
         if not record: return
-        try: body = self.library.read_raw(record.log_id)
+        try:
+            _, raw_path, _ = self.library.get(record.log_id)
+            if raw_path.suffix == ".v2ref":
+                package_root = Path(__file__).resolve().parents[1] / "data" / "raw_logs_v2"
+                package_dir = package_root / record.log_id
+                if (package_dir / "manifest.json").is_file():
+                    manifest = (package_dir / "manifest.json").read_text(encoding="utf-8")
+                    records = (package_dir / "records.jsonl").read_text(encoding="utf-8")
+                    evidence_dir = package_root / ".transport-evidence" / str(record.measurement_session_id)
+                    evidence = (evidence_dir / "transport-evidence-v1.jsonl").read_text(encoding="utf-8")
+                    bundle = (evidence_dir / "bundle-manifest.json").read_text(encoding="utf-8")
+                    body = ("=== manifest.json ===\\n" + manifest + "\\n=== records.jsonl ===\\n" + records
+                            + "\\n=== bundle-manifest.json ===\\n" + bundle
+                            + "\\n=== transport-evidence-v1.jsonl ===\\n" + evidence)
+                else:
+                    work_dir = package_root / ".work" / record.log_id
+                    state = (work_dir / "work_state.json").read_text(encoding="utf-8")
+                    records = (work_dir / "records.jsonl").read_text(encoding="utf-8")
+                    evidence_dir = package_root / ".transport-evidence" / str(record.measurement_session_id)
+                    evidence_path = evidence_dir / "transport-evidence-v1.jsonl"
+                    evidence = evidence_path.read_text(encoding="utf-8") if evidence_path.is_file() else "(Evidence sidecar not present)"
+                    body = ("=== INCOMPLETE WORK STATE ===\\n" + state + "\\n=== RECORDS ===\\n" + records
+                            + "\\n=== TRANSPORT EVIDENCE ===\\n" + evidence)
+            else:
+                body = self.library.read_raw(record.log_id)
         except Exception as exc: QMessageBox.critical(self, "RawLog", str(exc)); return
         dialog = QDialog(self); dialog.setWindowTitle(f"Raw Body — {record.log_id}"); dialog.resize(1000, 700)
         layout = QVBoxLayout(dialog); from PyQt5.QtWidgets import QPlainTextEdit

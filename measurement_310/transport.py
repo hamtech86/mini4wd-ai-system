@@ -38,12 +38,13 @@ class SerialTransport(Protocol):
 class PySerialTransport:
     """Lazy pySerial adapter; construction never opens a port."""
     def __init__(self, port: str, baudrate: int, timeout_s: float = 0.1,
-                 write_timeout_s: float = 0.10):
+                 write_timeout_s: float = 0.10, startup_delay_s: float = 0.0):
         if (not port or baudrate <= 0 or timeout_s < 0
-                or write_timeout_s <= 0):
+                or write_timeout_s <= 0 or startup_delay_s < 0):
             raise ValueError("invalid serial configuration")
         self.port, self.baudrate, self.timeout_s = port, baudrate, timeout_s
         self.write_timeout_s = write_timeout_s
+        self.startup_delay_s = float(startup_delay_s)
         self._serial = None
         self._flush_failed = False
         # Only serial.write() is protected; flush waiters never hold this lock.
@@ -58,6 +59,12 @@ class PySerialTransport:
             import serial
             self._serial = serial.Serial(self.port, self.baudrate, timeout=self.timeout_s,
                                          write_timeout=self.write_timeout_s)
+            # Opening an Arduino Uno USB serial port may reset the MCU. Allow
+            # setup(), safe GPIO initialization, and EEPROM identity startup
+            # to complete before the first binary HELLO frame is sent.
+            if self.startup_delay_s:
+                import time
+                time.sleep(self.startup_delay_s)
             self._flush_failed = False
         except Exception as exc:
             raise TransportError(f"serial connect failed: {exc}") from exc
