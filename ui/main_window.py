@@ -403,7 +403,7 @@ class MainWindow(QMainWindow):
         self.breakin_worker.start()
 
     def stop_run(self):
-        if getattr(getattr(self, "sweep_panel", None), "controller", None) is not None and self.sweep_panel.controller.active:
+        if getattr(getattr(self, "sweep_panel", None), "_worker", None) is not None:
             self.sweep_panel.emergency_stop()
             return
         if self.breakin_controller:
