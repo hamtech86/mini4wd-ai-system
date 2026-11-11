@@ -7,6 +7,7 @@ from controllers.winding_pwm_sweep_controller import WindingPwmSweepController
 from raw_log_library.manager import RawLog, RawLogLibrary
 from raw_log_library.v2_schema import RawLogV2ValidationError, SCHEMA_ID, validate_record
 from raw_log_library.v2_store import RawLogV2Store
+from raw_log_library.github_export import GitHubRawLogExporter, GitHubRegistrationError
 
 
 def base(record_type):
@@ -215,7 +216,79 @@ def test_rawlog_library_allocates_id_and_indexes_v2_reference(tmp_path):
     assert record.log_id == "MOTOR-000001"
     saved, raw_path, metadata_path = library.get(record.log_id)
     assert saved.motor_id == "42"
+    assert saved.device_instance_id is None
     assert saved.measurement_session_id == "session-001"
     assert saved.source_reference == "raw_logs_v2/MOTOR-000001/manifest.json"
     assert path == raw_path
     assert metadata_path.exists()
+
+
+
+def test_github_export_uploads_v2_manifest_and_records_not_pointer(tmp_path):
+    data_root = tmp_path / "data"
+    library = RawLogLibrary(data_root / "raw_logs")
+    record = RawLog(
+        device_type="MOTOR",
+        device_model="MOTOR_BREAKIN_V3",
+        firmware_version="4.00",
+        device_instance_id="42",
+        motor_id="42",
+        measurement_session_id="session-001",
+    )
+    library.register_v2_reference(record)
+
+    store = RawLogV2Store(data_root / "raw_logs_v2")
+    store.create({
+        "schema": SCHEMA_ID,
+        "log_id": record.log_id,
+        "measurement_session_id": "session-001",
+        "status": "STARTED",
+        "started_at": "2026-11-11T12:00:00+00:00",
+        "device": {"type": "MOTOR", "model": "MOTOR_BREAKIN_V3", "device_id": "DEVICE-001"},
+        "firmware": {"version": "4.00", "build": "host-test"},
+        "measurement_plan": {"id": "WINDING_PWM_SWEEP_0_30", "orchestrator": "PYTHON"},
+    })
+    event = base("EVENT")
+    event.update({"event_type": "SWEEP_STARTED", "details": {"pwm_stages": 31}})
+    store.append(event)
+    store.finalize("STOPPED", "2026-11-11T12:01:00+00:00", "USER_STOP")
+
+    exporter = GitHubRawLogExporter(library, token="dummy")
+    uploaded = []
+
+    def fake_put(path, content, message, *, allow_update):
+        uploaded.append((path, content, allow_update))
+        return {"commit": {"sha": "test-commit"}}
+
+    exporter._put_file = fake_put
+    result = exporter.register(record.log_id)
+
+    assert result["status"] == "REGISTERED"
+    assert any(path.endswith("/manifest.json") for path, _, _ in uploaded)
+    assert any(path.endswith("/records.jsonl") for path, _, _ in uploaded)
+    assert any(path.endswith("/metadata.json") for path, _, _ in uploaded)
+    assert not any(path.endswith("/raw.log") for path, _, _ in uploaded)
+    assert library.get_github_status(record.log_id)["status"] == "REGISTERED"
+
+
+def test_github_export_refuses_started_v2_package(tmp_path):
+    data_root = tmp_path / "data"
+    library = RawLogLibrary(data_root / "raw_logs")
+    record = RawLog(
+        device_type="MOTOR",
+        device_instance_id="42",
+        motor_id="42",
+        measurement_session_id="session-001",
+    )
+    library.register_v2_reference(record)
+    store = RawLogV2Store(data_root / "raw_logs_v2")
+    store.create({
+        "schema": SCHEMA_ID,
+        "log_id": record.log_id,
+        "measurement_session_id": "session-001",
+        "status": "STARTED",
+        "started_at": "2026-11-11T12:00:00+00:00",
+    })
+    exporter = GitHubRawLogExporter(library, token="dummy")
+    with pytest.raises(GitHubRegistrationError, match="still STARTED"):
+        exporter.register(record.log_id)
