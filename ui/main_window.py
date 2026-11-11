@@ -126,7 +126,7 @@ class MainWindow(QMainWindow):
         pv.addWidget(self.description)
         main.addWidget(pre)
         self.sweep_panel = WindingSweepPanel(
-            self, root,
+            self, Path(__file__).resolve().parent.parent,
             get_instance_id=lambda: self.instance.currentData(),
             get_breakin_controller=lambda: self.breakin_controller,
         )
