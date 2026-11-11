@@ -141,6 +141,7 @@ class WindingSweepPanel(QGroupBox):
             # The common RawLog Library allocates the canonical MOTOR-xxxxxx ID.
             self.library.register_v2_reference(record)
             self.log_id = record.log_id
+            self._record_registered = True
             self.measurement_session_id = session_id
             self.store = RawLogV2Store(self.root / "data" / "raw_logs_v2")
             self.controller = WindingPwmSweepController(serial_controller, self.store)
@@ -150,7 +151,6 @@ class WindingSweepPanel(QGroupBox):
                 measurement_plan_id="WINDING_PWM_SWEEP_0_30",
                 motor_instance_id=str(instance_id),
             )
-            self._record_registered = True
             self.log_label.setText("LOG: " + self.log_id)
             self.instance_label.setText("INSTANCE: " + str(instance_id))
             if not started:
