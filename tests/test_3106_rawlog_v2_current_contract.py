@@ -216,7 +216,7 @@ def test_rawlog_library_allocates_id_and_indexes_v2_reference(tmp_path):
     assert record.log_id == "MOTOR-000001"
     saved, raw_path, metadata_path = library.get(record.log_id)
     assert saved.motor_id == "42"
-    assert saved.device_instance_id is None
+    assert saved.device_instance_id == "DEVICE-001"
     assert saved.measurement_session_id == "session-001"
     assert saved.source_reference == "raw_logs_v2/MOTOR-000001/manifest.json"
     assert path == raw_path
@@ -249,6 +249,7 @@ def test_github_export_uploads_v2_manifest_and_records_not_pointer(tmp_path):
         "measurement_plan": {"id": "WINDING_PWM_SWEEP_0_30", "orchestrator": "PYTHON"},
     })
     event = base("EVENT")
+    event["log_id"] = record.log_id
     event.update({"event_type": "SWEEP_STARTED", "details": {"pwm_stages": 31}})
     store.append(event)
     store.finalize("STOPPED", "2026-11-11T12:01:00+00:00", "USER_STOP")
