@@ -43,19 +43,41 @@ class GitHubRawLogExporter:
                 if manifest.get("status") == "STARTED":
                     raise GitHubRegistrationError(f"{log_id}: package is still STARTED; finalize or recover it before GitHub registration.")
                 records_text = records_path.read_text(encoding="utf-8")
-                remote_base = f"{record.device_type.lower()}/{self._individual_storage_id(record)}/{log_id}"
+                rawlog_root = self.library.root.parent / "raw_logs_v2"
+                evidence_journal = TransportEvidenceJournal.for_session(
+                    rawlog_root, record.measurement_session_id
+                )
+                bundle_path = evidence_journal.path.parent / "bundle-manifest.json"
+                evidence_path = evidence_journal.path
+                if not bundle_path.is_file() or not evidence_path.is_file():
+                    raise GitHubRegistrationError(
+                        f"{log_id}: protocol Evidence sidecar/bundle is missing; refusing incomplete registration."
+                    )
+                verify_evidence_bundle(package_dir, evidence_journal, record.measurement_session_id)
+                bundle_text = bundle_path.read_text(encoding="utf-8")
+                evidence_text = evidence_path.read_text(encoding="utf-8")
+                remote_base = f"{record.device_type.lower()}/{self._individual_storage_id(record)}/{log_id}" 
                 remote_manifest = f"{remote_base}/manifest.json"
                 remote_records = f"{remote_base}/records.jsonl"
+                remote_evidence = f"{remote_base}/transport-evidence-v1.jsonl"
+                remote_bundle = f"{remote_base}/bundle-manifest.json"
                 raw_result = self._put_file(
                     remote_manifest, manifest_text, f"Register RawLog v2 manifest {log_id}", allow_update=False
                 )
                 records_result = self._put_file(
                     remote_records, records_text, f"Register RawLog v2 records {log_id}", allow_update=False
                 )
+                evidence_result = self._put_file(
+                    remote_evidence, evidence_text, f"Register protocol Evidence {log_id}", allow_update=False
+                )
+                bundle_result = self._put_file(
+                    remote_bundle, bundle_text, f"Register protocol Evidence bundle {log_id}", allow_update=False
+                )
                 raw_rel = remote_records
                 metadata_rel = self._metadata_path(record)
                 metadata.update(raw_source=str(package_dir), raw_path=raw_rel,
-                                manifest_path=remote_manifest, metadata_path=metadata_rel)
+                                manifest_path=remote_manifest, metadata_path=metadata_rel,
+                                evidence_path=remote_evidence, evidence_bundle_manifest_path=remote_bundle)
             else:
                 raw_body=self.library.read_raw(log_id)
                 raw_rel=self._raw_path(record)
@@ -73,7 +95,11 @@ class GitHubRawLogExporter:
             if isinstance(exc, GitHubRegistrationError):
                 raise
             raise GitHubRegistrationError(str(exc)) from exc
-        commit=metadata_result.get("commit",{}).get("sha") or records_result.get("commit",{}).get("sha") or raw_result.get("commit",{}).get("sha")
+        commit=metadata_result.get("commit",{}).get("sha") or (
+            bundle_result.get("commit",{}).get("sha") if raw_path.suffix == ".v2ref" else None
+        ) or (
+            evidence_result.get("commit",{}).get("sha") if raw_path.suffix == ".v2ref" else None
+        ) or records_result.get("commit",{}).get("sha") or raw_result.get("commit",{}).get("sha")
         result={"status":"REGISTERED","repository":self.repository,"raw_path":raw_rel,
                 "metadata_path":metadata_rel,"commit":commit,"registered_at":metadata["registered_at"]}
         self.library.set_github_status(log_id,**result)
