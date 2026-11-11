@@ -38,7 +38,7 @@ class SerialTransport(Protocol):
 class PySerialTransport:
     """Lazy pySerial adapter; construction never opens a port."""
     def __init__(self, port: str, baudrate: int, timeout_s: float = 0.1,
-                 write_timeout_s: float = 0.25):
+                 write_timeout_s: float = 0.10):
         if (not port or baudrate <= 0 or timeout_s < 0
                 or write_timeout_s <= 0):
             raise ValueError("invalid serial configuration")
