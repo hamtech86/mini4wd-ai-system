@@ -170,10 +170,17 @@ class RawLogManagerExtension:
         try:
             record, raw_path, _ = self.library.get(self.selected_log_id)
             if raw_path.suffix == ".v2ref":
-                package_dir = self.library.root.parent / "raw_logs_v2" / self.selected_log_id
-                manifest = (package_dir / "manifest.json").read_text(encoding="utf-8")
-                records = (package_dir / "records.jsonl").read_text(encoding="utf-8")
-                body = "=== manifest.json ===\\n" + manifest + "\\n=== records.jsonl ===\\n" + records
+                package_root = self.library.root.parent / "raw_logs_v2"
+                package_dir = package_root / self.selected_log_id
+                if (package_dir / "manifest.json").is_file():
+                    manifest = (package_dir / "manifest.json").read_text(encoding="utf-8")
+                    records = (package_dir / "records.jsonl").read_text(encoding="utf-8")
+                    body = "=== manifest.json ===\\n" + manifest + "\\n=== records.jsonl ===\\n" + records
+                else:
+                    work_dir = package_root / ".work" / self.selected_log_id
+                    state = (work_dir / "work_state.json").read_text(encoding="utf-8")
+                    records = (work_dir / "records.jsonl").read_text(encoding="utf-8")
+                    body = "=== INCOMPLETE WORK STATE ===\\n" + state + "\\n=== RECORDS ===\\n" + records
             else:
                 body = self.library.read_raw(self.selected_log_id)
         except Exception as exc:
