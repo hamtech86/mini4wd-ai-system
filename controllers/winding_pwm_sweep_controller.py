@@ -372,9 +372,9 @@ class WindingPwmSweepController:
                 raise ValueError("invalid direction")
             payload = {
                 "record_type": "MEASUREMENT",
-                "device_model": parsed["device_model"].strip(),
-                "instance_id": parsed["instance_id"].strip(),
-                "state": parsed["state"].strip(),
+                "device_model": parsed["device_model"].strip() or str((getattr(self.device, "device_info", None) or {}).get("MODEL", "MOTOR_BREAKIN_V3")),
+                "instance_id": parsed["instance_id"].strip() or str((getattr(self.device, "device_info", None) or {}).get("ID", "UNKNOWN_DEVICE")),
+                "state": parsed["state"].strip() or "UNSPECIFIED",
                 "direction": direction,
                 "pwm": pwm,
                 "firmware_elapsed_time_ms": firmware_elapsed,
