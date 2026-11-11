@@ -43,8 +43,16 @@ class ProtocolV2HostSession:
             return
         stop_port = getattr(stop_writer, "port", None)
         worst_case = getattr(stop_writer, "worst_case_s", None)
+        priority_stop = getattr(transport, "send_stop_priority", None)
+        if stop_writer is None and callable(priority_stop):
+            # The transport owns the single serialized UART writer and priority
+            # arbitration; a second physical endpoint is not required.
+            return
         if stop_writer is None or not callable(stop_writer) or not stop_port:
-            raise ValueError("real serial transport requires a dedicated independent STOP endpoint")
+            raise ValueError(
+                "real serial transport requires same-UART priority STOP support "
+                "or a dedicated independent STOP endpoint"
+            )
         command_real = os.path.realpath(str(command_port))
         stop_real = os.path.realpath(str(stop_port))
         if command_real == stop_real:
@@ -131,7 +139,7 @@ class ProtocolV2HostSession:
         monotonic: Callable[[], float] = time.monotonic,
         utc_now: Optional[Callable[[], str]] = None,
     ) -> "ProtocolV2HostSession":
-        """Bind sidecars and require a distinct STOP endpoint for real serial transports."""
+        """Bind sidecars and require a safe STOP transport for real serial transports."""
         cls._validate_stop_writer_binding(transport, stop_writer, stop_timeout_s)
         intent = DurableIntentJournal.for_session(rawlog_root, measurement_session_id)
         evidence = TransportEvidenceJournal.for_session(rawlog_root, measurement_session_id)
@@ -802,8 +810,8 @@ class ProtocolV2HostSession:
         return self._last_stop_request_id
 
     def send_stop_best_effort(self, *, stop_reason: int, stop_request_id: Optional[int] = None) -> int:
-        if self.stop_writer is None:
-            raise ProtocolV2SessionError("independent STOP writer is not configured")
+        if self.stop_writer is None and not callable(getattr(self.transport, "send_stop_priority", None)):
+            raise ProtocolV2SessionError("no independent or same-UART priority STOP writer is configured")
         valid = {int(reason) for reason in StopReason}
         if isinstance(stop_reason, bool) or not isinstance(stop_reason, int) or stop_reason not in valid:
             raise ValueError("stop_reason must use an assigned StopReason code")
@@ -835,21 +843,29 @@ class ProtocolV2HostSession:
                 "frame": frame, "command_id": command_id, "stop_reason": stop_reason,
             }
         try:
-            finished = threading.Event()
-            writer_errors = []
-            def writer_worker():
-                try:
-                    self.stop_writer(frame)
-                except Exception as exc:
-                    writer_errors.append(exc)
-                finally:
-                    finished.set()
-            worker = threading.Thread(target=writer_worker, name="310-stop-writer", daemon=True)
-            worker.start()
-            if not finished.wait(self.stop_timeout_s):
-                raise TimeoutError(f"STOP writer deadline expired after {self.stop_timeout_s:.3f}s")
-            if writer_errors:
-                raise writer_errors[0]
+            if self.stop_writer is not None:
+                finished = threading.Event()
+                writer_errors = []
+                def writer_worker():
+                    try:
+                        self.stop_writer(frame)
+                    except Exception as exc:
+                        writer_errors.append(exc)
+                    finally:
+                        finished.set()
+                worker = threading.Thread(target=writer_worker, name="310-stop-writer", daemon=True)
+                worker.start()
+                if not finished.wait(self.stop_timeout_s):
+                    raise TimeoutError(f"STOP writer deadline expired after {self.stop_timeout_s:.3f}s")
+                if writer_errors:
+                    raise writer_errors[0]
+            else:
+                priority_writer = getattr(self.transport, "send_stop_priority", None)
+                if not callable(priority_writer):
+                    raise ProtocolV2SessionError(
+                        "same-UART priority STOP is unavailable and no independent STOP writer is configured"
+                    )
+                priority_writer(frame, timeout_s=self.stop_timeout_s)
         except Exception as exc:
             try:
                 self._append("STOP_TX_ERROR", frame_b64=base64.b64encode(frame).decode("ascii"),
