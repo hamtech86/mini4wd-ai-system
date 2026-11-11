@@ -166,6 +166,11 @@ class WindingSweepPanel(QGroupBox):
                 self.package_label.setText("PACKAGE: FAULTED")
                 return
         except Exception as exc:
+            if self.controller is not None and self.controller.active:
+                try:
+                    self.controller.emergency_stop("START_EXCEPTION")
+                except Exception:
+                    pass
             if self.log_id:
                 try:
                     self._sync_library_metadata(f"START_FAILED: {type(exc).__name__}: {exc}")
