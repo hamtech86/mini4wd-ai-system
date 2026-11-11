@@ -151,7 +151,7 @@ class PySerialTransport:
             try:
                 # An empty COBS delimiter is ignored after a complete frame and
                 # discards an incomplete one. STOP is never spliced mid-frame.
-                stop_wire = b"\\x00" + bytes(payload)
+                stop_wire = b"\x00" + bytes(payload)
                 written = self._serial.write(stop_wire)
                 if written != len(stop_wire):
                     raise TransportError("short priority STOP write; delivery outcome unknown")
