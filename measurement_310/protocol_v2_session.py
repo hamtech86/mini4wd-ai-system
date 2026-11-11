@@ -676,10 +676,6 @@ class ProtocolV2HostSession:
                              stop_reason=stop_reason, outcome="HOST_WRITE_FAILED_UNKNOWN", error=str(exc))
             except Exception:
                 pass
-            try:
-                self._finalize_adc_loss_window()
-            except Exception:
-                self._failed = True
             raise ProtocolV2SessionError(f"STOP_REQ write outcome unknown: {exc}") from exc
         try:
             self._append("STOP_TX_ATTEMPT", frame_b64=base64.b64encode(frame).decode("ascii"),
@@ -688,8 +684,13 @@ class ProtocolV2HostSession:
                          outcome="HOST_WRITE_COMPLETED")
         except Exception:
             pass
-        self._finalize_adc_loss_window()
+        # ADC-loss summary persistence is intentionally deferred until the
+        # caller has completed the STOP transmission attempt.
         return stop_request_id
+
+    def finalize_after_stop_attempt(self) -> None:
+        """Persist the final ADC-loss window after the safety send attempt."""
+        self._finalize_adc_loss_window()
 
     def latch_abort(self, reason: str) -> None:
         self._failed = True
