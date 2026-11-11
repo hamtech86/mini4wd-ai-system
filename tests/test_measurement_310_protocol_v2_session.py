@@ -405,6 +405,7 @@ def test_not_acquired_scheduled_timestamp_can_precede_actual_conversion(tmp_path
 def test_v2_stop_uses_same_uart_priority_transport_without_second_endpoint(tmp_path):
     class PriorityScriptedTransport(ScriptedTransport):
         port = "/dev/ttyACM0"
+        write_timeout_s = 0.10
 
         def __init__(self, session_id):
             super().__init__(session_id)
