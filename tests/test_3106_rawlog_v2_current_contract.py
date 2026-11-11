@@ -1,295 +1,132 @@
 from datetime import datetime, timezone
+import json
+import sys
+import uuid
 
 import pytest
 
-from communication.protocol import CSV_FIELDS
-from controllers.winding_pwm_sweep_controller import WindingPwmSweepController
-from raw_log_library.manager import RawLog, RawLogLibrary
-from raw_log_library.v2_schema import RawLogV2ValidationError, SCHEMA_ID, validate_record
-from raw_log_library.v2_store import RawLogV2Store
+from measurement_310.evidence_bundle import write_evidence_bundle_manifest
+from measurement_310.protocol_v1_session import TransportEvidenceJournal
+from measurement_310.transport import PySerialTransport
 from raw_log_library.github_export import GitHubRawLogExporter, GitHubRegistrationError
+from raw_log_library.manager import RawLog, RawLogLibrary
 
 
-def base(record_type):
-    return {
-        "schema": SCHEMA_ID,
-        "record_type": record_type,
-        "log_id": "MOTOR-000123",
-        "measurement_session_id": "session-001",
-        "record_id": "record-0001",
-        "sequence": 0,
-        "elapsed_time_ms": 0,
-        "recorded_at": "2026-11-11T12:00:00+00:00",
-    }
-
-
-def test_v2_measurement_accepts_wire_capture_without_data26_fields():
-    record = base("MEASUREMENT")
-    record.update({
-        "device_model": "MOTOR_BREAKIN_V3",
-        "instance_id": "DEVICE-001",
-        "state": "MEASURE",
-        "direction": "FWD",
-        "pwm": 4,
-        "firmware_elapsed_time_ms": 1234,
-        "raw_wire_line": "DATA,original,wire,line",
-    })
-    validate_record(record)
-
-
-@pytest.mark.parametrize("field", [
-    "raw_acs1", "raw_acs2", "current1_a", "current2_a",
-    "voltage1_v", "voltage2_v", "motor_voltage_v", "current_avg_a",
-    "power_w", "brush_peak_current_a", "raw_magnetic", "motor_temperature_c",
-])
-def test_v2_measurement_rejects_legacy_data26_derived_fields(field):
-    record = base("MEASUREMENT")
-    record.update({
-        "device_model": "MOTOR_BREAKIN_V3",
-        "instance_id": "DEVICE-001",
-        "state": "MEASURE",
-        "direction": "FWD",
-        "pwm": 4,
-        "firmware_elapsed_time_ms": 1234,
-        "raw_wire_line": "DATA,original,wire,line",
-        field: 0.0,
-    })
-    with pytest.raises(RawLogV2ValidationError, match="legacy DATA-derived"):
-        validate_record(record)
-
-
-@pytest.mark.parametrize("channel", ["A0", "A1", "A4", "A5"])
-def test_adc_samples_preserve_each_channel_and_timestamp(channel):
-    record = base("ADC_SAMPLE")
-    record.update({
-        "channel": channel,
-        "adc_raw": 512,
-        "timestamp_us": 123456,
-        "acquisition_sequence": 7,
-        "phase": "WINDING",
-        "direction": "FWD",
-        "pwm": 4,
-        "run_state": "MEASURE",
-    })
-    validate_record(record)
-
-
-class FakeClock:
-    def __init__(self):
-        self.value = 100.0
-
-    def __call__(self):
-        return self.value
-
-    def advance(self, seconds):
-        self.value += seconds
-
-
-class FakeDevice:
-    def __init__(self):
-        self.connected = True
-        self.identity_verified = True
-        self.device_info = {
-            "TYPE": "MOTOR",
-            "MODEL": "MOTOR_BREAKIN_V3",
-            "FW": "4.00",
-            "BUILD": "host-test",
-            "ID": "DEVICE-001",
-        }
-        self.device_reboot_detected = False
-        self.raw_log = ""
-        self.commands = []
-
-    def arm(self):
-        self.commands.append("ARM")
-        return True
-
-    def forward(self):
-        self.commands.append("FWD")
-        return True
-
-    def set_pwm(self, pwm):
-        self.commands.append(f"PWM={pwm}")
-        return True
-
-    def read_measurement(self):
-        return None
-
-    def stop_breakin(self):
-        self.commands.extend(["PWM=0", "STOP"])
-        return "STOP"
-
-    def emergency_stop(self):
-        self.commands.append("EMERGENCY_STOP")
-        self.connected = False
-        return {"pwm_zero": True, "stop_command": True}
-
-    def push(self, line):
-        self.raw_log += line + "\n"
-
-
-def make_data_line():
-    values = {
-        "record_type": "DATA",
-        "device_model": "MOTOR_BREAKIN_V3",
-        "instance_id": "DEVICE-001",
-        "elapsed_time": "100",
-        "raw_acs1": "512",
-        "raw_acs2": "510",
-        "current1": "0.01",
-        "current2": "0.02",
-        "voltage1": "3.0",
-        "voltage2": "0.1",
-        "motor_voltage": "2.9",
-        "pwm": "0",
-        "direction": "FWD",
-        "state": "MEASURE",
-        "current_avg": "0.01",
-        "power": "0.029",
-        "current_ripple": "0.001",
-        "voltage_ripple": "0.002",
-        "peak_power": "0.03",
-        "peak_current": "0.011",
-        "peak_voltage": "3.0",
-        "peak_pwm": "0",
-        "brush_peak_current": "0.02",
-        "raw_magnetic": "500",
-        "magnetic_level": "0.5",
-        "motor_temperature": "25.0",
-    }
-    return ",".join(values[name] for name in CSV_FIELDS)
-
-
-def test_controller_keeps_data26_line_uninterpreted_and_adc_as_individual_samples(tmp_path):
-    clock = FakeClock()
-    device = FakeDevice()
-    store = RawLogV2Store(tmp_path / "v2")
-    controller = WindingPwmSweepController(
-        device,
-        store,
-        monotonic=clock,
-        wall_clock=lambda: datetime(2026, 11, 11, 12, 0, tzinfo=timezone.utc),
-    )
-    assert controller.start(
-        log_id="MOTOR-000123",
-        measurement_session_id="session-001",
-        motor_instance_id="42",
-    )
-
-    raw_data = make_data_line()
-    raw_a0 = "AUX,2,fw-session,7,WINDING,FWD,0,MEASURE,A0,514,123456"
-    raw_a1 = "AUX,2,fw-session,8,BRUSH,FWD,0,MEASURE,A1,516,123499"
-    device.push(raw_data)
-    device.push(raw_a0)
-    device.push(raw_a1)
-    controller.tick()
-
-    records = store.read_records("MOTOR-000123")
-    measurement = next(item for item in records if item["record_type"] == "MEASUREMENT")
-    assert measurement["raw_wire_line"] == raw_data
-    assert measurement["instance_id"] == "DEVICE-001"
-    assert not any(key in measurement for key in (
-        "current1_a", "current2_a", "current_avg_a", "power_w",
-        "brush_peak_current_a", "motor_temperature_c",
-    ))
-
-    samples = [item for item in records if item["record_type"] == "ADC_SAMPLE"]
-    assert [(item["channel"], item["adc_raw"], item["timestamp_us"]) for item in samples] == [
-        ("A0", 514, 123456),
-        ("A1", 516, 123499),
-    ]
-    assert samples[0]["record_id"] != samples[1]["record_id"]
-    assert samples[0]["acquisition_sequence"] != samples[1]["acquisition_sequence"]
-
-
-def test_rawlog_library_allocates_id_and_indexes_v2_reference(tmp_path):
-    library = RawLogLibrary(tmp_path / "raw_logs")
-    record = RawLog(
-        device_type="MOTOR",
-        device_model="MOTOR_BREAKIN_V3",
-        firmware_version="4.00",
-        device_instance_id="DEVICE-001",
-        motor_id="42",
-        measurement_session_id="session-001",
-    )
-    path = library.register_v2_reference(record)
-    assert record.log_id == "MOTOR-000001"
-    saved, raw_path, metadata_path = library.get(record.log_id)
-    assert saved.motor_id == "42"
-    assert saved.device_instance_id == "DEVICE-001"
-    assert saved.measurement_session_id == "session-001"
-    assert saved.source_reference == "raw_logs_v2/MOTOR-000001/manifest.json"
-    assert path == raw_path
-    assert metadata_path.exists()
-
-
-
-def test_github_export_uploads_v2_manifest_and_records_not_pointer(tmp_path):
+def _make_library_reference(tmp_path):
     data_root = tmp_path / "data"
+    session_id = str(uuid.uuid4())
     library = RawLogLibrary(data_root / "raw_logs")
     record = RawLog(
         device_type="MOTOR",
         device_model="MOTOR_BREAKIN_V3",
-        firmware_version="4.00",
+        firmware_version=None,
         device_instance_id="42",
         motor_id="42",
-        measurement_session_id="session-001",
+        measurement_session_id=session_id,
+        acquired_at=datetime.now(timezone.utc).isoformat(),
+        measurement_condition="Protocol v2 PWM 0..30",
+        notes="binary protocol v2",
     )
     library.register_v2_reference(record)
+    return data_root, library, record
 
-    store = RawLogV2Store(data_root / "raw_logs_v2")
-    store.create({
-        "schema": SCHEMA_ID,
+
+def test_rawlog_library_allocates_id_and_indexes_v2_reference(tmp_path):
+    data_root, library, record = _make_library_reference(tmp_path)
+    saved, raw_path, metadata_path = library.get(record.log_id)
+
+    assert record.log_id == "MOTOR-000001"
+    assert saved.device_instance_id == "42"
+    assert saved.motor_id == "42"
+    assert saved.measurement_session_id == record.measurement_session_id
+    assert saved.source_reference == f"raw_logs_v2/{record.log_id}/manifest.json"
+    assert raw_path.suffix == ".v2ref"
+    assert raw_path.is_file()
+    assert metadata_path.is_file()
+
+
+def test_github_export_verifies_and_uploads_rawlog_and_evidence_bundle(tmp_path):
+    data_root, library, record = _make_library_reference(tmp_path)
+    package_root = data_root / "raw_logs_v2"
+    package_dir = package_root / record.log_id
+    package_dir.mkdir(parents=True)
+    manifest = {
+        "schema_name": "mini4wd.rawlog",
+        "schema_version": "2.0.0",
         "log_id": record.log_id,
-        "measurement_session_id": "session-001",
-        "status": "STARTED",
-        "started_at": "2026-11-11T12:00:00+00:00",
-        "device": {"type": "MOTOR", "model": "MOTOR_BREAKIN_V3", "device_id": "DEVICE-001"},
-        "firmware": {"version": "4.00", "build": "host-test"},
-        "measurement_plan": {"id": "WINDING_PWM_SWEEP_0_30", "orchestrator": "PYTHON"},
-    })
-    event = base("EVENT")
-    event["log_id"] = record.log_id
-    event.update({"event_type": "SWEEP_STARTED", "details": {"pwm_stages": 31}})
-    store.append(event)
-    store.finalize("STOPPED", "2026-11-11T12:01:00+00:00", "USER_STOP")
+        "measurement_session_id": record.measurement_session_id,
+        "status": "completed",
+    }
+    (package_dir / "manifest.json").write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+    (package_dir / "records.jsonl").write_text("", encoding="utf-8")
+
+    evidence = TransportEvidenceJournal.for_session(package_root, record.measurement_session_id)
+    evidence.append(
+        "HOST_TEST_EVENT", {"test": True},
+        measurement_session_id=record.measurement_session_id,
+    )
+    write_evidence_bundle_manifest(package_dir, evidence, record.measurement_session_id)
 
     exporter = GitHubRawLogExporter(library, token="dummy")
     uploaded = []
 
-    def fake_put(path, content, message, *, allow_update):
-        uploaded.append((path, content, allow_update))
+    def fake_put(path, body, message, *, allow_update):
+        uploaded.append((path, body, allow_update))
         return {"commit": {"sha": "test-commit"}}
 
     exporter._put_file = fake_put
     result = exporter.register(record.log_id)
 
+    paths = [item[0] for item in uploaded]
+    base = f"motor/42/{record.log_id}"
     assert result["status"] == "REGISTERED"
-    assert any(path.endswith("/manifest.json") for path, _, _ in uploaded)
-    assert any(path.endswith("/records.jsonl") for path, _, _ in uploaded)
-    assert any(path.endswith("/metadata.json") for path, _, _ in uploaded)
-    assert not any(path.endswith("/raw.log") for path, _, _ in uploaded)
+    assert f"{base}/manifest.json" in paths
+    assert f"{base}/records.jsonl" in paths
+    assert f"{base}/transport-evidence-v1.jsonl" in paths
+    assert f"{base}/bundle-manifest.json" in paths
+    assert f"{base}/metadata.json" in paths
+    assert not any(path.endswith(".v2ref") or path.endswith("raw.log") for path in paths)
     assert library.get_github_status(record.log_id)["status"] == "REGISTERED"
 
 
-def test_github_export_refuses_started_v2_package(tmp_path):
-    data_root = tmp_path / "data"
-    library = RawLogLibrary(data_root / "raw_logs")
-    record = RawLog(
-        device_type="MOTOR",
-        device_instance_id="42",
-        motor_id="42",
-        measurement_session_id="session-001",
-    )
-    library.register_v2_reference(record)
-    store = RawLogV2Store(data_root / "raw_logs_v2")
-    store.create({
-        "schema": SCHEMA_ID,
-        "log_id": record.log_id,
-        "measurement_session_id": "session-001",
-        "status": "STARTED",
-        "started_at": "2026-11-11T12:00:00+00:00",
-    })
+def test_github_export_refuses_unrecovered_incomplete_work(tmp_path):
+    data_root, library, record = _make_library_reference(tmp_path)
+    package_root = data_root / "raw_logs_v2"
+    work_dir = package_root / ".work" / record.log_id
+    work_dir.mkdir(parents=True)
+    (work_dir / "work_state.json").write_text('{"phase":"recording"}\n', encoding="utf-8")
+    (work_dir / "records.jsonl").write_text("", encoding="utf-8")
+
     exporter = GitHubRawLogExporter(library, token="dummy")
-    with pytest.raises(GitHubRegistrationError, match="still STARTED"):
+    with pytest.raises(GitHubRegistrationError, match="package files are incomplete"):
         exporter.register(record.log_id)
+
+
+def test_pyserial_transport_waits_for_configured_uno_startup_delay(monkeypatch):
+    class FakeSerial:
+        def __init__(self, *args, **kwargs):
+            self.args = args
+            self.kwargs = kwargs
+
+        def close(self):
+            pass
+
+    class FakeSerialModule:
+        Serial = FakeSerial
+
+    sleeps = []
+    monkeypatch.setitem(sys.modules, "serial", FakeSerialModule())
+    monkeypatch.setattr("time.sleep", lambda seconds: sleeps.append(seconds))
+    transport = PySerialTransport(
+        "/dev/fake-motor", 57600, timeout_s=0.0,
+        write_timeout_s=0.10, startup_delay_s=2.0,
+    )
+    transport.connect()
+    assert sleeps == [2.0]
+    assert transport._serial is not None
+    transport.disconnect()
+
+
+def test_pyserial_transport_rejects_negative_startup_delay():
+    with pytest.raises(ValueError, match="invalid serial configuration"):
+        PySerialTransport("/dev/fake-motor", 57600, startup_delay_s=-0.1)
