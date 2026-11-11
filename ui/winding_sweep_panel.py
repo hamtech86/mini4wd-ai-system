@@ -231,7 +231,7 @@ class WindingSweepPanel(QGroupBox):
         self.rotation_label.addItem("回転あり", "ROTATION")
         self.rotation_label.addItem("不明（記録しない）", "UNKNOWN")
         observation.addWidget(self.rotation_label, 1)
-        self.note = QLabel("A0/A1/A4/A5等のADC raw sampleとは独立した人手注釈です。")
+        self.note = QLabel("A0/A1/A4/A5は個別raw sampleとして記録。A0/A1平均や電流制限制御には使用しません。HARDWARE_CURRENT_LIMIT_CONFIRMED=falseは維持されます。")
         self.note.setWordWrap(True)
         observation.addWidget(self.note, 2)
         self.observe_button = QPushButton("注釈を記録")
