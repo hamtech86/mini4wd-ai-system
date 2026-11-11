@@ -168,7 +168,14 @@ class RawLogManagerExtension:
             QMessageBox.information(self.manager, "Raw Log", "Raw Logを選択してください。")
             return
         try:
-            body = self.library.read_raw(self.selected_log_id)
+            record, raw_path, _ = self.library.get(self.selected_log_id)
+            if raw_path.suffix == ".v2ref":
+                package_dir = self.library.root.parent / "raw_logs_v2" / self.selected_log_id
+                manifest = (package_dir / "manifest.json").read_text(encoding="utf-8")
+                records = (package_dir / "records.jsonl").read_text(encoding="utf-8")
+                body = "=== manifest.json ===\\n" + manifest + "\\n=== records.jsonl ===\\n" + records
+            else:
+                body = self.library.read_raw(self.selected_log_id)
         except Exception as exc:
             QMessageBox.critical(self.manager, "Raw Log", str(exc))
             return
