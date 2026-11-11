@@ -1,0 +1,212 @@
+name: ATmega328PB 16 MHz firmware compile audit
+# Compile the current V2 target only; legacy DATA26 is retired by default.
+
+on:
+  pull_request:
+    paths:
+      - "firmware/motor/**"
+      - ".github/workflows/atmega328pb-firmware-compile.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  compile-atmega328pb:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Set up Arduino CLI
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Install pinned MiniCore
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://mcudude.github.io/MiniCore/package_MCUdude_MiniCore_index.json"
+          arduino-cli core update-index --additional-urls "$URL"
+          arduino-cli core install MiniCore:avr@3.1.3 --additional-urls "$URL"
+          arduino-cli version
+          arduino-cli core list
+          FQBN="MiniCore:avr:328:variant=modelPB,clock=16MHz_external"
+          arduino-cli board details --fqbn "$FQBN"
+          PROPERTIES="$(arduino-cli compile --show-properties=expanded --fqbn "$FQBN" firmware/motor/MotoreRevV2)"
+          printf '%s\\n' "$PROPERTIES" | grep -Fx 'build.mcu=atmega328pb'
+          printf '%s\\n' "$PROPERTIES" | grep -Fx 'build.f_cpu=16000000L'
+          printf '%s\\n' "$PROPERTIES" | grep -Fx 'build.variant=pb-variant'
+
+      - name: Compile current protocol-v2 motor firmware for ATmega328PB
+        shell: bash
+        run: |
+          set -euo pipefail
+          FQBN="MiniCore:avr:328:variant=modelPB,clock=16MHz_external"
+          ROOT="$RUNNER_TEMP/328pb-audit"
+          ART="$ROOT/artifacts"
+          mkdir -p "$ART"
+
+          compile_sketch() {
+            local name="$1"
+            local source_dir="$2"
+            local sketch_dir="$ROOT/$name"
+            local build_dir="$ROOT/$name-build"
+            mkdir -p "$sketch_dir" "$build_dir"
+            cp "$source_dir/$name.ino" "$sketch_dir/$name.ino"
+            if [[ "$name" == "MotoreRevV2" ]]; then
+              cp firmware/motor/ProtocolV2Codec.h "$sketch_dir/"
+              cp firmware/motor/BootIdentityJournal.h "$sketch_dir/"
+              cp firmware/motor/ProtocolV2Device.h "$sketch_dir/"
+              cp firmware/motor/ProtocolV2TxScheduler.h "$sketch_dir/"
+              cp firmware/motor/ProtocolV2AdcScheduler.h "$sketch_dir/"
+            fi
+            arduino-cli compile --export-binaries --fqbn "$FQBN" \
+              --build-path "$build_dir" \
+              --build-property "compiler.cpp.extra_flags=-DSERIAL_RX_BUFFER_SIZE=24 -DSERIAL_TX_BUFFER_SIZE=24 -fstack-usage -fno-lto" \
+              --build-property "compiler.c.extra_flags=-fstack-usage -fno-lto" \
+              --build-property "compiler.c.elf.extra_flags=-fno-lto -Wl,-Map=$build_dir/$name.map" \
+              "$sketch_dir"
+            local elf
+            local hex
+            elf="$(find "$build_dir" -type f -name '*.elf' -print -quit)"
+            hex="$(find "$sketch_dir" -type f -name '*.hex' -print -quit)"
+            test -n "$elf"
+            test -n "$hex"
+            local avr_bin
+            avr_size_path="$(find "$HOME/.arduino15/packages" -type f -path "*/tools/avr-gcc/*/bin/avr-size" -print -quit)"
+            test -n "$avr_size_path"
+            avr_bin="$(dirname "$avr_size_path")"
+            test -n "$avr_bin"
+            "$avr_bin/avr-size" "$elf" | tee "$ART/$name-avr-size.txt"
+            awk 'NR == 2 { if (($2 + $3) > 900) { print "FAIL: .data + .bss exceeds 900 bytes"; exit 1 } }' "$ART/$name-avr-size.txt"
+            "$avr_bin/avr-objdump" -Cd "$elf" > "$ART/$name-disassembly.txt"
+            cp "$elf" "$ART/$name.elf"
+            cp "$hex" "$ART/$name.hex"
+            cp "$build_dir/$name.map" "$ART/$name.map"
+            (cd "$build_dir" && find . -type f -name '*.su' -print0 | tar --null -czf "$ART/$name-stack-usage.tar.gz" --files-from -)
+            find "$build_dir" -type f -name '*.su' -print0 | xargs -0 cat > "$ART/$name-stack-usage-all.txt"
+          }
+
+          compile_sketch "MotoreRevV2" "firmware/motor/MotoreRevV2"
+
+          {
+            echo "target_mcu=ATmega328PB"
+            echo "fqbn=$FQBN"
+            echo "clock=16MHz_external"
+            echo "minicore_version=3.1.3"
+            echo "legacy_DATA26_firmware=retired_default_build_guard"
+            echo "bod_fuse=NOT_CONFIGURED_BY_COMPILE"
+            echo "hardware_upload=NOT_PERFORMED"
+            echo "fuse_or_eeprom_operation=NOT_PERFORMED"
+            echo "checked_out_sha=$(git rev-parse HEAD)"
+            arduino-cli version
+            arduino-cli core list
+            sha256sum "$ART"/*.hex "$ART"/*.elf "$ART"/*.map
+          } > "$ART/build-manifest.txt"
+
+      - name: Verify ATmega328PB static SRAM and conservative stack bound
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root = Path("${{ runner.temp }}") / "328pb-audit"
+          art = root / "artifacts"
+          stack = (art / "MotoreRevV2-stack-usage-all.txt").read_text()
+          size_lines = (art / "MotoreRevV2-avr-size.txt").read_text().splitlines()
+          fields = size_lines[1].split()
+          data, bss = int(fields[1]), int(fields[2])
+          static_bytes = data + bss
+
+          def frame(fragment):
+              values = []
+              for line in stack.splitlines():
+                  if fragment in line:
+                      parts = line.rsplit(chr(9), 2)
+                      if len(parts) == 3:
+                          try:
+                              values.append(int(parts[1]))
+                          except ValueError:
+                              pass
+              if not values:
+                  raise SystemExit("missing GCC stack-usage frame: " + fragment)
+              return max(values)
+
+          # Disassembly confirms main -> loop -> cached_or_error -> find_cached.
+          # Include 2-byte return addresses, the active UART0 TX ISR, its helper
+          # frame/return address, and the 2-byte PC pushed on interrupt entry.
+          main = frame("int main()")
+          loop = frame("void loop()")
+          cached = frame("cached_or_error")
+          find_cached = frame("find_cached")
+          tx_isr = frame("__vector_19()")
+          tx_helper = frame("HardwareSerial::_tx_udr_empty_irq()")
+          call_returns = 3 * 2
+          isr_helper_return = 2
+          interrupt_pc = 2
+          stack_bound = (main + loop + cached + find_cached + call_returns
+                         + tx_isr + tx_helper + isr_helper_return + interrupt_pc)
+          reserve = 2048 - static_bytes - stack_bound
+
+          ino = Path("firmware/motor/MotoreRevV2/MotoreRevV2.ino").read_text()
+          tx = Path("firmware/motor/ProtocolV2TxScheduler.h").read_text()
+          if ("static_assert(kRxWorkspaceSize == 194" not in ino
+                  or "static_assert(sizeof(rx_buffer) == 194" not in ino):
+              raise SystemExit("RX workspace 194-byte contract static_assert missing")
+          rx_bytes = 194
+          if "static_assert(sizeof(tx_buffer_) == 194" not in tx:
+              raise SystemExit("TX workspace 194-byte contract static_assert missing")
+          tx_bytes = 194
+
+          report = [
+              "target=ATmega328PB",
+              "clock=16MHz_external",
+              f".data={data}",
+              f".bss={bss}",
+              f".data_plus_bss={static_bytes}",
+              f"main_frame={main}",
+              f"loop_frame={loop}",
+              f"cached_or_error_frame={cached}",
+              f"find_cached_frame={find_cached}",
+              f"uart0_tx_isr_frame={tx_isr}",
+              f"uart0_tx_helper_frame={tx_helper}",
+              f"conservative_stack_bound={stack_bound}",
+              f"remaining_sram_after_bound={reserve}",
+              f"rx_workspace={rx_bytes}",
+              f"tx_workspace={tx_bytes}",
+          ]
+          (art / "stack-budget-report.txt").write_text("\n".join(report) + "\n")
+          print("\n".join(report))
+          if static_bytes > 900:
+              raise SystemExit(".data + .bss exceeds 900-byte limit")
+          if stack_bound > 700:
+              raise SystemExit("conservative stack bound exceeds 700-byte limit")
+          if reserve < 448:
+              raise SystemExit("remaining SRAM reserve is below 448 bytes")
+          if rx_bytes > 194 or tx_bytes > 194:
+              raise SystemExit("RX/TX workspace exceeds 194-byte limit")
+          PY
+
+      - name: Compile boot identity provisioner for ATmega328PB (compile-only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          FQBN="MiniCore:avr:328:variant=modelPB,clock=16MHz_external"
+          ROOT="$RUNNER_TEMP/328pb-provisioner"
+          mkdir -p "$ROOT/ProvisionBootIdentity"
+          cp firmware/motor/ProvisionBootIdentity/ProvisionBootIdentity.ino "$ROOT/ProvisionBootIdentity/"
+          cp firmware/motor/BootIdentityJournal.h "$ROOT/ProvisionBootIdentity/"
+          arduino-cli compile --fqbn "$FQBN" "$ROOT/ProvisionBootIdentity"
+          echo "Provisioner compile only: no EEPROM write and no upload."
+
+      - name: Upload compile and static-analysis artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atmega328pb-16mhz-build-audit
+          path: ${{ runner.temp }}/328pb-audit/artifacts/
+          if-no-files-found: warn
+          retention-days: 30
