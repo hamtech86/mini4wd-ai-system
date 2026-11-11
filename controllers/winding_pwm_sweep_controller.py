@@ -228,6 +228,37 @@ class WindingPwmSweepController:
             self._fault("STOP_EXCEPTION", detail=f"{type(exc).__name__}: {exc}")
             return False
 
+
+    def emergency_stop(self, reason: str = "OPERATOR_EMERGENCY_STOP") -> bool:
+        """Latch the host emergency STOP and retain the package as interrupted."""
+        if not self.active:
+            return False
+        outcome = None
+        try:
+            emergency_stop = getattr(self.device, "emergency_stop", None)
+            if not callable(emergency_stop):
+                raise WindingSweepError("device has no emergency_stop method")
+            outcome = emergency_stop()
+            self._append_event("EMERGENCY_STOP_REQUESTED", {
+                "reason": reason,
+                "command_path_outcome": outcome if isinstance(outcome, dict) else str(outcome),
+                "physical_stop_confirmed": False,
+            })
+            self._finish("INTERRUPTED", reason)
+            return True
+        except Exception as exc:
+            try:
+                self._append_event("EMERGENCY_STOP_RESULT_UNKNOWN", {
+                    "reason": reason,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "physical_stop_confirmed": False,
+                })
+                self._finish("FAULTED", "EMERGENCY_STOP_RESULT_UNKNOWN")
+            except Exception:
+                self.active = False
+            return False
+
+
     def _complete(self) -> None:
         self.device.read_measurement()
         self._consume_new_lines()
