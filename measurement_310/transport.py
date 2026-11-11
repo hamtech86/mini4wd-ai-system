@@ -45,6 +45,12 @@ class PySerialTransport:
         self.write_timeout_s = write_timeout_s
         self._serial = None
         self._flush_failed = False
+        # Only the short serial.write() call is protected by this lock.
+        # flush() is deliberately outside it so priority STOP can be written
+        # while a normal sender is waiting for the UART TX queue to drain.
+        self._write_lock = threading.Lock()
+        self._state_lock = threading.Lock()
+        self._stop_requested = False
 
     def connect(self) -> None:
         if self._serial is not None:
@@ -64,37 +70,89 @@ class PySerialTransport:
             finally:
                 self._serial = None
 
+    def _flush_with_deadline(self, timeout_s: float, *, label: str) -> None:
+        # pySerial.flush() has no timeout parameter. Keep it off the write lock:
+        # an urgent STOP may append its complete frame while this waiter drains.
+        finished = threading.Event()
+        flush_errors = []
+        def flush_worker():
+            try:
+                self._serial.flush()
+            except Exception as exc:
+                flush_errors.append(exc)
+            finally:
+                finished.set()
+        worker = threading.Thread(target=flush_worker, name=f"310-{label}-flush", daemon=True)
+        worker.start()
+        if not finished.wait(max(0.0, timeout_s)):
+            self._flush_failed = True
+            raise TransportError(f"{label} flush deadline expired; delivery outcome unknown")
+        if flush_errors:
+            self._flush_failed = True
+            raise TransportError(f"{label} flush failed; delivery outcome unknown: {flush_errors[0]}")
+
     def send(self, payload: bytes) -> None:
         if self._serial is None:
             raise TransportError("serial port is not connected")
+        with self._state_lock:
+            if self._stop_requested:
+                raise TransportError("STOP has priority; normal TX is permanently inhibited")
         if self._flush_failed:
             raise TransportError("serial TX flush previously timed out; delivery outcome unknown")
+        acquired = self._write_lock.acquire(timeout=self.write_timeout_s)
+        if not acquired:
+            raise TransportError("serial TX writer deadline expired; delivery outcome unknown")
         try:
+            with self._state_lock:
+                if self._stop_requested:
+                    raise TransportError("STOP has priority; normal TX is permanently inhibited")
             written = self._serial.write(payload)
             if written != len(payload):
-                raise TransportError("short serial write; delivery outcome unknown")
-            # pySerial.flush() has no timeout parameter. Run the real flush in
-            # a daemon worker and bound the caller's wait. If it does not finish
-            # by the deadline, delivery remains UNKNOWN and this transport is
-            # permanently fail-closed; no later PWM may be sent through it.
-            finished = threading.Event()
-            flush_errors = []
-            def flush_worker():
-                try:
-                    self._serial.flush()
-                except Exception as exc:
-                    flush_errors.append(exc)
-                finally:
-                    finished.set()
-            worker = threading.Thread(target=flush_worker, name="310-serial-flush", daemon=True)
-            worker.start()
-            if not finished.wait(self.write_timeout_s):
                 self._flush_failed = True
-                raise TransportError("serial flush deadline expired; delivery outcome unknown")
-            if flush_errors:
-                raise TransportError(f"serial flush failed; delivery outcome unknown: {flush_errors[0]}")
+                raise TransportError("short serial write; delivery outcome unknown")
         except Exception as exc:
+            self._flush_failed = True
             raise TransportError(f"serial send failed: {exc}") from exc
+        finally:
+            self._write_lock.release()
+        self._flush_with_deadline(self.write_timeout_s, label="serial")
+
+    def send_stop_priority(self, payload: bytes, *, timeout_s: float = 0.25) -> None:
+        """Send STOP ahead of queued normal frames on this one UART.
+
+        The write lock covers only an in-flight serial.write(), never flush(),
+        RawLog work, or a normal command queue. A leading COBS delimiter safely
+        terminates any partial frame before the STOP frame. Once requested,
+        all later normal writes are rejected. This is host transport priority,
+        not an independent electrical stop or a guarantee during UART failure.
+        """
+        if self._serial is None:
+            raise TransportError("serial port is not connected; STOP outcome unknown")
+        if not isinstance(payload, (bytes, bytearray, memoryview)) or not payload:
+            raise ValueError("STOP payload must be non-empty bytes")
+        with self._state_lock:
+            self._stop_requested = True
+        started = time.monotonic()
+        acquired = self._write_lock.acquire(timeout=max(0.0, min(timeout_s, self.write_timeout_s)))
+        if not acquired:
+            self._flush_failed = True
+            raise TransportError("STOP could not acquire the bounded in-flight serial writer; outcome unknown")
+        try:
+            # COBS frames terminate at NUL. This delimiter is harmless after a
+            # complete frame and discards a partial frame after an interrupted
+            # write, so STOP is never spliced into the previous frame.
+            stop_wire = b"\\x00" + bytes(payload)
+            written = self._serial.write(stop_wire)
+            if written != len(stop_wire):
+                self._flush_failed = True
+                raise TransportError("short priority STOP write; delivery outcome unknown")
+        except Exception as exc:
+            self._flush_failed = True
+            raise TransportError(f"priority STOP write outcome unknown: {exc}") from exc
+        finally:
+            self._write_lock.release()
+        remaining = timeout_s - (time.monotonic() - started)
+        self._flush_with_deadline(remaining, label="priority-STOP")
 
     def receive(self, timeout_s: float) -> Optional[bytes]:
         if self._serial is None:
