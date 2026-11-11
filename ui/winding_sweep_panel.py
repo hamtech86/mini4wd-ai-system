@@ -59,6 +59,9 @@ class WindingSweepPanel(QGroupBox):
         self.stop_button.clicked.connect(self.stop_sweep)
         controls.addWidget(self.start_button)
         controls.addWidget(self.stop_button)
+        self.library_button = QPushButton("RAWLOG LIBRARY / HISTORY")
+        self.library_button.clicked.connect(self.open_library)
+        controls.addWidget(self.library_button)
         layout.addLayout(controls)
 
         observation = QHBoxLayout()
@@ -137,12 +140,12 @@ class WindingSweepPanel(QGroupBox):
             device_type="MOTOR",
             device_model=info["MODEL"],
             firmware_version=info["FW"],
-            device_instance_id=info["ID"],
+            device_instance_id=str(instance_id),
             motor_id=str(instance_id),
             measurement_session_id=session_id,
             acquired_at=acquired_at,
             measurement_condition="WINDING_PWM_SWEEP_0_30; 31 stages x 10 seconds; Python orchestrated",
-            notes="RawLog v2 winding sweep; original DATA wire lines retained without DATA26 field promotion",
+            notes=f"RawLog v2 winding sweep; firmware_device_id={info['ID']}; DATA wire lines retained without DATA26 field promotion",
         )
         try:
             # The common RawLog Library allocates the canonical MOTOR-xxxxxx ID.
@@ -185,6 +188,17 @@ class WindingSweepPanel(QGroupBox):
         self.package_label.setText("PACKAGE: STARTED")
         self._set_running_controls(True)
         self.timer.start()
+
+    def open_library(self):
+        try:
+            from ui.raw_log_database_manager import RawLogDatabaseManager
+            self.library_window = RawLogDatabaseManager(self.owner)
+            self.library_window.setAttribute(self.library_window.WA_DeleteOnClose, True)
+            self.library_window.show()
+            self.library_window.raise_()
+            self.library_window.activateWindow()
+        except Exception as exc:
+            QMessageBox.critical(self, "RawLog Library", f"Libraryを開けません。\\n{type(exc).__name__}: {exc}")
 
     def tick(self):
         if self.controller is None:
