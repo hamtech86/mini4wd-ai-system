@@ -332,7 +332,6 @@ class WindingSweepPanel(QGroupBox):
         self.timer.stop()
         self._tick_pending = False
         self._sync_library_metadata(detail)
-        self._set_running_controls(False)
         self.package_label.setText("PACKAGE: " + status)
         suffix = " / physical stop not inferred" if status in {"STOPPED", "INTERRUPTED", "FAULTED", "INCOMPLETE"} else ""
         self.status.setText(status + suffix + ((" / " + detail) if detail else ""))
@@ -340,6 +339,7 @@ class WindingSweepPanel(QGroupBox):
     def _on_worker_thread_finished(self):
         self._worker = None
         self._thread = None
+        self._set_running_controls(False)
 
     def stop_sweep(self):
         if self._worker is None:
