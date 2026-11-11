@@ -268,3 +268,24 @@ The exact-head hosted evidence does not close:
 - Current limit, supply/wiring/protection and thermal qualification.
 
 The target-host T18 profile is KEEP as a diagnostic, not an 8,000 ms acceptance gate. Physical current-limit/power/wiring/thermal safety remains KEEP and highest priority. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false`; 310-5 remains NOT ACCEPTED and 310-6 remains BLOCKED.
+
+
+## 2026-11-11 superseding host STOP transport disposition
+
+The earlier section stating that a real serial session must always provide a physically independent STOP writer is superseded for the current single-UART/no-device-modification configuration by PR #197.
+
+- The known motor control endpoint remains /dev/ttyACM0. /dev/ttyUSB0 remains the separate battery-discharge FTDI endpoint and is not repurposed.
+- PySerialTransport now provides send_stop_priority(). It uses the same serial object and one serialized write lock; normal flush waiting is outside that lock. STOP latches ordinary TX inhibition, terminates a partial COBS frame with a delimiter, then writes the complete STOP frame.
+- The production ProtocolV2HostSession factory permits this mode only when the transport exposes the priority method and its configured write timeout is less than half the STOP caller deadline. The independent STOP writer remains supported where a genuine independent endpoint exists.
+- A timeout, short write, disconnected UART, or unresolved transport remains UNKNOWN. The software cannot preempt bytes already queued below the host writer and does not create an independent electrical cutoff.
+- Host regression tests cover STOP while normal flush is blocked, no byte interleaving, permanent post-STOP TX inhibition, disconnected-port fail-closed behavior, factory acceptance/rejection, and the production recovery-marker gate.
+
+At 57600 baud / 8N1, a 188-byte maximum V2 frame serializes in approximately 32.64ms and a roughly 36-byte STOP_REQ in approximately 6.25ms. These are wire serialization estimates only, not a physical STOP latency guarantee.
+
+The physical STOP response, PWM=0 and direction LOW at the pins, current cessation, reset-to-setup GPIO interval, and physical no-auto-resume remain NOT RUN. No hardware modification, serial connection, firmware upload, fuse operation, or motor energization was performed.
+
+The owner's 12.3V DC / 5A adapter rating is applied as a stated rating, not a sensor measurement. The L298 datasheet permits up to 46V supply and specifies up to 2A DC per channel / 4A total, with overtemperature protection and external current-sense terminals. The 5A source rating does not itself establish a 2A per-channel current limit; ACS712 sensors are measurement-only in this topology. Therefore HARDWARE_CURRENT_LIMIT_CONFIRMED=false remains unchanged. This is a physical-qualification restriction, not a requirement to obtain unavailable sensor readings for the software STOP review.
+
+References:
+- STMicroelectronics [L298 datasheet DS0218 Rev.5](https://www.st.com/resource/en/datasheet/l298.pdf)
+- STMicroelectronics [L298 product page](https://www.st.com/en/motor-drivers/l298.html)

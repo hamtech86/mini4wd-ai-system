@@ -1,5 +1,6 @@
 import json
 import struct
+import threading
 import uuid
 
 import pytest
@@ -14,6 +15,7 @@ from measurement_310.protocol_v2_session import ProtocolV2HostSession, ProtocolV
 from measurement_310.device_loss_accounting import (
     DeviceEpochClockUnwrapper, DeviceLossWindowAccumulator,
 )
+from measurement_310.transport import PySerialTransport, TransportError
 
 
 BOOT = 0x123456789ABCDEF0
@@ -398,3 +400,111 @@ def test_not_acquired_scheduled_timestamp_can_precede_actual_conversion(tmp_path
     assert session._device_clock.elapsed_us == 25_000
     assert session._loss_accumulator.window_elapsed_us == 25_000
     assert 0 in session._loss_accumulator._unattributable_windows
+
+
+def test_v2_stop_uses_same_uart_priority_transport_without_second_endpoint(tmp_path):
+    class PriorityScriptedTransport(ScriptedTransport):
+        port = "/dev/ttyACM0"
+        write_timeout_s = 0.10
+
+        def __init__(self, session_id):
+            super().__init__(session_id)
+            self.priority_frames = []
+
+        def send_stop_priority(self, payload, *, timeout_s):
+            self.priority_frames.append((bytes(payload), timeout_s))
+
+    session_id = str(uuid.uuid4())
+    transport = PriorityScriptedTransport(session_id)
+    session = ProtocolV2HostSession.for_rawlog_session(
+        transport, CODEC, tmp_path, session_id, stop_timeout_s=0.25,
+    )
+    assert session.send_stop_best_effort(stop_reason=1, stop_request_id=7) == 7
+    assert len(transport.priority_frames) == 1
+    frame, timeout_s = transport.priority_frames[0]
+    message = CODEC.decode(frame).message
+    assert message["kind"] == "STOP_REQ"
+    assert message["stop_request_id"] == 7
+    assert timeout_s == 0.25
+
+
+def test_pyserial_priority_stop_bypasses_normal_flush_wait():
+    class BlockingFlushSerial:
+        def __init__(self):
+            self.writes = []
+            self.flush_started = threading.Event()
+            self.release_flush = threading.Event()
+
+        def write(self, payload):
+            self.writes.append(bytes(payload))
+            return len(payload)
+
+        def flush(self):
+            self.flush_started.set()
+            self.release_flush.wait(1.0)
+
+    serial = BlockingFlushSerial()
+    transport = PySerialTransport("/dev/fake-motor", 57600, write_timeout_s=0.20)
+    transport._serial = serial
+    normal_errors = []
+
+    def normal_send():
+        try:
+            transport.send(b"normal-frame")
+        except Exception as exc:
+            normal_errors.append(exc)
+
+    worker = threading.Thread(target=normal_send)
+    worker.start()
+    assert serial.flush_started.wait(0.5)
+
+    with pytest.raises(TransportError, match="priority STOP deadline expired"):
+        transport.send_stop_priority(b"stop-frame", timeout_s=0.02)
+
+    assert serial.writes == [b"normal-frame", b"\x00stop-frame"]
+    assert worker.is_alive()
+    with pytest.raises(TransportError, match="STOP has priority"):
+        transport.send(b"late-normal-frame")
+
+    serial.release_flush.set()
+    worker.join(0.5)
+    assert not worker.is_alive()
+    assert normal_errors == []
+
+
+@pytest.mark.parametrize("marker_name", [
+    ".310-rearm-inhibited",
+    ".310-evidence-reconciliation-required",
+])
+def test_rawlog_bound_production_actuation_is_blocked_by_recovery_marker(tmp_path, marker_name):
+    root = tmp_path / "rawlog"
+    root.mkdir()
+    (root / marker_name).write_text("operator reconciliation required\n", encoding="utf-8")
+    session_id = str(uuid.uuid4())
+    transport = ScriptedTransport(session_id)
+    session = ProtocolV2HostSession.for_rawlog_session(
+        transport, CODEC, root, session_id,
+    )
+
+    with pytest.raises(ProtocolV2SessionError, match="automatic re-arm is inhibited"):
+        session.send_stage_pwm(10, str(uuid.uuid4()), session_id, stage_index=0)
+
+    assert transport.sent == []
+
+
+def test_disconnected_priority_stop_still_latches_normal_tx_inhibit():
+    class RecordingSerial:
+        def write(self, payload):
+            return len(payload)
+
+        def flush(self):
+            pass
+
+    transport = PySerialTransport("/dev/fake-motor", 57600)
+    with pytest.raises(TransportError, match="not connected"):
+        transport.send_stop_priority(b"stop-frame", timeout_s=0.25)
+
+    # Reconnecting the same transport object must not clear the STOP latch.
+    transport._serial = RecordingSerial()
+    with pytest.raises(TransportError, match="STOP has priority"):
+        transport.send(b"late-normal-frame")

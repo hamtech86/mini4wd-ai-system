@@ -147,3 +147,27 @@ Code HEAD: c3f51b314af85603ddeb4ed58b4be1e74f5c3442.
 - A refusal test verifies that the release cannot proceed without the switch-isolation attestation.
 
 The code does not prove the switch wiring. The actual wiring must be identified during the no-power HW01 inspection before this command is used. No hardware operation was performed.
+
+
+## 2026-11-11 owner-rating and same-UART STOP disposition
+
+### Power rating and current-limit interpretation
+
+- Owner-provided adapter rating: **12.3V DC / 5A**. This is a stated supply rating, not a sensor-derived measurement. No request is made to re-measure it.
+- The existing topology remains 12.3V DC adapter → physical main switch → 2200µF + 0.1µF input network → L298N driver supply. Arduino logic remains independently powered from PC USB 5V. Existing 470µF / 100µF / 0.1µF capacitors, ACS712 5A sensors with 1kΩ LPF, and 10kΩ thermistor remain the shared design facts.
+- ST's L298 datasheet (DS0218 Rev.5, October 2023) specifies operating supply up to 46V, total DC current up to 4A, DC output current up to 2A per channel, and overtemperature protection. It also exposes external sense-resistor pins; the datasheet describes using the sense voltage with external chopping/enable control for current regulation/protection. It does not establish that an arbitrary L298N module automatically limits motor current to 2A.
+- The 12.3V rating is within the silicon's stated operating supply range. The 5A adapter rating is source capacity, not proof of a 2A per-channel current limit. The ACS712 devices are measurement components, not a hardware cutoff. No current-limit confirmation is inferred from their presence or from an inability to read a current value.
+- Consequently, retain HARDWARE_CURRENT_LIMIT_CONFIRMED=false. This is a bounded design limitation, not a reason to demand unavailable sensor readings or to invent a FAIL from missing measurements. It remains a restriction on physical motor energization / HW08 qualification; no hardware test is authorized by this review. Do not modify the device or add hardware as part of this software stage.
+- Capacitor voltage/polarity and exact adapter transient/short-circuit protection cannot be inferred from the voltage/current rating alone. No undocumented protection behavior is assumed. These are recorded as residual documentary limits, not turned into repeated measurement requests.
+
+Reference: [STMicroelectronics L298 datasheet, DS0218 Rev.5](https://www.st.com/resource/en/datasheet/l298.pdf) and [L298 product specifications](https://www.st.com/en/motor-drivers/l298.html).
+
+### Same-UART priority STOP
+
+- The dedicated independent STOP serial endpoint is no longer a mandatory host acceptance prerequisite under the owner's no-device-modification constraint and the known single motor UART topology.
+- PR #197 implements same-UART priority arbitration in PySerialTransport. Only one serial.write() owner is used; normal flush waiters do not hold the write lock; STOP latches normal-TX inhibition, terminates a partial COBS frame with a delimiter, and writes a complete STOP frame before any later normal command. A disconnected/blocked/timeout result remains UNKNOWN.
+- The same-UART configuration is accepted only when its write timeout is less than half the STOP caller deadline, bounding one possible in-flight normal write plus the STOP write. The default write timeout is 100ms and the default STOP caller deadline is 250ms.
+- This is host-side transport priority, not an independent electrical cutoff. Bytes already accepted below the host writer remain FIFO; UART/USB/host failure remains UNKNOWN. Physical STOP, PWM pin voltage, motor-current cessation, and reset/no-auto-resume remain NOT RUN.
+- Existing operator response remains: if STOP outcome is unknown, keep the L298N 12V supply OFF and do not resume/re-arm until the established recovery procedure is completed.
+
+The 12.3V/5A supply rating, L298 ratings, and same-UART host implementation do not change the physical-test authorization boundary. HARDWARE_CURRENT_LIMIT_CONFIRMED=false remains in force.
