@@ -252,7 +252,11 @@ class RawLogDatabaseManager(QDialog):
                     work_dir = package_root / ".work" / record.log_id
                     state = (work_dir / "work_state.json").read_text(encoding="utf-8")
                     records = (work_dir / "records.jsonl").read_text(encoding="utf-8")
-                    body = "=== INCOMPLETE WORK STATE ===\\n" + state + "\\n=== RECORDS ===\\n" + records
+                    evidence_dir = package_root / ".transport-evidence" / str(record.measurement_session_id)
+                    evidence_path = evidence_dir / "transport-evidence-v1.jsonl"
+                    evidence = evidence_path.read_text(encoding="utf-8") if evidence_path.is_file() else "(Evidence sidecar not present)"
+                    body = ("=== INCOMPLETE WORK STATE ===\\n" + state + "\\n=== RECORDS ===\\n" + records
+                            + "\\n=== TRANSPORT EVIDENCE ===\\n" + evidence)
             else:
                 body = self.library.read_raw(record.log_id)
         except Exception as exc: QMessageBox.critical(self, "RawLog", str(exc)); return
