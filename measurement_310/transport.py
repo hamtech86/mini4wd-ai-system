@@ -32,6 +32,44 @@ class MessageCodec(Protocol):
 class SerialTransport(Protocol):
     def connect(self) -> None: ...
     def disconnect(self) -> None: ...
+    def send(self, payload: bytes) -> None: ...
+    def receive(self, timeout_s: float) -> Optional[bytes]: ...
+
+
+class PySerialTransport:
+    """Lazy pySerial adapter; construction never opens a port."""
+    def __init__(self, port: str, baudrate: int, timeout_s: float = 0.1,
+                 write_timeout_s: float = 0.10):
+        if (not port or baudrate <= 0 or timeout_s < 0
+                or write_timeout_s <= 0):
+            raise ValueError("invalid serial configuration")
+        self.port, self.baudrate, self.timeout_s = port, baudrate, timeout_s
+        self.write_timeout_s = write_timeout_s
+        self._serial = None
+        self._flush_failed = False
+        # Only serial.write() is protected; flush waiters never hold this lock.
+        self._write_lock = threading.Lock()
+        self._state_lock = threading.Lock()
+        self._stop_requested = False
+
+    def connect(self) -> None:
+        if self._serial is not None:
+            return
+        try:
+            import serial
+            self._serial = serial.Serial(self.port, self.baudrate, timeout=self.timeout_s,
+                                         write_timeout=self.write_timeout_s)
+            self._flush_failed = False
+        except Exception as exc:
+            raise TransportError(f"serial connect failed: {exc}") from exc
+
+    def disconnect(self) -> None:
+        if self._serial is not None:
+            try:
+                self._serial.close()
+            finally:
+                self._serial = None
+
     def _flush_with_deadline(self, timeout_s: float, *, label: str) -> None:
         # pySerial.flush() has no timeout parameter. Keep it outside the write
         # lock so a priority STOP can append after the current complete frame.
@@ -113,7 +151,7 @@ class SerialTransport(Protocol):
             try:
                 # Empty delimiter after a complete frame is ignored; after a
                 # partial frame it discards that frame. Never splice bytes.
-                stop_wire = b"\x00" + bytes(payload)
+                stop_wire = b"\\x00" + bytes(payload)
                 written = self._serial.write(stop_wire)
                 if written != len(stop_wire):
                     raise TransportError("short priority STOP write; delivery outcome unknown")
@@ -138,74 +176,6 @@ class SerialTransport(Protocol):
         if errors:
             self._flush_failed = True
             raise TransportError(f"priority STOP outcome unknown: {errors[0]}") from errors[0]
-
-    def receive(self, timeout_s: float) -> Optional[bytes]: ...
-
-class PySerialTransport:
-    """Lazy pySerial adapter; construction never opens a port."""
-    def __init__(self, port: str, baudrate: int, timeout_s: float = 0.1,
-                 write_timeout_s: float = 0.10):
-        if (not port or baudrate <= 0 or timeout_s < 0
-                or write_timeout_s <= 0):
-            raise ValueError("invalid serial configuration")
-        self.port, self.baudrate, self.timeout_s = port, baudrate, timeout_s
-        self.write_timeout_s = write_timeout_s
-        self._serial = None
-        self._flush_failed = False
-        # Only serial.write() is protected; flush waiters never hold this lock.
-        self._write_lock = threading.Lock()
-        self._state_lock = threading.Lock()
-        self._stop_requested = False
-
-    def connect(self) -> None:
-        if self._serial is not None:
-            return
-        try:
-            import serial
-            self._serial = serial.Serial(self.port, self.baudrate, timeout=self.timeout_s,
-                                         write_timeout=self.write_timeout_s)
-            self._flush_failed = False
-        except Exception as exc:
-            raise TransportError(f"serial connect failed: {exc}") from exc
-
-    def disconnect(self) -> None:
-        if self._serial is not None:
-            try:
-                self._serial.close()
-            finally:
-                self._serial = None
-
-    def send(self, payload: bytes) -> None:
-        if self._serial is None:
-            raise TransportError("serial port is not connected")
-        if self._flush_failed:
-            raise TransportError("serial TX flush previously timed out; delivery outcome unknown")
-        try:
-            written = self._serial.write(payload)
-            if written != len(payload):
-                raise TransportError("short serial write; delivery outcome unknown")
-            # pySerial.flush() has no timeout parameter. Run the real flush in
-            # a daemon worker and bound the caller's wait. If it does not finish
-            # by the deadline, delivery remains UNKNOWN and this transport is
-            # permanently fail-closed; no later PWM may be sent through it.
-            finished = threading.Event()
-            flush_errors = []
-            def flush_worker():
-                try:
-                    self._serial.flush()
-                except Exception as exc:
-                    flush_errors.append(exc)
-                finally:
-                    finished.set()
-            worker = threading.Thread(target=flush_worker, name="310-serial-flush", daemon=True)
-            worker.start()
-            if not finished.wait(self.write_timeout_s):
-                self._flush_failed = True
-                raise TransportError("serial flush deadline expired; delivery outcome unknown")
-            if flush_errors:
-                raise TransportError(f"serial flush failed; delivery outcome unknown: {flush_errors[0]}")
-        except Exception as exc:
-            raise TransportError(f"serial send failed: {exc}") from exc
 
     def receive(self, timeout_s: float) -> Optional[bytes]:
         if self._serial is None:
