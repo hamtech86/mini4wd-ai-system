@@ -1,4 +1,5 @@
 import struct
+import threading
 import uuid
 
 import pytest
@@ -10,6 +11,7 @@ from measurement_310.protocol_v2 import (
     DriveDirection, epoch_tag_for_boot_id,
 )
 from measurement_310.protocol_v2_session import ProtocolV2HostSession, ProtocolV2SessionError
+from measurement_310.transport import PySerialTransport, TransportError
 from measurement_310.device_loss_accounting import DeviceLossWindowAccumulator
 
 
@@ -207,3 +209,48 @@ def test_for_rawlog_session_binds_intent_and_evidence_to_same_uuid(tmp_path):
     session.start_session(session_id)
     assert session.measurement_session_id == session_id
     assert transport.connected is True
+
+
+
+def test_pyserial_priority_stop_bypasses_normal_flush_wait():
+    class BlockingFlushSerial:
+        def __init__(self):
+            self.writes = []
+            self.flush_started = threading.Event()
+            self.release_flush = threading.Event()
+
+        def write(self, payload):
+            self.writes.append(bytes(payload))
+            return len(payload)
+
+        def flush(self):
+            self.flush_started.set()
+            self.release_flush.wait(1.0)
+
+    serial = BlockingFlushSerial()
+    transport = PySerialTransport("/dev/fake-motor", 57600, write_timeout_s=0.20)
+    transport._serial = serial
+    normal_errors = []
+
+    def normal_send():
+        try:
+            transport.send(b"normal-frame")
+        except Exception as exc:
+            normal_errors.append(exc)
+
+    worker = threading.Thread(target=normal_send)
+    worker.start()
+    assert serial.flush_started.wait(0.5)
+
+    with pytest.raises(TransportError, match="flush deadline expired"):
+        transport.send_stop_priority(b"stop-frame", timeout_s=0.02)
+
+    # STOP's delimiter and full frame are written while normal flush is still
+    # blocked; it is not interleaved with the ordinary frame.
+    assert serial.writes == [b"normal-frame", b"\x00stop-frame"]
+    assert worker.is_alive()
+
+    serial.release_flush.set()
+    worker.join(0.5)
+    assert not worker.is_alive()
+    assert normal_errors == []
