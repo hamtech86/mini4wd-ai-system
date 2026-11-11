@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import base64
 from dataclasses import asdict
+import os
+import stat
 import secrets
 import time
 import threading
@@ -11,7 +13,10 @@ from typing import Callable, Optional
 
 from .command_intent import AckCorrelator, AckIdentity, CommandIdentity, DurableIntentJournal
 from .epoch_checkpoint import CheckpointStatus
-from .device_loss_accounting import DeviceLossAccountingError, DeviceLossWindowAccumulator
+from .device_loss_accounting import (
+    DeviceEpochClockUnwrapper, DeviceLossAccountingError, DeviceLossWindowAccumulator,
+    load_latest_device_clock_checkpoint,
+)
 from .protocol_v1_session import TransportEvidenceJournal
 from .protocol_v2 import (
     DriveDirection, MessageType, ProtocolV2Codec, ProtocolV2Error, StopReason, epoch_tag_for_boot_id,
@@ -31,6 +36,47 @@ class ProtocolV2HostSession:
 
     supports_stage_direction = True
 
+    @staticmethod
+    def _validate_stop_writer_binding(transport, stop_writer, stop_timeout_s: float) -> None:
+        command_port = getattr(transport, "port", None)
+        if command_port is None:
+            return
+        stop_port = getattr(stop_writer, "port", None)
+        worst_case = getattr(stop_writer, "worst_case_s", None)
+        priority_stop = getattr(transport, "send_stop_priority", None)
+        if stop_writer is None and callable(priority_stop):
+            # Bound the one possible in-flight ordinary write plus the STOP
+            # write to less than the caller deadline. flush() is not under this
+            # lock and therefore cannot consume the priority write budget.
+            write_bound = getattr(transport, "write_timeout_s", None)
+            if (isinstance(write_bound, bool) or not isinstance(write_bound, (int, float))
+                    or write_bound <= 0 or 2 * write_bound >= stop_timeout_s):
+                raise ValueError(
+                    "same-UART write timeout must be less than half the STOP caller deadline"
+                )
+            return
+        if stop_writer is None or not callable(stop_writer) or not stop_port:
+            raise ValueError(
+                "real serial transport requires same-UART priority STOP support "
+                "or a dedicated independent STOP endpoint"
+            )
+        command_real = os.path.realpath(str(command_port))
+        stop_real = os.path.realpath(str(stop_port))
+        if command_real == stop_real:
+            raise ValueError("STOP endpoint must be physically distinct from command serial port")
+        try:
+            command_stat = os.stat(command_real)
+            stop_stat = os.stat(stop_real)
+        except FileNotFoundError:
+            command_stat = stop_stat = None
+        if (command_stat is not None and stop_stat is not None
+                and stat.S_ISCHR(command_stat.st_mode) and stat.S_ISCHR(stop_stat.st_mode)
+                and command_stat.st_rdev == stop_stat.st_rdev):
+            raise ValueError("STOP endpoint resolves to the same character device as command serial")
+        if (isinstance(worst_case, bool) or not isinstance(worst_case, (int, float))
+                or worst_case <= 0 or worst_case >= stop_timeout_s):
+            raise ValueError("independent STOP writer worst-case bound must be below STOP caller deadline")
+
     def __init__(
         self,
         transport: SerialTransport,
@@ -46,6 +92,7 @@ class ProtocolV2HostSession:
     ):
         if ack_timeout_s <= 0 or stop_timeout_s <= 0:
             raise ValueError("ACK and STOP timeouts must be positive")
+        self._validate_stop_writer_binding(transport, stop_writer, stop_timeout_s)
         self.transport = transport
         self.codec = codec
         self.intent_journal = intent_journal
@@ -57,6 +104,9 @@ class ProtocolV2HostSession:
         self.utc_now = utc_now or self._utc_now
         self.measurement_session_id: Optional[str] = None
         self._storage_session_id: Optional[str] = None
+        self._rearm_inhibit_root: Optional[str] = None
+        self._rawlog_root: Optional[str] = None
+        self._pending_checkpoint_gap_slots = 0
         self.boot_id64: Optional[int] = None
         self.epoch_tag: Optional[int] = None
         self.next_sample_sequence64: Optional[int] = None
@@ -75,7 +125,17 @@ class ProtocolV2HostSession:
         self._armed = False
         self._active_stage: Optional[dict] = None
         self._loss_accumulator: Optional[DeviceLossWindowAccumulator] = None
+        # Unlike the per-ARM loss-window accumulator, this clock remains alive
+        # across ARM/stage changes for this continuous host session. A new host
+        # process needs a persisted timestamp checkpoint to continue the same
+        # device boot epoch without resetting its elapsed-time origin.
+        self._device_clock: Optional[DeviceEpochClockUnwrapper] = None
         self._failed = False
+        # ADC transport evidence is buffered in bounded groups. Command/ACK
+        # and lifecycle evidence remains synchronous and durable.
+        self._pending_evidence_events: list[dict] = []
+        self._pending_telemetry_batches = 0
+        self._evidence_batch_limit = 10
 
     @classmethod
     def for_rawlog_session(
@@ -86,7 +146,8 @@ class ProtocolV2HostSession:
         monotonic: Callable[[], float] = time.monotonic,
         utc_now: Optional[Callable[[], str]] = None,
     ) -> "ProtocolV2HostSession":
-        """Bind intent and Evidence sidecars to one canonical RawLog session."""
+        """Bind sidecars and require a safe STOP transport for real serial transports."""
+        cls._validate_stop_writer_binding(transport, stop_writer, stop_timeout_s)
         intent = DurableIntentJournal.for_session(rawlog_root, measurement_session_id)
         evidence = TransportEvidenceJournal.for_session(rawlog_root, measurement_session_id)
         session = cls(
@@ -95,12 +156,32 @@ class ProtocolV2HostSession:
             monotonic=monotonic, utc_now=utc_now,
         )
         session._storage_session_id = measurement_session_id
+        session._rearm_inhibit_root = os.fspath(rawlog_root)
+        session._rawlog_root = os.fspath(rawlog_root)
         return session
 
     @staticmethod
     def _utc_now() -> str:
         from datetime import datetime, timezone
         return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+    def flush_evidence(self) -> None:
+        """Durably commit queued telemetry evidence before a control boundary."""
+        if not self._pending_evidence_events:
+            return
+        append_many = getattr(self.evidence, "append_many", None)
+        if not callable(append_many):
+            self._failed = True
+            raise ProtocolV2SessionError("Evidence journal lacks durable append_many support")
+        try:
+            append_many(list(self._pending_evidence_events))
+        except Exception as exc:
+            self._failed = True
+            raise ProtocolV2SessionError(
+                f"Evidence transaction durability is uncertain; session failed closed: {exc}"
+            ) from exc
+        self._pending_evidence_events.clear()
+        self._pending_telemetry_batches = 0
 
     def _append(self, event: str, *, direction: Optional[str] = None,
                 host_received_at_utc: Optional[str] = None,
@@ -117,10 +198,42 @@ class ProtocolV2HostSession:
             host_received_at_utc = host_received_at_utc or message.get("_host_received_at_utc")
             if host_received_monotonic_ns is None:
                 host_received_monotonic_ns = message.get("_host_received_monotonic_ns")
+
+        message_kind = payload.get("message_kind")
+        telemetry_event = (
+            event in {"RX_BYTES", "ADC_BATCH_ACCEPTED", "ADC_LOSS_WINDOW_SUMMARY",
+                      "DEVICE_STATUS_RECEIVED"}
+            or (event == "FRAME_RX_DECODED" and message_kind in {"ADC_BATCH", "STATUS"})
+        )
+        stop_event = event in {"STOP_TX_ATTEMPT", "STOP_TX_ERROR"}
+        event_id = str(uuid.uuid4())
+        entry = {
+            "event": event,
+            "payload": {"recorded_at_utc": self.utc_now(), **payload},
+            "measurement_session_id": self.measurement_session_id,
+            "device_epoch_id": str(self.boot_id64) if self.boot_id64 is not None else None,
+            "direction": direction,
+            "host_received_at_utc": host_received_at_utc,
+            "host_received_monotonic_ns": host_received_monotonic_ns,
+            "event_id": event_id,
+            "host_event_at_utc": self.utc_now(),
+            "host_event_monotonic_ns": time.monotonic_ns(),
+        }
+        if telemetry_event or stop_event:
+            self._pending_evidence_events.append(entry)
+            if event == "ADC_BATCH_ACCEPTED":
+                self._pending_telemetry_batches += 1
+                if self._pending_telemetry_batches >= self._evidence_batch_limit:
+                    self.flush_evidence()
+            return event_id
+
+        # Every non-telemetry control/error event is a durability boundary.
+        # Flush preceding ADC evidence before persisting this event.
+        self.flush_evidence()
         return self.evidence.append(
-            event, {"recorded_at_utc": self.utc_now(), **payload},
+            event, entry["payload"],
             measurement_session_id=self.measurement_session_id,
-            device_epoch_id=str(self.boot_id64) if self.boot_id64 is not None else None,
+            device_epoch_id=entry["device_epoch_id"],
             direction=direction, host_received_at_utc=host_received_at_utc,
             host_received_monotonic_ns=host_received_monotonic_ns,
         )
@@ -142,7 +255,7 @@ class ProtocolV2HostSession:
                      intent_journal_sha256=intent_hash)
         try:
             self.transport.send(frame)
-            self.last_write_completed_monotonic_ns = time.monotonic_ns()
+            self.last_write_completed_monotonic_ns = int(self.monotonic() * 1_000_000_000)
         except Exception as exc:
             try:
                 self._append("FRAME_TX_ERROR", kind=kind, command_id=command_id,
@@ -170,7 +283,7 @@ class ProtocolV2HostSession:
         if not raw:
             return
         received_utc = self.utc_now()
-        received_ns = time.monotonic_ns()
+        received_ns = int(self.monotonic() * 1_000_000_000)
         rx_id = self._append("RX_BYTES", raw_b64=base64.b64encode(raw).decode("ascii"),
                              byte_count=len(raw), host_received_at_utc=received_utc,
                              host_received_monotonic_ns=received_ns)
@@ -197,6 +310,7 @@ class ProtocolV2HostSession:
                 rx_chunk_event_id=rx_id, message_type=decoded.message.get("message_type"),
                 command_id=decoded.message.get("command_id"),
                 measurement_session_id=decoded.message.get("measurement_session_id"),
+                message_kind=decoded.message.get("kind"),
             )
             self._messages.append(decoded.message)
 
@@ -247,7 +361,20 @@ class ProtocolV2HostSession:
             return canonical_id
         self.measurement_session_id = canonical_id
         nonce = secrets.randbits(64) or 1
-        self.transport.connect()
+        stop_connect = getattr(self.stop_writer, "connect", None)
+        try:
+            if callable(stop_connect):
+                stop_connect()
+            self.transport.connect()
+        except Exception as exc:
+            self._failed = True
+            stop_disconnect = getattr(self.stop_writer, "disconnect", None)
+            if callable(stop_disconnect):
+                try:
+                    stop_disconnect()
+                except Exception:
+                    pass
+            raise ProtocolV2SessionError(f"serial session startup failed closed: {exc}") from exc
         frame = self.codec.encode_hello(session_id=canonical_id, host_nonce64=nonce)
         self._send_frame(frame, kind="HELLO", command_id=0)
         ack = self._wait_for("HELLO_ACK")
@@ -268,11 +395,75 @@ class ProtocolV2HostSession:
         if ack.get("device_epoch_tag") != self.epoch_tag:
             self._failed = True
             raise ProtocolV2SessionError("HELLO_ACK epoch correlation mismatch")
+
+        checkpoint = None
+        if self._rawlog_root is not None:
+            try:
+                checkpoint = load_latest_device_clock_checkpoint(self._rawlog_root, boot_id)
+            except DeviceLossAccountingError as exc:
+                self._failed = True
+                raise ProtocolV2SessionError(
+                    f"durable device clock checkpoint is invalid; refusing re-arm: {exc}"
+                ) from exc
+
+        if checkpoint is not None:
+            if host_boot_id64 is not None and host_boot_id64 != boot_id:
+                self._failed = True
+                raise ProtocolV2SessionError(
+                    "RawLog contains the current device boot epoch but host epoch checkpoint disagrees"
+                )
+            checkpoint_next = checkpoint.sample_sequence64 + 1
+            if next_sequence < checkpoint_next:
+                self._failed = True
+                raise ProtocolV2SessionError(
+                    "device sequence rolled back behind the durable RawLog clock checkpoint"
+                )
+            effective_host_boot_id64 = boot_id
+            effective_host_next_sequence64 = max(
+                checkpoint_next,
+                host_next_sequence64 if host_next_sequence64 is not None else 0,
+            )
+            self._pending_checkpoint_gap_slots = max(0, next_sequence - checkpoint_next)
+            self._device_clock = DeviceEpochClockUnwrapper(
+                boot_id,
+                checkpoint_timestamp_us_u32=checkpoint.timestamp_us_u32,
+                checkpoint_elapsed_us=checkpoint.elapsed_us,
+            )
+            # The current 1-second window is partial across process restart.
+            # Preserve the epoch coordinate but mark that window UNATTRIBUTABLE.
+            self._loss_accumulator = DeviceLossWindowAccumulator(
+                boot_id,
+                checkpoint_timestamp_us_u32=checkpoint.timestamp_us_u32,
+                checkpoint_elapsed_us=checkpoint.elapsed_us,
+            )
+            self._append(
+                "DEVICE_CLOCK_CHECKPOINT_RESTORED",
+                boot_id64=boot_id,
+                last_sample_sequence64=checkpoint.sample_sequence64,
+                last_timestamp_us_u32=checkpoint.timestamp_us_u32,
+                device_elapsed_us=checkpoint.elapsed_us,
+                initial_sequence_gap_slots=self._pending_checkpoint_gap_slots,
+            )
+        else:
+            if (self._rawlog_root is not None and host_boot_id64 == boot_id
+                    and (host_next_sequence64 is None or host_next_sequence64 > 0)):
+                self._failed = True
+                raise ProtocolV2SessionError(
+                    "same device boot epoch has prior host samples but no durable RawLog clock checkpoint"
+                )
+            effective_host_boot_id64 = host_boot_id64
+            effective_host_next_sequence64 = host_next_sequence64
+            self._pending_checkpoint_gap_slots = 0
+            self._device_clock = DeviceEpochClockUnwrapper(boot_id)
+            # Loss windows are device-epoch scoped, not ARM scoped. Keep the
+            # same accumulator through every stage and finalize it only on STOP.
+            self._loss_accumulator = DeviceLossWindowAccumulator(boot_id)
+
         resolution = reconcile_device_sequence(
             device_boot_id64=boot_id,
             device_next_sequence64=next_sequence,
-            host_boot_id64=host_boot_id64,
-            host_next_sequence64=host_next_sequence64,
+            host_boot_id64=effective_host_boot_id64,
+            host_next_sequence64=effective_host_next_sequence64,
             device_identity_verified=True,
         )
         if resolution.status in {
@@ -284,6 +475,14 @@ class ProtocolV2HostSession:
             raise ProtocolV2SessionError(f"device sequence reconciliation failed: {resolution.detail}")
         self.sequence_reconciliation = resolution
         self.next_sample_sequence64 = next_sequence
+        if resolution.status is SequenceReconciliationStatus.GAP_UNATTRIBUTABLE:
+            resolution_gap_slots = (
+                int(resolution.gap_end_sequence64_exclusive)
+                - int(resolution.gap_start_sequence64)
+            )
+            self._pending_checkpoint_gap_slots = max(
+                self._pending_checkpoint_gap_slots, resolution_gap_slots
+            )
         self._append("HELLO_ACK_MATCHED", boot_id64=boot_id, device_epoch_tag=self.epoch_tag,
                      host_nonce64=nonce, next_sample_sequence64=next_sequence,
                      sequence_reconciliation=asdict(resolution), ack=ack)
@@ -336,6 +535,31 @@ class ProtocolV2HostSession:
                      command_id=int(identity.command_id), identity=asdict(identity), message=message)
         return True
 
+    def _assert_rearm_not_inhibited(self) -> None:
+        """Fail closed at the production nonzero-send boundary after any recovery review."""
+        root = self._rearm_inhibit_root
+        if root is None:
+            # Non-serial in-memory protocol peers are used by isolated tests.
+            # Any real serial endpoint must be created through the RawLog-bound factory.
+            if getattr(self.transport, "port", None) is not None:
+                raise ProtocolV2SessionError(
+                    "re-arm root is not bound; production actuation requires for_rawlog_session()"
+                )
+            return
+        if os.path.islink(root) or not os.path.isdir(root):
+            raise ProtocolV2SessionError("re-arm root is missing, symlinked, or not a directory")
+        for name in (".310-rearm-inhibited", ".310-evidence-reconciliation-required"):
+            marker = os.path.join(root, name)
+            if os.path.islink(marker):
+                raise ProtocolV2SessionError(f"{name} must not be a symlink")
+            if os.path.exists(marker):
+                if not os.path.isfile(marker):
+                    raise ProtocolV2SessionError(f"{name} is not a regular file")
+                raise ProtocolV2SessionError(
+                    f"automatic re-arm is inhibited by {name}; explicit command-outcome "
+                    "reconciliation and independent safe-state confirmation are required"
+                )
+
     def send_stage_pwm(self, pwm: int, stage_context_id: str, measurement_session_id: str,
                        stage_index: Optional[int] = None, *,
                        host_boot_id64: Optional[int] = None,
@@ -344,6 +568,7 @@ class ProtocolV2HostSession:
         try:
             if self._failed:
                 raise ProtocolV2SessionError("host protocol session is fail-closed")
+            self._assert_rearm_not_inhibited()
             if self._pending is not None:
                 raise ProtocolV2SessionError("previous PWM outcome unresolved")
             if self._armed:
@@ -380,9 +605,6 @@ class ProtocolV2HostSession:
                 if not self._accept_ack(arm_ack, arm_identity, "ARM_ACK", token, direction=direction):
                     raise ProtocolV2SessionError("ARM_ACK identity mismatch")
                 self._armed = True
-                self._loss_accumulator = DeviceLossWindowAccumulator(
-                    int(self.boot_id64), token
-                )
             identity = CommandIdentity(str(command_id), "PWM_SET", self.measurement_session_id,
                                        int(self.boot_id64), stage_context_id)
             frame = self.codec.encode_pwm_set(session_id=self.measurement_session_id,
@@ -447,7 +669,8 @@ class ProtocolV2HostSession:
             self._append("STAGE_DISARMED", direction="host_internal",
                          stage_context_token=token, stage_context_id=stage_context_id,
                          command_id=command_id)
-            self._finalize_adc_loss_window()
+            # A 1-second device-epoch window may cross this stage boundary.
+            # Do not close or reset loss accounting on DISARM.
             return sent
         except Exception:
             self._failed = True
@@ -523,15 +746,48 @@ class ProtocolV2HostSession:
                 self._failed = True
                 raise ProtocolV2SessionError("ADC sample stage context does not match active ARM epoch")
         gap_slots = first - self.next_sample_sequence64
+        gap_slots += self._pending_checkpoint_gap_slots
+        self._pending_checkpoint_gap_slots = 0
         try:
+            if self._device_clock is None or self._device_clock.boot_id64 != self.boot_id64:
+                raise DeviceLossAccountingError("device-epoch clock is not bound to the active boot identity")
+            # The device-epoch clock is anchored at the first observed slot
+            # and deliberately survives every ARM/stage boundary.
+            for sample in samples:
+                status = sample.get("acquisition_status")
+                if status == 3:
+                    window_elapsed, before_origin = self._device_clock.map_scheduled(
+                        sample["timestamp_us_u32"]
+                    )
+                    sample["_loss_window_elapsed_us"] = window_elapsed
+                    sample["_loss_window_unattributable"] = before_origin
+                    sample["device_elapsed_us"] = None
+                else:
+                    device_elapsed = self._device_clock.add_actual(
+                        sample["timestamp_us_u32"]
+                    )
+                    sample["_loss_window_elapsed_us"] = device_elapsed
+                    sample["_loss_window_unattributable"] = False
+                    sample["device_elapsed_us"] = (
+                        device_elapsed if status == 0 else None
+                    )
             completed_windows = self._loss_accumulator.add_batch(samples, gap_slots=gap_slots)
+            if self._loss_accumulator.window_elapsed_us != self._device_clock.elapsed_us:
+                raise DeviceLossAccountingError(
+                    "device epoch clock and loss-window clock diverged"
+                )
         except DeviceLossAccountingError as exc:
             self._failed = True
-            raise ProtocolV2SessionError(f"ADC loss accounting rejected batch: {exc}") from exc
+            raise ProtocolV2SessionError(f"ADC time/loss accounting rejected batch: {exc}") from exc
+        last_device_elapsed_us = next(
+            (sample.get("device_elapsed_us") for sample in reversed(samples)
+             if sample.get("device_elapsed_us") is not None),
+            None,
+        )
         self._append("ADC_BATCH_ACCEPTED", first_sample_sequence64=first,
                      next_sample_sequence64=first + len(samples),
                      sample_count=len(samples),
-                     device_elapsed_us=samples[-1].get("device_elapsed_us"),
+                     device_elapsed_us=last_device_elapsed_us,
                      raw_frame_base64=message.get("_raw_frame_base64"))
         for window in completed_windows:
             self._append("ADC_LOSS_WINDOW_SUMMARY", summary=asdict(window), terminal=False)
@@ -541,6 +797,7 @@ class ProtocolV2HostSession:
     def finalize_evidence_bundle(self, rawlog_package_dir):
         if not self.measurement_session_id:
             raise ProtocolV2SessionError("cannot bind Evidence bundle before HELLO session identity")
+        self.flush_evidence()
         from .evidence_bundle import write_evidence_bundle_manifest
         return write_evidence_bundle_manifest(
             rawlog_package_dir, self.evidence, self.measurement_session_id
@@ -560,8 +817,8 @@ class ProtocolV2HostSession:
         return self._last_stop_request_id
 
     def send_stop_best_effort(self, *, stop_reason: int, stop_request_id: Optional[int] = None) -> int:
-        if self.stop_writer is None:
-            raise ProtocolV2SessionError("independent STOP writer is not configured")
+        if self.stop_writer is None and not callable(getattr(self.transport, "send_stop_priority", None)):
+            raise ProtocolV2SessionError("no independent or same-UART priority STOP writer is configured")
         valid = {int(reason) for reason in StopReason}
         if isinstance(stop_reason, bool) or not isinstance(stop_reason, int) or stop_reason not in valid:
             raise ValueError("stop_reason must use an assigned StopReason code")
@@ -593,21 +850,29 @@ class ProtocolV2HostSession:
                 "frame": frame, "command_id": command_id, "stop_reason": stop_reason,
             }
         try:
-            finished = threading.Event()
-            writer_errors = []
-            def writer_worker():
-                try:
-                    self.stop_writer(frame)
-                except Exception as exc:
-                    writer_errors.append(exc)
-                finally:
-                    finished.set()
-            worker = threading.Thread(target=writer_worker, name="310-stop-writer", daemon=True)
-            worker.start()
-            if not finished.wait(self.stop_timeout_s):
-                raise TimeoutError(f"STOP writer deadline expired after {self.stop_timeout_s:.3f}s")
-            if writer_errors:
-                raise writer_errors[0]
+            if self.stop_writer is not None:
+                finished = threading.Event()
+                writer_errors = []
+                def writer_worker():
+                    try:
+                        self.stop_writer(frame)
+                    except Exception as exc:
+                        writer_errors.append(exc)
+                    finally:
+                        finished.set()
+                worker = threading.Thread(target=writer_worker, name="310-stop-writer", daemon=True)
+                worker.start()
+                if not finished.wait(self.stop_timeout_s):
+                    raise TimeoutError(f"STOP writer deadline expired after {self.stop_timeout_s:.3f}s")
+                if writer_errors:
+                    raise writer_errors[0]
+            else:
+                priority_writer = getattr(self.transport, "send_stop_priority", None)
+                if not callable(priority_writer):
+                    raise ProtocolV2SessionError(
+                        "same-UART priority STOP is unavailable and no independent STOP writer is configured"
+                    )
+                priority_writer(frame, timeout_s=self.stop_timeout_s)
         except Exception as exc:
             try:
                 self._append("STOP_TX_ERROR", frame_b64=base64.b64encode(frame).decode("ascii"),
@@ -639,4 +904,9 @@ class ProtocolV2HostSession:
             self._pending = None
 
     def disconnect(self) -> None:
-        self.transport.disconnect()
+        try:
+            self.transport.disconnect()
+        finally:
+            stop_disconnect = getattr(self.stop_writer, "disconnect", None)
+            if callable(stop_disconnect):
+                stop_disconnect()

@@ -63,7 +63,9 @@ jobs:
             tests/test_sequence_executor.py
 
   test-full-suite:
-    runs-on: ubuntu-latest
+    # Pin the full-suite runner to the supported LTS image: ubuntu-latest
+    # moved to 26.04 before setup-python's 3.10 archive was reliably available.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4

@@ -35,6 +35,8 @@ class TransportEvidenceJournal:
 
     def __init__(self, path: os.PathLike | str):
         self.path = Path(path)
+        self._cached_signature = None
+        self._cached_chain_head = None
 
     @staticmethod
     def _fsync_directory(path: Path) -> None:
@@ -131,7 +133,29 @@ class TransportEvidenceJournal:
         lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
         try:
             fcntl.flock(lock_fd, fcntl.LOCK_EX)
-            _, previous = self._read()
+            if self.path.is_symlink():
+                raise ProtocolV1SessionError("transport Evidence path must not be a symlink")
+            try:
+                current_stat = self.path.stat()
+                signature = (
+                    current_stat.st_dev, current_stat.st_ino,
+                    current_stat.st_size, current_stat.st_mtime_ns,
+                )
+            except FileNotFoundError:
+                signature = None
+            if signature != self._cached_signature:
+                _, previous = self._read()
+                if self.path.exists():
+                    current_stat = self.path.stat()
+                    self._cached_signature = (
+                        current_stat.st_dev, current_stat.st_ino,
+                        current_stat.st_size, current_stat.st_mtime_ns,
+                    )
+                else:
+                    self._cached_signature = None
+                self._cached_chain_head = previous
+            else:
+                previous = self._cached_chain_head or ("0" * 64)
             event_id = str(uuid.uuid4())
             event_type = {
                 "FRAME_TX_INTENT": "frame_tx_intent",
@@ -168,6 +192,16 @@ class TransportEvidenceJournal:
                 if os.write(fd, line) != len(line):
                     raise ProtocolV1SessionError("short Evidence append; durability uncertain")
                 os.fsync(fd)
+                current_stat = os.fstat(fd)
+                self._cached_signature = (
+                    current_stat.st_dev, current_stat.st_ino,
+                    current_stat.st_size, current_stat.st_mtime_ns,
+                )
+                self._cached_chain_head = digest
+            except Exception:
+                self._cached_signature = None
+                self._cached_chain_head = None
+                raise
             finally:
                 os.close(fd)
             if not existed:
@@ -177,6 +211,148 @@ class TransportEvidenceJournal:
                 finally:
                     os.close(dir_fd)
             return event_id
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            os.close(lock_fd)
+
+
+    def append_many(self, entries: list[dict]) -> list[str]:
+        """Append an ordered Evidence transaction with one file fsync.
+
+        Each entry has the same keyword fields as append(), plus an optional
+        preallocated event_id and event-time pair. All JSON lines are hash
+        chained in memory, written under one exclusive lock, and become
+        durable together before this method returns.
+        """
+        if not isinstance(entries, list) or not entries:
+            raise ValueError("entries must be a non-empty list")
+        prepared = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                raise TypeError("each Evidence entry must be a dict")
+            event = entry.get("event")
+            payload = entry.get("payload")
+            direction = entry.get("direction", "host_internal")
+            measurement_session_id = entry.get("measurement_session_id")
+            device_epoch_id = entry.get("device_epoch_id")
+            received_utc = entry.get("host_received_at_utc")
+            received_ns = entry.get("host_received_monotonic_ns")
+            event_id = entry.get("event_id") or str(uuid.uuid4())
+            event_utc = entry.get("host_event_at_utc")
+            event_ns = entry.get("host_event_monotonic_ns")
+            if not isinstance(event, str) or not event or not isinstance(payload, dict):
+                raise ValueError("each Evidence entry requires event and payload")
+            if direction not in {"host_to_device", "device_to_host", "host_internal"}:
+                raise ValueError("invalid Evidence direction")
+            if measurement_session_id is not None and not isinstance(measurement_session_id, str):
+                raise TypeError("measurement_session_id must be a string or null")
+            if device_epoch_id is not None and not isinstance(device_epoch_id, str):
+                raise TypeError("device_epoch_id must be a string or null")
+            if received_utc is not None and not isinstance(received_utc, str):
+                raise TypeError("host_received_at_utc must be a string or null")
+            if received_ns is not None and (
+                isinstance(received_ns, bool) or not isinstance(received_ns, int) or received_ns < 0
+            ):
+                raise ValueError("host_received_monotonic_ns must be a nonnegative integer or null")
+            if str(uuid.UUID(event_id)) != event_id:
+                raise ValueError("event_id must be a canonical UUID")
+            if event_utc is not None and not isinstance(event_utc, str):
+                raise TypeError("host_event_at_utc must be a string or null")
+            if event_ns is not None and (
+                isinstance(event_ns, bool) or not isinstance(event_ns, int) or event_ns < 0
+            ):
+                raise ValueError("host_event_monotonic_ns must be a nonnegative integer or null")
+            prepared.append((event, payload, measurement_session_id, device_epoch_id,
+                             direction, received_utc, received_ns, event_id, event_utc, event_ns))
+
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path = self.path.with_name(self.path.name + ".lock")
+        lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            if self.path.is_symlink():
+                raise ProtocolV1SessionError("transport Evidence path must not be a symlink")
+            try:
+                current_stat = self.path.stat()
+                signature = (current_stat.st_dev, current_stat.st_ino,
+                             current_stat.st_size, current_stat.st_mtime_ns)
+            except FileNotFoundError:
+                signature = None
+            if signature != self._cached_signature:
+                _, previous = self._read()
+                if self.path.exists():
+                    current_stat = self.path.stat()
+                    self._cached_signature = (current_stat.st_dev, current_stat.st_ino,
+                                              current_stat.st_size, current_stat.st_mtime_ns)
+                else:
+                    self._cached_signature = None
+                self._cached_chain_head = previous
+            else:
+                previous = self._cached_chain_head or ("0" * 64)
+
+            lines = []
+            event_ids = []
+            for (event, payload, measurement_session_id, device_epoch_id, direction,
+                 received_utc, received_ns, event_id, event_utc, event_ns) in prepared:
+                event_type = {
+                    "FRAME_TX_INTENT": "frame_tx_intent",
+                    "FRAME_TX_COMPLETE": "frame_tx_complete",
+                    "FRAME_TX_ERROR": "frame_tx_error",
+                    "RX_BYTES": "frame_rx_fragment",
+                    "FRAME_RX_DECODED": "frame_rx_received",
+                    "RX_DECODE_ERROR": "protocol_error",
+                    "HELLO_ACK_MATCHED": "hello_ack_match",
+                    "STAGE_CONTEXT_MAP": "sample_context_map",
+                    "ACK_MATCHED": "command_ack_match",
+                    "RX_UNEXPECTED_MESSAGE": "unsolicited_message",
+                    "ACK_IDENTITY_MISMATCH": "protocol_error",
+                    "STOP_TX_ATTEMPT": "stop_request_tx",
+                    "STOP_TX_ERROR": "stop_request_tx_error",
+                }.get(event, event.lower())
+                body = {
+                    "format": self.FORMAT, "schema_version": self.FORMAT,
+                    "event_id": event_id, "event": event, "event_type": event_type,
+                    "measurement_session_id": measurement_session_id,
+                    "device_epoch_id": device_epoch_id,
+                    "host_received_at_utc": received_utc,
+                    "host_received_monotonic_ns": received_ns,
+                    "host_event_at_utc": event_utc or datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+                    "host_event_monotonic_ns": event_ns if event_ns is not None else time.monotonic_ns(),
+                    "direction": direction, "payload": payload, "previous_hash": previous,
+                }
+                digest = hashlib.sha256(self._canonical(body)).hexdigest()
+                lines.append(self._canonical({"body": body, "sha256": digest}) + b"\n")
+                event_ids.append(event_id)
+                previous = digest
+
+            existed = self.path.exists()
+            fd = os.open(str(self.path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+            try:
+                view = memoryview(b"".join(lines))
+                while view:
+                    count = os.write(fd, view)
+                    if count <= 0:
+                        raise ProtocolV1SessionError("short Evidence transaction append; durability uncertain")
+                    view = view[count:]
+                os.fsync(fd)
+                current_stat = os.fstat(fd)
+                self._cached_signature = (current_stat.st_dev, current_stat.st_ino,
+                                          current_stat.st_size, current_stat.st_mtime_ns)
+                self._cached_chain_head = previous
+            except Exception:
+                self._cached_signature = None
+                self._cached_chain_head = None
+                raise
+            finally:
+                os.close(fd)
+            if not existed:
+                try:
+                    self._fsync_directory(self.path.parent)
+                except Exception:
+                    self._cached_signature = None
+                    self._cached_chain_head = None
+                    raise
+            return event_ids
         finally:
             fcntl.flock(lock_fd, fcntl.LOCK_UN)
             os.close(lock_fd)
@@ -225,6 +401,8 @@ class ProtocolV1HostSession:
         self._context_map: dict[int, str] = {}
         self._armed = False
         self._failed = False
+        intent_path = getattr(self.intent_journal, "path", None)
+        self._rearm_inhibit_root = (Path(intent_path).parents[2] if intent_path is not None else None)
 
     @staticmethod
     def _utc_now() -> str:
@@ -445,10 +623,34 @@ class ProtocolV1HostSession:
             self._failed = True
             raise
 
+    def _assert_rearm_not_inhibited(self) -> None:
+        """Refuse a serial ARM/PWM path when RawLog recovery review is outstanding."""
+        root = self._rearm_inhibit_root
+        if root is None:
+            if getattr(self.transport, "port", None) is not None:
+                raise ProtocolV1SessionError(
+                    "re-arm root is not bound; production actuation requires a RawLog-bound intent journal"
+                )
+            return
+        if root.is_symlink() or not root.is_dir():
+            raise ProtocolV1SessionError("re-arm root is missing, symlinked, or not a directory")
+        for name in (".310-rearm-inhibited", ".310-evidence-reconciliation-required"):
+            marker = root / name
+            if marker.is_symlink():
+                raise ProtocolV1SessionError(f"{name} must not be a symlink")
+            if marker.exists():
+                if not marker.is_file():
+                    raise ProtocolV1SessionError(f"{name} is not a regular file")
+                raise ProtocolV1SessionError(
+                    f"automatic re-arm is inhibited by {name}; explicit command-outcome "
+                    "reconciliation and independent safe-state confirmation are required"
+                )
+
     def _send_stage_pwm(self, pwm: int, stage_context_id: str,
                         measurement_session_id: str, stage_index: Optional[int] = None) -> str:
         if self._failed:
             raise ProtocolV1SessionError("host protocol session is fail-closed")
+        self._assert_rearm_not_inhibited()
         if self._pending is not None:
             raise ProtocolV1SessionError(
                 "previous PWM command outcome is unresolved; a new stage cannot be sent"

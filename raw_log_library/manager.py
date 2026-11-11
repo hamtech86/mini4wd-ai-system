@@ -114,6 +114,26 @@ class RawLogLibrary:
         self._append_index(self._index_row(record, raw_path))
         return raw_path
 
+
+    def register_v2_reference(self, record: RawLog) -> Path:
+        """Register a RawLog v2 package in the common library index.
+
+        The immutable .v2ref body identifies the v2 package format; actual
+        measurements remain exclusively in the append-only v2 package.
+        """
+        path = self.register(
+            record,
+            raw_body="RAWLOG_V2_PACKAGE_REFERENCE\\n",
+            extension=".v2ref",
+        )
+        self.update_metadata(
+            record.log_id,
+            source_reference=f"raw_logs_v2/{record.log_id}/manifest.json",
+            notes=(record.notes + " | RawLog v2 package reference").strip(" |"),
+        )
+        return path
+
+
     def update_metadata(self, *args: str, **changes: str) -> RawLog:
         # Keep log_id positional-only so attempts to mutate it via keyword
         # reach the immutability check instead of Python's duplicate-arg error.

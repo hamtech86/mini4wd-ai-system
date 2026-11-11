@@ -1254,9 +1254,15 @@ def test_sequence_controller_persists_protocol_v2_adc_batch_to_rawlog(tmp_path):
         "A0", "A1", "A4", "A5", "A2", "A3",
     ]
     assert all(record["device_epoch_id"] == "123456789ABCDEF0" for record in adc)
-    assert [record["device_elapsed_us"] for record in adc] == [i * 100 for i in range(12)]
+    assert [record["device_elapsed_us"] for record in adc] == [
+        0, None, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100
+    ]
     not_acquired = adc[1]
-    assert not_acquired["validity"] == "invalid"
+    assert not_acquired["validity"] == "unavailable"
+    assert not_acquired["adc_raw"] is None
+    assert not_acquired["device_timestamp_us_u32"] is None
+    assert not_acquired["device_elapsed_us"] is None
+    assert not_acquired["device_timestamp_point"] == "conversion_midpoint"
     assert not_acquired["invalid_reason"] == "NOT_ACQUIRED"
     assert not_acquired["stage_assignment"] == "unresolved"
     assert not_acquired["stage_context_id"] is None
@@ -1329,3 +1335,162 @@ def test_evidence_bundle_failure_persists_rearm_inhibition(tmp_path):
     restarted.startup_recover()
     with pytest.raises(SequenceError, match="reconciliation"):
         restarted.start()
+
+
+def test_evidence_reconciliation_marker_symlink_blocks_startup(tmp_path):
+    clock = FakeClock()
+    target = tmp_path / "marker-target"
+    target.write_text("not an authorization marker")
+    (tmp_path / ".310-evidence-reconciliation-required").symlink_to(target)
+    ctl = SequenceController(
+        RawLogV2Writer(tmp_path), manifest(tmp_path),
+        lambda pwm: clock.utc_now(), lambda: None, lambda: None, clock,
+    )
+    with pytest.raises(SequenceError, match="must not be a symlink"):
+        ctl.startup_recover()
+
+
+def test_rawlog_append_many_commits_contiguous_batch_as_single_state_update(tmp_path):
+    writer = RawLogV2Writer(tmp_path)
+    session = writer.begin(manifest(tmp_path))
+    records = []
+    for seq in range(1, 13):
+        records.append({
+            "schema_version": "2.0.0", "record_type": "ADC_SAMPLE",
+            "record_id": f"record-{seq}", "record_seq": seq,
+            "log_id": "TEST-310", "measurement_session_id": "SESSION-310",
+            "recorded_at_utc": "2026-11-01T00:00:00.000Z",
+            "sample_id": f"sample-{seq}", "channel": "A0", "sensor": "test",
+            "signal_role": "test", "adc_raw": seq, "adc_resolution_bits": 10,
+            "raw_unit": "count", "device_timestamp_us_u32": seq,
+            "device_timestamp_point": "conversion_midpoint", "device_epoch_id": "boot-1",
+            "device_elapsed_us": seq, "device_sample_sequence": seq,
+            "host_received_at_utc": "2026-11-01T00:00:00.000Z",
+            "host_received_monotonic_ns": seq, "stage_context_id": "stage-0",
+            "stage_id": "PWM-00", "stage_assignment": "confirmed",
+            "calibration_id": None, "validity": "valid", "invalid_reason": None,
+        })
+    session.append_many(records)
+    assert session.state["record_count"] == 12
+    assert session.state["last_record_seq"] == 12
+    lines = (session.work_dir / "records.jsonl").read_text().splitlines()
+    assert len(lines) == 12
+
+
+def test_rawlog_append_many_rejects_invalid_batch_before_writing(tmp_path):
+    writer = RawLogV2Writer(tmp_path)
+    session = writer.begin(manifest(tmp_path))
+    before = (session.work_dir / "records.jsonl").read_bytes()
+    with pytest.raises(ValueError, match="continuous"):
+        session.append_many([{
+            "record_seq": 2, "log_id": "TEST-310",
+            "measurement_session_id": "SESSION-310",
+        }])
+    assert (session.work_dir / "records.jsonl").read_bytes() == before
+    assert session.state["record_count"] == 0
+
+
+def test_sequence_controller_persists_adc_batch_through_append_many(tmp_path):
+    import json
+    clock = FakeClock()
+    ctl = SequenceController(RawLogV2Writer(tmp_path), manifest(tmp_path),
+        lambda pwm: clock.utc_now(), lambda: None, lambda: None, clock)
+    ctl.startup_recover()
+    ctl.start()
+    samples = []
+    channels = (0, 1, 4, 5, 2, 3) * 2
+    for seq, code in enumerate(channels, 1):
+        samples.append({
+            "channel": f"A{code}", "adc_raw": seq, "adc_resolution_bits": 10,
+            "device_timestamp_us_u32": seq * 1000,
+            "device_timestamp_point": "conversion_midpoint",
+            "device_epoch_id": "0000000000000001", "device_elapsed_us": seq * 1000,
+            "device_sample_sequence": seq, "validity": "valid", "invalid_reason": None,
+            "stage_assignment_override": "confirmed",
+            "stage_context_id_override": ctl.stage_context_id,
+        })
+    ctl.record_adc_samples(samples)
+    records = [json.loads(line) for line in
+        (tmp_path / ".work" / "TEST-310" / "records.jsonl").read_text().splitlines()]
+    adc = [record for record in records if record["record_type"] == "ADC_SAMPLE"]
+    assert len(adc) == 12
+    assert [record["channel"] for record in adc] == [
+        "A0", "A1", "A4", "A5", "A2", "A3", "A0", "A1", "A4", "A5", "A2", "A3"
+    ]
+    assert [record["record_seq"] for record in adc] == list(range(2, 14))
+    ctl.abort("test_end")
+
+
+
+def test_protocol_v2_failed_adc_slots_map_to_rawlog_unavailable(tmp_path):
+    import json
+
+    clock = FakeClock()
+    channel_codes = (0, 1, 4, 5, 2, 3) * 2
+    statuses = [0, 1, 2, 3] + [0] * 8
+    samples = []
+    for index, code in enumerate(channel_codes):
+        status = statuses[index]
+        samples.append({
+            "channel_code": code,
+            "acquisition_status": status,
+            "adc_raw": 0xFFFF if status else 512,
+            "timestamp_us_u32": 2_000_000 + index * 100,
+            "device_elapsed_us": 2_000_000 + index * 100 if status == 0 else None,
+            "sample_sequence64": index,
+        })
+
+    class FakeProtocolSession:
+        supports_stage_direction = True
+        boot_id64 = 0x123456789ABCDEF0
+        last_write_completed_monotonic_ns = None
+
+        def __init__(self):
+            self.batch_pending = True
+
+        def send_stage_pwm(self, pwm, stage_context_id, session_id, *, stage_index, direction):
+            return clock.utc_now()
+
+        def poll_apply_ack(self, timeout_s=0.0):
+            return (0, clock.utc_now(), clock.monotonic_ns())
+
+        def poll_adc_batch(self, timeout_s=0.0):
+            if self.batch_pending:
+                self.batch_pending = False
+                return samples
+            return None
+
+    protocol = FakeProtocolSession()
+    ctl = SequenceController.with_protocol_session(
+        RawLogV2Writer(tmp_path), manifest(tmp_path), protocol,
+        send_stop=lambda: None, clock=clock,
+    )
+    ctl.startup_recover()
+    ctl.start()
+    ctl.poll()  # APPLY_ACK moves the controller into RUNNING.
+    ctl.poll()  # ADC_BATCH is converted into independent ADC_SAMPLE records.
+
+    records = [json.loads(line) for line in
+               (tmp_path / ".work" / "TEST-310" / "records.jsonl").read_text().splitlines()]
+    adc = [r for r in records if r["record_type"] == "ADC_SAMPLE"]
+    assert len(adc) == 12
+
+    a0, a1, a4, a5 = adc[:4]
+    assert (a0["validity"], a0["adc_raw"], a0["device_timestamp_us_u32"]) == (
+        "valid", 512, 2_000_000
+    )
+    for record, reason in (
+        (a1, "PRECONDITION_INVALID"),
+        (a4, "CONVERSION_TIMEOUT"),
+        (a5, "NOT_ACQUIRED"),
+    ):
+        assert record["validity"] == "unavailable"
+        assert record["adc_raw"] is None
+        assert record["device_timestamp_us_u32"] is None
+        assert record["device_elapsed_us"] is None
+        assert record["invalid_reason"] == reason
+        assert record["device_timestamp_point"] == "conversion_midpoint"
+    assert a5["stage_assignment"] == "unresolved"
+    assert a5["stage_context_id"] is None
+    assert [r["device_sample_sequence"] for r in adc] == list(range(12))
+    ctl.abort("test_end")

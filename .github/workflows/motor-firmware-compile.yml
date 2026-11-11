@@ -1,4 +1,4 @@
-name: Motor Firmware Compile
+name: Legacy DATA26 Retirement Guard and Native Motor Safety Tests
 
 on:
   push:
@@ -7,50 +7,52 @@ on:
       - fix/firmware-stop-disables-voltage-control-20261021
     paths:
       - "firmware/motor/MotoreRev.ino"
+      - "firmware/motor/MotoreRevV2/**"
       - ".github/workflows/motor-firmware-compile.yml"
   pull_request:
     paths:
       - "firmware/motor/MotoreRev.ino"
+      - "firmware/motor/MotoreRevV2/**"
       - ".github/workflows/motor-firmware-compile.yml"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
-  compile-arduino-uno:
+  legacy-retirement-and-native-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
         with:
-          # Compile the PR head itself, not GitHub's synthetic merge commit.
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - name: Set up Arduino CLI
-        uses: arduino/setup-arduino-cli@v2
-      - name: Install Arduino AVR core
+
+      - name: Verify legacy DATA26 sketch is disabled by default
+        shell: bash
         run: |
-          arduino-cli core update-index
-          arduino-cli core install arduino:avr
-      - name: Prepare sketch directory
+          set -euo pipefail
+          grep -Fq '#ifndef M4WD_ENABLE_LEGACY_DATA26' firmware/motor/MotoreRev.ino
+          grep -Fq '#error "MotoreRev.ino is retired legacy DATA26 firmware; use firmware/motor/MotoreRevV2 for 310."' firmware/motor/MotoreRev.ino
+          grep -Fq 'retained only as historical legacy DATA26 source' firmware/motor/README.md
+          echo "Legacy DATA26 sketch is not a default-buildable 310 firmware target."
+
+      - name: Verify current v2 path has no cross-channel averaging
+        shell: bash
         run: |
-          mkdir -p /tmp/MotoreRev
-          cp firmware/motor/MotoreRev.ino /tmp/MotoreRev/MotoreRev.ino
+          set -euo pipefail
+          if grep -En 'currentAvg|current_avg|current1[[:space:]]*\+[[:space:]]*current2|current2[[:space:]]*\+[[:space:]]*current1' \
+              firmware/motor/MotoreRevV2 firmware/motor/ProtocolV2*.h; then
+            echo "FAIL: cross-channel averaging or legacy derived field found in v2 firmware"
+            exit 1
+          fi
+          echo "V2 firmware source contains no A0/A1 average path."
+
       - name: Run native firmware safety regression harness
+        shell: bash
         run: |
-          g++ -std=c++11 -Wall -Wextra -I tests/firmware_safety tests/firmware_safety/test_motor_firmware_safety.cpp -o /tmp/motor_firmware_safety_test
-          /tmp/motor_firmware_safety_test
-      - name: Compile for Arduino Uno
-        run: arduino-cli compile --fqbn arduino:avr:uno --output-dir build/uno /tmp/MotoreRev
-      - name: Record HEX SHA-256
-        run: |
-          test -n "$(find build/uno -maxdepth 1 -name '*.hex' -print -quit)"
-          sha256sum build/uno/*.hex | tee build/uno/SHA256SUMS.txt
-          printf 'SOURCE_COMMIT=%s\n' "$(git rev-parse HEAD)" | tee build/uno/BUILD-METADATA.txt
-          printf 'BOARD_FQBN=arduino:avr:uno\n' >> build/uno/BUILD-METADATA.txt
-      - name: Upload HEX and build manifest
-        uses: actions/upload-artifact@v4
-        with:
-          name: motor-firmware-uno-${{ github.event.pull_request.head.sha || github.sha }}
-          path: |
-            build/uno/*.hex
-            build/uno/SHA256SUMS.txt
-            build/uno/BUILD-METADATA.txt
-          if-no-files-found: error
-          retention-days: 30
+          set -euo pipefail
+          g++ -std=c++11 -Wall -Wextra -DM4WD_ENABLE_LEGACY_DATA26=1 -I tests/firmware_safety \
+            tests/firmware_safety/test_motor_firmware_safety.cpp \
+            -o "$RUNNER_TEMP/motor_firmware_safety_test"
+          "$RUNNER_TEMP/motor_firmware_safety_test"

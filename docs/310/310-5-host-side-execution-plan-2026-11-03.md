@@ -193,3 +193,30 @@ Tests NOT RUN; no CI/hardware. T09/T15 remain NOT PASS.
 - T05 remains blocked at production integration: SequenceController._begin_stage() still calls the legacy send_pwm(index) path directly; the full boot epoch is not available from the current protocol/host integration, and the ACK wire object still has no command/session/context/full-epoch identity. The standalone journal and gate do not prove production nonzero PWM is gated.
 - T04 remains blocked for the same protocol integration reason. T09/T15 remain blocked by shared synchronous serial transport and lack of independent bounded STOP. T10/T17 remain blocked by the immutable two-file RawLog v2 package contract and no authorized schema change. T18 remains NOT RUN. Hardware and ADC/fuse/BOD/SRAM validation remain prohibited/unrun.
 - Formal T01–T18 acceptance remains 0 PASS. The original matrix plus R01 remains 38 entries; previously reported categories remain 12 provisional FAIL, 18 BLOCKED, 4 NOT RUN, and 4 limited-scope PASS candidates. The six corrective actions do not change those formal statuses.
+
+
+## 2026-11-06 superseding integrated-candidate status
+
+This section supersedes earlier candidate-only statements that host integration, ADC persistence, Evidence inventory, or the full repository test run had not yet occurred. Historical entries above are retained as the original investigation record.
+
+| Gate | Current candidate implementation/evidence | Remaining qualification |
+|---|---|---|
+| T01 | Superseded in v2 by full RFC4122 UUID session identity; no v1 uint16 session-tag allocator in the v2 path | Formal authority acceptance |
+| T02 | Superseded in v2 by device-owned uint64 sample sequence and restart reconciliation | Formal authority acceptance and hardware persistence |
+| T03 | Full boot_id64 HELLO identity, checkpoint and sequence reconciliation integrated | EEPROM power-fail qualification |
+| T04 | Protocol-v2 command/session/epoch/context ACK correlation integrated; ARM/DISARM direction echo checked | Physical firmware interoperability |
+| T05 | Durable intent-before-send and Evidence-before-stage-release integrated; per-session sidecar paths created durably | Target-host durability and full power-fail fault matrix |
+| T09/T15 | STOP_REQ device action synchronously forces PWM and direction outputs safe; host STOP writer caller wait bounded; firmware TX scheduler gives STOP_ACK priority over unfinished ADC batch | Independent physical STOP channel, MCU/driver cutoff and measured stop latency remain NOT QUALIFIED |
+| T10/T17 | External Evidence sidecar companion manifest binds unchanged two-file RawLog package to Evidence hash-chain; verifier and backup/restore regression added; finalization failure persists re-arm inhibition | Actual production backup medium and power-loss/recovery qualification |
+| T11 | Six-channel per-ARM-epoch, half-open 1-second loss accounting integrated with ADC_BATCH-to-RawLog persistence; sequence gaps/incomplete windows are UNATTRIBUTABLE | Physical sampling cadence/analog accuracy qualification |
+| T18 | 10,000-sample fsync runner and conservative 1,000 ms STOP reserve + 1,000 ms margin decision exist | Approved target Linux host/storage run remains NOT RUN |
+| R01 | Recovered incomplete work and failed Evidence companion finalization persistently block re-arm; symlinked marker rejected | Explicit reconciliation/clear authority and physical state confirmation |
+
+### Firmware and exact automated verification
+
+- Unified PR #190 combines host code and the isolated MotoreRevV2 firmware, ADC scheduler, boot identity journal, bounded TX scheduler, native tests, and Arduino build/resource workflow.
+- Unified code/test HEAD 4ec8a14a8dc273227a8e1b98e7a14223360e11ff: full suite **588 passed, 2 xfailed** (run 42090719264); native protocol-v2 workflow 42090718783 passed; Arduino Uno Firmware Compile 42090718935 passed.
+- On that AVR build, MotoreRevV2 production static SRAM was 761 B; ADC audit image was 762 B. Largest GCC frame was 171 B; the reviewed conservative nested call-chain bound is 295 B. With the larger image, 991 B remains, 543 B above the 448 B reserve.
+- The separate boot identity provisioner compiles in CI only. It was not uploaded or run.
+
+Formal T01–T18 PASS remains **0** pending upper-command acceptance. Software CI and static analysis do not close physical STOP, BOD, EEPROM power-fail, current limit, direction polarity, analog calibration/settling, target-host fsync, or hardware interoperability. No Arduino upload, serial hardware connection, motor energization, EEPROM/fuse operation, or 310-second measurement occurred. HARDWARE_CURRENT_LIMIT_CONFIRMED=false remains unchanged.

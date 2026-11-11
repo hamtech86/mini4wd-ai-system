@@ -248,18 +248,29 @@ def validate_record(record: Any, manifest: Dict[str, Any], index: int = 0) -> Li
                     "pwm_command_sent_at_utc", "pwm_applied_ack_received_at_utc", "stage_context_id")):
                 errors.append(f"{prefix}.completed requires ACK, context, start/end and duration fields")
         elif status == "aborted":
-            if any(record.get(k) is None for k in ("ended_at_utc", "end_host_monotonic_ns",
-                    "pwm_command_sent_at_utc", "stage_context_id")):
-                errors.append(f"{prefix}.aborted requires end boundary, command-send timestamp and context")
+            process_interrupted = record.get("termination_reason") == "process_interrupted"
+            required = ["ended_at_utc", "stage_context_id"]
+            if not process_interrupted:
+                required.extend(["end_host_monotonic_ns", "pwm_command_sent_at_utc"])
+            if any(record.get(k) is None for k in required):
+                errors.append(f"{prefix}.aborted requires end boundary and stage context")
             if record.get("termination_reason") in {"duration_elapsed", "not_started_after_abort"}:
                 errors.append(f"{prefix}.aborted termination_reason is invalid")
             if record.get("started_at_utc") is None:
                 if any(record.get(k) is not None for k in ("start_host_monotonic_ns", "actual_duration_ms",
                         "pwm_applied_ack_received_at_utc")):
                     errors.append(f"{prefix}.aborted without ACK cannot claim start/duration")
-            elif any(record.get(k) is None for k in ("start_host_monotonic_ns", "end_host_monotonic_ns",
-                    "actual_duration_ms", "pwm_applied_ack_received_at_utc")):
-                errors.append(f"{prefix}.aborted after ACK requires measured timing")
+            elif any(record.get(k) is None for k in ("start_host_monotonic_ns",
+                    "pwm_applied_ack_received_at_utc")):
+                errors.append(f"{prefix}.aborted after ACK requires ACK start evidence")
+            if process_interrupted:
+                end_ns = record.get("end_host_monotonic_ns")
+                duration = record.get("actual_duration_ms")
+                if (end_ns is None) != (duration is None):
+                    errors.append(f"{prefix}.process_interrupted end timing must be wholly known or unknown")
+                if (end_ns is not None and
+                        (not _is_int(end_ns) or end_ns < record.get("start_host_monotonic_ns", 0))):
+                    errors.append(f"{prefix}.process_interrupted end monotonic time is invalid")
         if _utc(record.get("started_at_utc")) and _utc(record.get("ended_at_utc")):
             if record["ended_at_utc"] < record["started_at_utc"]:
                 errors.append(f"{prefix} stage end precedes start")

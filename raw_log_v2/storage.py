@@ -1,6 +1,6 @@
 """Crash-safe RawLog v2 package writer and recovery."""
 from __future__ import annotations
-import hashlib, json, os, shutil, tempfile
+import hashlib, json, os, shutil, tempfile, uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -105,6 +105,152 @@ def _snapshot_tree(source: Path) -> Tuple[List[Tuple[str, bytes]], str]:
         digest.update(len(payload).to_bytes(8, "big")); digest.update(payload)
     return entries, digest.hexdigest()
 
+
+
+def _reconcile_interrupted_pwm_stages(records: List[Dict[str, Any]], log_id: str,
+                                      measurement_session_id: str,
+                                      recovered_at_utc: str):
+    """Materialize send/ACK-backed stages while leaving the preserved source immutable."""
+    stages = {
+        item.get("stage_index"): item for item in records
+        if isinstance(item, dict) and item.get("record_type") == "PWM_STAGE"
+        and isinstance(item.get("stage_index"), int)
+        and not isinstance(item.get("stage_index"), bool)
+    }
+    lifecycle = {}
+    sample_contexts = {}
+    for item in records:
+        if not isinstance(item, dict):
+            continue
+        if item.get("record_type") == "ADC_SAMPLE" and item.get("stage_assignment") == "confirmed":
+            stage_id, context_id = item.get("stage_id"), item.get("stage_context_id")
+            if isinstance(stage_id, str) and stage_id.startswith("PWM-") and isinstance(context_id, str):
+                try:
+                    index = int(stage_id[4:])
+                except ValueError:
+                    continue
+                sample_contexts.setdefault(index, set()).add(context_id)
+        if item.get("record_type") != "SESSION_EVENT":
+            continue
+        details = item.get("details")
+        if not isinstance(details, dict):
+            continue
+        kind = details.get("kind")
+        index = details.get("stage_index")
+        if (kind not in {"PWM_COMMAND_SENT", "PWM_ACK_RECEIVED", "STAGE_DISARM_ACKNOWLEDGED"}
+                or isinstance(index, bool) or not isinstance(index, int) or not 0 <= index <= 30):
+            continue
+        lifecycle.setdefault(index, {})[kind] = item
+
+    synthesized = []
+    for index in sorted(lifecycle):
+        if index in stages:
+            continue
+        events = lifecycle[index]
+        sent, ack, disarm = (
+            events.get("PWM_COMMAND_SENT"), events.get("PWM_ACK_RECEIVED"),
+            events.get("STAGE_DISARM_ACKNOWLEDGED"),
+        )
+        if sent is None and ack is None:
+            continue
+        source = ack or sent
+        details = source.get("details", {})
+        context_id = details.get("stage_context_id")
+        if not isinstance(context_id, str) or not context_id:
+            candidates = sample_contexts.get(index, set())
+            if len(candidates) == 1:
+                context_id = next(iter(candidates))
+        if not isinstance(context_id, str) or not context_id:
+            continue
+        if any(
+            event is not None and isinstance(event.get("details"), dict)
+            and event["details"].get("stage_context_id") not in (None, context_id)
+            for event in (sent, ack, disarm)
+        ):
+            continue
+
+        sent_details = sent.get("details", {}) if sent else {}
+        ack_details = ack.get("details", {}) if ack else {}
+        disarm_details = disarm.get("details", {}) if disarm else {}
+        sent_utc = sent_details.get("command_sent_at_utc") or ack_details.get("command_sent_at_utc")
+        ack_utc = (ack_details.get("ack_received_at_utc") or ack.get("recorded_at_utc")) if ack else None
+        start_ns = (ack_details.get("ack_received_host_monotonic_ns")
+                    or ack.get("host_monotonic_ns")) if ack else None
+        end_utc = (disarm_details.get("stage_ended_at_utc")
+                   or disarm.get("recorded_at_utc")) if disarm else None
+        end_ns = (disarm_details.get("stage_end_host_monotonic_ns")
+                  or disarm.get("host_monotonic_ns")) if disarm else None
+        completed = (
+            sent is not None and ack is not None and disarm is not None
+            and isinstance(sent_utc, str) and isinstance(ack_utc, str)
+            and isinstance(end_utc, str)
+            and isinstance(start_ns, int) and not isinstance(start_ns, bool)
+            and isinstance(end_ns, int) and not isinstance(end_ns, bool)
+            and end_ns >= start_ns
+        )
+        record_id = str(uuid.uuid5(
+            uuid.NAMESPACE_URL, f"rawlog-v2-recovered-stage:{log_id}:{index}:{context_id}",
+        ))
+        record = {
+            "schema_version": "2.0.0", "record_type": "PWM_STAGE",
+            "record_id": record_id, "record_seq": len(records) + 1,
+            "log_id": log_id, "measurement_session_id": measurement_session_id,
+            "recorded_at_utc": recovered_at_utc,
+            "stage_id": f"PWM-{index:02d}", "stage_index": index,
+            "pwm_command": index, "planned_duration_ms": 10000,
+            "stage_status": "completed" if completed else "aborted",
+            "started_at_utc": ack_utc,
+            "ended_at_utc": end_utc if completed else recovered_at_utc,
+            "start_host_monotonic_ns": start_ns,
+            "end_host_monotonic_ns": end_ns if completed else None,
+            "actual_duration_ms": ((end_ns - start_ns) / 1_000_000) if completed else None,
+            "pwm_command_sent_at_utc": sent_utc,
+            "pwm_applied_ack_received_at_utc": ack_utc,
+            "output_state": "unknown", "stage_context_id": context_id,
+            "termination_reason": "duration_elapsed" if completed else "process_interrupted",
+        }
+        records.append(record)
+        synthesized.append({
+            "stage_index": index, "stage_id": record["stage_id"],
+            "stage_status": record["stage_status"],
+            "termination_reason": record["termination_reason"],
+            "stage_context_id": context_id, "record_id": record_id,
+        })
+    return synthesized
+
+
+def _demote_unmatched_confirmed_adc_samples(records: List[Dict[str, Any]]) -> List[str]:
+    """Keep raw samples but remove stage attribution when recovery cannot prove its PWM_STAGE.
+
+    The immutable .recovery/original copy retains the original confirmed fields.
+    The published recovery package must not claim a stage that has no matching
+    durable PWM_STAGE record.
+    """
+    stages_by_context = {
+        item.get("stage_context_id"): item.get("stage_id")
+        for item in records
+        if isinstance(item, dict) and item.get("record_type") == "PWM_STAGE"
+        and isinstance(item.get("stage_context_id"), str)
+    }
+    demoted = []
+    for item in records:
+        if not isinstance(item, dict) or item.get("record_type") != "ADC_SAMPLE":
+            continue
+        if item.get("stage_assignment") != "confirmed":
+            continue
+        context_id = item.get("stage_context_id")
+        if (isinstance(context_id, str)
+                and stages_by_context.get(context_id) == item.get("stage_id")):
+            continue
+        sample_id = item.get("sample_id")
+        if isinstance(sample_id, str):
+            demoted.append(sample_id)
+        item["stage_assignment"] = "unresolved"
+        item["stage_id"] = None
+        item["stage_context_id"] = None
+    return demoted
+
+
 def _read_recovery_records(raw: bytes):
     boundary = raw.rfind(b"\n") + 1
     complete, tail = raw[:boundary], raw[boundary:]
@@ -121,9 +267,13 @@ def _read_recovery_records(raw: bytes):
     return b"".join(accepted), tail, records, rejected
 
 class RawLogV2Writer:
-    def __init__(self, root):
+    def __init__(self, root, *, checkpoint_interval: int = 10):
+        if (isinstance(checkpoint_interval, bool) or not isinstance(checkpoint_interval, int)
+                or checkpoint_interval < 1):
+            raise ValueError("checkpoint_interval must be a positive integer")
         self.root = Path(root); self.work_root = self.root / ".work"
         self.recovery_root = self.root / ".recovery"
+        self.checkpoint_interval = checkpoint_interval
 
     def begin(self, manifest_fields: Dict[str, Any]):
         missing = {"log_id", "measurement_session_id", "started_at_utc"} - set(manifest_fields)
@@ -282,6 +432,18 @@ class RawLogV2Writer:
         else:
             recovery_time = recovered_at_utc or utc_now()
 
+        source_complete_json_record_count = len(records)
+        recovered_stage_records = _reconcile_interrupted_pwm_stages(
+            records, log_id, state["measurement_session_id"], recovery_time,
+        )
+        if recovered_stage_records:
+            recovered_jsonl += b"".join(
+                _json_bytes(item) for item in records[-len(recovered_stage_records):]
+            )
+
+        recovered_unattributed_adc_sample_ids = _demote_unmatched_confirmed_adc_samples(records)
+        recovered_jsonl = b"".join(_json_bytes(item) for item in records)
+
         counts = {}
         for item in records:
             kind = item.get("record_type")
@@ -299,10 +461,12 @@ class RawLogV2Writer:
                 "recovered_at_utc":recovery_time,"source_work_directory":f".work/{log_id}",
                 "source_tree_sha256":tree_hash,
                 "preserved_files":[{"path":rel,"size_bytes":len(payload),"sha256":_sha256(payload)} for rel,payload in entries],
-                "source_records_sha256":_sha256(raw_records),"complete_json_record_count":len(records),
+                "source_records_sha256":_sha256(raw_records),"complete_json_record_count":source_complete_json_record_count,
                 "incomplete_tail_present":bool(tail),"incomplete_tail_size_bytes":len(tail),
                 "incomplete_tail_sha256":_sha256(tail) if tail else None,
-                "rejected_complete_lines":rejected,"validation_errors":validation,
+                "rejected_complete_lines":rejected,"recovered_stage_records":recovered_stage_records,
+                "recovered_unattributed_adc_sample_ids":recovered_unattributed_adc_sample_ids,
+                "validation_errors":validation,
                 "final_package_path":log_id,"final_records_sha256":_sha256(recovered_jsonl),
                 "final_manifest_sha256":_sha256(_json_bytes(manifest))}
             recovery_record_bytes = _json_bytes(recovery_record)
@@ -362,30 +526,75 @@ class RawLogV2Session:
         self.writer, self.work_dir, self.state = writer, work_dir, state
         self.records_path, self.state_path = work_dir / "records.jsonl", work_dir / "work_state.json"
         self.closed = False
+        self._appends_since_checkpoint = 0
 
     def append(self, record: Dict[str, Any]):
-        if self.closed or self.state.get("phase") != "recording": raise RawLogV2Error("session is not appendable")
-        expected = int(self.state["last_record_seq"]) + 1
-        if record.get("record_seq") != expected: raise ValueError(f"record_seq must be continuous; expected {expected}")
-        if record.get("log_id") != self.state["log_id"]: raise ValueError("record log_id does not match session")
-        if record.get("measurement_session_id") != self.state["measurement_session_id"]:
-            raise ValueError("record measurement_session_id does not match session")
-        payload = _json_bytes(record)
+        self.append_many([record])
+
+    def append_many(self, records: List[Dict[str, Any]]):
+        """Durably append records; persist the recoverable work-state periodically.
+
+        Every call fsyncs records.jsonl before returning. The in-memory record
+        sequence advances only after that fsync succeeds. work_state.json is a
+        checkpoint, not the source of truth: recovery reconstructs the record
+        count and sequence from complete records.jsonl lines, so a crash between
+        checkpoints cannot cause durable records to be discarded or misnumbered.
+        A checkpoint is forced at finalization and at least every configured
+        number of append_many calls.
+        """
+        if self.closed or self.state.get("phase") != "recording":
+            raise RawLogV2Error("session is not appendable")
+        if not isinstance(records, list) or not records:
+            raise ValueError("records must be a non-empty list")
+        first = int(self.state["last_record_seq"]) + 1
+        for offset, record in enumerate(records):
+            expected = first + offset
+            if not isinstance(record, dict):
+                raise TypeError("each record must be an object")
+            if record.get("record_seq") != expected:
+                raise ValueError(f"record_seq must be continuous; expected {expected}")
+            if record.get("log_id") != self.state["log_id"]:
+                raise ValueError("record log_id does not match session")
+            if record.get("measurement_session_id") != self.state["measurement_session_id"]:
+                raise ValueError("record measurement_session_id does not match session")
+        payload = b"".join(_json_bytes(record) for record in records)
         fd = os.open(str(self.records_path), os.O_WRONLY | os.O_APPEND)
         try:
             view = memoryview(payload)
             while view:
                 count = os.write(fd, view)
-                if count <= 0: raise OSError("short append to records.jsonl")
+                if count <= 0:
+                    raise OSError("short append to records.jsonl")
                 view = view[count:]
             os.fsync(fd)
-        finally: os.close(fd)
-        self.state["record_count"] = expected; self.state["last_record_seq"] = expected
-        _atomic_replace_json(self.state_path, self.state)
+        except Exception:
+            self.closed = True
+            raise
+        finally:
+            os.close(fd)
+        self.state["record_count"] = first + len(records) - 1
+        self.state["last_record_seq"] = first + len(records) - 1
+        self._appends_since_checkpoint += 1
+        if self._appends_since_checkpoint >= self.writer.checkpoint_interval:
+            self._persist_work_state_checkpoint()
+        # If no checkpoint is due, the records are still durable. A stale
+        # work_state is intentionally recoverable from the complete JSONL.
+
+    def _persist_work_state_checkpoint(self) -> None:
+        if self.closed:
+            raise RawLogV2Error("session is already closed")
+        try:
+            _atomic_replace_json(self.state_path, self.state)
+        except Exception:
+            self.closed = True
+            raise
+        self._appends_since_checkpoint = 0
 
     def finalize(self, manifest_fields: Dict[str, Any], status: str, ended_at_utc: Optional[str]):
         if status not in {"completed", "aborted"}: raise ValueError("normal finalization status must be completed or aborted")
         if self.closed: raise RawLogV2Error("session is already closed")
+        # Commit the latest count/sequence checkpoint before package publication.
+        self._persist_work_state_checkpoint()
         raw = self.records_path.read_bytes()
         records, parse_errors = parse_complete_jsonl(raw)
         if parse_errors: raise RawLogV2Error("malformed JSONL: " + "; ".join(parse_errors))

@@ -1,6 +1,7 @@
 """Transport abstraction. Wire format is deliberately injected, not specified here."""
 from __future__ import annotations
 from dataclasses import dataclass
+import os
 import threading
 from typing import Optional, Protocol
 
@@ -33,17 +34,23 @@ class SerialTransport(Protocol):
     def send(self, payload: bytes) -> None: ...
     def receive(self, timeout_s: float) -> Optional[bytes]: ...
 
+
 class PySerialTransport:
     """Lazy pySerial adapter; construction never opens a port."""
     def __init__(self, port: str, baudrate: int, timeout_s: float = 0.1,
-                 write_timeout_s: float = 0.25):
+                 write_timeout_s: float = 0.10, startup_delay_s: float = 0.0):
         if (not port or baudrate <= 0 or timeout_s < 0
-                or write_timeout_s <= 0):
+                or write_timeout_s <= 0 or startup_delay_s < 0):
             raise ValueError("invalid serial configuration")
         self.port, self.baudrate, self.timeout_s = port, baudrate, timeout_s
         self.write_timeout_s = write_timeout_s
+        self.startup_delay_s = float(startup_delay_s)
         self._serial = None
         self._flush_failed = False
+        # Only serial.write() is protected; flush waiters never hold this lock.
+        self._write_lock = threading.Lock()
+        self._state_lock = threading.Lock()
+        self._stop_requested = False
 
     def connect(self) -> None:
         if self._serial is not None:
@@ -52,6 +59,12 @@ class PySerialTransport:
             import serial
             self._serial = serial.Serial(self.port, self.baudrate, timeout=self.timeout_s,
                                          write_timeout=self.write_timeout_s)
+            # Opening an Arduino Uno USB serial port may reset the MCU. Allow
+            # setup(), safe GPIO initialization, and EEPROM identity startup
+            # to complete before the first binary HELLO frame is sent.
+            if self.startup_delay_s:
+                import time
+                time.sleep(self.startup_delay_s)
             self._flush_failed = False
         except Exception as exc:
             raise TransportError(f"serial connect failed: {exc}") from exc
@@ -63,37 +76,114 @@ class PySerialTransport:
             finally:
                 self._serial = None
 
+    def _flush_with_deadline(self, timeout_s: float, *, label: str) -> None:
+        # pySerial.flush() has no timeout parameter. Keep it outside the write
+        # lock so a priority STOP can append after the current complete frame.
+        finished = threading.Event()
+        errors = []
+        def flush_worker():
+            try:
+                self._serial.flush()
+            except Exception as exc:
+                errors.append(exc)
+            finally:
+                finished.set()
+        worker = threading.Thread(target=flush_worker, name=f"310-{label}-flush", daemon=True)
+        worker.start()
+        if not finished.wait(max(0.0, timeout_s)):
+            self._flush_failed = True
+            raise TransportError(f"{label} flush deadline expired; delivery outcome unknown")
+        if errors:
+            self._flush_failed = True
+            raise TransportError(f"{label} flush failed; delivery outcome unknown: {errors[0]}")
+
     def send(self, payload: bytes) -> None:
         if self._serial is None:
             raise TransportError("serial port is not connected")
+        with self._state_lock:
+            if self._stop_requested:
+                raise TransportError("STOP has priority; normal TX is permanently inhibited")
         if self._flush_failed:
             raise TransportError("serial TX flush previously timed out; delivery outcome unknown")
+        if not self._write_lock.acquire(timeout=self.write_timeout_s):
+            raise TransportError("serial TX writer deadline expired; delivery outcome unknown")
         try:
+            with self._state_lock:
+                if self._stop_requested:
+                    raise TransportError("STOP has priority; normal TX is permanently inhibited")
             written = self._serial.write(payload)
             if written != len(payload):
-                raise TransportError("short serial write; delivery outcome unknown")
-            # pySerial.flush() has no timeout parameter. Run the real flush in
-            # a daemon worker and bound the caller's wait. If it does not finish
-            # by the deadline, delivery remains UNKNOWN and this transport is
-            # permanently fail-closed; no later PWM may be sent through it.
-            finished = threading.Event()
-            flush_errors = []
-            def flush_worker():
-                try:
-                    self._serial.flush()
-                except Exception as exc:
-                    flush_errors.append(exc)
-                finally:
-                    finished.set()
-            worker = threading.Thread(target=flush_worker, name="310-serial-flush", daemon=True)
-            worker.start()
-            if not finished.wait(self.write_timeout_s):
                 self._flush_failed = True
-                raise TransportError("serial flush deadline expired; delivery outcome unknown")
-            if flush_errors:
-                raise TransportError(f"serial flush failed; delivery outcome unknown: {flush_errors[0]}")
+                raise TransportError("short serial write; delivery outcome unknown")
+        except Exception as exc:
+            self._flush_failed = True
+            raise TransportError(f"serial send failed: {exc}") from exc
+        finally:
+            self._write_lock.release()
+        try:
+            self._flush_with_deadline(self.write_timeout_s, label="serial")
         except Exception as exc:
             raise TransportError(f"serial send failed: {exc}") from exc
+
+    def send_stop_priority(self, payload: bytes, *, timeout_s: float = 0.25) -> None:
+        """Send STOP ahead of normal frames on this one serialized UART.
+
+        The write lock covers only an in-flight serial.write(), never flush(),
+        RawLog work, or a normal command queue. A leading COBS delimiter safely
+        terminates a partial frame before STOP. Once requested, later normal
+        writes are rejected. Caller wait is bounded; timeout remains UNKNOWN.
+        """
+        if (not isinstance(payload, (bytes, bytearray, memoryview)) or not payload
+                or timeout_s <= 0):
+            raise ValueError("STOP payload and positive timeout are required")
+        # Latch first, including the disconnected-port case. Reconnecting this
+        # transport must never silently re-enable ordinary TX after STOP intent.
+        with self._state_lock:
+            self._stop_requested = True
+        if self._serial is None:
+            raise TransportError("serial port is not connected; STOP outcome unknown")
+
+        finished = threading.Event()
+        errors = []
+
+        def stop_worker():
+            acquired = self._write_lock.acquire(
+                timeout=max(0.0, min(timeout_s, self.write_timeout_s))
+            )
+            if not acquired:
+                errors.append(TransportError(
+                    "STOP could not acquire the bounded in-flight serial writer"
+                ))
+                finished.set()
+                return
+            try:
+                # Empty delimiter after a complete frame is ignored; after a
+                # partial frame it discards that frame. Never splice bytes.
+                stop_wire = b"\x00" + bytes(payload)
+                written = self._serial.write(stop_wire)
+                if written != len(stop_wire):
+                    raise TransportError("short priority STOP write; delivery outcome unknown")
+            except Exception as exc:
+                errors.append(exc)
+                finished.set()
+                self._write_lock.release()
+                return
+            self._write_lock.release()
+            try:
+                self._serial.flush()
+            except Exception as exc:
+                errors.append(exc)
+            finally:
+                finished.set()
+
+        worker = threading.Thread(target=stop_worker, name="310-priority-stop", daemon=True)
+        worker.start()
+        if not finished.wait(timeout_s):
+            self._flush_failed = True
+            raise TransportError("priority STOP deadline expired; delivery outcome unknown")
+        if errors:
+            self._flush_failed = True
+            raise TransportError(f"priority STOP outcome unknown: {errors[0]}") from errors[0]
 
     def receive(self, timeout_s: float) -> Optional[bytes]:
         if self._serial is None:
@@ -105,6 +195,87 @@ class PySerialTransport:
             return data or None
         except Exception as exc:
             raise TransportError(f"serial receive failed: {exc}") from exc
+
+class IndependentPySerialStopWriter:
+    """Dedicated pySerial endpoint for STOP; never shares the command transport.
+
+    This class is intentionally separate from PySerialTransport. Configure it
+    only for a dedicated external safety-controller endpoint that can assert the
+    hardware inhibit independently of the motor command UART. A different path
+    does not by itself prove electrical independence or driver cutoff; those
+    require a reviewed wiring design and physical qualification. A pathname
+    resolving to the same tty is rejected by for_rawlog_session.
+    """
+    def __init__(self, port: str, baudrate: int = 57600,
+                 write_timeout_s: float = 0.10, flush_timeout_s: float = 0.10):
+        if not port or baudrate <= 0 or write_timeout_s <= 0 or flush_timeout_s <= 0:
+            raise ValueError("invalid independent STOP serial configuration")
+        self.port = os.path.realpath(port)
+        self.baudrate = baudrate
+        self.write_timeout_s = write_timeout_s
+        self.flush_timeout_s = flush_timeout_s
+        self.worst_case_s = write_timeout_s + flush_timeout_s
+        self._serial = None
+        self._failed = False
+        self._write_lock = threading.Lock()
+
+    def connect(self) -> None:
+        if self._serial is not None:
+            return
+        if self._failed:
+            raise TransportError("independent STOP writer is fail-closed")
+        try:
+            import serial
+            self._serial = serial.Serial(
+                self.port, self.baudrate, timeout=0,
+                write_timeout=self.write_timeout_s,
+            )
+        except Exception as exc:
+            self._failed = True
+            raise TransportError(f"independent STOP serial connect failed: {exc}") from exc
+
+    def __call__(self, payload: bytes) -> None:
+        if not self._write_lock.acquire(blocking=False):
+            raise TransportError("independent STOP write already in progress; outcome unresolved")
+        try:
+            if self._serial is None:
+                raise TransportError("independent STOP serial endpoint is not connected")
+            if self._failed:
+                raise TransportError("independent STOP writer is fail-closed")
+            try:
+                written = self._serial.write(payload)
+                if written != len(payload):
+                    raise TransportError("short independent STOP write; outcome unknown")
+                finished = threading.Event()
+                errors = []
+                def flush_worker():
+                    try:
+                        self._serial.flush()
+                    except Exception as exc:
+                        errors.append(exc)
+                    finally:
+                        finished.set()
+                worker = threading.Thread(
+                    target=flush_worker, name="310-independent-stop-flush", daemon=True
+                )
+                worker.start()
+                if not finished.wait(self.flush_timeout_s):
+                    raise TimeoutError("independent STOP flush deadline expired; outcome unknown")
+                if errors:
+                    raise TransportError(f"independent STOP flush failed: {errors[0]}")
+            except Exception as exc:
+                self._failed = True
+                raise TransportError(f"independent STOP write outcome unknown: {exc}") from exc
+        finally:
+            self._write_lock.release()
+
+    def disconnect(self) -> None:
+        if self._serial is not None:
+            try:
+                self._serial.close()
+            finally:
+                self._serial = None
+
 
 @dataclass
 class MockTransport:

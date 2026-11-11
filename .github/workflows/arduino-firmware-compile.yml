@@ -1,10 +1,16 @@
-name: Arduino Uno Firmware Compile
+name: ATmega328PB Motor Firmware Compile
 
 on:
   workflow_dispatch: {}
   pull_request:
     paths:
       - "firmware/motor/**"
+      - "measurement_310/**"
+      - "raw_log_v2/**"
+      - "raw_log_library/**"
+      - "ui/winding_sweep_panel.py"
+      - "ui/main_window.py"
+      - "app/main.py"
       - ".github/workflows/arduino-firmware-compile.yml"
   push:
     branches:
@@ -13,11 +19,14 @@ on:
       - "firmware/motor/**"
       - ".github/workflows/arduino-firmware-compile.yml"
 
+permissions:
+  contents: read
+
 jobs:
-  compile-arduino-uno:
+  compile-atmega328pb:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout source
+      - name: Checkout exact PR head
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -25,70 +34,82 @@ jobs:
       - name: Set up Arduino CLI
         uses: arduino/setup-arduino-cli@v2
 
-      - name: Install Arduino AVR core
-        run: |
-          arduino-cli core update-index
-          arduino-cli core install arduino:avr@1.8.8
-
-      - name: Compile MOTOR_BREAKIN_V3 for Arduino Uno
+      - name: Install pinned MiniCore and assert ATmega328PB target
         shell: bash
         run: |
           set -euo pipefail
-          sketch_dir="${RUNNER_TEMP}/MotoreRev"
-          mkdir -p "$sketch_dir"
-          cp firmware/motor/MotoreRev.ino "$sketch_dir/MotoreRev.ino"
-          arduino-cli version
-          arduino-cli core list
-          arduino-cli compile --export-binaries --fqbn arduino:avr:uno "$sketch_dir"
-          artifact_dir="${RUNNER_TEMP}/firmware-artifact"
-          mkdir -p "$artifact_dir"
-          hex_file="$(find "$sketch_dir" -type f -name '*.hex' -print -quit)"
-          if [[ -z "$hex_file" ]]; then
-            echo "ERROR: Arduino compile succeeded but no HEX file was found under $sketch_dir"
-            find "$sketch_dir" -maxdepth 5 -type f -print
-            exit 1
-          fi
-          cp "$hex_file" "$artifact_dir/MotoreRev.ino.hex"
+          URL="https://mcudude.github.io/MiniCore/package_MCUdude_MiniCore_index.json"
+          FQBN="MiniCore:avr:328:variant=modelPB,clock=16MHz_external"
+          arduino-cli core update-index --additional-urls "$URL"
+          arduino-cli core install MiniCore:avr@3.1.3 --additional-urls "$URL"
+          PROPERTIES="$(arduino-cli compile --show-properties=expanded --fqbn "$FQBN" firmware/motor/MotoreRevV2)"
+          printf '%s\n' "$PROPERTIES" | grep -Fx 'build.mcu=atmega328pb'
+          printf '%s\n' "$PROPERTIES" | grep -Fx 'build.f_cpu=16000000L'
+          printf '%s\n' "$PROPERTIES" | grep -Fx 'build.variant=pb-variant'
+
+      - name: Compile current Protocol V2 motor firmware
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/motor-pb-build"
+          SKETCH="$ROOT/MotoreRevV2"
+          BUILD="$ROOT/MotoreRevV2-build"
+          ART="$ROOT/artifacts"
+          FQBN="MiniCore:avr:328:variant=modelPB,clock=16MHz_external"
+          mkdir -p "$SKETCH" "$BUILD" "$ART"
+          cp firmware/motor/MotoreRevV2/MotoreRevV2.ino "$SKETCH/MotoreRevV2.ino"
+          cp firmware/motor/ProtocolV2Codec.h "$SKETCH/"
+          cp firmware/motor/BootIdentityJournal.h "$SKETCH/"
+          cp firmware/motor/ProtocolV2Device.h "$SKETCH/"
+          cp firmware/motor/ProtocolV2TxScheduler.h "$SKETCH/"
+          cp firmware/motor/ProtocolV2AdcScheduler.h "$SKETCH/"
+          arduino-cli compile --export-binaries --fqbn "$FQBN" \
+            --build-path "$BUILD" \
+            --build-property "compiler.cpp.extra_flags=-DSERIAL_RX_BUFFER_SIZE=24 -DSERIAL_TX_BUFFER_SIZE=24 -fstack-usage -fno-lto" \
+            --build-property "compiler.c.extra_flags=-fstack-usage -fno-lto" \
+            --build-property "compiler.c.elf.extra_flags=-fno-lto -Wl,-Map=$BUILD/MotoreRevV2.map" \
+            "$SKETCH"
+          ELF="$(find "$BUILD" -type f -name '*.elf' -print -quit)"
+          HEX="$(find "$SKETCH" -type f -name '*.hex' -print -quit)"
+          AVR_SIZE="$(find "$HOME/.arduino15/packages" -type f -path '*/tools/avr-gcc/*/bin/avr-size' -print -quit)"
+          test -n "$ELF" && test -n "$HEX" && test -n "$AVR_SIZE"
+          "$AVR_SIZE" "$ELF" | tee "$ART/MotoreRevV2-avr-size.txt"
+          awk 'NR == 2 { if (($2 + $3) > 900) { print "FAIL: .data + .bss exceeds 900 bytes"; exit 1 } }' "$ART/MotoreRevV2-avr-size.txt"
+          cp "$ELF" "$ART/MotoreRevV2.elf"
+          cp "$HEX" "$ART/MotoreRevV2.hex"
+          cp "$BUILD/MotoreRevV2.map" "$ART/MotoreRevV2.map"
+          find "$BUILD" -type f -name '*.su' -print0 | xargs -0 cat > "$ART/MotoreRevV2-stack-usage-all.txt"
+          test -s "$ART/MotoreRevV2-stack-usage-all.txt"
           {
-            echo "github_sha=$GITHUB_SHA"
+            echo "target_mcu=ATmega328PB"
+            echo "fqbn=$FQBN"
+            echo "clock=16MHz_external"
+            echo "minicore_version=3.1.3"
+            echo "legacy_DATA26_firmware=retired_default_build_guard"
+            echo "BOD_fuse=NOT_CONFIGURED_BY_COMPILE"
+            echo "hardware_upload=NOT_PERFORMED"
+            echo "fuse_or_eeprom_operation=NOT_PERFORMED"
             echo "checked_out_sha=$(git rev-parse HEAD)"
-            echo "fqbn=arduino:avr:uno"
-            echo "arduino_avr_core=1.8.8"
-            grep -E 'FW_BUILD_ID|FW_VERSION' firmware/motor/MotoreRev.ino || true
-            sha256sum "$artifact_dir/MotoreRev.ino.hex"
-          } > "$artifact_dir/build-manifest.txt"
-          echo "HEX artifact staged at $artifact_dir/MotoreRev.ino.hex"
-          cat "$artifact_dir/build-manifest.txt"
+            sha256sum "$ART/MotoreRevV2.hex" "$ART/MotoreRevV2.elf" "$ART/MotoreRevV2.map"
+          } > "$ART/build-manifest.txt"
 
-      - name: Verify firmware CAL and host-owned control contract
+      - name: Compile boot identity provisioner (compile-only)
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          source = Path("firmware/motor/MotoreRev.ino").read_text()
-          loop = source[source.index("void loop()"):source.index("* FUNC-151 : setState()")]
-          command = source[source.index("void processCommand(const char *cmd)"):source.index("SECTION 19 : Response Functions")]
-          assert "voltageControlUpdate();" not in loop, "host owns normal voltage feedback"
-          assert 'Serial.print(F("CAL,ACS1_ZERO="))' in source, "CAL output missing"
-          assert "calibrateACS712(false);" in command, "ARM must refresh offsets after STOP/READY"
-          for direction, starter in (("START", None), ("FWD", "startForward"), ("REV", "startReverse")):
-              pos = command.index('if (strcmp(command, "' + direction + '") == 0)')
-              block = command[pos:pos + 220]
-              assert "sendCalibration();" in block, f"missing CAL snapshot on {direction}"
-              if starter:
-                  assert block.index("sendCalibration();") < block.index(starter + "();"), f"CAL must precede {direction}"
-          resume_pos = command.index('if (strcmp(command, "RESUME") == 0)')
-          resume_block = command[resume_pos:resume_pos + 800]
-          assert "sendCalibration();" in resume_block and resume_block.index("sendCalibration();") < resume_block.index("setState(STATE_RUN);")
-          assert "sendLog(" not in source[source.index("void sendCalibration()"):source.index("void sendInfo()")], "CAL must not enter DATA serialization"
-          print("Firmware CAL/host-control source contract checks passed")
-          PY
+          FQBN="MiniCore:avr:328:variant=modelPB,clock=16MHz_external"
+          ROOT="$RUNNER_TEMP/provisioner-pb"
+          mkdir -p "$ROOT/ProvisionBootIdentity"
+          cp firmware/motor/ProvisionBootIdentity/ProvisionBootIdentity.ino "$ROOT/ProvisionBootIdentity/"
+          cp firmware/motor/BootIdentityJournal.h "$ROOT/ProvisionBootIdentity/"
+          arduino-cli compile --fqbn "$FQBN" "$ROOT/ProvisionBootIdentity"
+          echo "Compile only: no EEPROM write and no upload."
 
-      - name: Upload compiled Uno firmware
+      - name: Upload ATmega328PB compile evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: motor-arduino-uno-firmware
-          path: ${{ runner.temp }}/firmware-artifact/*
-          if-no-files-found: error
-          retention-days: 14
+          name: atmega328pb-motor-firmware-compile
+          path: ${{ runner.temp }}/motor-pb-build/artifacts/
+          if-no-files-found: warn
+          retention-days: 30

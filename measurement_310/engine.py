@@ -245,6 +245,23 @@ class SequenceController:
             self._log_write_failed = True
             raise
 
+    def _assert_rearm_not_inhibited(self) -> None:
+        """Apply the persistent recovery gate before every sequence PWM entry path."""
+        root = self.writer.root
+        if root.is_symlink() or not root.is_dir():
+            raise SequenceError("RawLog root is missing, symlinked, or not a directory")
+        for name in (".310-rearm-inhibited", ".310-evidence-reconciliation-required"):
+            marker = root / name
+            if marker.is_symlink():
+                raise SequenceError(f"{name} must not be a symlink")
+            if marker.exists():
+                if not marker.is_file():
+                    raise SequenceError(f"{name} is not a regular file")
+                raise SequenceError(
+                    f"automatic re-arm is inhibited by {name}; explicit command-outcome "
+                    "reconciliation and independent safe-state confirmation are required"
+                )
+
     def _begin_stage(self, index: int) -> None:
         if self.state in {SequenceState.FAULT, SequenceState.ABORTED, SequenceState.STOPPING}:
             return
@@ -258,6 +275,7 @@ class SequenceController:
         self.stage_start_utc = None
         self.next_deadline_ns = None
         try:
+            self._assert_rearm_not_inhibited()
             # send_pwm returns UTC after transport write/flush completes.
             # Capture monotonic time immediately afterwards so ACK timeout and
             # send-to-ACK delay exclude time spent inside the blocking send.
@@ -332,6 +350,10 @@ class SequenceController:
                                  host_monotonic_ns=self.stage_start_ns,
                                  details={"kind": "PWM_ACK_RECEIVED",
                                           "stage_index": self.stage_index,
+                                          "stage_id": f"PWM-{self.stage_index:02d}",
+                                          "stage_context_id": self.stage_context_id,
+                                          "command_sent_at_utc": self.command_sent_utc,
+                                          "ack_received_at_utc": ack_utc,
                                           "command_sent_host_monotonic_ns": self.command_sent_ns,
                                           "ack_received_host_monotonic_ns": self.stage_start_ns,
                                           "command_to_ack_delay_ms":
@@ -354,6 +376,7 @@ class SequenceController:
                                 0: "A0", 1: "A1", 2: "A2", 3: "A3", 4: "A4", 5: "A5"
                             }
                             boot_id = int(self.protocol_session.boot_id64)
+                            batch_records = []
                             for sample in samples:
                                 status = int(sample["acquisition_status"])
                                 channel = channel_names[int(sample["channel_code"])]
@@ -363,28 +386,33 @@ class SequenceController:
                                     2: "CONVERSION_TIMEOUT",
                                     3: "NOT_ACQUIRED",
                                 }.get(status)
-                                self.record_adc_sample(
-                                    channel=channel,
-                                    adc_raw=int(sample["adc_raw"]) if valid else None,
-                                    adc_resolution_bits=10,
-                                    device_timestamp_us_u32=int(sample["timestamp_us_u32"]),
-                                    device_timestamp_point=(
-                                        "scheduled_slot_start" if status == 3
-                                        else "conversion_midpoint" if valid
-                                        else "attempt_timestamp"
+                                batch_records.append({
+                                    "channel": channel,
+                                    "adc_raw": int(sample["adc_raw"]) if valid else None,
+                                    "adc_resolution_bits": 10,
+                                    "device_timestamp_us_u32": (
+                                        int(sample["timestamp_us_u32"]) if valid else None
                                     ),
-                                    device_epoch_id=f"{boot_id:016X}",
-                                    device_elapsed_us=int(sample["device_elapsed_us"]),
-                                    device_sample_sequence=int(sample["sample_sequence64"]),
-                                    validity="valid" if valid else "invalid",
-                                    invalid_reason=reason,
-                                    stage_assignment_override=(
+                                    # v0.5 fixes the timestamp-point convention.
+                                    # The timestamp itself is null for unavailable slots.
+                                    "device_timestamp_point": "conversion_midpoint",
+                                    "device_epoch_id": f"{boot_id:016X}",
+                                    "device_elapsed_us": (
+                                        int(sample["device_elapsed_us"])
+                                        if valid and sample.get("device_elapsed_us") is not None
+                                        else None
+                                    ),
+                                    "device_sample_sequence": int(sample["sample_sequence64"]),
+                                    "validity": "valid" if valid else "unavailable",
+                                    "invalid_reason": reason,
+                                    "stage_assignment_override": (
                                         "unresolved" if status == 3 else "confirmed"
                                     ),
-                                    stage_context_id_override=(
+                                    "stage_context_id_override": (
                                         None if status == 3 else self.stage_context_id
                                     ),
-                                )
+                                })
+                            self.record_adc_samples(batch_records)
                     except Exception as exc:
                         self.abort("communication_lost", fault=f"ADC telemetry processing failed: {exc}")
                         return self.state
@@ -410,7 +438,10 @@ class SequenceController:
                 "SESSION_EVENT", event="OTHER", host_monotonic_ns=end_ns,
                 details={"kind": "STAGE_DISARM_ACKNOWLEDGED",
                          "stage_index": self.stage_index,
+                         "stage_id": f"PWM-{self.stage_index:02d}",
                          "stage_context_id": self.stage_context_id,
+                         "stage_ended_at_utc": end_utc,
+                         "stage_end_host_monotonic_ns": end_ns,
                          "direction": self.current_stage_direction},
             )
         self._append("PWM_STAGE", stage_id=f"PWM-{self.stage_index:02d}",
@@ -424,6 +455,69 @@ class SequenceController:
                      output_state="unknown", stage_context_id=self.stage_context_id,
                      termination_reason="duration_elapsed")
         self._stage_recorded = True
+
+    def record_adc_samples(self, samples: list[dict]) -> None:
+        """Persist one validated protocol ADC_BATCH as one RawLog durability unit."""
+        from raw_log_v2.validator import CHANNELS
+        if not isinstance(samples, list) or len(samples) != 12:
+            raise ValueError("protocol ADC sample batch must contain exactly 12 samples")
+        if self.session is None:
+            raise SequenceError("RawLog session is not open")
+        records = []
+        base_seq = int(self.session.state["last_record_seq"]) + 1
+        for offset, sample in enumerate(samples):
+            channel = sample["channel"]
+            if channel not in CHANNELS:
+                raise ValueError("unknown ADC channel")
+            bits = sample["adc_resolution_bits"]
+            if isinstance(bits, bool) or not isinstance(bits, int) or not 1 <= bits <= 32:
+                raise ValueError("adc_resolution_bits must be 1..32")
+            sensor, role = CHANNELS[channel]
+            now_ns = self.clock.monotonic_ns()
+            override = sample.get("stage_assignment_override")
+            if override is None:
+                confirmed = self.state == SequenceState.RUNNING and self.stage_context_id is not None
+                context_id = self.stage_context_id if confirmed else None
+            else:
+                if override not in {"confirmed", "unresolved"}:
+                    raise ValueError("stage_assignment_override must be confirmed or unresolved")
+                confirmed = override == "confirmed"
+                context_id = sample.get("stage_context_id_override") if confirmed else None
+                if confirmed and not context_id:
+                    raise ValueError("confirmed sample requires stage_context_id_override")
+            records.append({
+                "schema_version": "2.0.0", "record_type": "ADC_SAMPLE",
+                "record_id": str(uuid.uuid4()), "record_seq": base_seq + offset,
+                "log_id": self.session.state["log_id"],
+                "measurement_session_id": self.session.state["measurement_session_id"],
+                "recorded_at_utc": self.clock.utc_now(),
+                "sample_id": str(uuid.uuid4()), "channel": channel, "sensor": sensor,
+                "signal_role": role, "adc_raw": sample["adc_raw"],
+                "adc_resolution_bits": bits, "raw_unit": "count",
+                "device_timestamp_us_u32": sample["device_timestamp_us_u32"],
+                "device_timestamp_point": sample["device_timestamp_point"],
+                "device_epoch_id": sample["device_epoch_id"],
+                "device_elapsed_us": sample["device_elapsed_us"],
+                "device_sample_sequence": sample["device_sample_sequence"],
+                "host_received_at_utc": self.clock.utc_now(),
+                "host_received_monotonic_ns": now_ns,
+                "stage_context_id": context_id,
+                "stage_id": f"PWM-{self.stage_index:02d}" if confirmed else None,
+                "stage_assignment": "confirmed" if confirmed else "unresolved",
+                "calibration_id": None, "validity": sample["validity"],
+                "invalid_reason": sample["invalid_reason"],
+            })
+        try:
+            if self.session is None:
+                raise SequenceError("RawLog session is not open")
+            self.session.append_many(records)
+        except Exception as exc:
+            # append_many may have written a partial/torn tail or durable records
+            # without a durable work-state update. Never append another record
+            # to this work area; startup recovery must reconcile the bytes.
+            self._log_write_failed = True
+            self.abort("storage_failure", fault=f"RawLog ADC_SAMPLE batch append failed: {exc}")
+            raise SequenceError("ADC sample batch storage failed; sequence stopped") from exc
 
     def record_adc_sample(
         self, channel: str, adc_raw: Optional[int], adc_resolution_bits: int,

@@ -74,6 +74,12 @@ def test_companion_verifier_detects_evidence_sidecar_tampering(tmp_path):
     session_id, package, journal = make_bundle(tmp_path)
     write_evidence_bundle_manifest(package, journal, session_id)
     with journal.path.open("ab") as stream:
-        stream.write(b"{}\\n")
+        stream.write(b"{}\n")
     with pytest.raises(EvidenceBundleError, match="Evidence sidecar checksum"):
         verify_evidence_bundle(package, journal, session_id)
+
+
+def test_companion_writer_rejects_mismatched_rawlog_session_id(tmp_path):
+    session_id, package, journal = make_bundle(tmp_path)
+    with pytest.raises(EvidenceBundleError, match="session UUID mismatch"):
+        write_evidence_bundle_manifest(package, journal, "00000000-0000-4000-8000-000000000001")
