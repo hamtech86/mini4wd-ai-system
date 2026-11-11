@@ -116,7 +116,10 @@ class PySerialTransport:
             raise TransportError(f"serial send failed: {exc}") from exc
         finally:
             self._write_lock.release()
-        self._flush_with_deadline(self.write_timeout_s, label="serial")
+        try:
+            self._flush_with_deadline(self.write_timeout_s, label="serial")
+        except Exception as exc:
+            raise TransportError(f"serial send failed: {exc}") from exc
 
     def send_stop_priority(self, payload: bytes, *, timeout_s: float = 0.25) -> None:
         """Send STOP ahead of queued normal frames on this one UART.
