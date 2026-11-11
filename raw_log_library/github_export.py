@@ -26,21 +26,54 @@ class GitHubRawLogExporter:
         if status.get("status")=="REGISTERED":
             raise GitHubRegistrationError(f"{log_id} is already registered on GitHub.")
         record,raw_path,_=self.library.get(log_id)
-        raw_body=self.library.read_raw(log_id)
-        raw_rel=self._raw_path(record); metadata_rel=self._metadata_path(record)
         metadata=asdict(record)
-        # History is local UI management state and must never be exported.
         metadata.pop("history_registered", None)
-        metadata.update(raw_source=str(raw_path),registered_at=datetime.now(timezone.utc).isoformat(),
-                        repository=self.repository,raw_path=raw_rel,metadata_path=metadata_rel)
+        metadata.update(registered_at=datetime.now(timezone.utc).isoformat(),
+                        repository=self.repository)
+
         try:
-            raw_result=self._put_file(raw_rel,raw_body,f"Register Raw Log {log_id}",allow_update=False)
-            metadata_result=self._put_file(metadata_rel,json.dumps(metadata,ensure_ascii=False,indent=2)+"\n",
-                                           f"Register Metadata {log_id}",allow_update=False)
+            if raw_path.suffix == ".v2ref":
+                package_dir = self.library.root.parent / "raw_logs_v2" / log_id
+                manifest_path = package_dir / "manifest.json"
+                records_path = package_dir / "records.jsonl"
+                if not manifest_path.is_file() or not records_path.is_file():
+                    raise GitHubRegistrationError(f"{log_id}: RawLog v2 package files are incomplete.")
+                manifest_text = manifest_path.read_text(encoding="utf-8")
+                manifest = json.loads(manifest_text)
+                if manifest.get("status") == "STARTED":
+                    raise GitHubRegistrationError(f"{log_id}: package is still STARTED; finalize or recover it before GitHub registration.")
+                records_text = records_path.read_text(encoding="utf-8")
+                remote_base = f"{record.device_type.lower()}/{self._individual_storage_id(record)}/{log_id}"
+                remote_manifest = f"{remote_base}/manifest.json"
+                remote_records = f"{remote_base}/records.jsonl"
+                raw_result = self._put_file(
+                    remote_manifest, manifest_text, f"Register RawLog v2 manifest {log_id}", allow_update=False
+                )
+                records_result = self._put_file(
+                    remote_records, records_text, f"Register RawLog v2 records {log_id}", allow_update=False
+                )
+                raw_rel = remote_records
+                metadata_rel = self._metadata_path(record)
+                metadata.update(raw_source=str(package_dir), raw_path=raw_rel,
+                                manifest_path=remote_manifest, metadata_path=metadata_rel)
+            else:
+                raw_body=self.library.read_raw(log_id)
+                raw_rel=self._raw_path(record)
+                metadata_rel=self._metadata_path(record)
+                metadata.update(raw_source=str(raw_path),raw_path=raw_rel,metadata_path=metadata_rel)
+                raw_result=self._put_file(raw_rel,raw_body,f"Register Raw Log {log_id}",allow_update=False)
+                records_result=raw_result
+
+            metadata_result=self._put_file(
+                metadata_rel,json.dumps(metadata,ensure_ascii=False,indent=2)+"\\n",
+                f"Register Metadata {log_id}",allow_update=False
+            )
         except Exception as exc:
             self.library.set_github_status(log_id,status="FAILED",error=str(exc))
+            if isinstance(exc, GitHubRegistrationError):
+                raise
             raise GitHubRegistrationError(str(exc)) from exc
-        commit=metadata_result.get("commit",{}).get("sha") or raw_result.get("commit",{}).get("sha")
+        commit=metadata_result.get("commit",{}).get("sha") or records_result.get("commit",{}).get("sha") or raw_result.get("commit",{}).get("sha")
         result={"status":"REGISTERED","repository":self.repository,"raw_path":raw_rel,
                 "metadata_path":metadata_rel,"commit":commit,"registered_at":metadata["registered_at"]}
         self.library.set_github_status(log_id,**result)
