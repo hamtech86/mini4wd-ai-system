@@ -45,8 +45,15 @@ class ProtocolV2HostSession:
         worst_case = getattr(stop_writer, "worst_case_s", None)
         priority_stop = getattr(transport, "send_stop_priority", None)
         if stop_writer is None and callable(priority_stop):
-            # The transport owns the single serialized UART writer and priority
-            # arbitration; a second physical endpoint is not required.
+            # Bound the one possible in-flight ordinary write plus the STOP
+            # write to less than the caller deadline. flush() is not under this
+            # lock and therefore cannot consume the priority write budget.
+            write_bound = getattr(transport, "write_timeout_s", None)
+            if (isinstance(write_bound, bool) or not isinstance(write_bound, (int, float))
+                    or write_bound <= 0 or 2 * write_bound >= stop_timeout_s):
+                raise ValueError(
+                    "same-UART write timeout must be less than half the STOP caller deadline"
+                )
             return
         if stop_writer is None or not callable(stop_writer) or not stop_port:
             raise ValueError(
