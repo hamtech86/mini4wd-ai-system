@@ -245,6 +245,23 @@ class SequenceController:
             self._log_write_failed = True
             raise
 
+    def _assert_rearm_not_inhibited(self) -> None:
+        """Apply the persistent recovery gate before every sequence PWM entry path."""
+        root = self.writer.root
+        if root.is_symlink() or not root.is_dir():
+            raise SequenceError("RawLog root is missing, symlinked, or not a directory")
+        for name in (".310-rearm-inhibited", ".310-evidence-reconciliation-required"):
+            marker = root / name
+            if marker.is_symlink():
+                raise SequenceError(f"{name} must not be a symlink")
+            if marker.exists():
+                if not marker.is_file():
+                    raise SequenceError(f"{name} is not a regular file")
+                raise SequenceError(
+                    f"automatic re-arm is inhibited by {name}; explicit command-outcome "
+                    "reconciliation and independent safe-state confirmation are required"
+                )
+
     def _begin_stage(self, index: int) -> None:
         if self.state in {SequenceState.FAULT, SequenceState.ABORTED, SequenceState.STOPPING}:
             return
@@ -258,6 +275,7 @@ class SequenceController:
         self.stage_start_utc = None
         self.next_deadline_ns = None
         try:
+            self._assert_rearm_not_inhibited()
             # send_pwm returns UTC after transport write/flush completes.
             # Capture monotonic time immediately afterwards so ACK timeout and
             # send-to-ACK delay exclude time spent inside the blocking send.
@@ -372,16 +390,20 @@ class SequenceController:
                                     "channel": channel,
                                     "adc_raw": int(sample["adc_raw"]) if valid else None,
                                     "adc_resolution_bits": 10,
-                                    "device_timestamp_us_u32": int(sample["timestamp_us_u32"]),
-                                    "device_timestamp_point": (
-                                        "scheduled_slot_start" if status == 3
-                                        else "conversion_midpoint" if valid
-                                        else "attempt_timestamp"
+                                    "device_timestamp_us_u32": (
+                                        int(sample["timestamp_us_u32"]) if valid else None
                                     ),
+                                    # v0.5 fixes the timestamp-point convention.
+                                    # The timestamp itself is null for unavailable slots.
+                                    "device_timestamp_point": "conversion_midpoint",
                                     "device_epoch_id": f"{boot_id:016X}",
-                                    "device_elapsed_us": int(sample["device_elapsed_us"]),
+                                    "device_elapsed_us": (
+                                        int(sample["device_elapsed_us"])
+                                        if valid and sample.get("device_elapsed_us") is not None
+                                        else None
+                                    ),
                                     "device_sample_sequence": int(sample["sample_sequence64"]),
-                                    "validity": "valid" if valid else "invalid",
+                                    "validity": "valid" if valid else "unavailable",
                                     "invalid_reason": reason,
                                     "stage_assignment_override": (
                                         "unresolved" if status == 3 else "confirmed"

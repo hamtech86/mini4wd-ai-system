@@ -43,14 +43,14 @@
 |---|---|---|---|
 | HW01 | 無通電でMCU marking・基板revision・回路図を同定。通電read-only signatureは別途条件確定後 | 写真、型番、revision、signature、clock根拠 | 最初に実施。現状BLOCKED |
 | HW02 | Fuse/BODをread-onlyで取得し、対象MCU datasheetと照合。Fuse writeは禁止 | 生dump、MCU identity、BOD設定、16MHz時の保証根拠 | HW01後。内部4.3V BODだけではPASSにしない |
-| HW03 | 外部supervisor/hold-up回路の実装とthreshold/reset/hold-upを、motor/driver切離し治具で確認 | 部品型番、回路図、測定波形、reset出力、hold-up時間 | HW01・電源/回路情報確定後。実装なし/証拠なしはFAIL/BLOCKED |
-| HW04 | driver切離し状態で電圧低下を模擬し、PWM=0、D7/D8 LOW、ARM無効、no auto-resumeを確認 | 入力電圧とreset/enable/PWM波形、状態ログ | HW03合格後 |
+| HW03 | 外部supervisor/hold-up回路の必要性を電源条件・故障シナリオから評価。必要な場合のみ実装とthreshold/reset/hold-upを確認 | 必要と判断した場合の部品型番、回路図、測定波形、reset出力、hold-up時間 | HW01・電源/回路情報確定後。未実装のみを自動FAILとしない |
+| HW04 | driver切離し状態でreset/電圧低下後のPWM=0、D7/D8 LOW、ARM無効、no auto-resumeを確認 | 入力電圧とreset/enable/PWM波形、状態ログ | MCU/電源条件の同定後。外部supervisorを必須前提にしない |
 | HW05 | motor/driver切離し状態でEEPROM journal各write境界の電源断・再起動を検証 | 各境界のEEPROM dump、BOOT_ID/journal判定、invalid/unknown時fail-closed証拠 | HW01–04の電源条件確定後。Fuse操作なし |
 | HW06 | traceable sourceでA0〜A5を個別入力しraw/status/timestamp/校正/settlingを照合 | 入力値、ADC raw、timestamp、channel独立性、誤差・不確かさ | ADC前段・VREF・入力範囲確定後。A0/A1は独立、A2/A3はraw reference only、A4/A5も独立 |
-| HW07 | motor切離し状態でSTOP、通信断、TX full、ADC batch中STOPを注入し、GPIO/driver enableを観測 | PWM=0、D7/D8 LOW、ARM invalid、no auto-resume、独立STOP経路、STOP latency、L298N cutoff波形 | 独立STOP/cutoff回路と観測点が確定した後 |
-| HW08 | PWM 0–30、各10,000ms、31段階=310,000msの統合実機測定 | 31段階のPython command/ACK、全ADC/RawLog/Evidence、電流制限・温度・停止監視、異常時独立cutoff記録 | HW01–07と全software gate合格後。**別途明示承認が必要** |
+| HW07 | ソフトウェアSTOP優先処理を確認し、独立物理STOP/cutoffの必要性を主電源遮断を含めて評価 | ソフトウェア状態遷移・出力OFFの証拠。独立cutoffが必要と判断した場合のみ回路/波形/停止時間 | MCU停止時の影響、主電源スイッチの位置/遮断性、追加回路コストを比較 |
+| HW08 | PWM 0–30、各10,000ms、31段階=310,000msの統合実機測定 | 31段階のPython command/ACK、必要なADC/RawLog/Evidence、電流制限・温度監視、主電源遮断手順。独立cutoffはリスク評価で必要と判断した場合 | 電源/配線/current limit/熱条件の必要確認後。**別途明示承認が必要** |
 
-HW08は出力最大値探索ではない。Pythonが31段階を管理し、Arduinoは指令されたPWMを適用するだけ。現行310 sequenceは正転のみ。実測開始は独立current limitと独立cutoffが実証されるまで禁止。
+HW08は出力最大値探索ではない。Pythonが31段階を管理し、Arduinoは指令されたPWMを適用するだけ。現行310 sequenceは正転のみ。実測開始は電源・配線・current limit・熱条件を確認し、別途明示承認を得るまで禁止。独立cutoffはリスク評価で必要と判断した場合に限る。
 
 ## 4. 310-5 software/host側の未閉鎖ゲート
 
@@ -82,9 +82,9 @@ Code/test source HEAD: `3b065388501d4be91f39b5c6d197cecf52c53f17`
 310-5の正式受入は、次をすべて満たした後に一度だけ提出する。
 
 1. T01–T18の全必須項目について、対象HEAD・実行条件・証拠をひも付け、PASS/FAIL/BLOCKED/NOT RUNを明示する。
-2. HW01–HW07が合格し、current limit、external supervisor、独立STOP/cutoff、EEPROM/BOD/ADC条件を実証する。
-3. T18 target-host production pathとR01 reconciliationが完了する。
-4. HW08の310秒測定は、独立current limitとcutoffの確認後、別途明示承認を得て実施し、証拠を保存する。
+2. KEEP対象の現物確認を完了し、INVESTIGATE対象（external supervisor、独立STOP/cutoff、EEPROM/BOD等）は必要性・不要とする理由・残留リスク・運用条件を記録する。モーター通電前に電源、配線、電流制限、熱保護の実機条件を確認する。
+3. T18 target-host profileは診断結果として実施・記録する。未実施または時間超過のみで自動FAILとせず、データ整合性・制御境界への具体的影響を審査する。R01はUNKNOWNの誤認と自動再始動を防ぐ最小要件を満たす。
+4. HW08の310秒測定は、current limitと電源/配線/熱条件の必要確認後、別途明示承認を得て実施し、証拠を保存する。独立cutoffを必須とするかはリスク評価で決定する。
 5. 上位司令塔が最終審査し、正式受入を宣言する。
 
 **現時点の判定: 310-5 NOT ACCEPTED。310-6 UI統合は未着手。**
@@ -114,11 +114,11 @@ The controlling test definitions are `docs/310/310-4-implementation-acceptance-t
 | T17 Loss / companion package | Software verifies companion manifest, RawLog/Evidence hashes and tamper cases; hosted profile verifies loss-window summaries. | Target-host restore and real interrupted-storage reconciliation remain NOT RUN. |
 | T18 fsync / deadline | 10,000-sample target-host synthetic fsync profile exists; GitHub-hosted production path completed 31 stages with all 310 loss summaries. | Actual target-host full production-path profile, including command intent, Evidence, RawLog finalize/recovery and backup/restore, remains NOT RUN. |
 
-**Formal disposition remains NOT ACCEPTED.** The table records software evidence only; it does not convert any physical subtest to PASS. The outstanding R01, T13/T15 physical qualification, T16 analog reference qualification, T18 target-host production profile and HW01–HW08 gates must close before formal 310-5 acceptance.
+**Formal disposition remains NOT ACCEPTED.** The table records software evidence only; it does not convert any physical subtest to PASS. The remaining KEEP items and INVESTIGATE decisions in the 2026-11-09 risk-based reassessment must be closed or explicitly accepted with residual-risk rationale before formal 310-5 acceptance. NOT APPLICABLE decisions must be documented; no blanket HW01–HW08 pass requirement is implied.
 
 ## 7. One required target-host software run
 
-The remaining T18 target-host production-path run uses only `InMemoryProtocolV2Transport` and `InMemoryIndependentStopWriter`. It does not open `/dev/ttyACM0`, `/dev/ttyUSB0`, or any serial device, and it does not energize hardware. It performs real RawLog, command-intent, Evidence and filesystem fsync operations on the selected host filesystem.
+The optional T18 target-host diagnostic uses only `InMemoryProtocolV2Transport` and `InMemoryIndependentStopWriter`. It does not open `/dev/ttyACM0`, `/dev/ttyUSB0`, or any serial device, and it does not energize hardware. It performs real RawLog, command-intent, Evidence and filesystem fsync operations on the selected host filesystem.
 
 Run it from the existing local clone on the target storage, using a **new output root**. The previous incomplete root and its `.310-rearm-inhibited` marker are left untouched:
 
@@ -132,6 +132,110 @@ python -m measurement_310.t18_production_profile \
   --output-dir ./artifacts/310-t18-production-final-20261108-01
 ```
 
-The expected output directory contains `t18-production-profile.json`, `t18-production-stage-profile.csv`, their checksum, and a `rawlog/` tree. The JSON includes per-stage fsync target counts/total/max, p50/p95/p99/p99.9/max, stage timing, RawLog/Evidence/intent hashes, 310 loss-window summaries and validation results. A PASS requires all 31 stages under 8 seconds, 3,100 ADC_BATCH frames, 37,200 ADC_SAMPLE records, 310 passing loss-window summaries, verified companion Evidence bundle and exactly one normal-completion STOP_REQ through the in-memory writer.
+The expected output directory contains `t18-production-profile.json`, `t18-production-stage-profile.csv`, their checksum, and a `rawlog/` tree. The JSON includes per-stage fsync target counts/total/max, p50/p95/p99/p99.9/max, stage timing, RawLog/Evidence/intent hashes, 310 loss-window summaries and validation results. A PASS requires 31 stages, 3,100 ADC_BATCH frames, 37,200 ADC_SAMPLE records, 310 passing loss-window summaries, verified companion Evidence bundle and exactly one normal-completion STOP_REQ through the in-memory writer. Stage elapsed time is observational only and is not an acceptance gate.
 
-If this command fails or stalls, preserve the output root and process/storage evidence. Do not delete the output, remove the old marker, kill a D-state process, or rerun over the same output path. This run closes only T18 target-host software/storage evidence; it does not authorize or replace HW01–HW08.
+If this command fails or stalls, preserve the output root and process/storage evidence. Do not delete the output, remove the old marker, kill a D-state process, or rerun over the same output path. This diagnostic contributes target-host software/storage evidence only; it does not authorize or replace any separately approved hardware qualification.
+
+
+---
+
+## 2026-11-09司令塔訂正：リスクベース再評価によるT18 / HW資格条件の更新
+
+本節は上記の旧記述のうち、8,000ms合否条件および一律必須の物理保護要求に優先する。Issue #35の2026-11-09リスクベース再評価基準を適用する。
+
+### T18の扱い
+- 8,000ms stage ceiling、STOP reserve 1,000ms、追加margin 1,000msを用いた合否判定は廃止する。
+- stage elapsed、p50/p95/p99/p99.9/max、fsync target別時間、finalization時間は診断値として保持する。
+- T18のPASS/FAILは、stage/batch/sample件数、ADC loss windowの整合、RawLog validation、Evidence bundle、command-intent記録、normal completion STOP_REQ等のデータ・イベント整合性で判断する。
+- target-host profileは実際のfilesystem性能と保存/復旧挙動を把握する診断として残す。8秒を超えたことだけを理由に310-5を停止しない。
+- 遅延がstage progression、実際に要求されたSTOP処理、指令結果の照合、データ整合性を阻害した場合は、その具体的影響を別途評価する。
+
+### HW01–HW08の扱い
+- HW01のMCU・基板・配線同定と、電源/電流制限/保護素子/発熱条件の確認は、機器損傷防止のため優先する。
+- HW02のFuse/BOD確認、HW03の外部supervisor、HW05のEEPROM全write境界電源断、HW07の独立STOP回路は、すべて一律必須とせず、現物条件と故障シナリオに基づき必要性を判断する。Fuse writeは禁止のまま。
+- HW04のreset後出力OFF・ARM無効・no auto-resumeは維持する。resetそのものを防止することは要求しない。
+- HW06は現行の測定目的に必要なADC入力を対象にし、A0/A4/A5とA1/A2/A3の役割を混同しない。
+- HW07はソフトウェアSTOP経路の動作確認と、独立物理STOP/cutoffの必要性判断を分ける。手の届く主電源遮断スイッチを運用条件として評価する。
+- HW08の310秒実機測定は、電源・配線・current limitの確認後に別途明示承認を得る。今回の訂正はHW08の実施許可ではない。
+
+### 正式受入の表記
+- T18 target-host診断の未実施または8秒超過のみを310-5の自動FAIL条件にしない。実施済みの診断値と未実施理由/残留リスクは正直に報告する。
+- R01は、UNKNOWNをSUCCESSにしないこと、reset/recovery後に古いnonzero commandを自動再送・自動再開しないことを維持する。全コマンド同期fsync/hash-chain、全履歴の個別operator decision、独立物理safe-state assertionを一律必須とするかは再評価する。
+- 受入に必要な残りの項目は、Issue #35およびdocs/310/310-5-risk-based-reassessment-2026-11-09.mdの分類と理由に従って確定する。
+
+この訂正も、310-5正式受入、310-6移行、Arduino/serial接続、firmware upload、Fuse/EEPROM操作、motor energization、310秒実測の許可ではない。HARDWARE_CURRENT_LIMIT_CONFIRMED=falseを維持する。
+
+
+---
+
+## 2026-11-10 追記：現行310-5候補のtarget-host T18診断手順
+
+本節は旧Section 7のtarget-host実行例を補正する。旧例の `integration/310-5-unified-candidate` はPR #193の最新コード候補ではないため、現行候補の診断には使用しない。
+
+### 実行対象と位置付け
+
+- PR #193 current branch: `fix/310-5-t18-durable-batching`
+- この追記直前のPR HEAD: `018cd69ec7a1eb5138de514100e741a236ca55e5`
+- この追記を反映した文書commit: `7f7ed66822b37d7851752eecbbe6db5906241d3a`（文書のみ）
+- 現行コード検証HEAD: `7d53858db2f7b07a1f1b5d6d17036fa13a4ff089`
+- 018cd69以降は文書更新のみ。測定コードは7d53858を使用する。
+- T18 target-host profileはKEEP（診断）。8,000ms超過のみでFAILにしない。
+- 出力は対象PCの実ファイルシステムで生成し、実測したfsync・finalize・復旧関連の診断値を保存する。
+
+### Linux Mint対象PCでの実行
+
+既存clone、既存artifacts、既存RawLog、既存 `.work`、recovery markerを変更しないよう、新規cloneと新規出力先を使用する。
+
+```bash
+set -euo pipefail
+
+ROOT="$HOME/mini4wd-ai-system-310-5-targethost-20261110"
+OUT="$ROOT/artifacts/310-t18-target-host-20261110-01"
+LOG="$ROOT/310-t18-target-host-20261110.log"
+CODE_HEAD="7d53858db2f7b07a1f1b5d6d17036fa13a4ff089"
+
+if [[ -e "$ROOT" ]]; then
+  echo "BLOCKED: $ROOT already exists; preserve it and choose a new path."
+  exit 2
+fi
+
+git clone --branch fix/310-5-t18-durable-batching --single-branch \
+  https://github.com/hamtech86/mini4wd-ai-system.git "$ROOT"
+
+git -C "$ROOT" diff --quiet "$CODE_HEAD" origin/fix/310-5-t18-durable-batching -- \
+  measurement_310 raw_log_v2 firmware/motor tests .github/workflows
+
+git -C "$ROOT" checkout --detach "$CODE_HEAD"
+test "$(git -C "$ROOT" rev-parse HEAD)" = "$CODE_HEAD"
+
+python3 -c 'import sys; assert sys.version_info >= (3, 10), sys.version'
+test ! -e "$OUT"
+test ! -e "$LOG"
+
+cd "$ROOT"
+python3 -m measurement_310.t18_production_profile \
+  --output-dir "$OUT" 2>&1 | tee "$LOG"
+
+(
+  cd "$OUT"
+  sha256sum -c t18-production-profile.json.sha256
+)
+```
+
+### 成果物と合格判定
+
+出力先 `$OUT` に以下を保存する。
+
+- `t18-production-profile.json`
+- `t18-production-profile.json.sha256`
+- `t18-production-stage-profile.csv`
+- `rawlog/` 以下のRawLog v2一式
+- 実行ログ `$LOG`
+
+確認対象は31 stages、3,100 ADC_BATCH、37,200 ADC_SAMPLE、310 loss-window summaries、RawLog validation errors 0、Evidence bundle verified、normal-completion STOP_REQ 1件、および各保存処理のmax/p99.9診断値である。stage elapsed時間は診断値であり、旧8,000msゲートを復活させない。
+
+このprofileは `InMemoryProtocolV2Transport` と `InMemoryIndependentStopWriter` を使用する。実シリアルポートを開かず、`/dev/ttyACM0`、`/dev/ttyUSB0`に接続せず、Arduino/モーターを操作しない。310秒の実機測定でもない。実ファイルシステムへの保存とfsyncのみを対象PC上で実施する。
+
+失敗・停止時は出力先とログをそのまま保全する。同じ出力先で再実行しない。既存recovery markerを削除・回避しない。
+
+本診断はtarget-hostの保存・復旧挙動を把握するためのものであり、物理STOP、BOD、current limit、配線、発熱、実機 no-auto-resume の証拠にはならない。実機操作の許可も含まない。 `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` を維持する。

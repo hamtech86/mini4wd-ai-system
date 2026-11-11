@@ -1,0 +1,173 @@
+# 310-5 リスクベース再評価 — 2026-11-09
+
+## 目的・判定境界
+
+Issue #35の2026-11-09司令塔方針に従い、310-5の既存要求・試験・ブロッカーをリスクと実装コストに照らして再分類する。本書は設計判断の候補と現在の証拠を整理するものであり、310-5受入、310-6移行、実機作業の許可ではない。
+
+分類:
+- KEEP: 具体的な故障経路または運用上の必要性があり維持する。
+- RELAX: 目的は維持するが、過剰な網羅性・完全性・閾値を緩和する。
+- REMOVE: 現在の合否条件から除外する。
+- INVESTIGATE: 現物・回路・仕様・確率等の根拠が不足し、結論を保留する。
+
+## 現状証拠の基準点
+
+- PR #193 HEAD: b752a691a79676c6992aa93b867e9a2d708a6474
+- Hosted T18: 31 stages、3,100 ADC batches、37,200 ADC slots、10,143 Evidence events、最大1,606.381ms。310 loss windows PASS、RawLog validation errors 0、Evidence bundle verified。
+- Hosted regression: 4 jobs PASS、628 passed / 2 xfailed。
+- Target-hostの過去runは、PR #193のdurable-batching変更を含まない旧実装で全stageが8秒を超えたためFAIL扱いとなった。これは新HEADのtarget-host実測ではない。
+- PR #193 exact HEADでのtarget-host再測定はNOT RUN。GitHub-hosted runはtarget PC/storageの代替ではない。
+- R01のpersistent marker checkはProtocol V1/V2およびSequenceControllerのstage-send境界へ統合済み。ただしActuationSafetyJournal lifecycle、operator reconciliation/release、過去nonzero command全件のphysical safe-state証拠は未完了。
+- HW01–HW08の物理試験は未実施・未承認。HARDWARE_CURRENT_LIMIT_CONFIRMED=false。
+
+## リスク別再分類
+
+| 要求 / 試験 | 分類 | 故障シナリオ・影響 | 発生可能性の根拠 | 運用者対処 | 対応・コスト判断 | 現在の状態 |
+|---|---|---|---|---|---|---|
+| STOP後 / reset後の自動再始動防止 | KEEP | 古い指令再実行により意図しない回転 | ソフトウェア経路・電源断後の実機頻度は未測定。再始動が発生すれば回転する | 主電源遮断。再開前に状態確認 | 複雑なreset予防ではなく、boot時出力OFF、ARM無効、古い指令破棄を維持 | ソフトウェア試験あり。実機NOT RUN |
+| reset自体の完全防止 | REMOVE | MCU resetそのもの。reset後に自動再始動しないならresetだけで駆動再開には至らない | 実機発生率は不明。プロジェクト上resetは起こり得る前提 | reset後の状態表示・再確認 | resetゼロ化のための追加保護は目的にしない | 設計方針変更 |
+| heartbeat / status表示 | KEEP | MCUフリーズ・通信断を稼働中と誤認 | 現行UI未実装のため頻度不明 | 表示で状態確認、反応しない場合は主電源遮断 | RUN/STOP/通信不明/応答停止を識別する最小表示を優先 | 未実装 |
+| 独立STOP回路・driver cutoff | INVESTIGATE | MCU/通信が停止要求を処理できずモーター出力が残る | 実機故障率・停止不能時の影響は未測定 | 手の届く主電源スイッチで遮断 | 一律必須とせず、主電源遮断性・回転の危険・追加回路コストを比較。電気事故防止に必要な遮断は別扱い | 回路/配線証拠不足 |
+| 外部voltage supervisor / BOD | INVESTIGATE | 電源低下・過渡でMCU誤動作、または電源条件逸脱による損傷 | MCU実装型番、電源条件、過渡波形未取得 | 電源遮断・電源条件是正 | reset予防と損傷予防を分離。実チップdatasheetと電源/過渡/逆電圧を確認して必要な保護を選ぶ | 型番・回路・波形なし |
+| EEPROM全write境界の電源断試験 | RELAX / INVESTIGATE | boot epoch / journal破損、再起動後の状態誤認 | 実機の電源断時挙動は未測定。全境界を試す費用は高い | 自動再始動させず、必要なら主電源遮断・再初期化 | すべてのbyte境界網羅は要求しない。永続boot identityが安全動作に不可欠な境界に限定 | native emulatorのみ。実機NOT RUN |
+| RawLog/Evidenceの全件完全保存 | RELAX | 初期テレメトリ欠損・解析不能 | target-host runで保存遅延を実測。欠損率の運用実績はまだ少ない | 欠損表示、必要なら測定をやり直す | 全サンプル完全保存を安全要件にしない。欠損は明示し、頻発時に改善 | hosted検証PASS。target exact HEAD未測定 |
+| command intent / ACK / outcome UNKNOWN | KEEP（実装簡素化） | コマンド送達結果不明のまま再送・自動再開し二重駆動 | write/flush/ACKの失敗経路はテスト済み。実機頻度は未測定 | 状態をUNKNOWN表示し、判断不能なら主電源遮断 | UNKNOWNをSUCCESSにしない、自動再送しない、自動再開しない。全イベント同期fsync/hash chainや全commandの独立物理確認を一律要求するかは再検討 | persistent marker integrationあり。R01 lifecycle未完了 |
+| ADC A0/A1/A2/A3/A4/A5の欠損 | RELAX | 測定解析の欠損。制御用途外のチャンネル欠損を停止扱いする過剰反応 | 実機ADC誤差・欠損率未測定 | 欠損/無効を表示し、解析から除外 | A0巻線電流・A4/A5電圧と、A1独立観測・A2/A3参考値を分離。A1/A2/A3欠損を制御停止へ混在させない | ソフトウェアaccountingあり。物理精度NOT RUN |
+| ADC連続3回失敗で停止 | INVESTIGATE | 制御入力欠損の継続、または単なる分析データ欠損 | 3回の物理的根拠・失敗率との関係が示されていない | 欠損表示、必要な場合は手動停止 | 3回を絶対閾値にしない。制御に実際に使う信号と測定品質用信号を分離し、根拠を示せる場合のみ閾値化 | native testsあり。閾値根拠未確認 |
+| T18 8,000ms ceiling | REMOVE | stage処理/保存が8秒を超える | 8秒は10秒からSTOP reserve 1秒+margin 1秒を差し引いた設計配分であり、実害・停止遅延の実測根拠ではない | 遅延内容を確認し、実害がある場合に改善 | 8秒超過のみでFAILにしない。時間は診断値として残す | code HEAD 8840b4fで除去済み。T18 run #55 PASS |
+| T18 target-host profile | KEEP（診断） | 保存・fsync・finalize・recoveryの実態が見えない | 旧実装のtarget-host runでp50 24.5秒、max 32.6秒。これは性能実態の証拠であり危険確率の証拠ではない | 異常な遅延時は結果を確認し必要に応じて再測定 | 新HEADで実測し、遅延を分解する。8秒達成は要求しない。データ破損やSTOP阻害など具体的実害がなければ性能値のみで工程を停止しない | exact HEAD target-host NOT RUN |
+| SRAM 900B / stack 700B / reserve 448B | INVESTIGATE | stack overflow、メモリ破壊、UART/ADC workspace破損 | 静的監査はあるが実機stack watermark・最悪実行時の占有率なし | 不具合時は停止・電源遮断 | 3つの数値の根拠と現行imageの余裕を再確認。メモリ破壊防止は維持し、根拠のない余裕値を絶対視しない | compile/disassembly evidenceあり。on-board watermark未実施 |
+| current limit / 電源 / 配線 / 発熱 | KEEP（最優先） | 過電流・短絡・逆接・逆起電力・過熱によるArduino/driver/配線損傷、発煙 | 現物電源・電流制限・保護素子・回路revisionが未確認。リスク頻度を推定できない | 手の届く主電源遮断 | 電源・電流制限・配線・保護素子・温度の現物確認を優先。根拠が揃うまでcurrent-limit confirmedをfalse維持 | BLOCKED / NOT RUN |
+
+## T18コード変更の扱い
+
+- 旧8,000ms ceiling、within_8s_budget、stage_budget_msによる合否判定を廃止する。
+- 31段階、3,100 ADC batches、37,200 ADC slots、loss-window、RawLog validation、Evidence bundle、normal-completion STOP_REQ等の整合性チェックは残す。
+- stage elapsed p50/p95/p99/p99.9/max、各fsync target、finalization phaseを診断値として出力する。
+- profile statusはデータ/イベント整合性の検証結果で決定し、時間値だけではFAILにしない。
+- 実行結果をPASSにするために測定値を加工しない。遅延はそのまま記録する。
+
+## HW01–HW08の再分類
+
+| ID | 現行計画 | 再分類 | 再評価後の扱い |
+|---|---|---|---|
+| HW01 | MCU marking / board revision / schematic identification | KEEP | 損傷防止・実機仕様特定の基礎。必要情報だけ取得 |
+| HW02 | Fuse/BOD read-only | INVESTIGATE | MCU identity確定後、BOD設定が損傷防止/誤動作防止に必要か確認。Fuse writeは禁止 |
+| HW03 | External supervisor/hold-up proof | INVESTIGATE | 実電源条件で必要性が示された場合のみ。回路がないだけで直ちにFAILとしない |
+| HW04 | Brownout時出力OFF / no auto-resume | KEEP | reset後に自動駆動しない基本動作。実機波形確認は条件確定後 |
+| HW05 | EEPROM全write境界断電 | RELAX | boot identity/再始動制御に必要な境界へ限定 |
+| HW06 | A0-A5 analog reference/accuracy | RELAX | A0/A4/A5の必要測定を優先。A1は独立観測、A2/A3は参考値。用途外の精度保証を要求しない |
+| HW07 | STOP under congestion / independent cutoff / latency | SPLIT: KEEP + INVESTIGATE | ソフトウェアSTOP優先処理は維持。独立物理STOP/cutoffは主電源遮断を含めて比較し、具体的危険がある場合のみ必須化 |
+| HW08 | 310秒PWM0-30実機run | SEPARATE AUTHORIZATION | current limit・電源/配線の確認後に別途明示承認。今回の再評価だけでは実施しない |
+
+## 現在の進捗判定
+
+| 領域 | 状態 | 次の作業 |
+|---|---|---|
+| リスク基準共有 | COMPLETE | Issue #35へ2026-11-09基準を追記済み |
+| T18 8秒合否ゲート | COMPLETE | code / regression test / report schema / PR description / qualification docsを同期。T18 #55 PASS、full regression #1714 PASS |
+| T18 hosted path | PASS | run #55: 31 stages / 3,100 batches / 37,200 slots / 10,143 events; max 1,458.961ms。all four regression jobs PASS; full suite 629 passed / 2 xfailed |
+| T18 target-host exact HEAD | NOT RUN | 新HEADを対象PC/storageで診断実行。時間値は合否ゲートにしない |
+| R01 marker checks | INTEGRATED | markerの存在時に自動再始動を阻止する部分は維持 |
+| R01 operator release | SOFTWARE CANDIDATE TESTED / INTEGRATION OPEN | recovery_release.pyを追加し、operator attestation・incomplete work拒否・audit記録・marker解除をテスト済み。UI統合・運用手順の実機条件確認は未完了 |
+| HW01–HW08 | NOT RUN / NOT AUTHORIZED | 現物情報を揃え、KEEP/INVESTIGATE対象だけをまとめて審査 |
+| 310-5 acceptance / 310-6 | NOT ACCEPTED / BLOCKED | 再分類後の証拠を審査して決定 |
+
+## 明示的な制限
+
+本書はリスク対応の設計見直しであり、Arduino接続、/dev/ttyACM0や/dev/ttyUSB0へのアクセス、firmware upload、Fuse/EEPROM操作、モーター通電、310秒測定を許可しない。HARDWARE_CURRENT_LIMIT_CONFIRMED=falseを維持する。
+
+
+## 2026-11-09 implementation / hosted verification update
+
+The PR #193 code change removing the former 8,000 ms gate is committed at code HEAD `8840b4fa6112514137752c61931f083a13ccb443`. The subsequent PR HEAD advances documentation only.
+
+- T18 production-path workflow run #55 / run ID 42558700595: **PASS**.
+- 31 stages; 3,100 ADC batches; 37,200 ADC slots; 10,143 Evidence events.
+- Hosted stage elapsed: p50 182.408 ms; p95 579.505 ms; p99/p99.9/max 1,458.961 ms.
+- The report has no 8,000 ms ceiling and identifies stage timing as observational only.
+- Regression workflow run #1714 / run ID 42558700829: **all four jobs PASS**; full suite **629 passed, 2 xfailed**.
+- The new regression test deliberately inflates measured stage timings above the former 8-second ceiling without sleeping; the profile still returns PASS when data-integrity checks succeed. This directly verifies that elapsed time alone no longer controls T18 status.
+
+Evidence links:
+- [T18 run #55](https://github.com/hamtech86/mini4wd-ai-system/actions/runs/42558700595)
+- [Regression run #1714](https://github.com/hamtech86/mini4wd-ai-system/actions/runs/42558700829)
+
+Remaining boundaries are unchanged: hosted tests do not qualify target-PC filesystem behavior or physical hardware. Exact-head target-host diagnostic remains NOT RUN; R01 lifecycle/operator reconciliation remains incomplete; HW qualification remains NOT RUN and unauthorized.
+
+
+## 2026-11-09 R01 operator-release candidate verification
+
+- Added measurement_310/recovery_release.py: manual operator-attested release of existing recovery markers after RawLog incomplete-work check.
+- Added seven tests: explicit power-off confirmation required; verified main-switch isolation attestation required; audit written before marker removal; incomplete RawLog work blocks release; symlink marker blocks release; no-marker case rejects; SequenceController guard blocks before and permits after explicit release.
+- CLI does not open serial devices, send STOP/ARM/PWM, or start a measurement. It prompts for the exact phrase MOTOR POWER OFF.
+- Audit labels physical evidence as operator attestation only, not independent measurement.
+- Regression run #1725 / run ID 42559099952: all four jobs PASS; full suite 634 passed, 2 xfailed.
+
+This closes the unit-tested software candidate for the one-time manual release action, not R01 as a whole. It remains necessary to review its invocation/integration path, confirm the actual main switch isolates motor/driver power during HW01 wiring identification, and verify no-auto-resume behavior before formal R01 disposition. No hardware test was performed or authorized.
+
+
+## 2026-11-09 latest code-head verification
+
+The R01 operator-release helper and tests are included in code HEAD 9fc92a1b2a64829f1e2210d46c852781c1efa111. PR HEAD contains subsequent documentation-only commits; no code changes followed the tested code HEAD.
+
+- T18 production-path run #56 / run ID 42559099996: PASS; 31 stages, 3,100 ADC batches, 37,200 ADC slots, 10,143 Evidence events; p50 175.993 ms, p95 237.430 ms, p99/p99.9/max 1,458.258 ms.
+- Regression run #1725 / run ID 42559099952: all four jobs PASS; full suite 634 passed, 2 xfailed.
+- The five new operator-release tests are included in the 634 passing full-suite tests.
+
+Links:
+- [T18 run #56](https://github.com/hamtech86/mini4wd-ai-system/actions/runs/42559099996)
+- [Regression run #1725](https://github.com/hamtech86/mini4wd-ai-system/actions/runs/42559099952)
+
+These results verify hosted software behavior only. The exact-head target-host filesystem diagnostic remains NOT RUN; no physical hardware test was performed.
+
+
+## 2026-11-09 latest PR code verification
+
+Code HEAD: 0b6deb7ea40b39ebc321f5706d46911c59709d99.
+
+- Regression run #1731 / 42559306631: all four jobs PASS; full suite 635 passed, 2 xfailed.
+- T18 production-path run #72 / 42559306635: PASS; 31 stages, 3,100 ADC batches, 37,200 ADC slots, 10,143 Evidence events; p50 141.116 ms, p95 1,134.267 ms, p99/p99.9/max 1,488.031 ms.
+- The added integration test verifies that the SequenceController re-arm guard remains blocked while a recovery marker exists and passes only after explicit operator release.
+
+Links:
+- [T18 run #72](https://github.com/hamtech86/mini4wd-ai-system/actions/runs/42559306635)
+- [Regression run #1731](https://github.com/hamtech86/mini4wd-ai-system/actions/runs/42559306631)
+
+This still does not establish physical main-switch isolation, reset waveform behavior, or physical motor stop. R01 formal disposition and 310-5 acceptance remain open.
+
+
+## 2026-11-09 final operator-release verification
+
+Code HEAD: c3f51b314af85603ddeb4ed58b4be1e74f5c3442.
+
+- Regression run #1737 / 42559520609: all four jobs PASS; full suite 636 passed, 2 xfailed.
+- T18 production-path run #78 / 42559520579: PASS; 31 stages, 3,100 ADC batches, 37,200 ADC slots, 10,143 Evidence events; p50 104.903 ms, p95 699.490 ms, p99/p99.9/max 1,005.924 ms.
+- Operator release now requires two separate confirmations: motor main power OFF/rotor stopped, and confirmation that the switch isolates L298N motor/driver supply. Both are recorded as operator attestations, not independently measured facts.
+- A refusal test verifies that the release cannot proceed without the switch-isolation attestation.
+
+The code does not prove the switch wiring. The actual wiring must be identified during the no-power HW01 inspection before this command is used. No hardware operation was performed.
+
+
+## 2026-11-11 owner-rating and same-UART STOP disposition
+
+### Power rating and current-limit interpretation
+
+- Owner-provided adapter rating: **12.3V DC / 5A**. This is a stated supply rating, not a sensor-derived measurement. No request is made to re-measure it.
+- The existing topology remains 12.3V DC adapter → physical main switch → 2200µF + 0.1µF input network → L298N driver supply. Arduino logic remains independently powered from PC USB 5V. Existing 470µF / 100µF / 0.1µF capacitors, ACS712 5A sensors with 1kΩ LPF, and 10kΩ thermistor remain the shared design facts.
+- ST's L298 datasheet (DS0218 Rev.5, October 2023) specifies operating supply up to 46V, total DC current up to 4A, DC output current up to 2A per channel, and overtemperature protection. It also exposes external sense-resistor pins; the datasheet describes using the sense voltage with external chopping/enable control for current regulation/protection. It does not establish that an arbitrary L298N module automatically limits motor current to 2A.
+- The 12.3V rating is within the silicon's stated operating supply range. The 5A adapter rating is source capacity, not proof of a 2A per-channel current limit. The ACS712 devices are measurement components, not a hardware cutoff. No current-limit confirmation is inferred from their presence or from an inability to read a current value.
+- Consequently, retain HARDWARE_CURRENT_LIMIT_CONFIRMED=false. This is a bounded design limitation, not a reason to demand unavailable sensor readings or to invent a FAIL from missing measurements. It remains a restriction on physical motor energization / HW08 qualification; no hardware test is authorized by this review. Do not modify the device or add hardware as part of this software stage.
+- Capacitor voltage/polarity and exact adapter transient/short-circuit protection cannot be inferred from the voltage/current rating alone. No undocumented protection behavior is assumed. These are recorded as residual documentary limits, not turned into repeated measurement requests.
+
+Reference: [STMicroelectronics L298 datasheet, DS0218 Rev.5](https://www.st.com/resource/en/datasheet/l298.pdf) and [L298 product specifications](https://www.st.com/en/motor-drivers/l298.html).
+
+### Same-UART priority STOP
+
+- The dedicated independent STOP serial endpoint is no longer a mandatory host acceptance prerequisite under the owner's no-device-modification constraint and the known single motor UART topology.
+- PR #197 implements same-UART priority arbitration in PySerialTransport. Only one serial.write() owner is used; normal flush waiters do not hold the write lock; STOP latches normal-TX inhibition, terminates a partial COBS frame with a delimiter, and writes a complete STOP frame before any later normal command. A disconnected/blocked/timeout result remains UNKNOWN.
+- The same-UART configuration is accepted only when its write timeout is less than half the STOP caller deadline, bounding one possible in-flight normal write plus the STOP write. The default write timeout is 100ms and the default STOP caller deadline is 250ms.
+- This is host-side transport priority, not an independent electrical cutoff. Bytes already accepted below the host writer remain FIFO; UART/USB/host failure remains UNKNOWN. Physical STOP, PWM pin voltage, motor-current cessation, and reset/no-auto-resume remain NOT RUN.
+- Existing operator response remains: if STOP outcome is unknown, keep the L298N 12V supply OFF and do not resume/re-arm until the established recovery procedure is completed.
+
+The 12.3V/5A supply rating, L298 ratings, and same-UART host implementation do not change the physical-test authorization boundary. HARDWARE_CURRENT_LIMIT_CONFIRMED=false remains in force.

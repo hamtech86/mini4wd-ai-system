@@ -1,9 +1,13 @@
+import json
+
 import pytest
 
 from measurement_310.device_loss_accounting import (
     CHANNEL_ORDER,
+    DeviceEpochClockUnwrapper,
     DeviceLossAccountingError,
     DeviceLossWindowAccumulator,
+    load_latest_device_clock_checkpoint,
 )
 
 
@@ -88,7 +92,7 @@ def test_sequence_gap_marks_affected_window_unattributable():
     assert all(item.unattributable_slots == 12 for item in window.channels)
 
 
-def test_micros_wrap_is_extended_within_arm_epoch():
+def test_micros_wrap_is_extended_within_device_epoch():
     start = 0xFFFF0000
     acc = DeviceLossWindowAccumulator(boot_id64=123, stage_context_token=9)
     ten_batches(acc, first_us=start)
@@ -114,3 +118,83 @@ def test_wrong_channel_order_fails_closed():
     samples[2]["channel_code"] = 2
     with pytest.raises(DeviceLossAccountingError, match="channel order"):
         acc.add_batch(samples)
+
+
+
+def test_device_epoch_clock_unwraps_micros_across_uint32_wrap():
+    clock = DeviceEpochClockUnwrapper(boot_id64=123)
+    assert clock.add(0xFFFFFFF0) == 0
+    assert clock.add(0x00000020) == 0x30
+    assert clock.elapsed_us == 0x30
+
+
+def test_device_epoch_clock_rejects_ambiguous_backward_jump():
+    clock = DeviceEpochClockUnwrapper(boot_id64=123)
+    clock.add(2_000_000)
+    with pytest.raises(DeviceLossAccountingError, match="ambiguous"):
+        clock.add(1_000_000)
+
+
+
+def _clock_record(sequence, timestamp, elapsed, *, epoch="000000000000007B"):
+    return {
+        "record_type": "ADC_SAMPLE",
+        "device_epoch_id": epoch,
+        "device_sample_sequence": sequence,
+        "device_timestamp_us_u32": timestamp,
+        "device_elapsed_us": elapsed,
+        "validity": "valid",
+    }
+
+
+def test_load_latest_device_clock_checkpoint_from_durable_rawlog_records(tmp_path):
+    first = tmp_path / "published-a" / "records.jsonl"
+    second = tmp_path / ".work" / "session-b" / "records.jsonl"
+    first.parent.mkdir(parents=True)
+    second.parent.mkdir(parents=True)
+    first.write_text(
+        json.dumps(_clock_record(10, 100_000, 0)) + "\n" +
+        json.dumps(_clock_record(11, 200_000, 100_000)) + "\n",
+        encoding="utf-8",
+    )
+    second.write_text(
+        json.dumps(_clock_record(12, 300_000, 200_000)) + "\n",
+        encoding="utf-8",
+    )
+
+    checkpoint = load_latest_device_clock_checkpoint(tmp_path, 123)
+    assert checkpoint is not None
+    assert checkpoint.sample_sequence64 == 12
+    assert checkpoint.timestamp_us_u32 == 300_000
+    assert checkpoint.elapsed_us == 200_000
+
+
+def test_load_latest_device_clock_checkpoint_rejects_discontinuous_elapsed(tmp_path):
+    path = tmp_path / "published" / "records.jsonl"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps(_clock_record(10, 100_000, 0)) + "\n" +
+        json.dumps(_clock_record(11, 200_000, 900_000)) + "\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(DeviceLossAccountingError, match="discontinuous"):
+        load_latest_device_clock_checkpoint(tmp_path, 123)
+
+
+def test_device_epoch_clock_restores_durable_checkpoint():
+    clock = DeviceEpochClockUnwrapper(
+        boot_id64=123,
+        checkpoint_timestamp_us_u32=0xFFFFFFF0,
+        checkpoint_elapsed_us=50,
+    )
+    assert clock.add(0x00000020) == 0x30 + 50
+
+
+def test_loss_window_checkpoint_marks_current_window_unattributable():
+    acc = DeviceLossWindowAccumulator(
+        boot_id64=123,
+        checkpoint_timestamp_us_u32=500_000,
+        checkpoint_elapsed_us=100_000,
+    )
+    assert acc.window_elapsed_us == 100_000
+    assert 0 in acc._unattributable_windows

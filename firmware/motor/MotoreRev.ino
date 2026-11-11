@@ -1,3 +1,7 @@
+#ifndef M4WD_ENABLE_LEGACY_DATA26
+#error "MotoreRev.ino is retired legacy DATA26 firmware; use firmware/motor/MotoreRevV2 for 310."
+#endif
+
 /********************************************************************
  * MOTOR_BREAKIN_V3.00
  * Mini4WD Motor Break-In Device

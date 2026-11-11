@@ -1,4 +1,6 @@
+import json
 import struct
+import threading
 import uuid
 
 import pytest
@@ -10,7 +12,10 @@ from measurement_310.protocol_v2 import (
     DriveDirection, epoch_tag_for_boot_id,
 )
 from measurement_310.protocol_v2_session import ProtocolV2HostSession, ProtocolV2SessionError
-from measurement_310.device_loss_accounting import DeviceLossWindowAccumulator
+from measurement_310.device_loss_accounting import (
+    DeviceEpochClockUnwrapper, DeviceLossWindowAccumulator,
+)
+from measurement_310.transport import PySerialTransport, TransportError
 
 
 BOOT = 0x123456789ABCDEF0
@@ -179,3 +184,327 @@ def test_for_rawlog_session_binds_intent_and_evidence_to_same_uuid(tmp_path):
     session.start_session(session_id)
     assert session.measurement_session_id == session_id
     assert transport.connected is True
+
+
+
+def _adc_batch(session_id, first_sequence, start_timestamp, token, statuses=None, timestamps=None):
+    channel_order = (0, 1, 4, 5, 2, 3)
+    offsets = (0, 100, 200, 300, 400, 500, 25000, 25100, 25200, 25300, 25400, 25500)
+    statuses = statuses or [0] * 12
+    timestamps = timestamps or [
+        (start_timestamp + offset) & 0xFFFFFFFF for offset in offsets
+    ]
+    payload = bytearray(struct.pack("<QBBB", first_sequence, 0, 12, 0))
+    for index, channel in enumerate(channel_order * 2):
+        status = statuses[index]
+        raw = 0xFFFF if status else 512
+        slot_token = 0 if status == 3 else token
+        payload.extend(struct.pack(
+            "<IBHHBH", timestamps[index],
+            channel, raw, slot_token, status, 0,
+        ))
+    return CODEC.decode(CODEC.encode_message(
+        MessageType.ADC_BATCH, session_id=session_id,
+        epoch_tag=epoch_tag_for_boot_id(BOOT), payload=bytes(payload),
+    )).message
+
+
+def test_device_epoch_loss_window_and_elapsed_clock_continue_across_arm_boundary(tmp_path):
+    session_id = str(uuid.uuid4())
+    transport = ScriptedTransport(session_id)
+    session = make_session(tmp_path, transport)
+    session.start_session(session_id)
+
+    loss_accumulator = session._loss_accumulator
+    assert loss_accumulator is not None
+    assert loss_accumulator.stage_context_token is None
+
+    # First half of one device-epoch 1-second window belongs to stage 0.
+    stage1 = str(uuid.uuid4())
+    stage2 = str(uuid.uuid4())
+    session.send_stage_pwm(0, stage1, session_id, stage_index=0)
+    session.poll_apply_ack(0.0)
+    first_token = session._active_stage["token"]
+    for batch_index in range(5):
+        accepted = session.accept_adc_batch(
+            _adc_batch(session_id, batch_index * 12, batch_index * 100_000, first_token)
+        )
+    assert accepted[-1]["device_elapsed_us"] == 425_500
+    assert loss_accumulator.window_elapsed_us == 425_500
+
+    # DISARM must not finalize/reset a device-epoch window.
+    session.disarm_stage()
+    assert session._loss_accumulator is loss_accumulator
+    assert not loss_accumulator._closed
+
+    # Second half of the same 1-second window belongs to stage 1.
+    session.send_stage_pwm(1, stage2, session_id, stage_index=1)
+    session.poll_apply_ack(0.0)
+    second_token = session._active_stage["token"]
+    for batch_index in range(5, 10):
+        accepted = session.accept_adc_batch(
+            _adc_batch(session_id, batch_index * 12, batch_index * 100_000, second_token)
+        )
+    assert accepted[-1]["device_elapsed_us"] == 925_500
+    assert loss_accumulator.window_elapsed_us == 925_500
+
+    # The next batch crosses 1,000,000 us and closes the shared half-open window.
+    session.accept_adc_batch(_adc_batch(session_id, 120, 1_000_000, second_token))
+    summaries = [
+        item for item in session._pending_evidence_events
+        if item["event"] == "ADC_LOSS_WINDOW_SUMMARY"
+    ]
+    assert len(summaries) == 1
+    summary = summaries[0]["payload"]["summary"]
+    assert summary["status"] == "PASS"
+    assert summary["stage_context_token"] is None
+    for channel in summary["channels"]:
+        assert channel["expected"] == 20
+        assert channel["attempted"] == 20
+        assert channel["valid"] == 20
+        assert channel["invalid"] == 0
+        assert channel["missing"] == 0
+        assert channel["status"] == "PASS"
+    assert session._loss_accumulator is loss_accumulator
+    assert session._device_clock.boot_id64 == BOOT
+
+
+
+def test_unavailable_adc_slots_do_not_receive_rawlog_device_timestamps(tmp_path):
+    session_id = str(uuid.uuid4())
+    session = make_session(tmp_path, ScriptedTransport(session_id))
+    session.start_session(session_id)
+    session._active_stage = {"token": 1, "stage_context_id": "stage-1"}
+
+    statuses = [0, 1, 2, 3] + [0] * 8
+    accepted = session.accept_adc_batch(_adc_batch(
+        session_id, 0, 2_000_000, 1, statuses=statuses
+    ))
+    assert accepted[0]["device_elapsed_us"] == 0
+    for index in (1, 2, 3):
+        assert accepted[index]["device_elapsed_us"] is None
+    assert accepted[4]["device_elapsed_us"] == 400
+    assert session.next_sample_sequence64 == 12
+
+
+
+def test_rawlog_bound_session_restores_epoch_clock_and_marks_restart_window_unknown(tmp_path):
+    root = tmp_path / "rawlog"
+    old_records = root / "previous-session" / "records.jsonl"
+    old_records.parent.mkdir(parents=True)
+    epoch_id = f"{BOOT:016X}"
+    prior = [
+        {
+            "record_type": "ADC_SAMPLE",
+            "device_epoch_id": epoch_id,
+            "device_sample_sequence": 3,
+            "device_timestamp_us_u32": 400_000,
+            "device_elapsed_us": 0,
+            "validity": "valid",
+        },
+        {
+            "record_type": "ADC_SAMPLE",
+            "device_epoch_id": epoch_id,
+            "device_sample_sequence": 4,
+            "device_timestamp_us_u32": 500_000,
+            "device_elapsed_us": 100_000,
+            "validity": "valid",
+        },
+    ]
+    old_records.write_text(
+        "".join(json.dumps(record) + "\n" for record in prior),
+        encoding="utf-8",
+    )
+
+    session_id = str(uuid.uuid4())
+    transport = ScriptedTransport(session_id, next_sequence=10)
+    session = ProtocolV2HostSession.for_rawlog_session(
+        transport, CODEC, root, session_id
+    )
+    session.start_session(
+        session_id, host_boot_id64=BOOT, host_next_sequence64=5
+    )
+
+    assert session._device_clock.elapsed_us == 100_000
+    assert session._loss_accumulator.window_elapsed_us == 100_000
+    assert session._pending_checkpoint_gap_slots == 5
+    assert session.sequence_reconciliation.gap_start_sequence64 == 5
+    assert session.sequence_reconciliation.gap_end_sequence64_exclusive == 10
+    assert 0 in session._loss_accumulator._unattributable_windows
+
+    session._active_stage = {"token": 1, "stage_context_id": str(uuid.uuid4())}
+    accepted = session.accept_adc_batch(
+        _adc_batch(session_id, 10, 600_000, 1)
+    )
+    assert accepted[0]["device_elapsed_us"] == 200_000
+    # The batch contains later slots through +25.5 ms; the loss-window clock
+    # reports the batch high-water, not the first sample timestamp.
+    assert accepted[-1]["device_elapsed_us"] == 225_500
+    assert session._loss_accumulator.window_elapsed_us == accepted[-1]["device_elapsed_us"]
+    assert session._pending_checkpoint_gap_slots == 0
+    assert session._loss_accumulator._gap_slots_by_window[0] == 5
+
+
+def test_rawlog_bound_same_epoch_without_clock_checkpoint_fails_closed(tmp_path):
+    root = tmp_path / "rawlog"
+    root.mkdir()
+    session_id = str(uuid.uuid4())
+    transport = ScriptedTransport(session_id, next_sequence=5)
+    session = ProtocolV2HostSession.for_rawlog_session(
+        transport, CODEC, root, session_id
+    )
+    with pytest.raises(ProtocolV2SessionError, match="no durable RawLog clock checkpoint"):
+        session.start_session(
+            session_id, host_boot_id64=BOOT, host_next_sequence64=5
+        )
+    assert [CODEC.decode(x).message["kind"] for x in transport.sent] == ["HELLO"]
+
+
+
+def test_rawlog_bound_initial_sequence_gap_marks_loss_window_unattributable(tmp_path):
+    root = tmp_path / "rawlog"
+    root.mkdir()
+    session_id = str(uuid.uuid4())
+    transport = ScriptedTransport(session_id, next_sequence=5)
+    session = ProtocolV2HostSession.for_rawlog_session(
+        transport, CODEC, root, session_id
+    )
+    session.start_session(
+        session_id, host_boot_id64=BOOT, host_next_sequence64=0
+    )
+    assert session._pending_checkpoint_gap_slots == 5
+    session._active_stage = {"token": 1, "stage_context_id": str(uuid.uuid4())}
+    session.accept_adc_batch(_adc_batch(session_id, 5, 100_000, 1))
+    assert session._pending_checkpoint_gap_slots == 0
+    assert session._loss_accumulator._gap_slots_by_window[0] == 5
+    assert 0 in session._loss_accumulator._unattributable_windows
+
+
+
+def test_not_acquired_scheduled_timestamp_can_precede_actual_conversion(tmp_path):
+    session_id = str(uuid.uuid4())
+    session = make_session(tmp_path, ScriptedTransport(session_id))
+    session.start_session(session_id)
+    session._active_stage = {"token": 1, "stage_context_id": str(uuid.uuid4())}
+    statuses = [0, 3, 3, 3, 3, 3, 0, 3, 3, 3, 3, 3]
+    timestamps = [
+        2_000_100, 2_000_000, 2_000_000, 2_000_000, 2_000_000, 2_000_000,
+        2_025_100, 2_025_000, 2_025_000, 2_025_000, 2_025_000, 2_025_000,
+    ]
+    accepted = session.accept_adc_batch(_adc_batch(
+        session_id, 0, 2_000_000, 1, statuses=statuses, timestamps=timestamps
+    ))
+    assert accepted[0]["device_elapsed_us"] == 0
+    assert all(accepted[index]["device_elapsed_us"] is None for index in range(1, 6))
+    assert accepted[6]["device_elapsed_us"] == 25_000
+    assert session._device_clock.elapsed_us == 25_000
+    assert session._loss_accumulator.window_elapsed_us == 25_000
+    assert 0 in session._loss_accumulator._unattributable_windows
+
+
+def test_v2_stop_uses_same_uart_priority_transport_without_second_endpoint(tmp_path):
+    class PriorityScriptedTransport(ScriptedTransport):
+        port = "/dev/ttyACM0"
+        write_timeout_s = 0.10
+
+        def __init__(self, session_id):
+            super().__init__(session_id)
+            self.priority_frames = []
+
+        def send_stop_priority(self, payload, *, timeout_s):
+            self.priority_frames.append((bytes(payload), timeout_s))
+
+    session_id = str(uuid.uuid4())
+    transport = PriorityScriptedTransport(session_id)
+    session = ProtocolV2HostSession.for_rawlog_session(
+        transport, CODEC, tmp_path, session_id, stop_timeout_s=0.25,
+    )
+    assert session.send_stop_best_effort(stop_reason=1, stop_request_id=7) == 7
+    assert len(transport.priority_frames) == 1
+    frame, timeout_s = transport.priority_frames[0]
+    message = CODEC.decode(frame).message
+    assert message["kind"] == "STOP_REQ"
+    assert message["stop_request_id"] == 7
+    assert timeout_s == 0.25
+
+
+def test_pyserial_priority_stop_bypasses_normal_flush_wait():
+    class BlockingFlushSerial:
+        def __init__(self):
+            self.writes = []
+            self.flush_started = threading.Event()
+            self.release_flush = threading.Event()
+
+        def write(self, payload):
+            self.writes.append(bytes(payload))
+            return len(payload)
+
+        def flush(self):
+            self.flush_started.set()
+            self.release_flush.wait(1.0)
+
+    serial = BlockingFlushSerial()
+    transport = PySerialTransport("/dev/fake-motor", 57600, write_timeout_s=0.20)
+    transport._serial = serial
+    normal_errors = []
+
+    def normal_send():
+        try:
+            transport.send(b"normal-frame")
+        except Exception as exc:
+            normal_errors.append(exc)
+
+    worker = threading.Thread(target=normal_send)
+    worker.start()
+    assert serial.flush_started.wait(0.5)
+
+    with pytest.raises(TransportError, match="priority STOP deadline expired"):
+        transport.send_stop_priority(b"stop-frame", timeout_s=0.02)
+
+    assert serial.writes == [b"normal-frame", b"\x00stop-frame"]
+    assert worker.is_alive()
+    with pytest.raises(TransportError, match="STOP has priority"):
+        transport.send(b"late-normal-frame")
+
+    serial.release_flush.set()
+    worker.join(0.5)
+    assert not worker.is_alive()
+    assert normal_errors == []
+
+
+@pytest.mark.parametrize("marker_name", [
+    ".310-rearm-inhibited",
+    ".310-evidence-reconciliation-required",
+])
+def test_rawlog_bound_production_actuation_is_blocked_by_recovery_marker(tmp_path, marker_name):
+    root = tmp_path / "rawlog"
+    root.mkdir()
+    (root / marker_name).write_text("operator reconciliation required\n", encoding="utf-8")
+    session_id = str(uuid.uuid4())
+    transport = ScriptedTransport(session_id)
+    session = ProtocolV2HostSession.for_rawlog_session(
+        transport, CODEC, root, session_id,
+    )
+
+    with pytest.raises(ProtocolV2SessionError, match="automatic re-arm is inhibited"):
+        session.send_stage_pwm(10, str(uuid.uuid4()), session_id, stage_index=0)
+
+    assert transport.sent == []
+
+
+def test_disconnected_priority_stop_still_latches_normal_tx_inhibit():
+    class RecordingSerial:
+        def write(self, payload):
+            return len(payload)
+
+        def flush(self):
+            pass
+
+    transport = PySerialTransport("/dev/fake-motor", 57600)
+    with pytest.raises(TransportError, match="not connected"):
+        transport.send_stop_priority(b"stop-frame", timeout_s=0.25)
+
+    # Reconnecting the same transport object must not clear the STOP latch.
+    transport._serial = RecordingSerial()
+    with pytest.raises(TransportError, match="STOP has priority"):
+        transport.send(b"late-normal-frame")
