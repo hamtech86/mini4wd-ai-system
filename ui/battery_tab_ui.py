@@ -311,6 +311,19 @@ class BatteryTab(QWidget):
                 continue
             sample = self.transport.parse_data(text)
             if sample is None:
+                # Preserve malformed DATA frames too. If the channel field is
+                # still readable, attach the exact line to that channel;
+                # otherwise retain it in every active channel capture.
+                if self.anonymous_mode and text.startswith("DATA,"):
+                    parts = text.split(",")
+                    try:
+                        raw_channel = int(parts[2].strip().upper().replace("CH", ""))
+                    except (IndexError, TypeError, ValueError):
+                        raw_channel = None
+                    targets = (raw_channel,) if raw_channel in (1, 2) else (1, 2)
+                    for target in targets:
+                        if self._capture_active[target]:
+                            self._raw_capture[target].append(raw_line)
                 continue
             ch = sample.channel
             if self.anonymous_mode and self._capture_active[ch]:
