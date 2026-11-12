@@ -265,8 +265,22 @@ class MainWindow(QMainWindow):
             conn = connect_database(self.db_path, readonly=True)
             rows = conn.execute("SELECT mi.instance_id, mi.motor_model_id, mi.serial_number, mi.nickname, mm.name, mm.series FROM motor_instance mi LEFT JOIN motor_model mm ON mm.motor_model_id=mi.motor_model_id WHERE COALESCE(mi.is_deleted,0)=0 ORDER BY mi.instance_id DESC").fetchall()
             conn.close()
-        except Exception:
-            rows = []
+        except Exception as exc:
+            self.database_available = False
+            self.database_error = f"{type(exc).__name__}: {exc}"
+            self.db_path = None
+            self.instance.addItem("ANONYMOUS MODE / DATABASE READ ERROR", None)
+            self.instance.blockSignals(False)
+            try:
+                self.instance.currentIndexChanged.disconnect(self.instance_changed)
+            except TypeError:
+                pass
+            self.instance.currentIndexChanged.connect(self.instance_changed)
+            self.instance_changed(0)
+            self.manager.setEnabled(False)
+            self.update_db.setEnabled(False)
+            self.raw_log.setEnabled(False)
+            return
         for iid, mid, serial, nickname, model_name, model_code in rows:
             model = f"{model_name} ({model_code})" if model_name and model_code else (model_name or model_code or f"MODEL {mid}")
             self.instance.addItem(f"{iid} / {model} / {nickname or serial or ''}".rstrip(" /"), iid)
