@@ -7,7 +7,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from database.path_resolver import configure_shared_database_path, connect_database, resolve_database_path
+from database.path_resolver import configure_shared_database_path, connect_database
 # Resolve once before UI modules construct their database-backed windows.
 # Explicit MINI4WD_DB_PATH remains authoritative; the default is the main
 # checkout's database/mini4wd.db shared by linked Git worktrees.
@@ -16,6 +16,7 @@ configure_shared_database_path(PROJECT_ROOT)
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication, QMessageBox, QGroupBox, QGridLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget, QTabWidget, QHBoxLayout, QCheckBox, QProgressBar, QPlainTextEdit
 from loguru import logger
+import ui.main_window as base_ui
 from ui.main_window import MainWindow as BaseMainWindow
 from communication.serial_controller import SerialController
 from battery_system.serial import BatterySerial
@@ -43,7 +44,7 @@ class MainWindow(BaseMainWindow):
         # repairs a database. Serial transports remain disconnected.
         context = dict(context or {})
         try:
-            db_path = resolve_database_path(required_tables=self.MAIN_UI_REQUIRED_TABLES)
+            db_path = base_ui.resolve_database_path(required_tables=self.MAIN_UI_REQUIRED_TABLES)
             context.update(database_available=True, db_path=str(db_path), database_error="")
         except Exception as exc:
             context.update(database_available=False, db_path=None,
