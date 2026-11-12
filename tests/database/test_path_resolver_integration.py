@@ -77,30 +77,44 @@ def test_main_window_uses_shared_checkout_database_when_path_is_unset(qapp, monk
 
     window = MainWindow(context={})
     try:
-        assert Path(window.db_path).resolve() == expected
         assert os.environ[DB_PATH_ENV] == str(root / "database" / "mini4wd.db")
+        if expected.exists():
+            assert Path(window.db_path).resolve() == expected
+            assert window.database_available
+        else:
+            assert window.db_path is None
+            assert not window.database_available
+            assert "ANONYMOUS MODE" in window.instance.currentText()
         assert not (tmp_path / "database" / "mini4wd.db").exists()
     finally:
         window.close()
 
 
-@pytest.mark.parametrize(
-    "module_name,class_name,args",
-    [
-        ("ui.battery_tab_ui", "BatteryTab", ("missing.db",)),
-        ("ui.battery_database_ui", "BatteryDatabaseDialog", ("missing.db",)),
-    ],
-)
-def test_battery_uis_reject_missing_database_without_creating_it(
-    qapp, monkeypatch, tmp_path, module_name, class_name, args
+def test_battery_tab_falls_back_to_anonymous_mode_without_creating_database(
+    qapp, monkeypatch, tmp_path
 ):
-    import importlib
+    from ui.battery_tab_ui import BatteryTab
 
     monkeypatch.delenv(DB_PATH_ENV, raising=False)
-    missing = tmp_path / args[0]
-    cls = getattr(importlib.import_module(module_name), class_name)
+    missing = tmp_path / "missing.db"
+    tab = BatteryTab(missing)
+    try:
+        assert tab.anonymous_mode
+        assert tab.db_path is None
+    finally:
+        tab.close()
+    assert not missing.exists()
+
+
+def test_battery_database_dialog_still_fails_closed_without_database(
+    qapp, monkeypatch, tmp_path
+):
+    from ui.battery_database_ui import BatteryDatabaseDialog
+
+    monkeypatch.delenv(DB_PATH_ENV, raising=False)
+    missing = tmp_path / "missing.db"
     with pytest.raises(DatabasePathError, match="does not exist"):
-        cls(missing)
+        BatteryDatabaseDialog(missing)
     assert not missing.exists()
 
 
