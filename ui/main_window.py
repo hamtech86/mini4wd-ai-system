@@ -46,7 +46,22 @@ class MainWindow(QMainWindow):
         self.database_updated = False
         root = Path(__file__).resolve().parent.parent
         configure_shared_database_path(root)
-        self.db_path = resolve_database_path(required_tables=("motor_model", "motor_instance", "measurement", "measurement_session"))
+        # The integrated application may explicitly provide a database
+        # availability decision after validating the complete MainUI schema.
+        # Standalone use keeps the historical Motor-only schema requirement.
+        if isinstance(context, dict) and "database_available" in context:
+            self.database_available = bool(context.get("database_available"))
+            self.db_path = context.get("db_path") if self.database_available else None
+            self.database_error = str(context.get("database_error") or "")
+        else:
+            try:
+                self.db_path = resolve_database_path(required_tables=("motor_model", "motor_instance", "measurement", "measurement_session"))
+                self.database_available = True
+                self.database_error = ""
+            except Exception as exc:
+                self.db_path = None
+                self.database_available = False
+                self.database_error = f"{type(exc).__name__}: {exc}"
         self.recipe_engine = RecipeEngine(str(root / "config" / "breakin_recipes.yaml"))
         self.breakin_controller = (context.get("breakin_controller")
                                    if isinstance(context, dict)
@@ -58,6 +73,10 @@ class MainWindow(QMainWindow):
         self.resize(700, 1080)
         self.setMinimumSize(620, 600)
         self.build_ui()
+        if not self.database_available:
+            self.manager.setEnabled(False)
+            self.update_db.setEnabled(False)
+            self.raw_log.setEnabled(False)
         self.load_recipes()
         self.load_instances()
         self.set_ready()
@@ -212,7 +231,11 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(outer)
 
     def set_ready(self):
-        self.run_state.setText("READY / CONTROLLER CONNECTED" if self.breakin_controller else "ERROR / CONTROLLER NOT AVAILABLE")
+        if not self.database_available:
+            state = "ANONYMOUS MODE / DB UNAVAILABLE"
+        else:
+            state = "READY / CONTROLLER CONNECTED" if self.breakin_controller else "ERROR / CONTROLLER NOT AVAILABLE"
+        self.run_state.setText(state)
         self.refresh_runtime()
         self.recipe_changed(self.recipe.currentIndex())
 
@@ -225,12 +248,39 @@ class MainWindow(QMainWindow):
     def load_instances(self):
         self.instance.blockSignals(True)
         self.instance.clear()
+        if not self.database_available or not self.db_path:
+            self.instance.addItem("ANONYMOUS MODE / NO MOTOR INSTANCE", None)
+            self.instance.blockSignals(False)
+            try:
+                self.instance.currentIndexChanged.disconnect(self.instance_changed)
+            except TypeError:
+                pass
+            self.instance.currentIndexChanged.connect(self.instance_changed)
+            self.instance_changed(0)
+            self.manager.setEnabled(False)
+            self.update_db.setEnabled(False)
+            self.raw_log.setEnabled(False)
+            return
         try:
             conn = connect_database(self.db_path, readonly=True)
             rows = conn.execute("SELECT mi.instance_id, mi.motor_model_id, mi.serial_number, mi.nickname, mm.name, mm.series FROM motor_instance mi LEFT JOIN motor_model mm ON mm.motor_model_id=mi.motor_model_id WHERE COALESCE(mi.is_deleted,0)=0 ORDER BY mi.instance_id DESC").fetchall()
             conn.close()
-        except Exception:
-            rows = []
+        except Exception as exc:
+            self.database_available = False
+            self.database_error = f"{type(exc).__name__}: {exc}"
+            self.db_path = None
+            self.instance.addItem("ANONYMOUS MODE / DATABASE READ ERROR", None)
+            self.instance.blockSignals(False)
+            try:
+                self.instance.currentIndexChanged.disconnect(self.instance_changed)
+            except TypeError:
+                pass
+            self.instance.currentIndexChanged.connect(self.instance_changed)
+            self.instance_changed(0)
+            self.manager.setEnabled(False)
+            self.update_db.setEnabled(False)
+            self.raw_log.setEnabled(False)
+            return
         for iid, mid, serial, nickname, model_name, model_code in rows:
             model = f"{model_name} ({model_code})" if model_name and model_code else (model_name or model_code or f"MODEL {mid}")
             self.instance.addItem(f"{iid} / {model} / {nickname or serial or ''}".rstrip(" /"), iid)
@@ -251,6 +301,9 @@ class MainWindow(QMainWindow):
             self.breakin_controller.selected_instance_id = iid
 
     def open_manager(self):
+        if not self.database_available:
+            QMessageBox.information(self, "Anonymous Mode", "Database-backed Instance management is unavailable in Anonymous Mode.")
+            return
         try:
             from motor_system.python.ui.motor_manager_ui import MotorManagerUI
             self.manager_window = MotorManagerUI()
@@ -428,9 +481,14 @@ class MainWindow(QMainWindow):
         self.result["BENCHMARK"].setText("3.00 V / 30 s" if benchmark else "--")
         self.result["SUMMARY"].setText("ベンチマーク測定完了" if benchmark else "ブレイクイン完了")
         self.copy.setEnabled(True)
-        self.raw_log.setEnabled(True)
-        self.update_db.setEnabled(self.instance.currentData() is not None)
-        self.database_status.setText("DATABASE: NOT UPDATED / 結果確認後に更新")
+        self.raw_log.setEnabled(self.database_available)
+        self.update_db.setEnabled(self.database_available and self.instance.currentData() is not None)
+        if self.database_available:
+            self.database_status.setText("DATABASE: NOT UPDATED / 結果確認後に更新")
+        else:
+            raw_id = getattr(self.breakin_controller, "last_raw_log_id", None)
+            suffix = f" / LOCAL RAWLOG {raw_id}" if raw_id else " / LOCAL RAWLOG"
+            self.database_status.setText("ANONYMOUS MODE: DB REGISTRATION UNAVAILABLE" + suffix)
 
     def failed(self, message):
         self.timer.stop()
@@ -438,14 +496,19 @@ class MainWindow(QMainWindow):
         self.result["STATUS"].setText("ERROR")
         self.result["SUMMARY"].setText(message)
         self.copy.setEnabled(True)
-        self.raw_log.setEnabled(True)
+        self.raw_log.setEnabled(self.database_available)
         self.update_db.setEnabled(False)
-        self.database_status.setText("DATABASE: NOT UPDATED / ERROR")
+        if self.database_available:
+            self.database_status.setText("DATABASE: NOT UPDATED / ERROR")
+        else:
+            raw_id = getattr(self.breakin_controller, "last_raw_log_id", None)
+            suffix = f" / LOCAL RAWLOG {raw_id}" if raw_id else " / LOCAL RAWLOG"
+            self.database_status.setText("ANONYMOUS MODE: ERROR DATA RETAINED LOCALLY WHEN AVAILABLE" + suffix)
 
     def finished(self):
         self.timer.stop()
         self.start.setEnabled(True)
-        self.manager.setEnabled(True)
+        self.manager.setEnabled(self.database_available)
         self.instance.setEnabled(True)
         self.recipe.setEnabled(True)
         self.stop.setEnabled(False)
@@ -481,6 +544,9 @@ class MainWindow(QMainWindow):
         self.raw_log.setText("RAW LOG LIBRARY")
 
     def update_database(self):
+        if not self.database_available or not self.db_path:
+            QMessageBox.information(self, "Anonymous Mode", "Database registration is unavailable. The local RawLog remains the measurement record.")
+            return
         if self.database_updated:
             return
         instance_id = self.instance.currentData()

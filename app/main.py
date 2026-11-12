@@ -16,6 +16,7 @@ configure_shared_database_path(PROJECT_ROOT)
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication, QMessageBox, QGroupBox, QGridLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget, QTabWidget, QHBoxLayout, QCheckBox, QProgressBar, QPlainTextEdit
 from loguru import logger
+import ui.main_window as base_ui
 from ui.main_window import MainWindow as BaseMainWindow
 from communication.serial_controller import SerialController
 from battery_system.serial import BatterySerial
@@ -32,7 +33,22 @@ from controllers.ui_benchmark_presets import BENCHMARK_PRESETS as UI_BENCHMARK_P
 
 
 class MainWindow(BaseMainWindow):
+    MAIN_UI_REQUIRED_TABLES = (
+        "motor_model", "motor_instance", "measurement", "measurement_session",
+        "battery_model", "battery_instance", "battery_benchmark_result",
+    )
+
     def __init__(self, context=None):
+        # Validate the full integrated MainUI schema once. A missing database
+        # or incomplete schema selects Anonymous Mode; it never creates or
+        # repairs a database. Serial transports remain disconnected.
+        context = dict(context or {})
+        try:
+            db_path = base_ui.resolve_database_path(required_tables=self.MAIN_UI_REQUIRED_TABLES)
+            context.update(database_available=True, db_path=str(db_path), database_error="")
+        except Exception as exc:
+            context.update(database_available=False, db_path=None,
+                           database_error=f"{type(exc).__name__}: {exc}")
         super().__init__(context)
         self._stop_latched = False
         self._arm_accepted = False
@@ -58,6 +74,17 @@ class MainWindow(BaseMainWindow):
 
     def _build_integrated_ui(self):
         old_central=self.takeCentralWidget() or self.motor_page; root=QWidget(); root_layout=QVBoxLayout(root); root_layout.setContentsMargins(5,5,5,5)
+        self.database_mode_status = QLabel()
+        self.database_mode_status.setWordWrap(True)
+        if self.database_available:
+            self.database_mode_status.setText("DATABASE: AVAILABLE / NORMAL MODE")
+        else:
+            self.database_mode_status.setText(
+                "ANONYMOUS MODE / DATABASE UNAVAILABLE — "
+                + (self.database_error or "Database schema unavailable")
+                + " / Instance registration and DB result registration are disabled; local RawLogs are used."
+            )
+        root_layout.addWidget(self.database_mode_status)
         device_box=QGroupBox("DEVICE CONNECTION"); row=QGridLayout(device_box)
         self.motor_serial_status=QLabel("MOTOR: DISCONNECTED  /dev/ttyACM0"); self.motor_connect=QPushButton("MOTOR CONNECT"); self.motor_disconnect=QPushButton("MOTOR DISCONNECT"); self.motor_disconnect.setEnabled(False)
         self.motor_arm=QPushButton("ARM / RE-ARM"); self.motor_arm.setEnabled(False); self.motor_arm.setToolTip("Explicit ARM is required before drive. After STOP, reconnecting cannot clear the latch; physically switch motor power off before starting a fresh application session.")
@@ -74,7 +101,7 @@ class MainWindow(BaseMainWindow):
         self.emergency_stop_fixed.setEnabled(True)
         self.emergency_stop_fixed.clicked.connect(self.stop_run)
         root_layout.addWidget(self.emergency_stop_fixed)
-        tabs=QTabWidget(); tabs.addTab(old_central,"MOTOR BREAK-IN"); self.battery_tab=BatteryTab(self.db_path,transport=self.battery_serial_controller,parent=self); tabs.addTab(self.battery_tab,"BATTERY"); root_layout.addWidget(tabs,1); self._build_ui_log_panel(root_layout); self.setCentralWidget(root)
+        tabs=QTabWidget(); tabs.addTab(old_central,"MOTOR BREAK-IN"); self.battery_tab=BatteryTab(self.db_path,transport=self.battery_serial_controller,parent=self,database_available=self.database_available); tabs.addTab(self.battery_tab,"BATTERY"); root_layout.addWidget(tabs,1); self._build_ui_log_panel(root_layout); self.setCentralWidget(root)
 
     BENCHMARK_PRESETS = UI_BENCHMARK_PRESETS
 
@@ -199,6 +226,9 @@ class MainWindow(BaseMainWindow):
 
     def open_manager(self):
         """Open the Motor Instance Manager with the Local Raw Log manager attached."""
+        if not self.database_available or not self.db_path:
+            QMessageBox.information(self, "Anonymous Mode", "Instance Manager is unavailable without the database.")
+            return
         try:
             from motor_system.python.ui.motor_manager_ui import MotorManagerUI
 
@@ -322,6 +352,8 @@ class MainWindow(BaseMainWindow):
         self.battery_serial_status.setText("BATTERY: DISCONNECTED  /dev/ttyUSB0");self.battery_connect.setEnabled(True);self.battery_disconnect.setEnabled(False);self.battery_tab.set_connected(False)
 
     def _selected_motor_spec(self):
+        if not self.database_available or not self.db_path:
+            return {}
         instance_id=self.instance.currentData() if hasattr(self,"instance") else None
         if instance_id is None:return {}
         try:

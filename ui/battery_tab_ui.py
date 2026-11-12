@@ -10,19 +10,33 @@ from datetime import datetime
 from PyQt5.QtCore import QTimer
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QGroupBox, QLabel, QPushButton, QComboBox, QTabWidget, QMessageBox
 from battery_system.serial import BatterySerial
+from raw_log_library import RawLog, RawLogLibrary
 from ui.battery_database_ui import BatteryDatabaseDialog
 from database.path_resolver import connect_database, resolve_database_path
 
 
 class BatteryTab(QWidget):
-    def __init__(self, db_path, transport=None, parent=None):
+    def __init__(self, db_path=None, transport=None, parent=None, database_available=None, raw_log_library=None):
         super().__init__(parent)
-        self.db_path = str(resolve_database_path(db_path, required_tables=("battery_model", "battery_instance", "battery_benchmark_result")))
+        if database_available is None:
+            try:
+                db_path = resolve_database_path(db_path, required_tables=("battery_model", "battery_instance", "battery_benchmark_result"))
+                database_available = True
+            except Exception:
+                database_available = False
+        self.database_available = bool(database_available)
+        self.anonymous_mode = not self.database_available
+        self.db_path = str(resolve_database_path(db_path, required_tables=("battery_model", "battery_instance", "battery_benchmark_result"))) if self.database_available else None
         self.transport = transport or BatterySerial()
+        self.raw_log_library = raw_log_library or RawLogLibrary()
         self.samples = {1: [], 2: []}
         self.latest_status = {1: "IDLE", 2: "IDLE"}
         self.session_started = {1: None, 2: None}
         self.completed = {1: False, 2: False}
+        self._raw_capture = {1: [], 2: []}
+        self._capture_active = {1: False, 2: False}
+        self._capture_terminal_status = {1: None, 2: None}
+        self.local_raw_log_ids = {1: None, 2: None}
         self._build()
         self._load_models_and_instances()
         self.timer = QTimer(self)
@@ -108,6 +122,10 @@ class BatteryTab(QWidget):
         self.register_result_button.setEnabled(False)
         self.register_result_button.clicked.connect(self.register_results)
         rr.addWidget(self.register_result_button, 2, 0, 1, 2)
+        self.retry_raw_log_button = QPushButton("RETRY LOCAL RAWLOG SAVE")
+        self.retry_raw_log_button.setEnabled(False)
+        self.retry_raw_log_button.clicked.connect(self.retry_anonymous_raw_log_saves)
+        rr.addWidget(self.retry_raw_log_button, 3, 0, 1, 2)
         op.addWidget(result)
         op.addWidget(QLabel("正常終了(COMPLETE)した測定だけを、確認後に手動登録します。STOP/ERROR/CANCELはDB登録しません。"))
         tabs.addTab(operation, "5A DISCHARGE")
@@ -119,12 +137,25 @@ class BatteryTab(QWidget):
         db_layout.addWidget(db_button)
         db_layout.addStretch(1)
         tabs.addTab(db_page, "DATABASE")
+        tabs.setTabEnabled(1, self.database_available)
+        if self.anonymous_mode:
+            self.register_result_button.setText("LOCAL RAWLOG ONLY / ANONYMOUS MODE")
+            self.register_result_button.setEnabled(False)
         root.addWidget(tabs)
 
     def _load_models_and_instances(self):
         self.model.clear()
         self.ch1_instance.clear()
         self.ch2_instance.clear()
+        if self.anonymous_mode:
+            self.model.addItem("ANONYMOUS / NO DATABASE MODEL", None)
+            self.ch1_instance.addItem("ANONYMOUS / NO INSTANCE", None)
+            self.ch2_instance.addItem("ANONYMOUS / NO INSTANCE", None)
+            self.model.setEnabled(False)
+            self.ch1_instance.setEnabled(False)
+            self.ch2_instance.setEnabled(False)
+            self.assignment_status.setText("ANONYMOUS MODE: Instance assignment and database lookup are disabled. Measurements are saved to the local RawLog library.")
+            return
         try:
             with self._db() as db:
                 models = db.execute("SELECT battery_model_id,model_code,name FROM battery_model WHERE COALESCE(is_deleted,0)=0 ORDER BY model_code").fetchall()
@@ -143,6 +174,12 @@ class BatteryTab(QWidget):
     def _set_controls_enabled(self, enabled):
         have1 = self.ch1_instance.currentData() is not None
         have2 = self.ch2_instance.currentData() is not None
+        if self.anonymous_mode:
+            for b in (self.ch1_start, self.ch1_stop, self.ch2_start, self.ch2_stop):
+                b.setEnabled(enabled)
+            self.all_start.setEnabled(enabled)
+            self.all_stop.setEnabled(enabled)
+            return
         for b in (self.ch1_start, self.ch1_stop, self.ch2_start, self.ch2_stop):
             b.setEnabled(enabled and have1 and have2)
         self.all_start.setEnabled(enabled and have1 and have2)
@@ -154,6 +191,11 @@ class BatteryTab(QWidget):
             self.timer.start()
         else:
             self.timer.stop()
+            if self.anonymous_mode:
+                for ch in (1, 2):
+                    if self._capture_active[ch]:
+                        terminal = self._capture_terminal_status[ch] or "DISCONNECTED_INCOMPLETE"
+                        self._finalize_anonymous_raw_log(ch, terminal)
 
     def _status(self, ch, value):
         value = str(value).strip().upper()
@@ -166,10 +208,70 @@ class BatteryTab(QWidget):
         elif value in ("STOPPED", "STOP", "CANCEL", "CANCELLED", "ERROR"):
             self.completed[ch] = False
             self.result_labels[f"CH{ch}"].setText(f"CH{ch} Result: {value} / DB登録不可")
+        if self.anonymous_mode and value in ("COMPLETE", "STOPPED", "STOP", "CANCEL", "CANCELLED", "ERROR"):
+            self._finalize_anonymous_raw_log(ch, value)
         self._update_register_button()
 
     def _update_register_button(self):
-        self.register_result_button.setEnabled(any(self.completed[ch] and self.samples[ch] for ch in (1, 2)))
+        self.register_result_button.setEnabled(
+            self.database_available and any(self.completed[ch] and self.samples[ch] for ch in (1, 2))
+        )
+
+    def _finalize_anonymous_raw_log(self, channel, terminal_status):
+        if not self.anonymous_mode or not self._capture_active[channel]:
+            return None
+        body = "".join(self._raw_capture[channel])
+        self._capture_terminal_status[channel] = terminal_status
+        if not body:
+            self._capture_active[channel] = False
+            self._capture_terminal_status[channel] = None
+            self.retry_raw_log_button.setEnabled(any(
+                self._capture_active[ch] and self._capture_terminal_status[ch] for ch in (1, 2)
+            ))
+            return None
+        started = self.session_started[channel] or datetime.now().isoformat(timespec="seconds")
+        record = RawLog(
+            device_type="BATTERY",
+            device_model="BATTERY_5A",
+            device_instance_id=None,
+            channel=f"CH{channel}",
+            battery_id=None,
+            measurement_session_id=None,
+            acquired_at=started,
+            measurement_condition="ANONYMOUS_5A_DISCHARGE",
+            notes=f"anonymous=true; terminal_status={terminal_status}; sample_count={len(self.samples[channel])}",
+        )
+        try:
+            path = self.raw_log_library.register(record, body)
+            self._capture_active[channel] = False
+            self._capture_terminal_status[channel] = None
+            self.local_raw_log_ids[channel] = record.log_id
+            self.result_labels[f"CH{channel}"].setText(
+                f"CH{channel} Result: {terminal_status} / LOCAL RAWLOG {record.log_id}"
+            )
+            self.retry_raw_log_button.setEnabled(any(
+                self._capture_active[ch] and self._capture_terminal_status[ch] for ch in (1, 2)
+            ))
+            return path
+        except Exception as exc:
+            # Keep the exact capture active and retryable. A transient filesystem
+            # or index error must not discard the only copy of the received data.
+            self.retry_raw_log_button.setEnabled(True)
+            self.result_labels[f"CH{channel}"].setText(
+                f"CH{channel} Result: RAWLOG SAVE FAILED / RETRY AVAILABLE / {type(exc).__name__}: {exc}"
+            )
+            return None
+
+    def retry_anonymous_raw_log_saves(self):
+        if not self.anonymous_mode:
+            return
+        for ch in (1, 2):
+            terminal_status = self._capture_terminal_status[ch]
+            if self._capture_active[ch] and terminal_status:
+                self._finalize_anonymous_raw_log(ch, terminal_status)
+        self.retry_raw_log_button.setEnabled(any(
+            self._capture_active[ch] and self._capture_terminal_status[ch] for ch in (1, 2)
+        ))
 
     def _same_instance_conflict(self, channel):
         a = self.ch1_instance.currentData()
@@ -186,10 +288,21 @@ class BatteryTab(QWidget):
             return
         a = self.ch1_instance.currentData()
         b = self.ch2_instance.currentData()
-        if a is None or b is None:
+        if self.anonymous_mode and any(
+            self._capture_active[ch] and self._capture_terminal_status[ch]
+            for ch in ((1, 2) if channel is None else (channel,))
+        ):
+            self.retry_anonymous_raw_log_saves()
+            if any(
+                self._capture_active[ch] and self._capture_terminal_status[ch]
+                for ch in ((1, 2) if channel is None else (channel,))
+            ):
+                QMessageBox.warning(self, "Battery RawLog", "前回のRawLog保存が未完了です。保存を再試行してから放電を開始してください。")
+                return
+        if not self.anonymous_mode and (a is None or b is None):
             QMessageBox.warning(self, "Battery Instance", "CH1 / CH2のBattery Instanceを指定してください。")
             return
-        if self._same_instance_conflict(channel):
+        if not self.anonymous_mode and self._same_instance_conflict(channel):
             QMessageBox.warning(self, "Battery Instance Conflict", f"CH1: {a}\nCH2: {b}\n\n同じBattery Instanceを同時に使用することはできません。\nInstanceを変更してください。")
             return
         if channel is None:
@@ -204,6 +317,11 @@ class BatteryTab(QWidget):
         if not self.transport.start(channel):
             QMessageBox.warning(self, "Battery", "STARTコマンドを送信できませんでした。")
             return
+        if self.anonymous_mode:
+            for ch in targets:
+                self._raw_capture[ch] = []
+                self._capture_active[ch] = True
+                self.local_raw_log_ids[ch] = None
         for ch in targets:
             self._status(ch, "STARTING")
         self._update_register_button()
@@ -220,8 +338,13 @@ class BatteryTab(QWidget):
 
     def poll_serial(self):
         for line in self.transport.read_lines():
+            raw_line = line
             text = line.strip()
             if text.startswith("STATUS"):
+                if self.anonymous_mode:
+                    for ch in (1, 2):
+                        if self._capture_active[ch]:
+                            self._raw_capture[ch].append(raw_line)
                 parts = text.split(',')
                 if len(parts) >= 3:
                     self._status(1, parts[1])
@@ -229,8 +352,29 @@ class BatteryTab(QWidget):
                 continue
             sample = self.transport.parse_data(text)
             if sample is None:
+                # Preserve malformed DATA frames too. If the channel field is
+                # still readable, attach the exact line to that channel;
+                # otherwise retain it in every active channel capture.
+                if self.anonymous_mode and text.startswith("DATA,"):
+                    parts = text.split(",")
+                    try:
+                        raw_channel = int(parts[2].strip().upper().replace("CH", ""))
+                    except (IndexError, TypeError, ValueError):
+                        raw_channel = None
+                    targets = (raw_channel,) if raw_channel in (1, 2) else (1, 2)
+                    for target in targets:
+                        if self._capture_active[target]:
+                            self._raw_capture[target].append(raw_line)
                 continue
             ch = sample.channel
+            if ch not in self.samples:
+                if self.anonymous_mode:
+                    for target in (1, 2):
+                        if self._capture_active[target]:
+                            self._raw_capture[target].append(raw_line)
+                continue
+            if self.anonymous_mode and self._capture_active[ch]:
+                self._raw_capture[ch].append(raw_line)
             prefix = f"CH{ch}"
             self.samples[ch].append(sample)
             self.live_labels[(prefix, "Voltage")].setText(f"{prefix} Voltage: {sample.voltage:.3f} V")
@@ -278,6 +422,9 @@ class BatteryTab(QWidget):
         db.execute(f"INSERT INTO {table}({names}) VALUES({marks})", tuple(data.values()))
 
     def register_results(self):
+        if not self.database_available or not self.db_path:
+            QMessageBox.information(self, "Anonymous Mode", "Database registration is unavailable. The original local RawLog is retained instead.")
+            return
         completed = []
         for ch in (1, 2):
             if not self.completed[ch]:
@@ -325,6 +472,9 @@ class BatteryTab(QWidget):
             QMessageBox.critical(self, "Battery Result", f"登録できません。\n{exc}")
 
     def open_database(self):
+        if not self.database_available or not self.db_path:
+            QMessageBox.information(self, "Anonymous Mode", "Battery database functions are unavailable in Anonymous Mode.")
+            return
         dialog = BatteryDatabaseDialog(self.db_path, self)
         dialog.exec_()
         self._load_models_and_instances()
