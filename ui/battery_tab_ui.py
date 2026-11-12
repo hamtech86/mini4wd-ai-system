@@ -194,7 +194,8 @@ class BatteryTab(QWidget):
             if self.anonymous_mode:
                 for ch in (1, 2):
                     if self._capture_active[ch]:
-                        self._finalize_anonymous_raw_log(ch, "DISCONNECTED_INCOMPLETE")
+                        terminal = self._capture_terminal_status[ch] or "DISCONNECTED_INCOMPLETE"
+                        self._finalize_anonymous_raw_log(ch, terminal)
 
     def _status(self, ch, value):
         value = str(value).strip().upper()
@@ -287,6 +288,17 @@ class BatteryTab(QWidget):
             return
         a = self.ch1_instance.currentData()
         b = self.ch2_instance.currentData()
+        if self.anonymous_mode and any(
+            self._capture_active[ch] and self._capture_terminal_status[ch]
+            for ch in ((1, 2) if channel is None else (channel,))
+        ):
+            self.retry_anonymous_raw_log_saves()
+            if any(
+                self._capture_active[ch] and self._capture_terminal_status[ch]
+                for ch in ((1, 2) if channel is None else (channel,))
+            ):
+                QMessageBox.warning(self, "Battery RawLog", "前回のRawLog保存が未完了です。保存を再試行してから放電を開始してください。")
+                return
         if not self.anonymous_mode and (a is None or b is None):
             QMessageBox.warning(self, "Battery Instance", "CH1 / CH2のBattery Instanceを指定してください。")
             return
