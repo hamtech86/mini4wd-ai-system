@@ -498,12 +498,17 @@ class MainWindow(QMainWindow):
         self.copy.setEnabled(True)
         self.raw_log.setEnabled(self.database_available)
         self.update_db.setEnabled(False)
-        self.database_status.setText("DATABASE: NOT UPDATED / ERROR")
+        if self.database_available:
+            self.database_status.setText("DATABASE: NOT UPDATED / ERROR")
+        else:
+            raw_id = getattr(self.breakin_controller, "last_raw_log_id", None)
+            suffix = f" / LOCAL RAWLOG {raw_id}" if raw_id else " / LOCAL RAWLOG"
+            self.database_status.setText("ANONYMOUS MODE: ERROR DATA RETAINED LOCALLY WHEN AVAILABLE" + suffix)
 
     def finished(self):
         self.timer.stop()
         self.start.setEnabled(True)
-        self.manager.setEnabled(True)
+        self.manager.setEnabled(self.database_available)
         self.instance.setEnabled(True)
         self.recipe.setEnabled(True)
         self.stop.setEnabled(False)
