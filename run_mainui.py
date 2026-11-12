@@ -1,4 +1,4 @@
-""""Launch the MainUI desktop application.
+"""Launch the MainUI desktop application.
 
 Run from the repository root with: python3 run_mainui.py
 This starts the UI only; it does not connect to the serial device or run a motor.
