@@ -160,3 +160,43 @@ def test_mainui_starts_in_anonymous_mode_without_database(monkeypatch):
         assert window.emergency_stop_fixed.isEnabled()
     finally:
         window.close()
+
+
+
+def test_mainui_starts_anonymous_mode_for_incomplete_schema_without_migrating_it(
+    monkeypatch, tmp_path
+):
+    import sqlite3
+    import app.main as main_app
+    from database.path_resolver import DB_PATH_ENV
+
+    class FakeBatteryTab(QWidget):
+        def __init__(self, *args, **kwargs):
+            super().__init__(kwargs.get("parent"))
+
+        def set_connected(self, connected):
+            self.connected = connected
+
+    qapp()
+    database = tmp_path / "incomplete.db"
+    sqlite3.connect(database).close()
+    monkeypatch.setenv(DB_PATH_ENV, str(database))
+    monkeypatch.setattr(main_app, "BatteryTab", FakeBatteryTab)
+
+    window = main_app.MainWindow({
+        "breakin_controller": None,
+        "serial_controller": None,
+        "battery_serial_controller": None,
+    })
+    try:
+        assert not window.database_available
+        assert "missing tables" in window.database_error
+        assert "ANONYMOUS MODE" in window.database_mode_status.text()
+    finally:
+        window.close()
+
+    with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as db:
+        tables = db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+        ).fetchall()
+    assert tables == []
