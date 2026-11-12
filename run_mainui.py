@@ -7,21 +7,16 @@ import sys
 
 from PyQt5.QtWidgets import QApplication
 
-from app.application_builder import ApplicationBuilder
-from app.main import MainWindow
-from communication.serial_controller import SerialController
+from app.main import MainWindow, build_application_context
 
 
 def main():
-    serial_controller = SerialController()
-    context = {
-        "serial_controller": serial_controller,
-        "breakin_controller": ApplicationBuilder(
-            serial_controller
-        ).build_breakin_controller(),
-    }
+    # Use the same dependency factory as app.main so Motor and Battery
+    # controllers are both injected into the integrated UI. Constructing the
+    # transports does not open either serial port; connection remains explicit.
+    context = build_application_context()
     app = QApplication(sys.argv)
-    window = MainWindow(context)
+    window = MainWindow(context=context)
     window.show()
     return app.exec_()
 
