@@ -200,3 +200,88 @@ def test_mainui_starts_anonymous_mode_for_incomplete_schema_without_migrating_it
             "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
         ).fetchall()
     assert tables == []
+
+
+def test_battery_anonymous_mode_simultaneous_channels_save_separate_rawlogs(tmp_path):
+    qapp()
+    transport = FakeBatteryTransport()
+    library = RawLogLibrary(tmp_path / "raw_logs")
+    tab = BatteryTab(
+        db_path=None,
+        transport=transport,
+        database_available=False,
+        raw_log_library=library,
+    )
+    try:
+        tab.set_connected(True)
+        tab.start_channel(None)
+        assert transport.commands == [("START", None)]
+        assert tab._capture_active == {1: True, 2: True}
+
+        transport.lines.extend([
+            "STATUS,RUN,RUN\\r\\n",
+            "DATA,0,CH1,250,4.2,1.30,0,255,0,RUN\\r\\n",
+            "DATA,0,CH2,250,4.1,1.29,0,255,0,RUN\\r\\n",
+            "STATUS,COMPLETE,COMPLETE\\r\\n",
+        ])
+        tab.poll_serial()
+
+        assert tab.completed == {1: True, 2: True}
+        assert not tab._capture_active[1]
+        assert not tab._capture_active[2]
+        ch1, _, _ = library.get(tab.local_raw_log_ids[1])
+        ch2, _, _ = library.get(tab.local_raw_log_ids[2])
+        assert ch1.channel == "CH1"
+        assert ch2.channel == "CH2"
+        assert "CH1" in library.read_raw(ch1.log_id)
+        assert "CH2" not in library.read_raw(ch1.log_id)
+        assert "CH2" in library.read_raw(ch2.log_id)
+        assert "CH1" not in library.read_raw(ch2.log_id)
+    finally:
+        tab.close()
+
+
+def test_anonymous_rawlog_save_failure_remains_retryable(tmp_path):
+    class FlakyLibrary:
+        def __init__(self, root):
+            self.library = RawLogLibrary(root)
+            self.fail_once = True
+
+        def register(self, record, body):
+            if self.fail_once:
+                self.fail_once = False
+                raise OSError("simulated disk write failure")
+            return self.library.register(record, body)
+
+        def __getattr__(self, name):
+            return getattr(self.library, name)
+
+    qapp()
+    transport = FakeBatteryTransport()
+    library = FlakyLibrary(tmp_path / "raw_logs")
+    tab = BatteryTab(
+        db_path=None,
+        transport=transport,
+        database_available=False,
+        raw_log_library=library,
+    )
+    try:
+        tab.set_connected(True)
+        tab.start_channel(1)
+        transport.lines.append("DATA,0,CH1,250,4.2,1.30,0,255,0,RUN\\r\\n")
+        tab.poll_serial()
+        tab._status(1, "COMPLETE")
+
+        assert tab._capture_active[1]
+        assert tab._capture_terminal_status[1] == "COMPLETE"
+        assert tab.retry_raw_log_button.isEnabled()
+        assert library.library.list_logs("BATTERY") == []
+
+        tab.retry_anonymous_raw_log_saves()
+
+        assert not tab._capture_active[1]
+        assert tab.local_raw_log_ids[1] == "BATTERY-000001"
+        assert not tab.retry_raw_log_button.isEnabled()
+        assert library.read_raw("BATTERY-000001").endswith("RUN\\r\\n")
+    finally:
+        tab.close()
