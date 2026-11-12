@@ -126,6 +126,7 @@ def test_battery_serial_read_lines_preserves_original_line_endings():
 
 def test_mainui_starts_in_anonymous_mode_without_database(monkeypatch):
     import app.main as main_app
+    import ui.main_window as base_ui
 
     class FakeBatteryTab(QWidget):
         def __init__(self, *args, **kwargs):
@@ -137,7 +138,7 @@ def test_mainui_starts_in_anonymous_mode_without_database(monkeypatch):
     def unavailable(**kwargs):
         raise FileNotFoundError("database intentionally absent in test")
 
-    monkeypatch.setattr(main_app, "resolve_database_path", unavailable)
+    monkeypatch.setattr(base_ui, "resolve_database_path", unavailable)
     monkeypatch.setattr(main_app, "BatteryTab", FakeBatteryTab)
     app = qapp()
     window = main_app.MainWindow({
