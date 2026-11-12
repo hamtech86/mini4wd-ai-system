@@ -225,6 +225,9 @@ class MainWindow(BaseMainWindow):
 
     def open_manager(self):
         """Open the Motor Instance Manager with the Local Raw Log manager attached."""
+        if not self.database_available or not self.db_path:
+            QMessageBox.information(self, "Anonymous Mode", "Instance Manager is unavailable without the database.")
+            return
         try:
             from motor_system.python.ui.motor_manager_ui import MotorManagerUI
 
