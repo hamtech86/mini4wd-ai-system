@@ -219,10 +219,10 @@ def test_battery_anonymous_mode_simultaneous_channels_save_separate_rawlogs(tmp_
         assert tab._capture_active == {1: True, 2: True}
 
         transport.lines.extend([
-            "STATUS,RUN,RUN\\r\\n",
-            "DATA,0,CH1,250,4.2,1.30,0,255,0,RUN\\r\\n",
-            "DATA,0,CH2,250,4.1,1.29,0,255,0,RUN\\r\\n",
-            "STATUS,COMPLETE,COMPLETE\\r\\n",
+            "STATUS,RUN,RUN\r\n",
+            "DATA,0,CH1,250,4.2,1.30,0,255,0,RUN\r\n",
+            "DATA,0,CH2,250,4.1,1.29,0,255,0,RUN\r\n",
+            "STATUS,COMPLETE,COMPLETE\r\n",
         ])
         tab.poll_serial()
 
@@ -268,7 +268,7 @@ def test_anonymous_rawlog_save_failure_remains_retryable(tmp_path):
     try:
         tab.set_connected(True)
         tab.start_channel(1)
-        transport.lines.append("DATA,0,CH1,250,4.2,1.30,0,255,0,RUN\\r\\n")
+        transport.lines.append("DATA,0,CH1,250,4.2,1.30,0,255,0,RUN\r\n")
         tab.poll_serial()
         tab._status(1, "COMPLETE")
 
@@ -282,6 +282,6 @@ def test_anonymous_rawlog_save_failure_remains_retryable(tmp_path):
         assert not tab._capture_active[1]
         assert tab.local_raw_log_ids[1] == "BATTERY-000001"
         assert not tab.retry_raw_log_button.isEnabled()
-        assert library.read_raw("BATTERY-000001").endswith("RUN\\r\\n")
+        assert library.read_raw("BATTERY-000001").endswith("RUN\r\n")
     finally:
         tab.close()
