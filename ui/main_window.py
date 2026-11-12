@@ -467,7 +467,7 @@ class MainWindow(QMainWindow):
         self.result["BENCHMARK"].setText("3.00 V / 30 s" if benchmark else "--")
         self.result["SUMMARY"].setText("ベンチマーク測定完了" if benchmark else "ブレイクイン完了")
         self.copy.setEnabled(True)
-        self.raw_log.setEnabled(True)
+        self.raw_log.setEnabled(self.database_available)
         self.update_db.setEnabled(self.database_available and self.instance.currentData() is not None)
         if self.database_available:
             self.database_status.setText("DATABASE: NOT UPDATED / 結果確認後に更新")
@@ -482,7 +482,7 @@ class MainWindow(QMainWindow):
         self.result["STATUS"].setText("ERROR")
         self.result["SUMMARY"].setText(message)
         self.copy.setEnabled(True)
-        self.raw_log.setEnabled(True)
+        self.raw_log.setEnabled(self.database_available)
         self.update_db.setEnabled(False)
         self.database_status.setText("DATABASE: NOT UPDATED / ERROR")
 
@@ -525,6 +525,9 @@ class MainWindow(QMainWindow):
         self.raw_log.setText("RAW LOG LIBRARY")
 
     def update_database(self):
+        if not self.database_available or not self.db_path:
+            QMessageBox.information(self, "Anonymous Mode", "Database registration is unavailable. The local RawLog remains the measurement record.")
+            return
         if self.database_updated:
             return
         instance_id = self.instance.currentData()
