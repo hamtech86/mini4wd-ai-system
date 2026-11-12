@@ -66,8 +66,11 @@ class BatterySerial:
         lines = []
         while self.serial.in_waiting:
             raw = self.serial.readline()
-            text = raw.decode("utf-8", errors="replace").strip()
-            if text:
+            # Keep the received line terminator and surrounding bytes in
+            # the host-side capture. The UI parser may strip a working copy,
+            # while Anonymous Mode stores the original decoded line sequence.
+            text = raw.decode("utf-8", errors="replace")
+            if text.strip():
                 lines.append(text)
         return lines
     @staticmethod
