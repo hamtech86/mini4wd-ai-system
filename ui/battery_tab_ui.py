@@ -326,6 +326,12 @@ class BatteryTab(QWidget):
                             self._raw_capture[target].append(raw_line)
                 continue
             ch = sample.channel
+            if ch not in self.samples:
+                if self.anonymous_mode:
+                    for target in (1, 2):
+                        if self._capture_active[target]:
+                            self._raw_capture[target].append(raw_line)
+                continue
             if self.anonymous_mode and self._capture_active[ch]:
                 self._raw_capture[ch].append(raw_line)
             prefix = f"CH{ch}"
