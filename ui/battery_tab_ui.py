@@ -35,6 +35,7 @@ class BatteryTab(QWidget):
         self.completed = {1: False, 2: False}
         self._raw_capture = {1: [], 2: []}
         self._capture_active = {1: False, 2: False}
+        self._capture_terminal_status = {1: None, 2: None}
         self.local_raw_log_ids = {1: None, 2: None}
         self._build()
         self._load_models_and_instances()
@@ -121,6 +122,10 @@ class BatteryTab(QWidget):
         self.register_result_button.setEnabled(False)
         self.register_result_button.clicked.connect(self.register_results)
         rr.addWidget(self.register_result_button, 2, 0, 1, 2)
+        self.retry_raw_log_button = QPushButton("RETRY LOCAL RAWLOG SAVE")
+        self.retry_raw_log_button.setEnabled(False)
+        self.retry_raw_log_button.clicked.connect(self.retry_anonymous_raw_log_saves)
+        rr.addWidget(self.retry_raw_log_button, 3, 0, 1, 2)
         op.addWidget(result)
         op.addWidget(QLabel("正常終了(COMPLETE)した測定だけを、確認後に手動登録します。STOP/ERROR/CANCELはDB登録しません。"))
         tabs.addTab(operation, "5A DISCHARGE")
@@ -215,8 +220,13 @@ class BatteryTab(QWidget):
         if not self.anonymous_mode or not self._capture_active[channel]:
             return None
         body = "".join(self._raw_capture[channel])
-        self._capture_active[channel] = False
+        self._capture_terminal_status[channel] = terminal_status
         if not body:
+            self._capture_active[channel] = False
+            self._capture_terminal_status[channel] = None
+            self.retry_raw_log_button.setEnabled(any(
+                self._capture_active[ch] and self._capture_terminal_status[ch] for ch in (1, 2)
+            ))
             return None
         started = self.session_started[channel] or datetime.now().isoformat(timespec="seconds")
         record = RawLog(
@@ -232,16 +242,35 @@ class BatteryTab(QWidget):
         )
         try:
             path = self.raw_log_library.register(record, body)
+            self._capture_active[channel] = False
+            self._capture_terminal_status[channel] = None
             self.local_raw_log_ids[channel] = record.log_id
             self.result_labels[f"CH{channel}"].setText(
                 f"CH{channel} Result: {terminal_status} / LOCAL RAWLOG {record.log_id}"
             )
+            self.retry_raw_log_button.setEnabled(any(
+                self._capture_active[ch] and self._capture_terminal_status[ch] for ch in (1, 2)
+            ))
             return path
         except Exception as exc:
+            # Keep the exact capture active and retryable. A transient filesystem
+            # or index error must not discard the only copy of the received data.
+            self.retry_raw_log_button.setEnabled(True)
             self.result_labels[f"CH{channel}"].setText(
-                f"CH{channel} Result: RAWLOG SAVE FAILED / {type(exc).__name__}: {exc}"
+                f"CH{channel} Result: RAWLOG SAVE FAILED / RETRY AVAILABLE / {type(exc).__name__}: {exc}"
             )
             return None
+
+    def retry_anonymous_raw_log_saves(self):
+        if not self.anonymous_mode:
+            return
+        for ch in (1, 2):
+            terminal_status = self._capture_terminal_status[ch]
+            if self._capture_active[ch] and terminal_status:
+                self._finalize_anonymous_raw_log(ch, terminal_status)
+        self.retry_raw_log_button.setEnabled(any(
+            self._capture_active[ch] and self._capture_terminal_status[ch] for ch in (1, 2)
+        ))
 
     def _same_instance_conflict(self, channel):
         a = self.ch1_instance.currentData()
