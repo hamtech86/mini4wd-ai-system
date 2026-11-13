@@ -128,7 +128,10 @@ class BatteryTab(QWidget):
         rr.addWidget(self.retry_raw_log_button, 3, 0, 1, 2)
         op.addWidget(result)
         op.addWidget(QLabel("正常終了(COMPLETE)した測定だけを、確認後に手動登録します。STOP/ERROR/CANCELはDB登録しません。"))
-        operation_scroll = QScrollArea()\n        operation_scroll.setWidgetResizable(True)\n        operation_scroll.setWidget(operation)\n        tabs.addTab(operation_scroll, "5A DISCHARGE")
+        operation_scroll = QScrollArea()
+        operation_scroll.setWidgetResizable(True)
+        operation_scroll.setWidget(operation)
+        tabs.addTab(operation_scroll, "5A DISCHARGE")
 
         db_page = QWidget()
         db_layout = QVBoxLayout(db_page)
