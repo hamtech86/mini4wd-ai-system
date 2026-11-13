@@ -289,7 +289,7 @@ def test_anonymous_rawlog_save_failure_remains_retryable(tmp_path):
 
 
 def test_battery_operation_tab_scrolls_to_start_stop_controls_on_small_window(tmp_path):
-    from PyQt5.QtCore import Qt
+    from PyQt5.QtCore import QPoint
     from PyQt5.QtWidgets import QScrollArea
 
     qapp()
@@ -319,9 +319,7 @@ def test_battery_operation_tab_scrolls_to_start_stop_controls_on_small_window(tm
         scroll.ensureWidgetVisible(tab.ch2_stop)
         tab.application.processEvents()
         assert scroll.verticalScrollBar().value() > 0
-        assert scroll.viewport().rect().intersects(
-            tab.ch2_stop.mapTo(scroll.viewport(), tab.ch2_stop.rect().topLeft())
-            .boundingRect()
-        )
+        button_top_left = tab.ch2_stop.mapTo(scroll.viewport(), QPoint(0, 0))
+        assert scroll.viewport().rect().contains(button_top_left)
     finally:
         tab.close()
