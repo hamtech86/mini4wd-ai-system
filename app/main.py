@@ -172,10 +172,16 @@ class MainWindow(BaseMainWindow):
 
     def _build_ui_log_panel(self, parent_layout):
         box=QGroupBox("LOG / ERROR LOG"); layout=QVBoxLayout(box)
-        self.ui_log=QPlainTextEdit(); self.ui_log.setReadOnly(True); self.ui_log.setMaximumBlockCount(500); self.ui_log.setPlaceholderText("Controller / UI / Sequence events will appear here."); layout.addWidget(self.ui_log)
+        # Keep the footer compact so the selected MOTOR / BATTERY work area
+        # receives the available vertical space. The log remains scrollable.
+        layout.setContentsMargins(8, 6, 8, 6); layout.setSpacing(4)
+        self.ui_log=QPlainTextEdit(); self.ui_log.setReadOnly(True); self.ui_log.setMaximumBlockCount(500); self.ui_log.setPlaceholderText("Controller / UI / Sequence events will appear here.")
+        self.ui_log.setFixedHeight(72); layout.addWidget(self.ui_log)
         self.error_code_label=QLabel("Error Code: --"); self.error_message_label=QLabel("Error Message: --"); self.error_message_label.setWordWrap(True); layout.addWidget(self.error_code_label); layout.addWidget(self.error_message_label)
-        actions=QHBoxLayout(); self.copy_error_button=QPushButton("COPY ERROR DETAILS"); self.copy_error_button.setEnabled(False); self.copy_error_button.clicked.connect(self.copy_error_details); actions.addWidget(self.copy_error_button)
-        clear=QPushButton("CLEAR LOG"); clear.clicked.connect(self.ui_log.clear); actions.addWidget(clear); actions.addStretch(); layout.addLayout(actions); parent_layout.addWidget(box)
+        actions=QHBoxLayout(); self.copy_error_button=QPushButton("COPY ERROR DETAILS"); self.copy_error_button.setEnabled(False); self.copy_error_button.setMaximumHeight(28); self.copy_error_button.clicked.connect(self.copy_error_details); actions.addWidget(self.copy_error_button)
+        clear=QPushButton("CLEAR LOG"); clear.setMaximumHeight(28); clear.clicked.connect(self.ui_log.clear); actions.addWidget(clear); actions.addStretch(); layout.addLayout(actions)
+        box.setMaximumHeight(180)
+        parent_layout.addWidget(box)
         self._ui_error_code=None; self._ui_error_message=None; self._log_event("UI ready; hardware identity has not been verified."); self._log_event("Driver input current uses ACS712 #1/A0 current1 from the documented wiring; this is not motor winding current.")
 
     def _log_event(self, message):
