@@ -285,3 +285,41 @@ def test_anonymous_rawlog_save_failure_remains_retryable(tmp_path):
         assert library.read_raw("BATTERY-000001").endswith("RUN\r\n")
     finally:
         tab.close()
+
+
+
+def test_battery_operation_tab_scrolls_to_start_stop_controls_on_small_window(tmp_path):
+    from PyQt5.QtCore import QPoint
+    from PyQt5.QtWidgets import QScrollArea
+
+    qapp()
+    tab = BatteryTab(
+        db_path=None,
+        transport=FakeBatteryTransport(),
+        database_available=False,
+        raw_log_library=RawLogLibrary(tmp_path / "raw_logs"),
+    )
+    try:
+        tab.resize(420, 260)
+        tab.show()
+        tab.set_connected(True)
+        scroll = tab.findChild(QScrollArea)
+        assert scroll is tab.operation_scroll_area
+        assert scroll.widgetResizable()
+        assert scroll.widget() is not None
+        assert tab.ch1_start.isEnabled()
+        assert tab.ch2_start.isEnabled()
+        assert tab.all_start.isEnabled()
+
+        # The operation page exceeds the deliberately small viewport. Scrolling
+        # must bring the final channel's controls into the visible viewport.
+        tab.application = QApplication.instance()
+        tab.application.processEvents()
+        assert scroll.verticalScrollBar().maximum() > 0
+        scroll.ensureWidgetVisible(tab.ch2_stop)
+        tab.application.processEvents()
+        assert scroll.verticalScrollBar().value() > 0
+        button_top_left = tab.ch2_stop.mapTo(scroll.viewport(), QPoint(0, 0))
+        assert scroll.viewport().rect().contains(button_top_left)
+    finally:
+        tab.close()

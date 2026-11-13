@@ -8,7 +8,7 @@ import sqlite3
 import uuid
 from datetime import datetime
 from PyQt5.QtCore import QTimer
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QGroupBox, QLabel, QPushButton, QComboBox, QTabWidget, QMessageBox
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QGroupBox, QLabel, QPushButton, QComboBox, QTabWidget, QScrollArea, QMessageBox
 from battery_system.serial import BatterySerial
 from raw_log_library import RawLog, RawLogLibrary
 from ui.battery_database_ui import BatteryDatabaseDialog
@@ -128,7 +128,14 @@ class BatteryTab(QWidget):
         rr.addWidget(self.retry_raw_log_button, 3, 0, 1, 2)
         op.addWidget(result)
         op.addWidget(QLabel("正常終了(COMPLETE)した測定だけを、確認後に手動登録します。STOP/ERROR/CANCELはDB登録しません。"))
-        tabs.addTab(operation, "5A DISCHARGE")
+        # The integrated MainUI reserves substantial vertical space for device
+        # connection and global logs. Keep the complete Battery operation page
+        # intact, but make it scrollable so START/STOP controls are reachable on
+        # smaller screens instead of being clipped below the tab viewport.
+        self.operation_scroll_area = QScrollArea()
+        self.operation_scroll_area.setWidgetResizable(True)
+        self.operation_scroll_area.setWidget(operation)
+        tabs.addTab(self.operation_scroll_area, "5A DISCHARGE")
 
         db_page = QWidget()
         db_layout = QVBoxLayout(db_page)
