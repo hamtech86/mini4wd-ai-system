@@ -4,6 +4,7 @@ RawLog bodies are copied verbatim; this module never edits RawLogLibrary data.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import urllib.error
@@ -124,7 +125,10 @@ class DiagnosticReportService:
         if kind not in {"battery", "motor"} or not run_id:
             raise DiagnosticReportError("manifest device_type/run_id is invalid", bundle)
         prefix = f"diagnostic-reports/{kind}/{run_id}"
-        files = sorted(path for path in bundle.rglob("*") if path.is_file())
+        files = sorted(
+            path for path in bundle.rglob("*")
+            if path.is_file() and path.name != "upload_status.json"
+        )
         uploaded = []
         try:
             for path in files:
@@ -183,7 +187,7 @@ class DiagnosticReportService:
 
         payload = {
             "message": message,
-            "content": __import__("base64").b64encode(content).decode("ascii"),
+            "content": base64.b64encode(content).decode("ascii"),
         }
         request = urllib.request.Request(
             url,
