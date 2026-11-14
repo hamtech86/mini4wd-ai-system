@@ -14,7 +14,7 @@ from database.path_resolver import configure_shared_database_path, connect_datab
 configure_shared_database_path(PROJECT_ROOT)
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QApplication, QMessageBox, QGroupBox, QGridLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget, QTabWidget, QHBoxLayout, QCheckBox, QProgressBar, QPlainTextEdit, QInputDialog, QLineEdit
+from PyQt5.QtWidgets import QApplication, QMessageBox, QGroupBox, QGridLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget, QTabWidget, QHBoxLayout, QCheckBox, QProgressBar, QPlainTextEdit
 from loguru import logger
 import ui.main_window as base_ui
 from ui.main_window import MainWindow as BaseMainWindow
@@ -22,7 +22,6 @@ from communication.serial_controller import SerialController
 from battery_system.serial import BatterySerial
 from app.application_builder import ApplicationBuilder
 from app.raw_log_paste import install_raw_log_paste_ui
-from ui.physical_verification_report import PhysicalVerificationReport
 from ui.battery_tab_ui import BatteryTab
 from workers.breakin_worker import BreakinWorker
 from analysis.analysis_engine import AnalysisEngine
@@ -172,65 +171,12 @@ class MainWindow(BaseMainWindow):
         self.sequence_execute.setEnabled(True)
 
     def _build_ui_log_panel(self, parent_layout):
-        box = QGroupBox("LOG / ERROR LOG")
-        root = QHBoxLayout(box)
-        root.setContentsMargins(8, 6, 8, 6)
-        root.setSpacing(8)
-
-        # Left: narrow, independently scrollable diagnostic history and errors.
-        log_column = QVBoxLayout()
-        log_column.setContentsMargins(0, 0, 0, 0)
-        log_column.setSpacing(3)
-        self.ui_log = QPlainTextEdit()
-        self.ui_log.setReadOnly(True)
-        self.ui_log.setMaximumBlockCount(500)
-        self.ui_log.setPlaceholderText("Controller / UI / Sequence events will appear here.")
-        self.ui_log.setLineWrapMode(QPlainTextEdit.NoWrap)
-        self.ui_log.setMinimumHeight(86)
-        self.ui_log.setMaximumHeight(110)
-        log_column.addWidget(self.ui_log, 1)
-        self.error_code_label = QLabel("Error Code: --")
-        self.error_message_label = QLabel("Error Message: --")
-        self.error_code_label.setWordWrap(True)
-        self.error_message_label.setWordWrap(True)
-        log_column.addWidget(self.error_code_label)
-        log_column.addWidget(self.error_message_label)
-        root.addLayout(log_column, 1)
-
-        # Right: vertically stacked actions define the compact footer width.
-        actions = QVBoxLayout()
-        actions.setContentsMargins(0, 0, 0, 0)
-        actions.setSpacing(4)
-        self.copy_error_button = QPushButton("COPY ERROR DETAILS")
-        self.copy_error_button.setEnabled(False)
-        self.copy_error_button.clicked.connect(self.copy_error_details)
-        actions.addWidget(self.copy_error_button)
-
-        self.send_verification_button = QPushButton("SEND VERIFICATION REPORT")
-        self.send_verification_button.setToolTip(
-            "Send UI history, current error details, and explicitly selected RawLogs to the raw-log library repository."
-        )
-        self.send_verification_button.clicked.connect(self.send_verification_report)
-        actions.addWidget(self.send_verification_button)
-
-        self.github_token_button = QPushButton("SET GITHUB TOKEN")
-        self.github_token_button.setToolTip(
-            "Enter a GitHub token for this app session; the token is masked and not saved to disk."
-        )
-        self.github_token_button.clicked.connect(self.set_verification_token)
-        actions.addWidget(self.github_token_button)
-
-        clear = QPushButton("CLEAR LOG")
-        clear.clicked.connect(self.ui_log.clear)
-        actions.addWidget(clear)
-        actions.addStretch(1)
-        root.addLayout(actions, 0)
-
-        parent_layout.addWidget(box)
-        self._ui_error_code = None
-        self._ui_error_message = None
-        self._log_event("UI ready; hardware identity has not been verified.")
-        self._log_event("Driver input current uses ACS712 #1/A0 current1 from the documented wiring; this is not motor winding current.")
+        box=QGroupBox("LOG / ERROR LOG"); layout=QVBoxLayout(box)
+        self.ui_log=QPlainTextEdit(); self.ui_log.setReadOnly(True); self.ui_log.setMaximumBlockCount(500); self.ui_log.setPlaceholderText("Controller / UI / Sequence events will appear here."); layout.addWidget(self.ui_log)
+        self.error_code_label=QLabel("Error Code: --"); self.error_message_label=QLabel("Error Message: --"); self.error_message_label.setWordWrap(True); layout.addWidget(self.error_code_label); layout.addWidget(self.error_message_label)
+        actions=QHBoxLayout(); self.copy_error_button=QPushButton("COPY ERROR DETAILS"); self.copy_error_button.setEnabled(False); self.copy_error_button.clicked.connect(self.copy_error_details); actions.addWidget(self.copy_error_button)
+        clear=QPushButton("CLEAR LOG"); clear.clicked.connect(self.ui_log.clear); actions.addWidget(clear); actions.addStretch(); layout.addLayout(actions); parent_layout.addWidget(box)
+        self._ui_error_code=None; self._ui_error_message=None; self._log_event("UI ready; hardware identity has not been verified."); self._log_event("Driver input current uses ACS712 #1/A0 current1 from the documented wiring; this is not motor winding current.")
 
     def _log_event(self, message):
         if hasattr(self,"ui_log"):
@@ -248,30 +194,6 @@ class MainWindow(BaseMainWindow):
         if self._ui_error_code: parts.append(f"Error Code: {self._ui_error_code}")
         if self._ui_error_message: parts.append(f"Error Message: {self._ui_error_message}")
         QApplication.clipboard().setText("\n".join(parts)); self.copy_error_button.setText("COPIED ERROR DETAILS")
-
-    def set_verification_token(self):
-        """Set a masked GitHub token in memory for the current app session only."""
-        token, accepted = QInputDialog.getText(
-            self, "GitHub Token",
-            "RawLogリポジトリへの書き込み権限を持つトークンを入力してください。\n入力内容は伏せ字で表示され、ディスクには保存されません。",
-            QLineEdit.Password,
-        )
-        if not accepted:
-            return
-        if not token.strip():
-            self._physical_verification_token = None
-            QMessageBox.information(self, "GitHub Token", "UI入力トークンをクリアしました。環境変数の設定は引き続き使用できます。")
-            return
-        self._physical_verification_token = token.strip()
-        QMessageBox.information(self, "GitHub Token", "トークンをアプリ実行中のメモリに設定しました。ディスクには保存していません。")
-
-    def send_verification_report(self):
-        """Create a recoverable local verification bundle and offer GitHub upload."""
-        try:
-            PhysicalVerificationReport(self).send()
-        except Exception as exc:
-            self._log_event(f"Verification report preparation failed: {exc}")
-            QMessageBox.critical(self, "Verification report", f"レポート準備に失敗しました。\n{exc}")
 
     def _identity_verified(self, controller=None):
         controller=controller or self._motor_controller()
