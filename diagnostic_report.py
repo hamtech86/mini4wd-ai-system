@@ -172,7 +172,7 @@ class DiagnosticReportService:
                 existing_sha = existing.get("sha")
                 if existing_sha:
                     expected_sha = hashlib.sha1(
-                        b"blob " + str(len(content)).encode("ascii") + b"\\0" + content
+                        b"blob " + str(len(content)).encode("ascii") + b"\0" + content
                     ).hexdigest()
                     if existing_sha == expected_sha:
                         # Safe retry after a partial upload: identical content is already present.
