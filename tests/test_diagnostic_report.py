@@ -86,3 +86,57 @@ def test_duplicate_run_id_never_overwrites_existing_bundle(tmp_path):
     service.create_local_bundle("BATTERY", [battery.log_id], run_id="same-id")
     with pytest.raises(FileExistsError):
         service.create_local_bundle("BATTERY", [battery.log_id], run_id="same-id")
+
+
+
+def test_identical_remote_blob_is_detected_for_safe_retry(tmp_path, monkeypatch):
+    import hashlib
+    from types import SimpleNamespace
+    import diagnostic_report
+
+    content = b"same content\r\n"
+    blob_sha = hashlib.sha1(
+        b"blob " + str(len(content)).encode("ascii") + b"\\0" + content
+    ).hexdigest()
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self):
+            return json.dumps({"sha": blob_sha}).encode("utf-8")
+
+    monkeypatch.setattr(diagnostic_report.urllib.request, "urlopen", lambda *args, **kwargs: Response())
+    service = DiagnosticReportService(
+        RawLogLibrary(tmp_path / "raw"), tmp_path / "reports", token="test-token"
+    )
+    result = service._put_new_file("diagnostic-reports/battery/run/raw.log", content, "test")
+    assert result["status"] == "ALREADY_PRESENT_IDENTICAL"
+
+
+def test_upload_status_file_is_not_included_on_retry(tmp_path, monkeypatch):
+    library = RawLogLibrary(tmp_path / "raw")
+    battery = RawLog(device_type="BATTERY", channel="CH1")
+    library.register(battery, "RAW\\n")
+    service = DiagnosticReportService(
+        library, tmp_path / "reports", token="test-token"
+    )
+    bundle = service.create_local_bundle("BATTERY", [battery.log_id], run_id="status-excluded")
+    uploaded_paths = []
+
+    def fake_put(path, content, message):
+        uploaded_paths.append(path)
+        return {"status": "created"}
+
+    monkeypatch.setattr(service, "_put_new_file", fake_put)
+    service.upload_bundle(bundle)
+    first_count = len(uploaded_paths)
+    assert first_count == 2  # manifest + explicitly selected RawLog
+    assert (bundle / "upload_status.json").is_file()
+
+    service.upload_bundle(bundle)
+    assert len(uploaded_paths) == first_count * 2
+    assert all(not path.endswith("upload_status.json") for path in uploaded_paths)
