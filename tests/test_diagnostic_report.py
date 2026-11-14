@@ -96,7 +96,7 @@ def test_identical_remote_blob_is_detected_for_safe_retry(tmp_path, monkeypatch)
 
     content = b"same content\r\n"
     blob_sha = hashlib.sha1(
-        b"blob " + str(len(content)).encode("ascii") + b"\\0" + content
+        b"blob " + str(len(content)).encode("ascii") + b"\0" + content
     ).hexdigest()
 
     class Response:
