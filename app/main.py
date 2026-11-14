@@ -23,6 +23,7 @@ from battery_system.serial import BatterySerial
 from app.application_builder import ApplicationBuilder
 from app.raw_log_paste import install_raw_log_paste_ui
 from ui.battery_tab_ui import BatteryTab
+from ui.diagnostic_report_dialog import DiagnosticReportDialog
 from workers.breakin_worker import BreakinWorker
 from analysis.analysis_engine import AnalysisEngine
 from controllers.session_controller import SessionController
@@ -175,8 +176,17 @@ class MainWindow(BaseMainWindow):
         self.ui_log=QPlainTextEdit(); self.ui_log.setReadOnly(True); self.ui_log.setMaximumBlockCount(500); self.ui_log.setPlaceholderText("Controller / UI / Sequence events will appear here."); layout.addWidget(self.ui_log)
         self.error_code_label=QLabel("Error Code: --"); self.error_message_label=QLabel("Error Message: --"); self.error_message_label.setWordWrap(True); layout.addWidget(self.error_code_label); layout.addWidget(self.error_message_label)
         actions=QHBoxLayout(); self.copy_error_button=QPushButton("COPY ERROR DETAILS"); self.copy_error_button.setEnabled(False); self.copy_error_button.clicked.connect(self.copy_error_details); actions.addWidget(self.copy_error_button)
+        self.diagnostic_report_button=QPushButton("CREATE DIAGNOSTIC REPORT"); self.diagnostic_report_button.clicked.connect(self.open_diagnostic_report); actions.addWidget(self.diagnostic_report_button)
         clear=QPushButton("CLEAR LOG"); clear.clicked.connect(self.ui_log.clear); actions.addWidget(clear); actions.addStretch(); layout.addLayout(actions); parent_layout.addWidget(box)
         self._ui_error_code=None; self._ui_error_message=None; self._log_event("UI ready; hardware identity has not been verified."); self._log_event("Driver input current uses ACS712 #1/A0 current1 from the documented wiring; this is not motor winding current.")
+
+    def open_diagnostic_report(self):
+        library = getattr(getattr(self, "battery_tab", None), "raw_log_library", None)
+        if library is None:
+            from raw_log_library import RawLogLibrary
+            library = RawLogLibrary()
+        dialog = DiagnosticReportDialog(self, library)
+        dialog.exec_()
 
     def _log_event(self, message):
         if hasattr(self,"ui_log"):
