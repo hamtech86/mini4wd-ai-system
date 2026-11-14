@@ -4,8 +4,8 @@ RawLog bodies are copied verbatim; this module never edits RawLogLibrary data.
 """
 from __future__ import annotations
 
+import hashlib
 import json
-import os
 import urllib.error
 import urllib.request
 import uuid
@@ -165,8 +165,15 @@ class DiagnosticReportService:
         try:
             with urllib.request.urlopen(lookup, timeout=15) as response:
                 existing = json.loads(response.read().decode("utf-8"))
-                if existing.get("sha"):
-                    raise DiagnosticReportError(f"duplicate upload blocked; target already exists: {path}")
+                existing_sha = existing.get("sha")
+                if existing_sha:
+                    expected_sha = hashlib.sha1(
+                        b"blob " + str(len(content)).encode("ascii") + b"\\0" + content
+                    ).hexdigest()
+                    if existing_sha == expected_sha:
+                        # Safe retry after a partial upload: identical content is already present.
+                        return {"status": "ALREADY_PRESENT_IDENTICAL", "path": path, "sha": existing_sha}
+                    raise DiagnosticReportError(f"duplicate upload blocked; different content already exists: {path}")
         except urllib.error.HTTPError as exc:
             if exc.code != 404:
                 detail = exc.read().decode("utf-8", errors="replace")
