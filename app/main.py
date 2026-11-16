@@ -172,17 +172,37 @@ class MainWindow(BaseMainWindow):
         self.sequence_execute.setEnabled(True)
 
     def _build_ui_log_panel(self, parent_layout):
-        """Compact footer: scrollable log pane on the left, vertical actions on the right."""
-        box = QGroupBox("LOG / ERROR LOG")
-        panel = QHBoxLayout(box)
-        panel.setContentsMargins(6, 6, 6, 6)
+        """Compact footer with inline error status and vertical actions."""
+        box = QGroupBox()
+        outer = QVBoxLayout(box)
+        outer.setContentsMargins(6, 6, 6, 6)
+        outer.setSpacing(4)
+
+        # Keep the section title and current error status on one compact row.
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.setSpacing(10)
+        title = QLabel("LOG / ERROR LOG")
+        title.setStyleSheet("font-weight: bold;")
+        header.addWidget(title)
+
+        self.error_code_label = QLabel("Error Code: --")
+        self.error_code_label.setMinimumWidth(105)
+        header.addWidget(self.error_code_label)
+
+        self.error_message_label = QLabel("Error Message: --")
+        self.error_message_label.setWordWrap(False)
+        self.error_message_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.error_message_label.setToolTip("Current error message")
+        header.addWidget(self.error_message_label, 1)
+        outer.addLayout(header)
+
+        panel = QHBoxLayout()
+        panel.setContentsMargins(0, 0, 0, 0)
         panel.setSpacing(8)
 
         # Keep the footer short. Long output remains available through the
         # editor's scrollbars instead of expanding the main window vertically.
-        messages = QVBoxLayout()
-        messages.setContentsMargins(0, 0, 0, 0)
-        messages.setSpacing(3)
         self.ui_log = QPlainTextEdit()
         self.ui_log.setReadOnly(True)
         self.ui_log.setMaximumBlockCount(500)
@@ -194,15 +214,7 @@ class MainWindow(BaseMainWindow):
         self.ui_log.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.ui_log.setMinimumHeight(58)
         self.ui_log.setMaximumHeight(86)
-        messages.addWidget(self.ui_log, 1)
-
-        self.error_code_label = QLabel("Error Code: --")
-        self.error_message_label = QLabel("Error Message: --")
-        self.error_message_label.setWordWrap(True)
-        self.error_message_label.setMaximumHeight(32)
-        messages.addWidget(self.error_code_label)
-        messages.addWidget(self.error_message_label)
-        panel.addLayout(messages, 1)
+        panel.addWidget(self.ui_log, 1)
 
         actions = QVBoxLayout()
         actions.setContentsMargins(0, 0, 0, 0)
@@ -228,16 +240,8 @@ class MainWindow(BaseMainWindow):
         actions.addStretch(1)
 
         panel.addLayout(actions)
-        box.setMaximumHeight(158)
+        outer.addLayout(panel)
         parent_layout.addWidget(box)
-
-        self._ui_error_code = None
-        self._ui_error_message = None
-        self._log_event("UI ready; hardware identity has not been verified.")
-        self._log_event(
-            "Driver input current uses ACS712 #1/A0 current1 from the documented wiring; "
-            "this is not motor winding current."
-        )
 
     def open_diagnostic_report(self):
         library = getattr(getattr(self, "battery_tab", None), "raw_log_library", None)
