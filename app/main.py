@@ -241,6 +241,14 @@ class MainWindow(BaseMainWindow):
 
         panel.addLayout(actions)
         outer.addLayout(panel)
+        box.setMaximumHeight(158)
+        self._ui_error_code = None
+        self._ui_error_message = None
+        self._log_event("UI ready; hardware identity has not been verified.")
+        self._log_event(
+            "Driver input current uses ACS712 #1/A0 current1 from the documented wiring; "
+            "this is not motor winding current."
+        )
         parent_layout.addWidget(box)
 
     def open_diagnostic_report(self):
