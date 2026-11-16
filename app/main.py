@@ -75,6 +75,13 @@ class MainWindow(BaseMainWindow):
 
     def _build_integrated_ui(self):
         old_central=self.takeCentralWidget() or self.motor_page; root=QWidget(); root_layout=QVBoxLayout(root); root_layout.setContentsMargins(5,5,5,5)
+        # Place the always-available emergency stop beside the database/mode
+        # status. The status text can occupy two lines while the stop remains
+        # visible in the free space on its right.
+        status_bar = QWidget()
+        status_layout = QHBoxLayout(status_bar)
+        status_layout.setContentsMargins(0, 0, 0, 0)
+        status_layout.setSpacing(10)
         self.database_mode_status = QLabel()
         self.database_mode_status.setWordWrap(True)
         if self.database_available:
@@ -85,7 +92,17 @@ class MainWindow(BaseMainWindow):
                 + (self.database_error or "Database schema unavailable")
                 + " / Instance registration and DB result registration are disabled; local RawLogs are used."
             )
-        root_layout.addWidget(self.database_mode_status)
+        status_layout.addWidget(self.database_mode_status, 1)
+
+        # Keep the physical-stop request available even while idle; it must
+        # never be disabled by recipe selection, scrolling, or run-state changes.
+        self.emergency_stop_fixed = QPushButton("EMERGENCY STOP")
+        self.emergency_stop_fixed.setMinimumHeight(44)
+        self.emergency_stop_fixed.setEnabled(True)
+        self.emergency_stop_fixed.clicked.connect(self.stop_run)
+        status_layout.addWidget(self.emergency_stop_fixed, 0, Qt.AlignVCenter)
+        root_layout.addWidget(status_bar)
+
         device_box=QGroupBox("DEVICE CONNECTION"); row=QGridLayout(device_box)
         self.motor_serial_status=QLabel("MOTOR: DISCONNECTED  /dev/ttyACM0"); self.motor_connect=QPushButton("MOTOR CONNECT"); self.motor_disconnect=QPushButton("MOTOR DISCONNECT"); self.motor_disconnect.setEnabled(False)
         self.motor_arm=QPushButton("ARM / RE-ARM"); self.motor_arm.setEnabled(False); self.motor_arm.setToolTip("Explicit ARM is required before drive. After STOP, reconnecting cannot clear the latch; physically switch motor power off before starting a fresh application session.")
@@ -94,14 +111,6 @@ class MainWindow(BaseMainWindow):
         self.battery_connect.clicked.connect(self.connect_battery_serial); self.battery_disconnect.clicked.connect(self.disconnect_battery_serial)
         row.addWidget(self.motor_serial_status,0,0); row.addWidget(self.motor_connect,0,1); row.addWidget(self.motor_disconnect,0,2); row.addWidget(self.motor_arm,0,3); row.addWidget(self.battery_serial_status,1,0); row.addWidget(self.battery_connect,1,1); row.addWidget(self.battery_disconnect,1,2)
         root_layout.addWidget(device_box)
-        # Fixed emergency stop outside the scrollable MOTOR tab.
-        self.emergency_stop_fixed = QPushButton("EMERGENCY STOP")
-        self.emergency_stop_fixed.setMinimumHeight(44)
-        # Keep the physical-stop request available even while idle; it must
-        # never be disabled by recipe selection, scrolling, or run-state changes.
-        self.emergency_stop_fixed.setEnabled(True)
-        self.emergency_stop_fixed.clicked.connect(self.stop_run)
-        root_layout.addWidget(self.emergency_stop_fixed)
         tabs=QTabWidget(); tabs.addTab(old_central,"MOTOR BREAK-IN"); self.battery_tab=BatteryTab(self.db_path,transport=self.battery_serial_controller,parent=self,database_available=self.database_available); tabs.addTab(self.battery_tab,"BATTERY"); root_layout.addWidget(tabs,1); self._build_ui_log_panel(root_layout); self.setCentralWidget(root)
 
     BENCHMARK_PRESETS = UI_BENCHMARK_PRESETS
