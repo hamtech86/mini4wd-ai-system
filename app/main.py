@@ -172,13 +172,72 @@ class MainWindow(BaseMainWindow):
         self.sequence_execute.setEnabled(True)
 
     def _build_ui_log_panel(self, parent_layout):
-        box=QGroupBox("LOG / ERROR LOG"); layout=QVBoxLayout(box)
-        self.ui_log=QPlainTextEdit(); self.ui_log.setReadOnly(True); self.ui_log.setMaximumBlockCount(500); self.ui_log.setPlaceholderText("Controller / UI / Sequence events will appear here."); layout.addWidget(self.ui_log)
-        self.error_code_label=QLabel("Error Code: --"); self.error_message_label=QLabel("Error Message: --"); self.error_message_label.setWordWrap(True); layout.addWidget(self.error_code_label); layout.addWidget(self.error_message_label)
-        actions=QHBoxLayout(); self.copy_error_button=QPushButton("COPY ERROR DETAILS"); self.copy_error_button.setEnabled(False); self.copy_error_button.clicked.connect(self.copy_error_details); actions.addWidget(self.copy_error_button)
-        self.diagnostic_report_button=QPushButton("CREATE DIAGNOSTIC REPORT"); self.diagnostic_report_button.clicked.connect(self.open_diagnostic_report); actions.addWidget(self.diagnostic_report_button)
-        clear=QPushButton("CLEAR LOG"); clear.clicked.connect(self.ui_log.clear); actions.addWidget(clear); actions.addStretch(); layout.addLayout(actions); parent_layout.addWidget(box)
-        self._ui_error_code=None; self._ui_error_message=None; self._log_event("UI ready; hardware identity has not been verified."); self._log_event("Driver input current uses ACS712 #1/A0 current1 from the documented wiring; this is not motor winding current.")
+        """Compact footer: scrollable log pane on the left, vertical actions on the right."""
+        box = QGroupBox("LOG / ERROR LOG")
+        panel = QHBoxLayout(box)
+        panel.setContentsMargins(6, 6, 6, 6)
+        panel.setSpacing(8)
+
+        # Keep the footer short. Long output remains available through the
+        # editor's scrollbars instead of expanding the main window vertically.
+        messages = QVBoxLayout()
+        messages.setContentsMargins(0, 0, 0, 0)
+        messages.setSpacing(3)
+        self.ui_log = QPlainTextEdit()
+        self.ui_log.setReadOnly(True)
+        self.ui_log.setMaximumBlockCount(500)
+        self.ui_log.setPlaceholderText(
+            "Controller / UI / Sequence events will appear here."
+        )
+        self.ui_log.setLineWrapMode(QPlainTextEdit.NoWrap)
+        self.ui_log.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.ui_log.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.ui_log.setMinimumHeight(58)
+        self.ui_log.setMaximumHeight(86)
+        messages.addWidget(self.ui_log, 1)
+
+        self.error_code_label = QLabel("Error Code: --")
+        self.error_message_label = QLabel("Error Message: --")
+        self.error_message_label.setWordWrap(True)
+        self.error_message_label.setMaximumHeight(32)
+        messages.addWidget(self.error_code_label)
+        messages.addWidget(self.error_message_label)
+        panel.addLayout(messages, 1)
+
+        actions = QVBoxLayout()
+        actions.setContentsMargins(0, 0, 0, 0)
+        actions.setSpacing(5)
+        actions.setAlignment(Qt.AlignTop)
+
+        self.diagnostic_report_button = QPushButton("SEND RAWLOG TO GITHUB")
+        self.diagnostic_report_button.setToolTip(
+            "Review and explicitly select RawLogs before sending a diagnostic report "
+            "to hamtech86/mini4wd-raw-logs."
+        )
+        self.diagnostic_report_button.clicked.connect(self.open_diagnostic_report)
+        actions.addWidget(self.diagnostic_report_button)
+
+        self.copy_error_button = QPushButton("COPY ERROR DETAILS")
+        self.copy_error_button.setEnabled(False)
+        self.copy_error_button.clicked.connect(self.copy_error_details)
+        actions.addWidget(self.copy_error_button)
+
+        clear = QPushButton("CLEAR LOG")
+        clear.clicked.connect(self.ui_log.clear)
+        actions.addWidget(clear)
+        actions.addStretch(1)
+
+        panel.addLayout(actions)
+        box.setMaximumHeight(158)
+        parent_layout.addWidget(box)
+
+        self._ui_error_code = None
+        self._ui_error_message = None
+        self._log_event("UI ready; hardware identity has not been verified.")
+        self._log_event(
+            "Driver input current uses ACS712 #1/A0 current1 from the documented wiring; "
+            "this is not motor winding current."
+        )
 
     def open_diagnostic_report(self):
         library = getattr(getattr(self, "battery_tab", None), "raw_log_library", None)
