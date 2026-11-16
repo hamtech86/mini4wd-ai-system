@@ -208,10 +208,10 @@ class BatteryTab(QWidget):
         if value == "COMPLETE":
             self.completed[ch] = True
             self.result_labels[f"CH{ch}"].setText(f"CH{ch} Result: COMPLETE / {len(self.samples[ch])} samples")
-        elif value in ("STOPPED", "STOP", "CANCEL", "CANCELLED", "ERROR"):
+        elif value in ("STOPPED", "STOP", "TIMEOUT", "CANCEL", "CANCELLED", "ERROR"):
             self.completed[ch] = False
             self.result_labels[f"CH{ch}"].setText(f"CH{ch} Result: {value} / DB登録不可")
-        if self.anonymous_mode and value in ("COMPLETE", "STOPPED", "STOP", "CANCEL", "CANCELLED", "ERROR"):
+        if self.anonymous_mode and value in ("COMPLETE", "STOPPED", "STOP", "TIMEOUT", "CANCEL", "CANCELLED", "ERROR"):
             self._finalize_anonymous_raw_log(ch, value)
         self._update_register_button()
 
@@ -284,7 +284,7 @@ class BatteryTab(QWidget):
         if channel is None:
             return True
         other = 2 if channel == 1 else 1
-        return self.latest_status[other] not in ("IDLE", "STOPPED", "DISCONNECTED", "COMPLETE", "ERROR", "CANCEL", "CANCELLED")
+        return self.latest_status[other] not in ("IDLE", "STOPPED", "DISCONNECTED", "COMPLETE", "TIMEOUT", "ERROR", "CANCEL", "CANCELLED")
 
     def start_channel(self, channel):
         if not self.transport.connected:
@@ -386,7 +386,7 @@ class BatteryTab(QWidget):
             self.live_labels[(prefix, "Time")].setText(f"{prefix} Time: {sample.elapsed_sec:.1f} s")
             if str(sample.state).strip().upper() == "COMPLETE":
                 self._status(ch, "COMPLETE")
-            elif str(sample.state).strip().upper() in ("ERROR", "CANCEL", "CANCELLED", "STOPPED"):
+            elif str(sample.state).strip().upper() in ("ERROR", "CANCEL", "CANCELLED", "STOPPED", "TIMEOUT"):
                 self._status(ch, sample.state)
             else:
                 self.result_labels[prefix].setText(f"{prefix} Result: {len(self.samples[ch])} samples / latest {sample.voltage:.3f} V, {sample.current:.3f} A")
