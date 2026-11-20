@@ -24,11 +24,13 @@
 
 ## 2. 重要な未確定事項
 
-### CBN-01 — Entity Schemaごとのgolden vector不足（BLOCKER）
+### CBN-01 — Entity Schemaごとのgolden vector（BASELINE COMPLETE / EXTENDED COVERAGE INCOMPLETE）
 
-§5.3には11 EntityのCanonical Field Schemaがあるが、§5.5のEntity別vectorはDB_RUNとRUN_SCOPEの2 Entityのみ。残り9 EntityのField Count / Field順 / 型tag / payload length / expected bytesがない。
+§5.3に定義された11 Entityすべてについて、正常値のCanonical Name byte vectorを§5.5および§6に用意した。したがって「正常値vectorがない」という初期指摘は解消した。
 
-特に次のEntityを個別に固定する必要がある。
+ただし、11 Entityはv0.8.3 §5.3に列挙された範囲に限る。Entity Inventoryの全論理Entityを網羅したものではなく、各FieldのNULL/空/境界/不正入力vectorも未完了である。
+
+次のEntityについては正常値vectorを追加済みである:
 
 - SESSION
 - OPERATION_EVENT
@@ -40,7 +42,7 @@
 - ARTIFACT_INPUT
 - AGGREGATE_RESULT_REVISION
 
-TEST_VALUEは文法の汎用試験として有用だが、Entity別Schemaの検証を代替しない。各Entityについて正常値のgolden vectorを最低1件作り、各Field型の適用可能なNULL/空/境界値/Unicode/byte-order試験を追加すること。
+TEST_VALUEは汎用文法の試験であり、Entity別Schemaの検証を代替しない。今後は各EntityのFieldごとに、許可されるNULL/空/境界値/Unicode/byte-orderと拒否ケースを追加すること。
 
 ### CBN-02 — Field型ごとの厳密な受入・拒否規則不足（BLOCKER）
 
@@ -63,9 +65,9 @@ Entity Type lengthはu16、Field Countはu16、Payload Lengthはu32である。�
 
 Headerの`M4ID\0 2`がCanonicalization Versionを識別することは読み取れるが、Field順・Field型・Entity名・NFC規則等を変更する場合のVersion更新規則がない。同じVersionのままSchemaを変更すると既存IDとの衝突・再現不能を招くため、Canonical byteに影響する変更はVersionを上げる規則を定義すること。
 
-### CBN-05 — Timestamp / Integer / Boolean / Byte Stringの実vector不足（MAJOR）
+### CBN-05 — Timestamp / Integer / Boolean / Byte Stringの境界vector不足（MAJOR）
 
-§5.4は整数・Timestamp・UUID等のテストを要求しているが、§5.5に該当vectorがない。最低限、以下のgeneric grammar vectorを追加する。
+§7にInteger 0/正/負、Timestamp epoch/±1ns、Boolean false/true、Byte String empty/NULの汎用vectorを追加済み。ただし、最大・最小値、overflow、拒否入力、UUID API byte-orderの受入/拒否境界は未完了。最低限、以下を追加する。
 
 - Integer: 0、正数、負数、最大許容値、最小許容値、`-0`・先頭ゼロ拒否
 - Timestamp: epoch 0、epoch前の負値、正値、signed 64-bit境界、sub-nanosecond拒否、overflow拒否
@@ -118,9 +120,9 @@ Namespace採用判断には、全branch・全commit履歴・Issue/PR・過去の
 |---|---|
 | Canonical Binary文法 | 骨格は提示済み |
 | 提示済み7 vectorの独立計算 | **7/7一致** |
-| 全Entity別golden vector | 未完了 |
+| v0.8.3 §5.3の11 Entity正常値vector | 作成済み。Entity Inventory全体は未網羅 |
 | NULL/empty/区切り/NUL/NFC/NFD | 汎用vectorの範囲で確認 |
-| Integer/Timestamp/Boolean/Byte String境界vector | 未完了 |
+| Integer/Timestamp/Boolean/Byte String汎用vector | 基本vector追加済み。境界/overflow/拒否vectorは未完了 |
 | Collision pair具体vector | 汎用pair追加済み。Entity別domain uniquenessは未完了 |
 | 全入力範囲・overflow・拒否規則 | 未完了 |
 | Namespace既存利用の全履歴調査 | 未完了 |
@@ -129,11 +131,11 @@ Namespace採用判断には、全branch・全commit履歴・Issue/PR・過去の
 
 ## 5. 次の修正条件
 
-1. CBN-01〜08をv0.8.3本文または別紙仕様へ反映する。
-2. 11 EntityすべてのSchema別golden vectorを作る。
-3. 汎用Field型vectorとCollision pairを追加する。
+1. CBN-02〜04の型境界・overflow・Version更新規則を確定する。
+2. 11 EntityのFieldごとのNULL/空/境界/拒否vectorを追加し、Entity Inventoryの残りEntityとのCanonical Identity/Content Hash方針を定義する。
+3. 汎用Collision pairを実Entity Schemaに適用可能か照合し、Entity domain uniquenessを定義する。
 4. Namespace既存利用調査の検索範囲・未調査範囲を明示し、統括判断を受ける。
-5. Namespace承認後にのみUUIDv5期待値を確定し、実装試験を行う。
+5. Namespace承認後にのみUUIDv5期待値を確定し、RFC既知vectorおよび独立実装試験を行う。
 
 **結論:** 現行7 vectorのバイト列計算は正しい。一方、Issue #209 DB-RV-06の再提出条件はまだ満たしていない。Canonicalization全体は未完成・未承認であり、実装移行不可。
 
@@ -219,3 +221,31 @@ The pairs above demonstrate byte-level distinction. They do not define semantic 
 - NFC vs NFD: existing equivalence vector.
 - Invalid UUID little-endian encoding: shown as a deliberately different byte sequence; actual encoder must always use network order and reject alternate byte-order APIs.
 - Entity-level uniqueness and domain collision policy: still unresolved and must be specified separately.
+
+
+## 11. 追加の機械的構造検査（2026-11-21）
+
+監査メモ内のExpected Hex表記29件を、Canonical Binary Name v2の外形文法で機械的に走査した。
+
+- Header `M4ID\0 2`の一致
+- Entity Type Length（u16）でEntity Typeを過不足なく切り出せること
+- Field Count（u16）分のFieldが存在すること
+- 各FieldのType Tag + Payload Length（u32）でPayloadを過不足なく切り出せること
+- 末尾に余剰byteが残らないこと
+
+結果: **29/29件が構造解析を通過し、構造解析エラー0件。**
+
+この検査は、文書内Hex列の長さ・境界・構文を確認したもの。EntityごとのField値が正しいか、NULL/domain制約に適合するか、UUIDv5出力が正しいか、2つの独立実装で一致するかは証明しない。
+
+## 12. 文書内の更新後ステータス
+
+| 項目 | 更新後 |
+|---|---|
+| §5.3の11 Entity正常値vector | 作成済み |
+| 29 Expected Hexの構造解析 | 29/29通過 |
+| 11 Entity全FieldのNULL/空/境界/拒否vector | 未完了 |
+| Entity Inventory全論理EntityのCanonical identity coverage | 未完了 |
+| UTF-8/NFC/Unicode version/ASCII拒否/overflow仕様 | 未完了 |
+| Entity domain uniqueness | 未完了 |
+| Namespace既存利用の全履歴調査・統括承認 | 未完了 |
+| UUIDv5 RFC vector / 2実装相互照合 | 未実施 |
