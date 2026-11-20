@@ -35,7 +35,7 @@
 3. 初期ANONYMOUS / NONEで一度もASSIGNEDになっていないScopeにはSessionを生成しない。
 4. ASSIGNED→NONE→ASSIGNED、ASSIGNED→ANONYMOUS→ASSIGNED、ASSIGNED→別InstanceのいずれでもSession IDは変更しない。
 5. Sessionの存在は「現在ASSIGNED」を意味しない。現在の割当状態はCurrent Assignment Snapshotのみで判定する。
-6. Sessionに所属するMeasurement集合は、Session生成後にDBへ登録可能となったMeasurement Mirrorの集合であり、各Measurementの測定時Assignmentを必ず保持する。Sessionの生成によって過去のNONE / ANONYMOUS測定を遡及的にASSIGNED扱いしない。
+6. Sessionに所属するMeasurement集合は、Session生成後にDBへ登録されたMeasurement Mirrorの集合であり、各Measurementの測定時Assignmentを必ず保持する。後日ASSIGNEDとなった際、既存Measurement IDを維持した明示的なAssociation Operationで過去MeasurementをDB Mirrorへ登録してよい。登録は測定時Assignmentを書き換えず、NONE / ANONYMOUS測定を遡及的にASSIGNED扱いしない。ANONYMOUS期間のデータは自動取込せず、ユーザーが明示的に関連付けを指示した場合のみ処理する。
 
 ### 1.3 Assignment遷移
 
@@ -56,7 +56,7 @@ ANONYMOUSは「その期間の測定をInstanceに帰属させない」状態で
 
 1. Session StatusはHistorical SessionのMeasurement集合から導出する。Current AssignmentがNONE / ANONYMOUSでも、Session自体が存在する場合は履歴状態として導出可能。
 2. **Current Aggregate**の対象は、現在ASSIGNEDであるScopeのうち、Measurement開始時点もASSIGNEDで、かつ測定時Instance IDが現在Instance IDと一致するMeasurementだけとする。
-3. NONE / ANONYMOUS期間に開始したMeasurementは、後日ASSIGNEDになってもCurrent Aggregateへ遡及追加しない。
+3. NONE / ANONYMOUS期間に開始したMeasurementは、後日ASSIGNEDになってもCurrent Aggregateへ遡及追加しない。既存Measurement IDをDB Mirrorへ明示登録する場合も、測定時AssignmentとInstance IDは不変であり、Current Aggregateの対象外とする。
 4. 過去に別InstanceへASSIGNEDだったMeasurementは、再割当後のInstanceのCurrent Aggregateへ混入させない。
 5. Current AssignmentがNONE / ANONYMOUSのScopeはCurrent Aggregate対象外。除外理由、Current Assignment Revision / State / HashをAggregate Requestに固定する。
 6. 過去Assignmentの測定結果を分析する場合は、Current Aggregateとは別の明示的なHistorical Analysis Artifactを生成する。Pair Analysisも入力Measurementの時点帰属を維持し、CH1/CH2を平均化しない。
@@ -201,7 +201,7 @@ Collision pairは必ず異なるCanonical byte列となることを確認する�
 | Physical Run | Run Manifest | DB Run生成後に任意の検索Mirror | Manifestから復元。ID再発行禁止 |
 | RUN_SCOPE | Scope Manifest / Assignment Snapshot | DB Run生成後、Physical Run内の全ScopeをMirror可能 | 外部Scope一覧から再生成 |
 | Assignment Snapshot / History | Scope単位の不変ファイル | あり（Mirrorのみ） | Hash Chain検証後に再生成 |
-| Measurement | Measurement Envelope | 測定時AssignmentがASSIGNEDのものを登録。NONE/ANONYMOUSは登録しない | Envelopeから再生成。測定時Assignmentを変更しない |
+| Measurement | Measurement Envelope | 測定時ASSIGNEDのMeasurementを登録。後日ASSIGNED時は明示的Association Operationで既存Measurement IDを登録可能。ANONYMOUSデータは自動取込しない | Envelopeから再生成。測定時Assignmentを変更しない。遅延登録のOperation ID / Actor Intent / Source Assignment Revisionを記録 |
 | Measurement Profile Snapshot | Measurement Envelopeが参照する不変Snapshot | あり（Mirrorのみ） | Snapshot Hash検証後に再生成 |
 | RawLog / Sample Reference | RawLog本体 / Reference Manifest | 参照Mirrorのみ | 本文Hash一致を検証して再生成 |
 | Analysis / Simulation Artifact | Artifact Envelope / Result Payload | 参照・検索Mirror | DAGと入力Hash検証後に再生成 |
@@ -209,7 +209,7 @@ Collision pairは必ず異なるCanonical byte列となることを確認する�
 | Receipt / Receipt Event | Receipt Envelope / Event Log | あり（Mirrorのみ） | 依存証拠の二段階検証後に再生成 |
 | Aggregate Request / Attempt / Result | Aggregate Envelope / Result Payload | Pointer / 検索Mirror | Request/Attempt/ResultのHash検証後に再生成 |
 
-全Anonymous / NONEで一度もASSIGNEDがない場合、Physical Run / RUN_SCOPE / Assignment Snapshot / Measurement Envelope / RawLog / Artifact等は外部正本だけで再構築可能とする。DB Run / Session / DB Mirrorを作らない。後日初回ASSIGNEDでDB Runを生成した後は、必要な全ScopeのManifestとSnapshotをMirrorし、ASSIGNED時点の条件を満たすMeasurementのみDB Measurement Mirrorへ登録する。
+全Anonymous / NONEで一度もASSIGNEDがない場合、Physical Run / RUN_SCOPE / Assignment Snapshot / Measurement Envelope / RawLog / Artifact等は外部正本だけで再構築可能とする。DB Run / Session / DB Mirrorを作らない。後日初回ASSIGNEDでDB Runを生成した後は、必要な全ScopeのManifestとSnapshotをMirrorする。既存Measurementのうち、NONE期間のものは既存Measurement IDを維持した明示的Association OperationでDB Measurement Mirrorへ登録できる。ANONYMOUS期間のものは自動登録せず、明示的な関連付け指示を必要とする。いずれもAssignment-at-Measurementを変更せず、Current Aggregateへ遡及包含しない。
 
 外部正本の欠落・Hash不一致・ID競合はQUARANTINED。DB Mirrorから外部正本を逆生成して事実を補完してはならない。DB Mirrorが欠落・破損した場合は外部正本から再生成する。
 
@@ -312,6 +312,7 @@ V082-001〜030は既存のまま保持する。V082-031〜050は追加案であ�
 - DB-001〜124の全124 ID個別原文・正式出典・現行有効性・実装テスト対応。範囲履歴は維持し、未回収本文は創作しない。
 - V082-001〜050とDB-001〜124のクロスウォーク。
 - Issue #35のMotor接続・制御・RawLog契約との正式照合。DB設計でIssue #35を上書きしない。
+- Issue #201の匿名運用は旧DB復旧・自動DB取込を許可する根拠ではない。本設計での後日Associationは新DBの将来機能として明示的操作に限定し、旧DB復旧・既存ログの自動再取込とは分離する。
 - Batteryの最終測定 / RawLog契約。CH1 / CH2独立Measurement・独立Benchmark・平均化禁止・Pair Analysis別Artifactを維持。Battery実装変更はDB部門の範囲外。
 - UUID Namespace既存利用調査と統括承認。Canonical Binary Name v2の実装テストベクトルはNamespace承認後にUUID期待値を付与。
 - 全Entityの完全属性表（型・NULL・UNIQUE・CHECK・複合FK）。本書の最低論理制約と物理方式の未確定を分離する。
