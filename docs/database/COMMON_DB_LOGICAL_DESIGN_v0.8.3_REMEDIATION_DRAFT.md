@@ -67,27 +67,30 @@ ANONYMOUSは「その期間の測定をInstanceに帰属させない」状態で
 
 1. Physical Run単位の排他ロックを取得し、Journalと直近Ordinalを検証。
 2. Operation ID / Ordinal / Intent Payload / Intent Hashを確定。
-3. Journal Intentを追記し、ファイル本体を永続化する。Intent永続化完了時にOrdinalを消費済みとする。
-4. Receipt本体を`PREPARED`として外部正本へ作成する。Receipt IDはOperation IDから決定的に導出。ReceiptにはOperation ID / Ordinal / Intent Hash / Expected DB Marker Hash /対象Entity ID / Canonicalization Versionを含める。
-5. Receipt本体・親ディレクトリを永続化し、Receipt PREPARED Eventを追記・永続化する。
-6. DB transactionを開始し、対象DB Mirror変更とOperation Markerを同一transactionでCommitする。MarkerにはOperation ID / Ordinal / Intent Hash / Receipt ID / Commit Payload Hashを含める。
-7. Commit結果を読み戻し、MarkerとJournal Intent / Receipt PREPAREDのHashを照合する。
-8. Receipt Event `DB_COMMITTED`を外部正本へ追記・永続化する。
-9. Journal / Marker / Receipt / 関連外部正本を再検証する。
-10. Receipt Event `VERIFIED`を追記・永続化する。
-11. すべての永続化・照合が成功した後に排他ロックを解放する。
+3. Journal Intentを追記し、ファイル本体・親Directoryを永続化する。Intent永続化完了時にOrdinalを消費済みとする。
+4. Receipt本体を`PREPARED`として外部正本へ作成する。Receipt IDはOperation IDから決定的に導出。ReceiptにはOperation ID / Ordinal / Intent Hash / Expected Source Payload Hashes / Expected DB Marker Hash / 対象Entity ID / Canonicalization Versionを含める。
+5. Receipt本体・親Directoryを永続化し、Receipt PREPARED Eventを追記・永続化する。
+6. 変更対象の外部正本（Assignment Snapshot / History / Envelope / Artifact / Aggregate Request等）を不変Revisionとして書き込み、File fsync・Hash再読込検証を行う。Current Manifest / Head Pointerは同一Operationのcommit markerとして原子的に更新し、親Directoryを永続化する。
+7. 外部正本の新Revision / Manifest Hashを読み戻し、Journal Intent / Receipt PREPAREDのExpected Source Payload Hashesと照合する。成功したらReceipt Event `SOURCE_COMMITTED`を追記・永続化する。
+8. DB transactionを開始し、対象DB Mirror変更とOperation Markerを同一transactionでCommitする。MarkerにはOperation ID / Ordinal / Intent Hash / Receipt ID / Source Commit Hash / DB Commit Payload Hashを含める。
+9. Commit結果を読み戻し、MarkerとJournal Intent / Receipt / Source Commit Hashを照合する。
+10. Receipt Event `DB_COMMITTED`を外部正本へ追記・永続化する。
+11. Journal / Marker / Receipt / 関連外部正本を再検証する。
+12. Receipt Event `VERIFIED`を追記・永続化する。
+13. すべての永続化・照合が成功した後に排他ロックを解放する。
 
-Journal IntentとReceipt PREPAREDは別の証拠であり、同一視しない。PREPAREDはDB Commitより前に外部正本として永続化される。
+Journal IntentとReceipt PREPAREDは別の証拠であり、同一視しない。PREPAREDはSource CommitおよびDB Commitより前に外部正本として永続化される。外部正本のcommit markerが先に確定し、DBはその外部正本から再生成可能なMirrorとして後続Commitする。
 
 ### 2.2 Receipt State
 
 - PREPARED: Intentが永続化され、DB Commit前の証拠が存在する。
-- DB_COMMITTED: DB Markerが同一TransactionでCommitされ、読み戻し照合済み。
+- SOURCE_COMMITTED: 変更対象の外部正本RevisionとManifest Headが永続化され、Hash照合済み。
+- DB_COMMITTED: DB MirrorのMarkerが同一TransactionでCommitされ、読み戻し照合済み。
 - VERIFIED: 関連Hash・外部正本・Markerの整合性が確認済み。
 - ABORTED: DB Commitが存在しないことを確認し、明示的中止Eventを永続化済み。
 - QUARANTINED: 証拠欠落・競合・Hash不一致等で自動判定不能。自動復帰禁止。
 
-Stateは単調遷移とし、PREPAREDからABORTEDへ進む場合はDB Markerが存在しないことを確認する。DB_COMMITTED後にABORTEDへ戻してはならない。VERIFIEDは終端状態。QUARANTINEDは隔離状態であり、元Receiptを編集しない。解決操作は新しいRecovery Operationとして記録する。
+Stateは単調遷移とし、PREPAREDからABORTEDへ進めるのは外部正本のSource Commit前に限る。SOURCE_COMMITTED後はOperationを中止・巻戻しせず、同じOperationでDB Mirrorを再構築するかQUARANTINEDへ隔離する。DB_COMMITTED後にABORTEDへ戻してはならない。VERIFIEDは終端状態。QUARANTINEDは隔離状態であり、元Receiptを編集しない。解決操作は新しいRecovery Operationとして記録する。
 
 ### 2.3 クラッシュ復旧表
 
@@ -95,7 +98,8 @@ Stateは単調遷移とし、PREPAREDからABORTEDへ進む場合はDB Markerが
 |---|---|---|
 | Journal Intent前 | 永続証拠なし | 未実行として扱う。Ordinal未消費 |
 | Intent後、Receipt PREPARED前 | Journal Intent | 同一Operation ID / OrdinalでReceipt PREPAREDを作成、またはABORTEDを記録 |
-| PREPARED後、DB transaction前 | Journal + PREPARED | 同一Operationを再開、またはMarker不存在確認後ABORTED |
+| PREPARED後、Source Commit前 | Journal + PREPARED | 同一Operationを再開、またはSource Commit未実施を確認してABORTED |
+| Source Commit後、DB transaction前 | Journal + PREPARED + Source Manifest Head | ABORTED禁止。同一OperationでDB Mirrorを再開 |
 | DB transaction中 | Journal + PREPARED + DB Marker有無 | MarkerのCommit有無を読み戻し、同一Operationで再開 |
 | DB Commit後、DB_COMMITTED Event前 | DB Marker + PREPARED | Hash一致を確認してDB_COMMITTED Eventを補完 |
 | DB_COMMITTED後、VERIFIED前 | Marker + Journal + Receipt | 全依存正本を検証しVERIFIED、またはQUARANTINED |
