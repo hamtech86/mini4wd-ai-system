@@ -194,3 +194,28 @@ Integer vectorはcanonical decimal ASCIIのtag/length/payload、Timestamp vector
 | UTF-8/NFC/Unicode version/ASCII拒否/overflow仕様 | 未完了 |
 | UUIDv5 Namespace | 未承認 |
 | 独立した2実装間のvector照合 | 未実施 |
+
+
+## 9. Collision pairの具体的な期待値
+
+CBN-06に対して、同一Entity Typeで入力構造・Field Type・Field順が異なる具体pairを追加する。各pairは異なるCanonical Name byte列になることを期待する。
+
+| Pair | Case A | Expected Hex A | Case B | Expected Hex B |
+|---|---|---|---|---|
+| Field境界 / delimiter | 1 Field: string `A|B` | `4D3449440032000A544553545F56414C554500010100000003417C42` | 2 Fields: string `A`, string `B` | `4D3449440032000A544553545F56414C55450002010000000141010000000142` |
+| Percent text / NUL scalar | string `%00` | `4D3449440032000A544553545F56414C554500010100000003253030` | string containing U+0000 | `4D3449440032000A544553545F56414C55450001010000000100` |
+| Type separation | Integer 1 | `4D3449440032000A544553545F56414C55450001030000000131` | UTF-8 string `1` | `4D3449440032000A544553545F56414C55450001010000000131` |
+| Field order | 2 Fields: `A`, `B` | `4D3449440032000A544553545F56414C55450002010000000141010000000142` | 2 Fields: `B`, `A` | `4D3449440032000A544553545F56414C55450002010000000142010000000141` |
+| UUID byte order | UUID `00112233-4455-6677-8899-aabbccddeeff`, network order | `4D3449440032000A544553545F56414C55450001020000001000112233445566778899AABBCCDDEEFF` | Same UUID, little-endian first fields (invalid encoding) | `4D3449440032000A544553545F56414C55450001020000001033221100554477668899AABBCCDDEEFF` |
+
+NULL / empty-string pair is already in §5.5. Unicode NFC/NFD equivalence is also already in §5.5: those two source inputs intentionally produce the same normalized bytes, rather than a collision failure.
+
+The pairs above demonstrate byte-level distinction. They do not define semantic uniqueness constraints: whether two different canonical Names may refer to equivalent domain values remains governed by each Entity's unique-key rules, which are not yet fully specified.
+
+## 10. Collision vector update status
+
+- Generic byte-level collision pairs: added for delimiter/field boundary, percent/NUL, type tag, field order, UUID network/little-endian order.
+- NULL vs empty: existing vector.
+- NFC vs NFD: existing equivalence vector.
+- Invalid UUID little-endian encoding: shown as a deliberately different byte sequence; actual encoder must always use network order and reject alternate byte-order APIs.
+- Entity-level uniqueness and domain collision policy: still unresolved and must be specified separately.
