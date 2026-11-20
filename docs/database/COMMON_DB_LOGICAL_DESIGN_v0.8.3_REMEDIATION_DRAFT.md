@@ -35,7 +35,7 @@
 3. 初期ANONYMOUS / NONEで一度もASSIGNEDになっていないScopeにはSessionを生成しない。
 4. ASSIGNED→NONE→ASSIGNED、ASSIGNED→ANONYMOUS→ASSIGNED、ASSIGNED→別InstanceのいずれでもSession IDは変更しない。
 5. Sessionの存在は「現在ASSIGNED」を意味しない。現在の割当状態はCurrent Assignment Snapshotのみで判定する。
-6. Sessionに所属するMeasurement集合は、Session生成後にDBへ登録されたMeasurement Mirrorの集合であり、各Measurementの測定時Assignmentを必ず保持する。後日ASSIGNEDとなった際、既存Measurement IDを維持した明示的なAssociation Operationで過去MeasurementをDB Mirrorへ登録してよい。登録は測定時Assignmentを書き換えず、NONE / ANONYMOUS測定を遡及的にASSIGNED扱いしない。ANONYMOUS期間のデータは自動取込せず、ユーザーが明示的に関連付けを指示した場合のみ処理する。
+6. Sessionに所属するMeasurement集合は、Session生成後にDBへ登録されたMeasurement Mirrorの集合であり、各MeasurementのAssignment-at-Measurementを必ず保持する。NONE期間のMeasurementについては、DB利用可能時に取得され、外部正本およびDB管理下のMeasurement記録が既に存在する場合に限り、後日の明示的Association Operationを論理設計対象としてよい。この操作は測定時AssignmentをNONEのまま保持し、実行主体・時刻・変更前後・理由を監査履歴へ記録する。既存DB管理Measurementを対象とし、新規RawLog取込やMeasurement Mirrorの自動生成を意味しない。NONEからの後日関連付けだけを理由にCurrent Aggregateへ算入しない。ANONYMOUS期間のMeasurement / RawLogは現行設計範囲で後日DB取込・Mirror化・Instance再紐付けを禁止し、明示操作による例外も認めない。将来の拡張は別設計と統括承認を要する。
 
 ### 1.3 Assignment遷移
 
@@ -54,7 +54,7 @@ ANONYMOUSは「その期間の測定をInstanceに帰属させない」状態で
 
 ### 1.4 Session Status / Aggregate対象
 
-1. Session StatusはHistorical SessionのMeasurement集合から導出する。Current AssignmentがNONE / ANONYMOUSでも、Session自体が存在する場合は履歴状態として導出可能。
+1. Session LifecycleとMeasurement Outcomeは完全に分離する。Session LifecycleはNOT_CREATED / OPEN / CLOSED / QUARANTINEDとし、Measurement Outcome（COMPLETE / STOP / ERROR / CANCEL / INCOMPLETE / UNKNOWN）の集合・混在・件数からSession Lifecycleを導出しない。NOT_CREATEDはSessionレコードが存在しない状態である。初回ASSIGNED確定時にSessionを生成してOPENとし、Assignment変更や個々のMeasurement終了では閉じない。CLOSEDはRun管理側の明示的Close Operationが外部正本へ記録され、その記録と依存参照を検証できた場合に限る。Close Operationは論理Run管理イベントであり、STOP ACK・最終Telemetry・アプリ終了・プロセス消失・無通信時間からRun終了を推定しない。Close受入時は対象ScopeのCaptureが終端または明示的に放棄・保留され、未確定MeasurementをCOMPLETEへ読み替えない。終端不明・参照不整合はOPEN維持またはQUARANTINEDとし、推測でCLOSEDにしない。DB unavailable / ANONYMOUS運用ではDB Sessionを生成せず、外部正本上のRun / Capture情報を保持する。
 2. **Current Aggregate**の対象は、現在ASSIGNEDであるScopeのうち、Measurement開始時点もASSIGNEDで、かつ測定時Instance IDが現在Instance IDと一致するMeasurementだけとする。
 3. NONE / ANONYMOUS期間に開始したMeasurementは、後日ASSIGNEDになってもCurrent Aggregateへ遡及追加しない。既存Measurement IDをDB Mirrorへ明示登録する場合も、測定時AssignmentとInstance IDは不変であり、Current Aggregateの対象外とする。
 4. 過去に別InstanceへASSIGNEDだったMeasurementは、再割当後のInstanceのCurrent Aggregateへ混入させない。
