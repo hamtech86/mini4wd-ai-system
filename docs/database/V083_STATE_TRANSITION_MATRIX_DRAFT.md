@@ -120,7 +120,8 @@ Requestは不変。Attemptは実行ごとに新規作成。FAILEDを確定する
 
 ## 6. 未確定・未完了のまま残す事項
 
-- Session Statusの具体的導出規則（Measurement Statusの組合せ、STOP / ERROR / CANCEL / INCOMPLETEの優先順位）。
+- Run管理側PHYSICAL_RUN_CLOSED Close OperationのActor / UI / Operation受入条件の詳細。
+- Measurement Outcomeの各機器固有Capture終端根拠と、INCOMPLETE / UNKNOWN判定の正式契約。
 - DB Run / Session生成時のOperation境界と、既存DB利用不可時の外部正本のみの扱いの詳細。
 - Receipt Eventの実際のEvent Type / Payload / Hash Chain Canonical Schema。
 - RawLog種別ごとのdurability / loss tolerance。Issue #35との照合が必要。
