@@ -1,19 +1,20 @@
 # v0.8.3 Session Lifecycle / Measurement Outcome分離案
 
 - 基準日: 2026-11-21
-- 状態: 論理設計補助案・未承認
+- 状態: CC-01統括判断反映対象の論理設計補助資料・全体設計は未承認
 - 関連: v0.8.3 §1.2 / §1.4 / §6 / §7、Issue #35、Issue #201、Issue #77
-- 目的: Session StatusをMeasurementの混在結果から曖昧に導出する問題を解消する。
+- 目的: 統括判断CC-01に従い、Session LifecycleとMeasurement Outcomeを分離する規則を本文・状態遷移資料と同期する。
 - 本書はDBスキーマ、DDL、実装、匿名RawLogの後日DB取込を承認しない。
 
 ## 1. 問題と基本判断
 
 v0.8.3 §1.4の「Session StatusはHistorical SessionのMeasurement集合から導出する」は、SessionがScope / Physical Run単位の履歴コンテナであることと整合しない。1つのSession内に複数Measurementがあり、個々のMeasurementはCOMPLETE / STOP / ERROR / CANCEL等の異なる終端結果を持ち得る。これらの結果を1つのSession Statusへ単純集約すると、正常完了と中断・異常が混同される。
 
-**提案: Session LifecycleとMeasurement Outcomeを別の概念として扱う。**
+**統括決定（Issue #210）: Session LifecycleとMeasurement Outcomeを完全に分離する。**
 - Session Lifecycleは、そのScopeのPhysical Run内での履歴コンテナの存続状態。
 - Measurement Outcomeは、個々のMeasurementの終了結果。
 - Measurement Outcomeの混在からSession Lifecycleを算出しない。
+- Session LifecycleはNOT_CREATED / OPEN / CLOSED / QUARANTINEDとする。NOT_CREATEDはSessionレコードではなく未生成状態。
 - Sessionの存在・状態はCurrent Assignmentを意味しない。
 - DB unavailable / Anonymous ModeではDB Sessionを作らず、外部正本上のRun / Capture情報を保全する。Issue #201の匿名RawLogをDBへ後日取込・再紐付けすることは本案に含めない。
 
@@ -52,7 +53,7 @@ PHYSICAL_RUN_CLOSED Eventは外部正本側のRun Manifest / Journalで不変記
 - Final Scope / Assignment / Measurement / Capture reference set
 - Canonicalization Version / Payload Hash / Event Hash
 
-このイベント形式・生成操作・ユーザー操作の有無はv0.8.3本文でまだ定義されていないため、本案の未解決前提とする。既存仕様にPHYSICAL_RUN_CLOSED相当の正式イベントがあるか、実装・Issue・過去文書で照合するまで規範要件として確定しない。
+Issue #210は、PHYSICAL_RUN_CLOSEDを機器プロトコル上の既存Eventではなく、Run管理側の明示的Close Operationが外部正本へ記録する論理イベントとして定義する方針を決定した。イベント名・Schema・永続化形式は本論理案で定義してよいが、Motor/BatteryのSTOP ACK、最終Telemetry、アプリ終了等の既存機器Eventから推定・代用してはならない。Close Operationの実行主体・UI・具体的なCapture終端契約は、Motor/Battery正式契約との照合を経て別途確定する。
 
 ## 3. Measurement Outcome
 
@@ -144,16 +145,18 @@ Sessionの表示用サマリーを設ける場合も、Measurement Outcome別件
 
 ## 7. 未解決事項
 
-1. 既存コード・Issue・RawLog仕様にPHYSICAL_RUN_CLOSED相当の正本Eventが存在するか。
+1. Run管理側Close Operationの実行主体・起動UI・取消不可条件・監査Actorの定義。
 2. Measurement単位の正式な開始・終端EventとCOMPLETE / STOP / ERROR / CANCELの判定根拠。
 3. INCOMPLETEを確定するRecovery規則とUNKNOWN / QUARANTINEDの境界。
 4. Motor / Batteryで共通化可能なOutcome語彙と、機器固有Termination Reason。
-5. DB Run / Sessionの終端Operationと、Physical Run終端の順序。
+5. DB Run / Sessionの終端Operationと、Physical Run終端の順序、および全ScopeのCaptureが終端または明示放棄・保留となる受入条件。
 6. DB unavailable中にPhysical Run終端をどの外部正本へ記録するか。匿名RawLogの後日DB取込を意味しない。
-7. v0.8.3 §1.4 / §6 / §7 / §12 / V082受入表への反映時に、既存正式契約を上書きしないこと。
+7. v0.8.3 §1 / §6 / §7 / §12 / V082受入表への反映時に、既存Motor/Battery正式契約を上書きしないこと。
 
 ## 8. 結論
 
-Session StatusをMeasurement Outcome集合から単純導出する現行案は採用しない。Session Lifecycle（OPEN / CLOSED / QUARANTINED）とMeasurement Outcome（COMPLETE / STOP / ERROR / CANCEL / INCOMPLETE / UNKNOWN）を分離する方式を修正候補とする。
+Issue #210のCC-01統括判断に従い、Session Lifecycle（NOT_CREATED / OPEN / CLOSED / QUARANTINED）とMeasurement Outcome（COMPLETE / STOP / ERROR / CANCEL / INCOMPLETE / UNKNOWN）を完全に分離する。Measurement Outcomeの混在からSession Lifecycleを導出しない。
 
-ただしPhysical Run Close EventとMeasurement Capture終端契約の一次根拠が未確認のため、本案は未確定の論理案である。v0.8.3本文への規範反映・統括再提出・実装・DDL・DB生成を許可しない。
+CLOSEDはRun管理側の明示的Close Operationが外部正本に記録され、その記録と依存参照を検証できた場合に限る。これは論理Run管理イベントであり、機器プロトコル・STOP ACK・最終Telemetry・アプリ終了等を変更・代用する指示ではない。Close Operationの詳細とMeasurement Capture終端契約は引き続き照合対象である。
+
+本資料はCC-01の判断反映案であり、v0.8.3全体の承認、物理設計、DDL、DB生成、Migration、実装を許可しない。
