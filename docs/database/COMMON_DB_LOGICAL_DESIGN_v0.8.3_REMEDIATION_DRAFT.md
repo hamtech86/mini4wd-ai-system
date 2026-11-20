@@ -328,8 +328,11 @@ Manifest / RawLog / Envelope / Snapshot / Receiptの欠落、重複、競合は�
 | V082-048 | Timestamp sub-nanosecond | 入力拒否 |
 | V082-049 | RestoreでReceiptがRawLog検証前に存在 | Phase A仮検査のみ。最終VERIFIEDにしない |
 | V082-050 | 全Anonymous/NONEの外部正本のみRestore | DB Run / Session / DB MirrorなしでID/Hashを再現 |
+| V082-051 | Source Commit後・DB Commit前クラッシュ | ABORTED禁止。同一OperationでDB Mirror再開 |
+| V082-052 | DB Commit後・DB_COMMITTED Event前クラッシュ | Marker / Source Hash照合後に同一Receipt Event補完 |
+| V082-053 | Source Commit前のOperation中止 | ABORTEDを記録。Ordinalは消費済みのまま再利用禁止 |
 
-V082-001〜030は既存のまま保持する。V082-031〜050は追加案であり、統括承認・試験実装・実行前はPASS扱いしない。
+V082-001〜030は既存のまま保持する。V082-031〜053は追加案であり、統括承認・試験実装・実行前はPASS扱いしない。
 
 ## 12. 未解決・別途証拠が必要な項目
 
