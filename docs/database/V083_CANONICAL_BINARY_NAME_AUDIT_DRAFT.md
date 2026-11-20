@@ -73,9 +73,9 @@ Headerの`M4ID\0 2`がCanonicalization Versionを識別することは読み取�
 - Byte String: empty / NUL含有 / 任意byte、最大長境界
 - UUID: 16-byte network orderと、little-endian誤実装を明確に区別するvector
 
-### CBN-06 — Collision pairの具体例不足（MAJOR）
+### CBN-06 — Collision pairのEntity適用・domain uniqueness不足（MAJOR）
 
-「衝突ペアは異なるCanonical byte列」とする検証方針は妥当だが、具体的なpairと期待byte列がない。最低限、次を明示する。
+汎用文法の具体pairは§9で追加済み。残課題は、各Entityの実Field Schemaでの適用可能性確認と、byte-level distinctionとdomain uniquenessの分離である。
 
 - NULL と empty string
 - `A|B` と別Fieldに分割した`A`, `B`
@@ -121,7 +121,7 @@ Namespace採用判断には、全branch・全commit履歴・Issue/PR・過去の
 | 全Entity別golden vector | 未完了 |
 | NULL/empty/区切り/NUL/NFC/NFD | 汎用vectorの範囲で確認 |
 | Integer/Timestamp/Boolean/Byte String境界vector | 未完了 |
-| Collision pair具体vector | 未完了 |
+| Collision pair具体vector | 汎用pair追加済み。Entity別domain uniquenessは未完了 |
 | 全入力範囲・overflow・拒否規則 | 未完了 |
 | Namespace既存利用の全履歴調査 | 未完了 |
 | Namespace採用 | 未承認 |
@@ -190,7 +190,7 @@ Integer vectorはcanonical decimal ASCIIのtag/length/payload、Timestamp vector
 | 汎用Integer/Timestamp/Boolean/Byte String vector | 追加済み |
 | 全EntityのFieldごとの境界/NULL/空/不正入力vector | 未完了 |
 | EntityごとのNULL許可・Field domain確定 | 未完了 |
-| Collision pairの具体vector | 未完了 |
+| Collision pairの汎用vector | 追加済み。Entity別domain uniquenessは未完了 |
 | UTF-8/NFC/Unicode version/ASCII拒否/overflow仕様 | 未完了 |
 | UUIDv5 Namespace | 未承認 |
 | 独立した2実装間のvector照合 | 未実施 |
