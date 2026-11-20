@@ -101,7 +101,7 @@ Stateは単調遷移とし、PREPAREDからABORTEDへ進めるのは外部正本
 | PREPARED後、Source Commit前 | Journal + PREPARED | 同一Operationを再開、またはSource Commit未実施を確認してABORTED |
 | Source Commit後、DB transaction前 | Journal + PREPARED + Source Manifest Head | ABORTED禁止。同一OperationでDB Mirrorを再開 |
 | DB transaction中 | Journal + PREPARED + DB Marker有無 | MarkerのCommit有無を読み戻し、同一Operationで再開 |
-| DB Commit後、DB_COMMITTED Event前 | DB Marker + PREPARED | Hash一致を確認してDB_COMMITTED Eventを補完 |
+| DB Commit後、DB_COMMITTED Event前 | DB Marker + SOURCE_COMMITTED | Hash一致を確認してDB_COMMITTED Eventを補完 |
 | DB_COMMITTED後、VERIFIED前 | Marker + Journal + Receipt | 全依存正本を検証しVERIFIED、またはQUARANTINED |
 | Hash / ID / Ordinal競合 | 不一致証拠 | QUARANTINED。推測修復・別Operationへの付替え禁止 |
 
