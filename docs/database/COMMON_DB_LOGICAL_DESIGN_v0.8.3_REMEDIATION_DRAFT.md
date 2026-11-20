@@ -194,6 +194,26 @@ Namespace承認前に、実UUIDを正解値として固定しない。Canonical 
 
 Collision pairは必ず異なるCanonical byte列となることを確認する。Unicode NFC/NFDの同値入力は正規化後に同じbyte列となることを確認する。Namespaceが未承認の間はUUIDv5の実装合格を宣言しない。
 
+### 5.5 Canonical byte golden vectors（Namespace非依存）
+
+以下はEntity SchemaとCanonical Binary Name v2のbyte列自体を固定するテストベクトルである。Hexは大文字表記。UUID期待値はNamespace未承認のため未設定。
+
+| Case | 入力 | Expected Name Bytes (hex) |
+|---|---|---|
+| DB_RUN | PhysicalRunID = 00000000-0000-4000-8000-000000000001 | `4D3449440032000644425F52554E0001020000001000000000000040008000000000000001` |
+| RUN_SCOPE | 同UUID + ScopeKey = BATTERY:CH1 | `4D3449440032000952554E5F53434F50450002020000001000000000000040008000000000000001010000000B424154544552593A434831` |
+| NULL | TEST_VALUE / field=NULL | `4D3449440032000A544553545F56414C554500010000000000` |
+| EMPTY | TEST_VALUE / field=empty UTF-8 string | `4D3449440032000A544553545F56414C554500010100000000` |
+| DELIMITER_PERCENT_NUL | TEST_VALUE / field bytes for UTF-8 string `A|B%\0C` | `4D3449440032000A544553545F56414C554500010100000006417C42250043` |
+| NFC | TEST_VALUE / field = U+00E9 | `4D3449440032000A544553545F56414C554500010100000002C3A9` |
+| NFD input | TEST_VALUE / field = U+0065 U+0301, normalized NFC | `4D3449440032000A544553545F56414C554500010100000002C3A9` |
+
+検証条件:
+- NULLとEMPTYのbyte列は異なる。
+- `A|B%\0C`は値内の区切り・パーセント・NULを含むが、長さ付きpayloadとして一意に復号できる。
+- NFCとNFD入力はNFC正規化後に同一byte列となる。
+- 上記hexは実装テストで完全一致を要求する。EntityごとのField Schemaと異なる型Tag / Field Count / Lengthは拒否する。
+
 ## 6. DB-RV-07 — 外部正本 / DB Mirrorマトリクス
 
 | Entity / Record | 正本 | DB Mirror | 作成・再生成条件 |
