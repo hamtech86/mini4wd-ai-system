@@ -885,6 +885,10 @@ Request StateをOPEN / SUCCEEDED / FAILED / CANCELLED / INDETERMINATEに固定�
 ### 37.2 NONE AssociationとSession membershipの分離
 - Session membershipはMeasurement Mirror初回登録時点で同一Physical Run / ScopeのSessionが存在する場合に限り固定する。membershipは後日変更・遡及追加しない。
 - Session生成前に登録されたNONE Measurementは、後に初回ASSIGNEDでSessionが生成されてもSessionへ遡及所属しない。
+- **採用理由:** 既存Main §1.2のSession membership定義（Session生成後に登録されたMeasurement集合）を維持し、測定時点で存在しないSessionへ履歴を遡及接続しないため。Assignment AssociationはInstance帰属の別履歴であり、Session identity / membershipの変更手段にしない。
+- **不採用案A:** 初回ASSIGNED時に過去NONE Measurementを自動でSessionへ一括追加する案。測定時点に存在しなかったSessionへ遡及所属させるため不採用。
+- **不採用案B:** 後日NONE Association時にSession membershipを追加・移動する案。CC-02が許可するInstance関連付けとSession membershipを混同し、Association操作がMeasurementのRun履歴を変更するため不採用。
+- **不採用案C:** Sessionが既に存在する期間に登録されたNONE MeasurementもSession外へ切り離す案。既存membership定義と矛盾し、同一Scope / Physical Run内の履歴が不必要に分断されるため不採用。
 - Session生成後、DB正常利用可能時に取得・登録されたNONE Measurementは、登録時点で同一Scope Sessionへ所属する。後日のNONE AssociationはInstanceへの関連付け履歴のみを追加し、Session membershipを変更しない。
 - NONE Associationは明示操作のみ。Association History Recordの論理Identityは(MeasurementID, AssociationOrdinal)、AssociationOrdinalはMeasurementごとに1から連続増加。Event Identityは(OperationID, EventOrdinal)。NONE_ASSOCIATION_CREATED / NONE_ASSOCIATION_CLOSEDをEvent Registryへ登録し、CreatedはTargetInstanceID / AssignmentSnapshotID・Revision / Actor / UTC / Reason、ClosedはPreviousCreatedEventRef / Actor / ClosedAtUTC / CloseReasonを保持する。ActiveはCreate後未Close、Closedは対応Close Eventありとし、MeasurementごとActive最大1件。Reassignmentは同一Operation内でClose→次Ordinal Createの順に記録し、必要Event集合をSource Commitで一括確定、DB MirrorとMarkerは同一Transactionで更新する。部分Tail・欠落・順序違反・Hash不一致・Commit不明はQUARANTINED、元Eventを修復しない。Assignment-at-Measurement=NONE / Session membership不変、Current Aggregate対象外。
 - ANONYMOUS / DB unavailable期間のデータはAssociation対象外。
