@@ -518,3 +518,37 @@ State Transition Matrix Draftへ「Intent書込み中・結果不明」の隔離
 
 ### 25.3 判定
 Operation Ordinalは欠番許容・再利用禁止、Receipt Event Ordinalは連続必須。両規則を混同しない。Ordinal Authority / Recovery発行条件は未決定。Main §2.1〜§2.3は未変更。DB-RV-03 OPEN。
+
+
+## 26. Main §2.2 Receipt Stateの証拠境界照合（2026-11-21）
+
+### 26.1 現行MainのState定義
+- PREPARED: Intentが永続化され、DB Commit前の証拠が存在する。
+- SOURCE_COMMITTED: 対象Source Revision / Manifest Headが永続化され、Hash照合済み。
+- DB_COMMITTED: DB Mirror Markerが同一TransactionでCommitされ、読戻し照合済み。
+- VERIFIED: 関連Hash・外部正本・Markerの整合性が確認済み。
+- ABORTED: Source Commit前の中止が確定。
+- QUARANTINED: 証拠不整合・競合・検証不能で隔離。
+
+### 26.2 Receipt Contract / State Matrixとの照合
+| State | Main §2.2の明示範囲 | Receipt Contract / State Matrixの証拠境界 | 差分 |
+|---|---|---|---|
+| PREPARED | Intent永続化 + DB Commit前の証拠 | Intent + immutable Envelope + 検証済みPREPARED Event | MainがEnvelope / PREPARED Eventを明示していない |
+| SOURCE_COMMITTED | Source Revision / Manifest Head永続化 + Hash照合 | Expected predecessor / 現Head / Source Payload Hash検証 + SOURCE_COMMITTED Event | MainがEvent Chain・predecessor照合の必須性を明示していない |
+| DB_COMMITTED | 同一Transaction Marker + 読戻し照合 | Marker Payload / Source Commit / Intent / Receipt IDの整合 + DB_COMMITTED Event | MainがMarker Hash対象・Event証拠境界を明示していない |
+| VERIFIED | 関連Hash・外部正本・Marker整合 | Intent Planの依存閉包・Journal / Receipt / Event Chain / Source / Markerを検証後、VERIFIED Event | 「全依存」の閉包とVERIFIED Event自体の検証範囲が未定義 |
+| ABORTED | Source Commit前の中止が確定 | PREPARED成立後、明示中止Intent / Actor / Source Commit不存在の完全証拠を確認してABORTED Event | Mainは明示中止Intent・不存在証拠・Envelope/Event順序を明記していない |
+| QUARANTINED | 証拠不整合・競合・検証不能 | 元Receiptを不変保持し、新Recovery Operationでのみ解決 | MainはRecovery Operationとの関係・元Receipt不変の証拠境界が簡略 |
+
+### 26.3 同期修正候補
+1. PREPAREDは、完全なIntent、immutable Receipt Envelope、検証済みPREPARED Eventが揃った状態とする。
+2. SOURCE_COMMITTEDは、Intentに固定したExpected predecessor / Source Payload Hashと現Manifest Headを検証し、SOURCE_COMMITTED Eventが検証済みの状態とする。
+3. DB_COMMITTEDは、MarkerとMirrorが同一TransactionでCommitされ、Marker Payload Hash / Source Commit Hash / Receipt / Intentとの整合を検証し、DB_COMMITTED Eventが検証済みの状態とする。
+4. VERIFIEDはIntent Planで固定した依存閉包の全証拠を再検証し、VERIFIED Eventが検証済みの状態とする。
+5. ABORTEDはPREPARED成立後に限り、明示中止IntentとSource Commit不存在証拠を確認したEventとする。
+6. QUARANTINEDは元Receiptの終端・不変状態とし、Recovery Operationは別ID / Ordinal / Receiptで記録する。
+
+上記はReceipt Contract / State Matrixとの整合を目的とした候補文であり、Main §2.2は未変更。各Hash / EventのCanonical Payloadと依存閉包が未決定のため、現時点で規範確定できない。
+
+### 26.4 判定
+Main §2.2のState名・大枠はReceipt Contractと一致するが、各Stateを成立させる証拠境界の明示度が異なる。Main本文へ状態名だけを転記しても受入条件は閉じない。§2.1 Hash / Event定義、§2.2 State定義、§2.3 Crash Recoveryを一括同期する必要がある。DB-RV-03 OPENを維持する。
