@@ -813,3 +813,16 @@ RawLog ID発行Authority、Expected Hash対象byte範囲、Path grammar、Temp f
 - Restore: partial / missing / duplicate / hash mismatchを証拠別に判定。
 
 Main §8の要求はDB論理案として残すが、各OS/filesystemで実証済みとは扱わない。Batteryへ同じ方式を適用するとも決めない。実装変更なし。
+
+## 35. v0.8.3 Decision Baseline — 全未決定事項の処置確定（2026-11-21）
+
+Main §14をDecision Authorityとして、従来のOPEN / TBD / candidateを以下へ整理した。
+
+- **採用:** UUIDv4 identity、M4W-JCS-1 / SHA-256、Request Fingerprintの完全Field保存、明示Retry Closed、単一Manifest Commit Chain、単一Writer + Epoch、外部正本優先、二段階Restore。
+- **不採用:** UUIDv5 / Canonical Binary Name v2、OperationIDからのReceipt ID導出、Expected Receipt Hash、PREPARED時点のExpected DB Marker Hash、Current Head単独のCommit証明、last-write-wins、Aggregate Pointerを正本とする方式。
+- **適用対象外:** DB契約のないMotor/Battery Field、未知Profile / Artifact Payloadの意味解析、Anonymous後日DB取込、旧ID推測復元、未契約SampleLocator解釈。
+- **fail-closed:** Unknown Schema / Field / EventType / InputType、partial tail、hash mismatch、fork、stale writer、unknown Capture End、未実証Filesystem / SQLite環境は拒否・OPEN維持・PENDING_RECOVERY・QUARANTINEDのいずれか。
+- **Entity境界:** OPERATION_EVENT独立Entityは不採用、Aggregate PointerはDerived View、Analysis / Simulationは共通Envelope + ArtifactKind、Recovery OperationとIntegrity Reportは別Entity。
+- **Session / NONE / ANONYMOUS:** Issue #210 CC-01 / CC-02を維持し、Main §14.1–14.2で具体的なSession membership / Association / Outcome動作を固定。
+
+したがって論理設計の選択肢は残さない。残件は実装・試験・他部門正式契約・統括最終審査という証拠Gateであり、設計未決定とは区別する。
