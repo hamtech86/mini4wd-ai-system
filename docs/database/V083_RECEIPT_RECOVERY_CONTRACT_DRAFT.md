@@ -550,3 +550,45 @@ Mainの「永続化完了時に消費」と、補助契約の「部分Intentで�
 - 同時Writer / stale lock / fencingを論理要件と物理方式に分離する境界。
 
 **結論:** 部分Intent時のOrdinalは未消費とも消費済みとも断定しない。再利用禁止・Physical Run隔離を維持し、Authority / Recovery条件が閉じるまで追加Operationを発行しない。DB-RV-03 OPEN。
+
+
+## 19. Receipt Event Chainの初回Event・Ordinal消費・部分Tail監査（2026-11-21）
+
+### 19.1 現行記述で確認できること
+- §3.2ではEvent Ordinalを必須とし、Receipt内で単調増加・再利用禁止としている。
+- §3.2ではPrevious Event Hashを「初回Eventを除き必須」としている。
+- §3.2ではEvent Ordinal gap / Hash Chain不一致を検証失敗とする。
+- §4ではPREPARED / SOURCE_COMMITTED / DB_COMMITTED / VERIFIED / ABORTED / QUARANTINEDの許可遷移を定義している。
+- §12.2では各Eventの追記途中クラッシュを未カバー点として挙げている。
+
+### 19.2 初回Eventの未定義点
+「初回Eventを除きPrevious Event Hash必須」とする記述だけでは、初回EventのPrevious Event Hashの表現が定まらない。NULL、Field自体の省略、空byte列、固定Genesis Hashは互換ではなく、Hash入力も異なる。また、Event Ordinalの初期値が0か1か、Receiptごとに独立した連番か、初回Eventが必ずPREPAREDかも、Schema上の明示根拠を追加確認する必要がある。
+
+したがって以下は未決定として扱う。
+- 初回EventのPrevious Event Hash Fieldを省略するか、NULL等で明示するか。
+- 初回Event Ordinalの開始値。
+- 初回Event Typeの制約と、Genesis表現を別Artifactに置く必要性。
+- これらを含むCanonical Event Payload / Hash入力の定義。
+
+NULLや固定Genesis Hashを慣行で採用しない。
+
+### 19.3 Event Ordinalの消費境界
+Operation Ordinalとは別に扱う。Event Ordinalはgapを許さないため、Event appendの結果が不明な場合に後続Eventを採番してはならない。
+
+論理状態候補:
+1. **NOT_ATTEMPTED**: 当該Event Ordinalのappendが開始されていないことを証明できる。
+2. **COMMITTED_EVENT**: 完全なEventが読み戻せ、Schema / Ordinal / Previous Hash / Event Hashを検証できる。
+3. **INDETERMINATE_TAIL**: append結果不明、部分Event、Hash不一致、Ordinal競合、Tail破損のいずれかで完全性を確定できない。
+
+NOT_ATTEMPTEDの場合のみ同じ次Ordinalで作成を開始できる。COMMITTED_EVENTは既存Eventとして扱い、重複追記しない。INDETERMINATE_TAILでは同じReceipt Event Chainへの後続追記・Ordinal飛越し・Tailの黙示切捨てを禁止し、Receiptを隔離する。完全Eventの読み戻しができるかどうかを確認せずに「未消費」と断定しない。
+
+この区分は論理上の判定案であり、append開始の物理的証明方法・fsync・atomicity・Tail修復方式を定めない。
+
+### 19.4 Writer / Recovery Authority
+- 同一Receipt Event Chainに対する同時有効Writerは1つに限定する論理要件が必要。
+- Event Ordinalの発行主体、append権限、Event Typeごとの発行権限（特にABORTED / QUARANTINED / VERIFIED）は未定義。
+- Recovery Operationが元ReceiptのEvent ChainへEventを追記できるか、別Recovery Artifactだけを作成するかも未定義。元Receipt不変の原則との整合を確認する必要がある。
+- 元ReceiptがINDETERMINATE_TAILとなった場合、別Recovery Operationが元Chainを修復・継続できると推測しない。Authorityと修復証拠形式が定義されるまでは元Receiptを隔離状態として保持する。
+
+### 19.5 結論
+初回Previous Event Hashの符号化、初期Ordinal、Event append開始・消費境界、Event Writer / Type Authority、partial tail後のRecovery権限が未定義である。Operation Ordinalの欠番許容規則をReceipt Event Ordinalへ適用しない。DB-RV-03 OPENを維持し、Main本文・Canonical Schema・実装は変更しない。
