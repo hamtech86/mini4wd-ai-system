@@ -25,7 +25,7 @@ v0.8.3 §1.4の「Session StatusはHistorical SessionのMeasurement集合から�
 | State | 意味 | 生成・遷移条件 |
 |---|---|---|
 | NOT_CREATED | 当該ScopeにSessionが存在しない | Scopeが一度も確定ASSIGNEDになっていない |
-| OPEN | 当該ScopeのLogical Session identityが外部Run Manifestに作成され、Physical Runが終了していない | 初回確定ASSIGNED OperationでDB availabilityにかかわらず一度だけ生成。DB Session MirrorはDB正常利用可能時のみ作成 |
+| OPEN | 当該ScopeのLogical Session identityが外部Run Manifestに作成され、Physical Runが終了していない | Run Managerが初回確定ASSIGNED Assignment Operation時にUUIDv4を発行し同一Manifest Commitへ記録。DB Session MirrorはDB正常利用可能時のみ同一IDで作成 |
 | CLOSED | Physical Runの終了が外部正本で確定し、Sessionを閉じた | 検証済みPHYSICAL_RUN_CLOSED Eventを確認 |
 | QUARANTINED | Run終端証拠またはSession参照の競合・Hash不一致等で自動確定できない | Restore / Integrity検査で矛盾を検出 |
 
