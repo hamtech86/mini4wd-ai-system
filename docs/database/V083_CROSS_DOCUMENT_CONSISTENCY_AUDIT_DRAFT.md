@@ -450,3 +450,27 @@ Hash algorithm、Canonicalization、UUIDv5 Namespace、Receipt ID方式は未承
 - 部分Tailを黙って切り捨てたり、その後ろへ追記したりせず、証拠を保全して隔離する候補方針は維持する。
 
 これは既存記述の整合化であり、Ordinal Authorityや物理的な追記・耐久方式の確定ではない。DB-RV-03 OPENを維持する。
+
+
+## 23. Hash DAG候補・生成順・統括判断事項（2026-11-21）
+
+Receipt Recovery Contract §17に、現行Hash Fieldの生成時点・参照関係の一覧と、非循環化候補を追加した。
+
+### 追加した発見
+- Expected Receipt HashをEnvelope Hashと解釈する場合、Intent Hash → Envelope Hash → Intent Hashの循環候補が生じる。
+- Expected Receipt Hashが別Hashなら、その意味・対象Payloadが未定義。
+- DB MarkerはSource Commit Hashを含む一方、Expected DB Marker HashはPREPARED時点で固定する案となっており、Source Commit Hashを事前確定できる証拠が不足。
+- Expected DB Marker Payload HashをMarker自身のCanonical Payloadに含める場合、自己参照となる。
+- Plan / Intent / Envelope / Source Commit / Event / MarkerのHash生成順・対象Field・自己Hash除外を別々に定義する必要がある。
+
+### 非循環化候補
+Plan Payload → Plan Hash → Intent Payload / Intent Hash → Receipt Envelope / Envelope Hash → Source Commit / Source Commit Hash → Receipt Event / Event Hash・DB Marker / Marker Payload Hash → DB_COMMITTED Event、という候補順を記録。後段Hashを前段入力へ逆流させない案である。ただしExpected DB Marker Hashの要件との整合は未解決。
+
+### 統括判断が必要な事項
+- Expected Receipt Hashを削除するか、別の非循環Hashとして定義するか。
+- Expected DB Marker HashをPREPARED時点で固定するか、Source Commit後に計算するか、別概念へ分けるか。
+- Marker Payload HashのCanonical対象と自己Hash Fieldの格納場所。
+- Receipt IDの決定的導出方式・Namespace・version。
+
+### 判定
+これは非循環化の候補であり、規範仕様・承認済みの設計ではない。Hash algorithm / Canonicalization / Namespaceを採用していない。DB-RV-03 OPEN。Main本文未変更。DDL / DB生成 / Migration / Restore / 実装 / PR / main反映なし。
