@@ -23,7 +23,7 @@
 
 1. Physical Runは測定実行の外部正本上の単位であり、必ずUUIDv4を持つ。
 2. DB RunはPhysical Runにつき最大1件。Physical Run IDとは別のUUIDv4を持つ。
-3. DB Runは、そのPhysical Run内で**最初のASSIGNED Assignment Operationが確定した時点で一度だけ生成**する。
+3. DB Runは、そのPhysical Run内で**最初のASSIGNED Assignment Operationが確定した時点で一度だけ生成**する。DB unavailable時はその場でDB Runを作らず、復旧後の明示Bootstrapで外部Assignment Historyを検証して生成できる。
 4. 一度生成されたDB Runは履歴コンテナとして保持し、全ScopeがNONE / ANONYMOUSへ移行しても削除しない。後日再ASSIGNEDとなっても同一DB Run IDを再利用する。
 5. 一度もASSIGNEDになっていないPhysical RunにはDB Runを作らない。初期状態が全Scope NONE / ANONYMOUSであることと、過去にASSIGNED履歴がありDB Runが残存する状態を区別する。
 6. DB Runの削除・再生成・ID再採番は禁止。訂正はOperation / Historyとして追加する。
@@ -31,7 +31,7 @@
 ### 1.2 RUN_SCOPE / Session
 
 1. RUN_SCOPEはPhysical Run初期化時に全Scopeについて外部正本として作成する。Scope Keyごとに一意。
-2. SessionはRUN_SCOPEにつき最大1件。**当該Scopeが一度でもASSIGNEDになった最初の確定Operationで生成し、その後はAssignment Stateにかかわらず保持する。**
+2. SessionはRUN_SCOPEにつき最大1件。**当該Scopeが一度でもASSIGNEDになった最初の確定Operationで生成し、その後はAssignment Stateにかかわらず保持する。** DB unavailable時はその場でDB Sessionを作らず、復旧後の明示Bootstrapで外部Assignment Historyを検証して生成できる。
 3. 初期ANONYMOUS / NONEで一度もASSIGNEDになっていないScopeにはSessionを生成しない。
 4. ASSIGNED→NONE→ASSIGNED、ASSIGNED→ANONYMOUS→ASSIGNED、ASSIGNED→別InstanceのいずれでもSession IDは変更しない。
 5. Sessionの存在は「現在ASSIGNED」を意味しない。現在の割当状態はCurrent Assignment Snapshotのみで判定する。
@@ -204,7 +204,7 @@ Journal Intent、Receipt Envelope、Receipt Event、Source Commit Record、DB Ma
 | Physical Run | Run Manifest | DB Run生成後に任意の検索Mirror | Manifestから復元。ID再発行禁止 |
 | RUN_SCOPE | Scope Manifest / Assignment Snapshot | DB Run生成後、Physical Run内の全ScopeをMirror可能 | 外部Scope一覧から再生成 |
 | Assignment Snapshot / History | Scope単位の不変ファイル | あり（Mirrorのみ） | Hash Chain検証後に再生成 |
-| Measurement | Measurement Envelope | 測定時ASSIGNEDのMeasurementを登録。NONE期間はDB利用可能時に取得され、既にDB管理下にあるMeasurementに限り、後日ASSOCIATION OperationでInstance関連付け可能。ANONYMOUS期間のMeasurement / RawLogは後日取込・Mirror化・再紐付け禁止 | Envelopeから再生成。測定時Assignmentを変更しない。NONEの関連付けはOperation ID / Actor / 時刻 / 変更前後 / 理由を監査履歴へ記録 |
+| Measurement | Measurement Envelope | DB利用可能時のASSIGNED Measurementを登録。DB unavailable期間のASSIGNED Measurementは復旧後の明示Bootstrapで完全検証できるもののみMirror再構築。NONEは同一Scope Session存在中にDB管理下で取得されたもののみAssociation対象。初回ASSIGNED前のNONE / outage NONE / ANONYMOUSは取込禁止 | Envelopeから再生成。測定時Assignmentを変更しない。NONE AssociationはOperation ID / Actor / UTC時刻 / 変更前後 / 理由を監査履歴へ記録 |
 | Measurement Profile Snapshot | Measurement Envelopeが参照する不変Snapshot | あり（Mirrorのみ） | Snapshot Hash検証後に再生成 |
 | RawLog / Sample Reference | RawLog本体 / Reference Manifest | 参照Mirrorのみ | 本文Hash一致を検証して再生成 |
 | Analysis / Simulation Artifact | Artifact Envelope / Result Payload | 参照・検索Mirror | DAGと入力Hash検証後に再生成 |
@@ -212,7 +212,7 @@ Journal Intent、Receipt Envelope、Receipt Event、Source Commit Record、DB Ma
 | Receipt / Receipt Event | Receipt Envelope / Event Log | あり（Mirrorのみ） | 依存証拠の二段階検証後に再生成 |
 | Aggregate Request / Attempt / Result | Aggregate Envelope / Result Payload | Pointer / 検索Mirror | Request/Attempt/ResultのHash検証後に再生成 |
 
-全ScopeがNONE / ANONYMOUSで一度もASSIGNEDになっていない場合、Physical Run / RUN_SCOPE / Assignment Snapshot / Measurement Envelope / RawLog / Artifact等は外部正本だけで再構築可能とする。DB Run / Session / DB Mirrorを作らない。後日初回ASSIGNEDでDB Runを生成した後は、必要な全ScopeのManifestとSnapshotをMirrorする。NONE期間のMeasurementは、DB利用可能時に取得され、外部正本およびDB管理下のMeasurement記録が既に存在する場合に限り、既存Measurement IDを維持した明示的Association Operationの対象にできる。関連付け時もAssignment-at-MeasurementはNONEのままとし、実行主体・時刻・変更前後・理由を監査履歴へ残す。関連付けだけを理由にCurrent Aggregateへ遡及包含しない。ANONYMOUS期間のMeasurement / RawLogは後日DB取込・Mirror化・Instance再紐付けを禁止し、明示操作による例外も認めない。
+全ScopeがNONE / ANONYMOUSで一度もASSIGNEDになっていない場合、Physical Run / RUN_SCOPE / Assignment Snapshot / Measurement Envelope / RawLog / Artifact等は外部正本だけで再構築可能とする。DB Run / Session / DB Mirrorを作らない。後日初回ASSIGNEDでDB Runを生成した後は、必要な全ScopeのManifestとSnapshotをMirrorする。DB unavailable期間中にASSIGNEDが成立していた場合は、復旧後の明示BootstrapでのみDB Run / Session IDをUUIDv4発行してManifestへ先行記録し、DB Mirrorを生成する。NONE期間のMeasurementは、DB利用可能時に取得され、外部正本およびDB管理下のMeasurement記録が既に存在する場合に限り、既存Measurement IDを維持した明示的Association Operationの対象にできる。関連付け時もAssignment-at-MeasurementはNONEのままとし、実行主体・時刻・変更前後・理由を監査履歴へ残す。関連付けだけを理由にCurrent Aggregateへ遡及包含しない。ANONYMOUS期間のMeasurement / RawLogは後日DB取込・Mirror化・Instance再紐付けを禁止し、明示操作による例外も認めない。
 
 外部正本の欠落・Hash不一致・ID競合はQUARANTINED。DB Mirrorから外部正本を逆生成して事実を補完してはならない。DB Mirrorが欠落・破損した場合は外部正本から再生成する。
 
