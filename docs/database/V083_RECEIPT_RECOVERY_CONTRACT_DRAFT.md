@@ -1,5 +1,7 @@
 # v0.8.3 Receipt / Journal Recovery Contract 詳細案
 
+> **Decision Overlay:** §22が最終決定。§1〜§21に残るOPEN / candidate / proposalは監査履歴として保持し、§22およびMain §14と矛盾する記述は適用しない。
+
 - 基準日: 2026-11-21
 - 状態: 論理設計補助案・未承認
 - 関連: v0.8.3 §2 / §6 / §9、V083_STATE_TRANSITION_MATRIX_DRAFT.md、Issue #201 / #35 / #85 / #86
@@ -713,3 +715,10 @@ Physical Run Writer Authorityを持つことと、Operation Ordinal / Receipt Ev
 - 競合・欠落・不正Tail・Hash不一致・Writer Epoch不明はQUARANTINED。
 - QUARANTINED元証拠は変更しない。Recoveryは別Operationで記録する。
 - 物理的なEpoch fencing / Atomic append / fsync / SQLite transactionの実装方式は選択しないが、Main §14.8の実証Gateを満たさない実装は不採用。
+
+### 22.2 Event Registry / Authorityの固定
+- Receipt EventTypeはPREPARED / SOURCE_COMMITTED / DB_COMMITTED / VERIFIED / ABORTED / QUARANTINEDのみ。未知値は拒否。
+- Operation Journal EventTypeはINTENT_PERSISTED / CANCEL_REQUESTED / SOURCE_COMMIT_RECORDED / DB_MARKER_COMMITTED / PHYSICAL_RUN_CLOSED / NONE_ASSOCIATION_CREATED / RETRY_CLOSED / RECOVERY_OPERATION_CREATED / INTEGRITY_REPORT_CREATEDのみ。未知値は拒否。
+- Operation Journal EventOrdinalはOperation単位で1から連続。Assignment History EventOrdinalはScope単位で1から連続。Receipt EventOrdinalはReceipt単位で1から連続。Ordinalを相互流用しない。
+- Writer Grant / ReleaseはOperation Journal EventではなくAuthority Registry Chainに記録し、(PhysicalRunID, Epoch)で識別する。
+- Event発行ActorはEventTypeごとのAuthorityを満たす必要がある。Actor / Authority proof欠落は作成拒否。
