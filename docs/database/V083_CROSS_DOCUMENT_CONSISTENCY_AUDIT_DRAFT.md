@@ -924,3 +924,32 @@ Request StateをOPEN / SUCCEEDED / FAILED / CANCELLED / INDETERMINATEに固定�
 | XDC-007 | XDC-006対象を後日Association | Instance関連付け履歴のみ。Session membership / Assignment-at-Measurement不変 |
 
 全ケースは論理受入案であり、実行・PASS未確認。
+
+## 38. V083-RV-01〜03 差戻し解消案の横断記録（2026-11-21）
+
+**Status: DB部門の文書修正済み・統括再審査待ち。試験実行・統括承認済みを意味しない。**
+
+### 38.1 V083-RV-01 — DB-RV番号の意味固定
+- DB-RV-01〜08はIssue #209の元定義に固定した。4つの補助文書（Cross-document Audit / Self Review / Entity Inventory / Receipt Recovery Contract）のSupersession Registerを同期した。
+- Entity / identity inventoryは横断資料であり、独立したDB-RV番号ではない。新規差戻しIDはV083-RV系列で管理する。
+- Main §1〜§7の対応は、DB-RV-01/02/08=§1・§7、DB-RV-03=§2、DB-RV-04=§3、DB-RV-05=§4、DB-RV-06=§5、DB-RV-07=§6・§8とした。
+- 判定: 文書上の番号誤用を修正。統括が再審査するまでBLOCKER解除とはしない。
+
+### 38.2 V083-RV-02 — Logical Session IDとDB Session Mirrorの生成時点
+- Logical Session identityは、DB正常利用可能時にScopeで初めて有効なASSIGNED Assignment Operationが確定した時点でRun ManagerがUUIDv4を発行し、同じ外部Run Manifest Commitへ記録する。
+- DB Session Mirrorは別IDを発行せず、同じLogical Session IDを用いる。
+- DB unavailable期間は有効なASSIGNED Assignment Operationを成立させず、初回ASSIGNED・Logical Session identity・DB Session Mirrorを新規生成しない。Bootstrap時にSession IDを初めて発行する経路も設けない。
+- 障害開始前から存在するLogical Session identity / Lifecycleは履歴として保持する。障害期間中のCaptureは外部正本のみであり、DB Session Mirror membershipへ遡及追加しない。
+- 判定: Main §1.2 / §1.4 / §6 / §14.1を同期。Session Lifecycle / State Transition / Entity Inventoryも同じAuthority・生成条件へ同期した。
+
+### 38.3 V083-RV-03 — DB unavailableとAnonymous Modeの境界
+- Issue #201の範囲に従い、DB unavailableは既存Anonymous Modeとして扱う。障害期間中に有効なASSIGNED Assignment Operationを発行しない。
+- 障害期間Capture / MeasurementのAssignment-at-MeasurementはANONYMOUS、InstanceID=NULLとする。オフラインのInstance選択・申告を有効なASSIGNED Assignment Snapshotとみなさない。
+- 障害期間中に初回ASSIGNEDを試みてもDB Run / Logical Session identity / DB Session Mirror / Measurement Mirrorは生成しない。復旧後のBootstrap / DB取込 / Mirror化 / Associationは禁止する。DB管理を開始する場合は新しいPhysical Runを要求する。
+- 障害開始前からDB Run / Logical Session identity / DB Session Mirrorが存在する場合は削除せず履歴として保持する。ただし障害期間CaptureはANONYMOUSとして保全し、後日DBへ取込まない。
+- 判定: Issue #201 / #210 CC-01 / CC-02とMain §1・§6・§14.1を同期した。匿名Captureの後日取込を許す例外は設けない。
+
+### 38.4 検証境界
+- この修正は論理文書の同期である。DB Manager実装、Assignment発行Authorityの実装試験、Manifest Commit実証、DB unavailable実機試験は未実施。
+- Issue #201 / #210の承認範囲を拡張しない。物理設計 / DDL / DB生成 / Migration / Restore実行 / 実装 / PR / main反映は禁止継続。
+- V083-RV-01〜03はDB部門の自己評価であり、統括のBLOCKER解除判断ではない。
