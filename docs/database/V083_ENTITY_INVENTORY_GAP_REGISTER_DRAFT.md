@@ -297,3 +297,46 @@ Entity Inventory 23種をDB-RVの審査項目へ対応付ける。これは責�
 - Issue #210 CC-02のNONE MeasurementとSession membershipの選択。
 
 このマップは証拠所在と契約所有者の整理であり、未回収契約の代替や承認済Schemaではない。
+
+
+## 11. Aggregate Request / Attempt / Resultの決定論点分解（DB-RV-04 / 2026-11-21）
+
+### 11.1 IdentityとRequest Fingerprintを分離する
+
+現行Main §3.1はRequest IDとInput Set Hash等を保持すると定める。State Matrix §5.1はRequest FingerprintへRequest ID、Scope / DB Run ID、Input Set Hash、Assignment Snapshot Set Hash、Algorithm / Configuration、Measurement / Profile / Policy Revision、Aggregate Definition Versionを含める案を示す。
+
+この2つは同じ概念ではない。
+- Request ID: 受理された要求インスタンスの識別子。再試行で変えないか、新Requestで必ず変えるか等の発行規則は別途必要。
+- Request Fingerprint: その要求が何を計算するかを識別する値。Request IDを含める場合は同一入力の別Requestも異なるFingerprintになる。
+- Input Set Hash: 入力集合の内容同一性を示す値であり、Assignment / Algorithm / Policy / Definition等を含む全要求条件の代用にはならない。
+
+### 11.2 未決定の選択肢（採用案ではない）
+
+| 論点 | 案 | 内容 | 未解決 / リスク |
+|---|---|---|---|
+| Fingerprint構成 | A | State Matrix §5.1の全項目を固定順序でcanonicalizeしHash化。Request IDを含める | 同じ計算条件で再要求しても別Fingerprint。IDを含める意味とCache/同値性の境界が必要 |
+| Fingerprint構成 | B | 計算条件だけをFingerprint化し、Request IDは別管理 | 同一条件の別Requestが同一Fingerprintになり得る。Request identityとsemantic equivalenceを分離できるが、どの項目が計算条件か確定が必要 |
+| Fingerprint構成 | C | Input Set Hashのみで判定 | Assignment / Algorithm / Configuration / Policy / Definition差を見逃し得るため、現行Matrix案を満たさない |
+| 保存形式 | 1 | Full fingerprint fields + fingerprint hashをRequest Envelopeに保持 | canonical field schema / version / NULL / orderingが必要 |
+| 保存形式 | 2 | Hashのみ保存 | 監査・再計算時に何を比較したか復元できず、Hash preimage不在の問題がある |
+| Latest Successful順序 | A | Request Ordinalを第一キー、同一Request内はAttempt Ordinalを第二キー | Attempt Ordinalの正式定義・成功複数回の許否が必要 |
+| Latest Successful順序 | B | Result Revisionの独立Ordinalを用いる | Revision採番主体・遅延成功・Request順との整合が必要 |
+| Retry終端 | A | 明示Retry Closed Eventを追記し、Actor / Time / Reason / Policyを保持 | Event schema、閉鎖権限、閉鎖後Attempt拒否規則が必要 |
+| Retry終端 | B | Request状態にRetryClosedAt等を持つ | 不変Requestと状態更新が衝突。別の不変Eventを使わない場合の証拠更新問題 |
+| Retry終端 | C | 現時点で失敗AttemptしかないことからFAILED推定 | 将来の再試行を排除できず、明示終端を要求するMatrix §5.3と整合しない |
+| Pointer更新 | A | 最新Request / Fingerprint / generationを比較する条件付き更新 | DB transaction / concurrency制御の物理契約が必要 |
+| Pointer更新 | B | 全履歴から再構築し、派生Pointerは常に再計算 | 再構築順序・同時更新・計算コスト・read consistencyが必要 |
+
+### 11.3 現時点で確定してよい最低限
+
+- Request / Attempt / Result Revisionは別概念として維持する。
+- Request / Attempt / Resultの過去証拠をUPDATE / DELETEで書き換えない。
+- 失敗AttemptからResult Revisionを生成しない。
+- 遅延した旧Requestの成功結果を、より新しいRequestのCurrent Validへ昇格させない。
+- Input Set Hash単独では要求全体の同一性を証明しない。
+- Retry終端が証拠で明示されるまではFAILEDを確定しない。
+- Pointerは派生値として扱い、履歴正本の代替にしない。
+
+### 11.4 決定待ち
+
+Fingerprintの完全Field Schema / Request IDを含むか、Latest Successfulの順序キー、Attempt Ordinal、Retry Closed Event schema / authority、Pointer更新のconcurrency保証は未承認。Main §3は変更していない。統括判断なしにState Matrix候補を規範へ昇格させない。
