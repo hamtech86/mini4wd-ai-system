@@ -407,7 +407,7 @@ V082-001〜030は既存のまま保持する。V082-031〜053は追加案であ�
 1. Request Fingerprintは§3.1の完全Field集合を用いる。Request ID・Ordinal・時刻を含めず、計算意味条件のみを表す。Full fieldsとHashを両方保存する。
 2. RequestOrdinal / AttemptOrdinalは各Owner内で単調増加・再利用不可。Request内の成功Attemptは最大1件。Retry Closedは明示Eventで記録し、閉鎖後のAttemptを禁止する。
 3. Current Validは最新RequestのFingerprintと一致する成功Resultだけ。古いRequestの遅延成功は履歴に保存するがCurrent Validへ昇格しない。PointerはDerived View。
-4. Artifactは不変。再解析・Simulation・Algorithm / Config変更は新Artifact ID。Analysis / SimulationはArtifactKindで区別する。v0.8.3のArtifact InputTypeはMEASUREMENT_ENVELOPE / RAWLOG_REFERENCE / SAMPLE_REFERENCE / MEASUREMENT_PROFILE_SNAPSHOT / ANALYSIS_ARTIFACT / SIMULATION_ARTIFACT / AGGREGATE_RESULT_REVISIONの7種に固定し、未知Type / missing input / hash mismatch / cycleは拒否する。Input Ordinalは1から連続増加、Roleは非NULL、同一Artifact内Ordinal unique。Measurement Sample LinkはRole / Ordinal / Requiredを必須とする。
+4. Artifactは不変。再解析・Simulation・Algorithm / Config変更は新Artifact ID。Analysis / SimulationはArtifactKindで区別する。v0.8.3のArtifact InputTypeはMEASUREMENT_ENVELOPE / RAWLOG_REFERENCE / SAMPLE_REFERENCE / MEASUREMENT_PROFILE_SNAPSHOT / ANALYSIS_ARTIFACT / SIMULATION_ARTIFACT / AGGREGATE_RESULT_REVISIONの7種に固定し、未知Type / missing input / hash mismatch / cycleは拒否する。Input Ordinalは1から連続増加、Roleは非NULL、同一Artifact内Ordinal unique。Measurement Sample LinkはRole / Ordinal / Requiredを必須とする。Ordinalは(MeasurementID, Role)内で1から連続増加し、再利用不可。RoleはMeasurement Typeの正式Contractで定義された値のみ許可し、未知Roleは拒否する。Required=trueのLink欠落時はMeasurementをCOMPLETEにしない。Artifact InputのRequired / RoleはArtifactKindの正式Contractに従い、Required input欠落時はArtifact生成を拒否する。
 5. CH1 / CH2を別Aggregate Ownerとし、暗黙平均・合算を禁止。Pair Analysisは明示入力を持つ別Artifactに限る。
 
 ### 14.6 RawLog / Sample / Measurement
