@@ -16,7 +16,7 @@ v0.8.3 §1.4の「Session StatusはHistorical SessionのMeasurement集合から�
 - Measurement Outcomeの混在からSession Lifecycleを算出しない。
 - Session LifecycleはNOT_CREATED / OPEN / CLOSED / QUARANTINEDとする。NOT_CREATEDはSessionレコードではなく未生成状態。
 - Sessionの存在・状態はCurrent Assignmentを意味しない。
-- DB unavailable時はIssue #201に従いAnonymous Modeとして扱い、新規DB Run / Session Mirror / Measurement Mirrorを作らない。ただしCC-01に従い、初回ASSIGNED時の論理Session identityはDB availabilityにかかわらず外部Run Manifestへ生成・保持する。障害期間中のCapture / Measurement / RawLogは復旧後もDBへ取込・Mirror化・再紐付けしない。障害前から存在するDB Run / Session Mirrorは削除せず履歴として保持する。 論理Session identityが存在するScopeの障害期間中Captureは外部Manifest上のSession membershipとして保全できるが、DB Session Mirror membershipには追加せず、復旧後の遡及追加もしない。
+- DB unavailable時はIssue #201に従いAnonymous Modeとして扱い、有効なASSIGNED Assignment Operation・新規DB Run・Logical Session identity・DB Session Mirror・Measurement Mirrorを生成しない。障害期間Capture / Measurement / RawLogのAssignment-at-MeasurementはANONYMOUS（InstanceID=NULL）とし、復旧後もDBへ取込・Mirror化・再紐付けしない。障害前から存在するDB Run / Logical Session identity / DB Session Mirrorは削除せず履歴として保持する。既存Logical Session identityがあるScopeの障害期間Captureは外部Manifest membershipとして保全できるが、DB Session Mirror membershipには追加せず、復旧後の遡及追加もしない。
 
 ## 2. Session Lifecycle
 
@@ -25,7 +25,7 @@ v0.8.3 §1.4の「Session StatusはHistorical SessionのMeasurement集合から�
 | State | 意味 | 生成・遷移条件 |
 |---|---|---|
 | NOT_CREATED | 当該ScopeにSessionが存在しない | Scopeが一度も確定ASSIGNEDになっていない |
-| OPEN | 当該ScopeのLogical Session identityが外部Run Manifestに作成され、Physical Runが終了していない | Run Managerが初回確定ASSIGNED Assignment Operation時にUUIDv4を発行し同一Manifest Commitへ記録。DB Session MirrorはDB正常利用可能時のみ同一IDで作成 |
+| OPEN | 当該ScopeのLogical Session identityが外部Run Manifestに作成され、Physical Runが終了していない | DB正常利用可能時の初回有効ASSIGNED Assignment Operation時にRun ManagerがUUIDv4を発行し同一Manifest Commitへ記録。DB Session Mirrorは同一IDで作成。DB unavailable中は有効ASSIGNEDも新規Session identityも生成しない |
 | CLOSED | Physical Runの終了が外部正本で確定し、Sessionを閉じた | 検証済みPHYSICAL_RUN_CLOSED Eventを確認 |
 | QUARANTINED | Run終端証拠またはSession参照の競合・Hash不一致等で自動確定できない | Restore / Integrity検査で矛盾を検出 |
 
@@ -99,15 +99,15 @@ Issue #35のMotor安全契約ではSTOP後の再始動ラッチ、ARM要件、�
 | CLOSED | 既存MeasurementのいずれのOutcome | 許可。履歴不変 |
 | CLOSED | 新しいMeasurement開始 | 拒否。新しいPhysical Run / Scopeが必要 |
 | QUARANTINED | 新規Measurement Mirror登録 | 拒否または保留。自動修復しない |
-| NOT_CREATED | NONE / ANONYMOUS / DB unavailable期間のMeasurement | 外部正本のみ。DB Session / DB Measurementを作らない。DB unavailable期間はAssignment StateにかかわらずAnonymous Mode扱い |
-| NOT_CREATED | 初回ASSIGNED後のMeasurement | 初回ASSIGNEDで外部ManifestにLogical Session identityを生成してOPEN。DB正常利用可能時のみDB Run / Session Mirrorを作成し、Measurementを登録 |
+| NOT_CREATED | NONE / ANONYMOUS / DB unavailable期間のMeasurement | 外部正本のみ。DB Session / DB Measurementを作らない。DB unavailable期間のAssignment-at-MeasurementはANONYMOUS（InstanceID=NULL） |
+| NOT_CREATED | DB正常利用可能時の初回有効ASSIGNED後のMeasurement | 外部ManifestにLogical Session identityを生成してOPEN。同一IDのDB Run / Session Mirrorを作成し、以後の有効Measurementを登録 |
 
 Sessionの表示用サマリーを設ける場合も、Measurement Outcome別件数や最終MeasurementのOutcomeなど、元データを保持した派生値に限る。Session StatusそのものにCOMPLETE / STOP / ERROR / CANCELを割り当てない。
 
 ## 5. Issue契約との整合
 
 ### Issue #201
-- Anonymous ModeではDB Session Mirrorを作らない。初回ASSIGNEDがAnonymous Mode期間中に発生した場合も、論理Session identityは外部Run Manifestへ生成し、DB Mirrorは作らない。
+- Anonymous ModeではDB Session Mirrorを作らない。初回ASSIGNEDをAnonymous Mode期間中に試みても有効なAssignment Operationは成立せず、論理Session identity / DB Runを生成しない。
 - Motorのin-memory SessionはDB Sessionとは別物。
 - 匿名RawLogはローカル保全し、COMPLETE / STOP / ERROR / CANCEL等を区別する。
 - ANONYMOUS期間およびDB unavailable期間のRawLog / Measurementは現行範囲で後日DB取込・Mirror化・Instance再紐付けを禁止する。DB unavailableはIssue #201によりAnonymous Modeとして扱い、Assignment-at-MeasurementがASSIGNEDであっても例外にしない。将来変更は別設計と統括の明示承認を要する。
@@ -153,7 +153,7 @@ Sessionの表示用サマリーを設ける場合も、Measurement Outcome別件
 | SES-026 | ANONYMOUS期間のMeasurement / RawLogを後日関連付け要求 | 後日取込・Mirror化・Instance再紐付けを拒否 |
 | SES-027 | DB利用可能時にSession生成前のNONE Measurementを登録し、後に初回ASSIGNED | MeasurementはSessionへ遡及所属しない。既存記録を保持し、後日の明示AssociationはInstance関連付け履歴のみ |
 | SES-028 | 既存SessionがあるScopeでDB利用可能時にNONE Measurementを登録 | 初回登録時に同一Scope Sessionへmembershipを固定。後日のAssociationはInstance関連付けのみでmembershipを変更しない |
-| SES-029 | DB unavailable中にAssignment=ASSIGNEDのCapture / Measurementを取得し、DB復旧 | 論理Session identityは外部Manifestに存在するがDB Session / Measurement Mirrorなし。障害期間データのBootstrap / DB取込 / Mirror化 / Associationを拒否 |
+| SES-029 | DB unavailable中にASSIGNEDを試みCapture / Measurementを取得し、DB復旧 | 有効Assignment / Logical Session identity / DB Runなし。Assignment-at-Measurement=ANONYMOUS（InstanceID=NULL）、障害期間データのBootstrap / DB取込 / Mirror化 / Associationを拒否 |
 
 これらは提案テストIDであり、既存V082-001〜053との対応・採番統合は未実施。合格実行済みを意味しない。
 
@@ -161,11 +161,11 @@ Sessionの表示用サマリーを設ける場合も、Measurement Outcome別件
 
 Issue #210 CC-01 / CC-02およびMain §14により、以下をv0.8.3の確定処置とする。
 
-1. Session LifecycleはNOT_CREATED / OPEN / CLOSED / QUARANTINED。初回ASSIGNED時に生成し、Measurement Outcomeから独立する。
+1. Session LifecycleはNOT_CREATED / OPEN / CLOSED / QUARANTINED。DB正常利用可能時の初回有効ASSIGNED Assignment Operation確定時に生成し、Measurement Outcomeから独立する。DB unavailable期間に初回ASSIGNEDを試みてもSessionは生成しない。
 2. Measurement OutcomeはCOMPLETE / STOP / ERROR / CANCEL / INCOMPLETE / UNKNOWN。COMPLETEは機器固有Capture契約が正常終端を証明した場合のみ。終端欠落はINCOMPLETE、開始・終端の存在や順序が不明または矛盾する場合はUNKNOWN。
 3. Run CloseはRun Manager発行のPHYSICAL_RUN_CLOSED Operationだけで成立。Actor / UI / Operation evidenceが未提供ならCloseを拒否し、SessionをOPEN維持。終端矛盾・Hash不一致はQUARANTINED。
 4. Close時は全ScopeをTERMINAL / ABANDONED / HELDのいずれかに分類。ABANDONED / HELDにはActor・Reason・時刻を必須とし、未確定MeasurementをCOMPLETEに読み替えない。
-5. DB unavailable期間はIssue #201のAnonymous Modeとして扱い、Assignment-at-MeasurementにかかわらずDB Run / Session Mirror / Measurement Mirrorを生成しない。ただし初回ASSIGNED時の論理Session identityは外部Run Manifestへ生成し、Lifecycleを外部正本で保持する。障害期間中のCapture / Measurement / RawLogは外部正本に保全するが、復旧後の明示Bootstrap・DB取込・Mirror化・Associationを禁止する。障害前から存在するDB Run / Session Mirrorは削除せず保持する。初回ASSIGNED前のNONE Measurementも外部正本のみであり、後日Session membershipへ遡及追加しない。Session生成後、DB正常利用可能時に登録された同一ScopeのMeasurementは、測定時AssignmentがNONEであってもSession membershipを登録時点で固定できる。NONE AssociationはInstance関連付け履歴のみであり、Session membershipを変更しない。他ScopeのASSIGNEDによるDB Run生成は未ASSIGNED ScopeのNONE MeasurementをDB管理対象へ昇格させない。ANONYMOUS / outage期間の将来取込は別設計・統括の明示承認が必要。
+5. DB unavailable期間はIssue #201のAnonymous Modeとして扱い、有効なASSIGNED Assignment Operation・DB Run・Logical Session identity・DB Session Mirror・Measurement Mirrorを新規生成しない。障害期間中のCapture / Measurement / RawLogはAssignment-at-Measurement=ANONYMOUS（InstanceID=NULL）として外部正本に保全し、復旧後の明示Bootstrap・DB取込・Mirror化・Associationを禁止する。障害開始前から存在するLogical Session identity / Lifecycleは外部正本に保持する。障害前から存在するDB Run / Session Mirrorは削除せず保持する。初回ASSIGNED前のNONE Measurementも外部正本のみであり、後日Session membershipへ遡及追加しない。Session生成後、DB正常利用可能時に登録された同一ScopeのMeasurementは、測定時AssignmentがNONEであってもSession membershipを登録時点で固定できる。NONE AssociationはInstance関連付け履歴のみであり、Session membershipを変更しない。他ScopeのASSIGNEDによるDB Run生成は未ASSIGNED ScopeのNONE MeasurementをDB管理対象へ昇格させない。ANONYMOUS / outage期間の将来取込は別設計・統括の明示承認が必要。
 
 NONE Association Historyは独立UUID EntityではなくOperation Journal Eventで記録する。AssociationOrdinalはMeasurementごとに1から連続増加し、Event Identityは(OperationID, EventOrdinal)、History Recordの論理Identityは(MeasurementID, AssociationOrdinal)。Event RegistryにはNONE_ASSOCIATION_CREATEDとNONE_ASSOCIATION_CLOSEDを登録する。Created EventはTargetInstanceID / AssignmentSnapshotID・Revision / ActorID / OccurredAtUTC / Reasonを保持し、Closed EventはPreviousCreatedEventRef / ClosedAtUTC / CloseReason / ActorIDを保持する。ActiveはCreated後にClosedされていない状態、Closedは対応するClosed Eventが検証済みで存在する状態とし、MeasurementごとActive最大1件。Reassignmentは1 Operation内で旧AssociationをCloseしてから次OrdinalをCreateする。必要Event集合の欠落・順序違反・部分Tail・Hash不一致はOperation / ScopeをQUARANTINEDとし、元Eventを補修しない。Source Commitは必要Event全体を束ね、DB Mirror更新とMarkerは同一DB Transactionとする。Session membershipとAssignment-at-Measurementは変更しない。
 6. Current AggregateはAssignment-at-MeasurementがASSIGNEDかつ現在Instanceと一致し、Outcome=COMPLETEのMeasurementだけを対象とする。NONEはHistorical Analysisに明示指定された場合のみRETROSPECTIVE_NONEとして扱い、Current Aggregateへ入れない。
