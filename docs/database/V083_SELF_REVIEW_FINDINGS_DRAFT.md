@@ -346,3 +346,12 @@ Motor Issue #35 / #170はv1/v2形式境界とv2契約の作業範囲を定める
 **対応:** Entity Inventory §12とCross-document Audit §34に論理・物理・機器別・Restoreの4受入ゲートを分離して記録。FS durabilityを実証済みと扱わず、Batteryへ同一方式を推測適用しない。
 
 **残件:** RawLog Object / Referenceの完全Identity・Hash・Path・Retention、機器別契約、OS/filesystem実証、Recovery authority。Main §8は未変更。
+
+## SR-22 — v0.8.3論理Decision Baselineの全項目確定
+**判定: 設計選択の未決定は解消 / 実装・証拠Gateは未完**
+
+Main §14を追加し、UUIDv4 / M4W-JCS-1、Run/Session/Assignment、NONE/ANONYMOUS、Outcome/Close、Operation/Receipt/Writer/Recovery、Aggregate/Artifact、RawLog/Restore、Entity境界、Legacy IDの取扱いを採用・不採用・対象外・fail-closedへ確定した。
+
+特にUUIDv5 / Canonical Binary Name v2、Receipt ID deterministic derivation、Expected Receipt Hash、Expected DB Marker Hashをv0.8.3から除外した。未知のField / Schema / Device contractはopaque保全のみとし、意味解析・Aggregate入力を禁止する。
+
+**残存Gate:** Motor/Battery正式契約の回収、Run Manager Close契約、対象OS/filesystem durability実証、SQLite transaction / crash recovery実証、論理受入試験実行、統括最終審査。これらを設計未決定と呼ばず、未実証 / 未承認として明示する。
