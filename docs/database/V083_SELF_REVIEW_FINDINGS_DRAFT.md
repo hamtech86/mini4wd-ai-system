@@ -422,4 +422,8 @@ Request StateとAttempt StateをMain §3.2で固定。Retry ClosedはFAILED Atte
 - Filesystem / SQLite / crash / Restore実証: 未実施・禁止境界内
 - 統括最終審査: 未実施
 
+### RawLog durability責務の最終照合
+7. Main §8をDB側External Evidence Storageの共通byte-object永続化条件に限定した。Device / Capture Ownerが所有するCapture開始・終端、RawLog Schema / framing、Channel境界、Measurement Outcome、機器固有Retention / Loss契約をDB側で創作しない。
+8. Storage read-back / fsync成功はCapture正常完了やMeasurement COMPLETEの証拠ではない。Capture境界未受領時はopaque fragmentとして保全し、完全RawLog / Aggregate入力を主張しない。
+
 本追補は設計全体の承認・実装移行許可ではない。
