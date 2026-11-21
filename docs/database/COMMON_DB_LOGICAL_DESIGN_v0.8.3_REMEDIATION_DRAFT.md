@@ -359,9 +359,9 @@ V082-001〜030は既存のまま保持する。V082-031〜053は追加案であ�
 本節は、従来のOPEN / PROPOSAL / TBD項目を、採用・不採用・適用対象外・証拠不足時の固定動作へ閉じる。Issue #210 CC-01 / CC-02はそのまま優先し、本節はその判断を変更しない。本節と旧節に矛盾がある場合、本節を優先する。
 
 ### 14.1 Run / Scope / Session / Assignment
-1. Physical RunはRun Manager発行UUIDv4。DB Runは独立UUIDv4で、Physical Run内の最初のASSIGNED Assignment Operationで一度だけ生成する。DB RunはPhysical Runにつき最大1件。
+1. Physical RunはRun Manager発行UUIDv4。DB Runは独立UUIDv4で、DB正常利用可能時にPhysical Run内の最初のASSIGNED Assignment Operationが確定した場合に一度だけ生成する。DB RunはPhysical Runにつき最大1件。DB unavailable期間の初回ASSIGNEDはAnonymous Mode扱いとし、DB Runを生成しない。
 2. RUN_SCOPEは(PhysicalRunID, ScopeKey)複合識別子。v0.8.3のScopeKey許容値はMOTOR / BATTERY_CH1 / BATTERY_CH2の3値に固定し、未知値は拒否する。Motor / Battery CH1 / Battery CH2を別Scopeとして扱う。CH1 / CH2の同一化・平均化は禁止。
-3. SessionはScopeごと最大1件。初回ASSIGNED確定時にUUIDv4で生成し、以後Assignment Stateにかかわらず保持する。NONE / ANONYMOUSだけで一度もASSIGNEDにならないScopeにはSessionを生成しない。
+3. SessionはScopeごと最大1件。DB正常利用可能時の初回ASSIGNED確定時にUUIDv4で生成し、以後Assignment Stateにかかわらず保持する。NONE / ANONYMOUSだけで一度もDB管理下でASSIGNEDにならないScopeにはSessionを生成しない。DB unavailable期間の初回ASSIGNEDはAnonymous Mode扱いとし、復旧後に同一Physical Runへ遡及してSessionを生成しない。
 4. Session membershipは初回DB Measurement Mirror登録時点で同一Scope Sessionが既に存在する場合のみ成立し、後からSessionへ遡及所属させない。DB Run生成済みの別Scopeがあっても、未ASSIGNED ScopeのNONE Measurementを自動Mirror化しない。NONE MeasurementのAssignment-at-MeasurementはNONE・InstanceID NULLのまま不変。DB unavailable期間の測定はAnonymous Mode扱いであり、復旧後も取込・Association対象外。
 5. NONE Measurementの後日Associationは、DB正常利用可能時に既にDB管理Measurementとして登録済みのMeasurementに対する明示Operationのみ許可する。AssociationはSession membershipと独立したInstance関連付け履歴であり、Sessionへの追加・移動を行わない。1つのMeasurementに同時に有効なAssociationは最大1件。再関連付けは新Operationで旧Associationを閉じ、新Associationを追加する。Actor / UTC time / Reason / before-after / OperationIDを記録する。Assignment-at-MeasurementはNONEのまま変更しない。Session生成前のNONE MeasurementはSessionへ遡及所属させない。
 6. 初回ASSIGNED前のNONE期間のMeasurement、ANONYMOUS期間のMeasurement / RawLog、DB unavailable期間のすべてのCapture / Measurementは外部正本のみ。Issue #201によりDB unavailableはAnonymous Modeとして扱うため、ASSIGNED状態であっても当該期間中のDB Run / Session / Measurement Mirror生成を行わず、復旧後のBootstrap・取込・Mirror化・Associationも禁止する。DB unavailable前から存在するDB Run / Sessionは履歴として保持する。ANONYMOUS / outage期間の将来取込は別設計・統括の明示承認が必要。
