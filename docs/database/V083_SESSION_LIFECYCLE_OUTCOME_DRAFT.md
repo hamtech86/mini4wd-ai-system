@@ -149,6 +149,8 @@ Sessionの表示用サマリーを設ける場合も、Measurement Outcome別件
 | SES-022 | 明示Close Operation + Capture終端/明示放棄/保留 + 参照検証成功 | CLOSED許可 |
 | SES-023 | Close時に未終端Capture / 参照不整合 | CLOSED拒否。OPEN維持またはQUARANTINED |
 | SES-024 | Close Operationの外部正本欠落 / Hash不一致 | CLOSED拒否。OPEN維持またはQUARANTINED |
+| SES-025 | NONE期間の既存DB管理Measurementを明示Association | Assignment-at-Measurement=NONEを維持し、Actor / 時刻 / 変更前後 / 理由を監査。Current Aggregateへ自動算入しない |
+| SES-026 | ANONYMOUS期間のMeasurement / RawLogを後日関連付け要求 | 後日取込・Mirror化・Instance再紐付けを拒否 |
 
 これらは提案テストIDであり、既存V082-001〜053との対応・採番統合は未実施。合格実行済みを意味しない。
 
