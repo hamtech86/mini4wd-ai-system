@@ -192,6 +192,14 @@ UUIDv5生成はRFC 9562のSHA-1ベースUUIDv5手順を使用し、Namespace 16 
 | ARTIFACT_INPUT | ArtifactID(UUID), InputType(UTF-8 string), InputReferenceID(UUID), Role(UTF-8 string), Ordinal(Integer) |
 | AGGREGATE_RESULT_REVISION | DBRunID(UUID), Revision(Integer) |
 
+### 5.3.1 §5.3 Schemaの適用範囲と未定義Entity
+
+§5.3のSchema表は、Canonical Name Field Schemaを定義できたEntity候補の一部であり、Logical Entity Inventory全体を網羅するものではない。Inventory 23種との照合では、直接対応するSchemaが10種、Schema未定義が13種、`OPERATION_EVENT`はInventoryへの対応自体が未確定である。TEST_VALUEは汎用vector用途でありEntity Inventoryには含めない。
+
+Schema未定義EntityへUUIDv5を自動的に追加してはならない。各Entityについて、Identity UUID / Composite identity / Content Hash / Derived Pointer / External event identityのどれで識別するかを、Authority・不変性・更新・保持規則に基づき別途決定する。RawLog ObjectとRawLog Reference、Measurement Envelope IDとEnvelope Hash、Artifact IDとResult Payload Hash、Operation Journal IntentとOperation Eventを混同しない。
+
+Entity 23種ごとの対応と未決事項は `V083_ENTITY_INVENTORY_GAP_REGISTER_DRAFT.md` §6に記録する。本節は適用範囲の明確化であり、Namespace・UUIDv5採用や実装移行の承認ではない。
+
 ### 5.4 必須テストベクトルの形式
 
 Namespace承認前に、実UUIDを正解値として固定しない。Canonical byte列のgolden vectorを先に固定し、Namespace承認後にUUID期待値を追加する。各Entityについて最低限、通常値、NULL、空文字、区切り文字、`%`、NUL、Unicode NFC/NFD同値、負数/0/正数、Timestamp epoch/負値/最大精度、UUID byte orderを含める。
