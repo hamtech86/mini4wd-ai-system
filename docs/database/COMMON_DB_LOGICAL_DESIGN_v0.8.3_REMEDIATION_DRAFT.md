@@ -158,7 +158,7 @@ Stateは単調遷移とし、PREPAREDからABORTEDへ進めるのは外部正本
 - Duplicate JSON key、invalid Unicode scalar、NaN / Infinity、浮動小数点数、未知Schema Version、未知Entity Type / Fieldは拒否する。欠落FieldとNULLは区別する。
 - 整数はIEEE-754 safe integer範囲（-(2^53-1)〜+(2^53-1)）に限定する。範囲外整数と精度が必要な測定値・小数値は正規化済みDecimal文字列（指数表記・先頭+・不要な先頭/末尾0・負の0を禁止）で表し、JSON numberとして格納しない。
 - Timestampはtimezone-aware値のみ受け入れ、UTCへ変換し、YYYY-MM-DDTHH:mm:ss.ffffffZの6桁小数秒で固定する。naive timestamp、microsecond未満の精度、範囲外値は拒否し、丸めない。
-- Unicodeは正規化・case-foldを行わず、入力されたUnicode scalar列をそのまま保持する。JCSの文字列順序規則に従う。見た目が同じ文字列でもcode point列が異なれば異なるHashとなる。
+- Unicodeは正規化・case-foldを行わず、入力されたUnicode scalar列をそのまま保持する。JCSの文字列順序規則に従う。見た目が同じ文字列でもcode point列が異なれば異なるHashとなる。Decimal文字列は指数表記・先頭+・不要な先頭ゼロ・不要な小数末尾ゼロを禁止し、負の0は0へ正規化する。
 - Byte StringはBase64url（paddingなし）で表現する。NULLはEntity Schemaでnullableと明記されたFieldのみ許可する。
 - 自己Hash Field（例: payload_hash / event_hash）はHash入力から除外する。除外対象FieldはEntityごとに固定し、後から暗黙変更しない。SchemaまたはCanonicalization規則変更は新Versionとする。
 - RawLog ObjectのContent Hashだけは例外として、変換・正規化前のファイル全バイト（header / metadataを含む）にSHA-256を直接適用する。Structured HashとRawLog Content Hashを混同しない。
@@ -359,7 +359,7 @@ V082-001〜030は既存のまま保持する。V082-031〜053は追加案であ�
 1. Physical RunはRun Manager発行UUIDv4。DB Runは独立UUIDv4で、Physical Run内の最初のASSIGNED Assignment Operationで一度だけ生成する。DB RunはPhysical Runにつき最大1件。
 2. RUN_SCOPEは(PhysicalRunID, ScopeKey)複合識別子。v0.8.3のScopeKey許容値はMOTOR / BATTERY_CH1 / BATTERY_CH2の3値に固定し、未知値は拒否する。Motor / Battery CH1 / Battery CH2を別Scopeとして扱う。CH1 / CH2の同一化・平均化は禁止。
 3. SessionはScopeごと最大1件。初回ASSIGNED確定時にUUIDv4で生成し、以後Assignment Stateにかかわらず保持する。NONE / ANONYMOUSだけで一度もASSIGNEDにならないScopeにはSessionを生成しない。
-4. DB Run / Session生成前の初期NONE Measurementは外部正本のみ。初回ASSIGNED後のNONE Measurementは、DB利用可能時に取得され既存DB管理下にあるものに限りSessionに所属できる。NONE Measurementの測定時AssignmentはNONE・InstanceID NULLのまま不変。
+4. DB Run / Session生成前の初期NONE Measurementは外部正本のみ。当該Scopeの初回ASSIGNED後に取得され、当該ScopeのSessionが既に存在し、DB利用可能時に外部正本とDB管理下のMeasurement記録が確定したNONE MeasurementだけがSessionに所属できる。他ScopeのASSIGNEDによるDB Run生成は、未ASSIGNED ScopeのNONE Measurementを自動的にDB管理対象へ昇格させない。NONE Measurementの測定時AssignmentはNONE・InstanceID NULLのまま不変。
 5. NONE Measurementの後日Associationは、既存DB管理Measurementに対する明示Operationのみ許可する。1つのMeasurementに同時に有効なAssociationは最大1件。再関連付けは新Operationで旧Associationを閉じ、新Associationを追加する。Actor / UTC time / Reason / before-after / OperationIDを記録する。Assignment-at-Measurementは変更しない。
 6. 初回ASSIGNED前のNONE期間のMeasurement、ANONYMOUS期間のMeasurement / RawLogは外部正本のみ。後日DB取込・Mirror化・Associationは禁止。ANONYMOUSの将来拡張は別設計・明示承認が必要。
 7. NONE MeasurementはCurrent Aggregateから常に除外する。Historical Analysisでの利用は、明示的に指定された場合のみ許可し、ArtifactにRETROSPECTIVE_NONEを記録する。ANONYMOUSは分析入力としても現行範囲外。
@@ -367,7 +367,7 @@ V082-001〜030は既存のまま保持する。V082-031〜053は追加案であ�
 
 ### 14.2 Measurement Outcome / Session Close
 1. Measurement OutcomeはCOMPLETE / STOP / ERROR / CANCEL / INCOMPLETE / UNKNOWN。OutcomeはMeasurement単位でありSession Lifecycleへ伝播しない。
-2. COMPLETEは機器固有Capture契約が正常終端を明示した場合のみ。STOP / ERROR / CANCELは明示された終端Eventのみ。開始後にCaptureが途切れ、必要な終端証拠が欠ける場合INCOMPLETE。開始・終端の存在や順序を確定できない、または証拠が矛盾する場合UNKNOWN。時間経過・無通信・アプリ終了・最終値の有無から推定しない。
+2. COMPLETEは機器固有Capture契約が正常終端と必須Sample完了を明示した場合のみ。STOP / ERROR / CANCELは明示された終端Eventのみ。開始が確認でき、Capture終端または必須Sampleの欠落が確認された場合INCOMPLETE。開始・終端の存在や順序を確定できない、または証拠が矛盾する場合UNKNOWN。時間経過・無通信・アプリ終了・最終値の有無から推定しない。
 3. 各機器の詳細Termination Reasonは発行元の文字列・コードを原形保存し、DB側で意味を再解釈しない。正式MappingがないReasonはUNKNOWN扱い。Current Aggregateへ入るのはOutcome=COMPLETEのMeasurementのみ。
 4. Session LifecycleはNOT_CREATED / OPEN / CLOSED / QUARANTINED。CLOSEDはRun Managerが発行するPHYSICAL_RUN_CLOSED Operationが外部正本に永続化され、全ScopeのDispositionがTERMINAL / ABANDONED / HELDのいずれかで、依存証拠が検証済みの場合のみ。未終端をCOMPLETEに読み替えない。
 5. Close OperationにはPhysicalRunID、OperationID、ActorID、UTC timestamp、Reason、各ScopeのDisposition、各Capture / Measurementの参照とHash、未解決事項一覧を含める。HELD / ABANDONEDは理由必須。未解決の矛盾・欠落・Hash不一致・Authority不明はOPEN維持またはQUARANTINED。機器プロトコルの既存Eventを新設・変更しない。
@@ -390,7 +390,7 @@ V082-001〜030は既存のまま保持する。V082-031〜053は追加案であ�
 6. Receipt Event OrdinalはReceipt単位で1から連続増加、欠番不可、再利用不可。Partial / malformed tail、Hash不一致、Writer競合時はReceiptをQUARANTINEDにし、後続Event追記・tail切捨て・再採番を禁止。
 7. PREPAREDはIntentとEnvelopeが完全永続化された後にのみ記録。中止はPREPARED後、Source Commit不存在を検証し、明示Cancel Intentがある場合のみABORTED。Source Commit後はABORTED禁止。
 8. Manifestは不変Commit Recordの単一系列として扱う。各CommitはOperationID、ExpectedPredecessorHash、PayloadHash、CommitHashを保持。HeadはCommit Chainから導出する。Current Head単独はCommit証拠にしない。後続Commitがある場合も祖先Chainを検証する。同一PredecessorからのFork、Commit欠落、Chain破損はQUARANTINED。
-9. Writer AuthorityはPhysicalRun単位で単一有効Writer。Authority Epochを単調増加させ、すべての更新にEpochを付す。旧EpochのWriterは更新不可。時計・PID・Lock fileの存在だけでAuthorityを証明しない。Epochの一意な発行・比較を証明できない実装は受入不可。
+9. Writer AuthorityはPhysicalRun単位で単一有効Writer。Run Manager Authority RegistryのみがWriter Grantを発行し、PhysicalRun単位のAuthority Epochを単調増加させ、OwnerID / PreviousEpoch / GrantedBy / UTC timestamp / FenceProofHashを不変Grant Eventに記録する。すべての更新にEpochを付し、旧EpochのWriterは拒否する。新Epoch発行には旧Epochのfencing proofが必須。時計・PID・Lock fileの存在だけでAuthorityを証明しない。Epochの一意な発行・比較を証明できない実装は受入不可。
 10. Recovery Authorityは新しいRecovery Operationを発行できる主体に限定。元Intent / Receipt / Event / Manifest Commitを編集しない。Recoveryができるのは検証、Mirror再構築、Derived View再構築、隔離記録の追記のみ。元証拠の書換え・削除・Hash再計算による置換・遡及Assignmentは禁止。
 11. DB MarkerはMirror更新と同一DB Transactionで一度だけ作成し、OperationIDを一意キーとする。Marker Payload HashはSource Commit後に実際のMarker Payloadから計算し、DB_COMMITTED Eventへ記録する。MarkerとMirrorの不一致、同一Operationの異Hash MarkerはQUARANTINED。
 12. DB Commit結果不明時はMarkerとDB整合性を検証する。Marker完全一致ならCommit済み。MarkerなしでもDB integrity / transaction atomicity / consistent readを証明できない場合はQUARANTINEDとし、検索0件だけで未Commit・Rollbackを断定しない。再試行は同一Operation・同一Payloadに限る。
@@ -399,7 +399,7 @@ V082-001〜030は既存のまま保持する。V082-031〜053は追加案であ�
 1. Request Fingerprintは§3.1の完全Field集合を用いる。Request ID・Ordinal・時刻を含めず、計算意味条件のみを表す。Full fieldsとHashを両方保存する。
 2. RequestOrdinal / AttemptOrdinalは各Owner内で単調増加・再利用不可。Request内の成功Attemptは最大1件。Retry Closedは明示Eventで記録し、閉鎖後のAttemptを禁止する。
 3. Current Validは最新RequestのFingerprintと一致する成功Resultだけ。古いRequestの遅延成功は履歴に保存するがCurrent Validへ昇格しない。PointerはDerived View。
-4. Artifactは不変。再解析・Simulation・Algorithm / Config変更は新Artifact ID。Analysis / SimulationはArtifactKindで区別する。Artifact Inputは閉じたInputType Registryに従い、未知Type / missing input / hash mismatch / cycleは拒否する。Input Ordinalは1から連続増加、Roleは非NULL、同一Artifact内Ordinal unique。
+4. Artifactは不変。再解析・Simulation・Algorithm / Config変更は新Artifact ID。Analysis / SimulationはArtifactKindで区別する。v0.8.3のArtifact InputTypeはMEASUREMENT_ENVELOPE / RAWLOG_REFERENCE / SAMPLE_REFERENCE / MEASUREMENT_PROFILE_SNAPSHOT / ANALYSIS_ARTIFACT / SIMULATION_ARTIFACT / AGGREGATE_RESULT_REVISIONの7種に固定し、未知Type / missing input / hash mismatch / cycleは拒否する。Input Ordinalは1から連続増加、Roleは非NULL、同一Artifact内Ordinal unique。Measurement Sample LinkはRole / Ordinal / Requiredを必須とする。
 5. CH1 / CH2を別Aggregate Ownerとし、暗黙平均・合算を禁止。Pair Analysisは明示入力を持つ別Artifactに限る。
 
 ### 14.6 RawLog / Sample / Measurement
