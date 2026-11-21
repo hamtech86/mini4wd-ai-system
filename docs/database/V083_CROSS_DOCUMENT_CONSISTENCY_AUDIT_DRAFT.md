@@ -36,7 +36,7 @@ Issue #209のv0.8.2判定はORANGE — 条件付き差戻し・最終承認保�
 9. DB unavailable / ANONYMOUS運用ではDB Sessionを生成せず、外部正本上のRun / Capture情報を保持する。
 
 ### 反映対象
-- Main draft §1.4.1
+- Main draft §1.4
 - Session Lifecycle supplemental §§1 / 2 / 8
 - State Transition MatrixのSession状態・受入ケース（SES-017〜024を含む）
 - Self Review: SR-09をCC-01で解決・旧案廃止として明示。SR-01 / SR-02はCC-02後の残課題を再定義
@@ -84,7 +84,7 @@ Required:
 Issue #210の判断を受け、Main draft・Session Lifecycle supplemental・State Transition Matrixを更新した。これらの更新は専用ブランチ上の文書修正であり、全条項の整合完了を意味しない。
 
 継続確認:
-- Main §1.4.1とSession Lifecycle §§1 / 2 / 8の語彙・条件が完全一致すること。
+- Main §1.4とSession Lifecycle §§1 / 2 / 8の語彙・条件が完全一致すること。
 - Main §1.2のNONE関連付け条件とMatrixのNONEケースが一致すること。
 - ANONYMOUSの後日取込禁止が本文・補助案・Issue #201説明で一貫すること。
 - §1 / §6 / §7 / §12およびV082受入表に旧記述が残っていないこと。
