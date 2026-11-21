@@ -135,7 +135,7 @@ Current Valid判定がInput Set Hash中心だが、RequestにはAssignment Snaps
 ### SR-09 — Session Status導出式と状態遷移が未定義（旧所見・CC-01で解決）
 **状態: SUPERSEDED / Issue #210 CC-01**
 
-初回レビュー時の「Measurement集合からSession Statusを導出する」旧案は、Issue #210の統括決定により不採用。Session Lifecycle（NOT_CREATED / OPEN / CLOSED / QUARANTINED）とMeasurement Outcome（COMPLETE / STOP / ERROR / CANCEL / INCOMPLETE / UNKNOWN）を完全分離し、Outcome集合・混在・件数からLifecycleを導出しない。CLOSEDはRun管理側の明示Close Operationと外部正本・依存参照の検証が成立した場合に限る。詳細はMain draft §1.4.1、`V083_SESSION_LIFECYCLE_OUTCOME_DRAFT.md`、State Transition Matrixを参照。
+初回レビュー時の「Measurement集合からSession Statusを導出する」旧案は、Issue #210の統括決定により不採用。Session Lifecycle（NOT_CREATED / OPEN / CLOSED / QUARANTINED）とMeasurement Outcome（COMPLETE / STOP / ERROR / CANCEL / INCOMPLETE / UNKNOWN）を完全分離し、Outcome集合・混在・件数からLifecycleを導出しない。CLOSEDはRun管理側の明示Close Operationと外部正本・依存参照の検証が成立した場合に限る。詳細はMain draft §1.4、`V083_SESSION_LIFECYCLE_OUTCOME_DRAFT.md`、State Transition Matrixを参照。
 
 ### SR-10 — DB-001〜124 / V082 crosswalkは証拠回収未完了
 **重大度: BLOCKER / 統括再提出条件**
