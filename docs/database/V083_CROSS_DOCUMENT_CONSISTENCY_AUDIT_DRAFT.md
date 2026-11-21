@@ -573,3 +573,25 @@ Receipt Contract §3.2は初回Event以外にPrevious Event Hashを要求する�
 
 ### 27.4 判定
 これはSchema / Authorityの欠落であり、特定実装で部分Eventが必ず発生するという不具合断定ではない。fsync / atomic append / Tail修復は物理設計で別途検証する。Main §2.1〜§2.3未変更、DB-RV-03 OPEN、v0.8.3未承認を維持する。
+
+
+## 28. Manifest Head競合と後続Commit後のRecovery判定監査（2026-11-21）
+
+### 28.1 発見した不足
+前回までの§15.2「Headを再読込し、当該OperationのExpected Head / Commit Hashと一致する場合のみSource Commit済みと認定」という記述は、Recovery前に別Operationが後続Commitを完了しHeadが進んでいる場合を扱えていない。現在Headが先行OperationのCommit Hashと一致しないことは、そのOperationがCommitされなかった証拠にはならない。
+
+### 28.2 競合条件の分離
+1. **Stale predecessor:** Expected predecessorが現Headと一致しない状態で新規Commitしようとする。Commit拒否が必要。
+2. **Commit済み・後続Headあり:** 当該Operationの不変Commit証拠がManifest履歴に存在し、後続Headの祖先である可能性がある。履歴検証なしに不成立と判定できない。
+3. **Commit結果不明・履歴なし:** 当該Commitの存在も不存在も完全に証明できない。未Commitと推測せず保留・隔離。
+4. **Operation ID重複Commit:** 同一Operation IDに異なるpredecessor / payload / commit identityが存在する場合は証拠矛盾。
+
+### 28.3 補助契約・Matrixへの同期候補
+- Operation単位の不変Commit証拠とManifest履歴上の祖先関係を、Source Commit成立判定に使えるよう論理契約を定義する。
+- Expected predecessor不一致時はstale Commitを拒否し、旧Headで上書きしない。
+- 現在Headが後続Commitへ進んでいても、当該Operation Commitが履歴上の祖先として検証できる場合はCommit成立を認定できる候補とする。
+- Commit証拠の欠落・履歴不完全・部分Tail・Operation ID重複は、Source Commitを推測で確定せず保留または隔離。
+- CAS / append-only log / Merkle DAG等の物理構造は選択しない。
+
+### 28.4 訂正・状態
+本監査により、§15.2のHead一致条件は単独では不十分と判明。§20で履歴上のCommit存在・祖先関係を含む候補に限定した。Main §2.1 / §2.3は未変更。DB-RV-03 OPEN。v0.8.3未承認。
