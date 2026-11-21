@@ -22,7 +22,7 @@
 ### 1.1 Physical Run / DB Run
 
 1. Physical Runは測定実行の外部正本上の単位であり、必ずUUIDv4を持つ。
-2. DB RunはPhysical Runにつき最大1件。Physical Run IDとは別のUUIDv5を持つ。
+2. DB RunはPhysical Runにつき最大1件。Physical Run IDとは別のUUIDv4を持つ。
 3. DB Runは、そのPhysical Run内で**最初のASSIGNED Assignment Operationが確定した時点で一度だけ生成**する。
 4. 一度生成されたDB Runは履歴コンテナとして保持し、全ScopeがNONE / ANONYMOUSへ移行しても削除しない。後日再ASSIGNEDとなっても同一DB Run IDを再利用する。
 5. 一度もASSIGNEDになっていないPhysical RunにはDB Runを作らない。初期状態が全Scope NONE / ANONYMOUSであることと、過去にASSIGNED履歴がありDB Runが残存する状態を区別する。
@@ -68,7 +68,7 @@ ANONYMOUSは「その期間の測定をInstanceに帰属させない」状態で
 1. Physical Run単位の排他ロックを取得し、Journalと直近Ordinalを検証。
 2. Operation ID / Ordinal / Intent Payload / Intent Hashを確定。
 3. Journal Intentを追記し、ファイル本体・親Directoryを永続化する。Intent永続化完了時にOrdinalを消費済みとする。
-4. Receipt本体を`PREPARED`として外部正本へ作成する。Receipt IDはOperation IDから決定的に導出。ReceiptにはOperation ID / Ordinal / Intent Hash / Expected Source Payload Hashes / Expected DB Marker Hash / 対象Entity ID / Canonicalization Versionを含める。
+4. Receipt本体を`PREPARED`として外部正本へ作成する。Receipt IDはUUIDv4を発行し、Journal Intentへ永続化する。ReceiptにはOperation ID / Ordinal / Intent Hash / Expected Source Payload Hashes / Expected DB Marker Hash / 対象Entity ID / Canonicalization Versionを含める。
 5. Receipt本体・親Directoryを永続化し、Receipt PREPARED Eventを追記・永続化する。
 6. 変更対象の外部正本（Assignment Snapshot / History / Envelope / Artifact / Aggregate Request等）を不変Revisionとして書き込み、File fsync・Hash再読込検証を行う。Current Manifest / Head Pointerは同一Operationのcommit markerとして原子的に更新し、親Directoryを永続化する。
 7. 外部正本の新Revision / Manifest Hashを読み戻し、Journal Intent / Receipt PREPAREDのExpected Source Payload Hashesと照合する。成功したらReceipt Event `SOURCE_COMMITTED`を追記・永続化する。
@@ -107,38 +107,30 @@ Stateは単調遷移とし、PREPAREDからABORTEDへ進めるのは外部正本
 
 同一Operation IDでIntent Hashが異なる再実行は即時QUARANTINED。Ordinalは欠番を許容し再利用しない。Receipt EventはEvent Ordinal単調増加・Hash Chainで保全する。
 
-## 3. DB-RV-04 — Aggregate Request / Attempt / Result Revision
 
-### 3.1 3つの異なる概念
+## 3. DB-RV-04 — Aggregate Request / Attempt / Result Revision（v0.8.3決定）
 
-- **Aggregate Request**: 再計算要求の不変記録。Request ID、Request Ordinal、Input Set Hash、Assignment Snapshot Set Hash、Requested At、Reason、Algorithm / Configuration Versionを保持。
-- **Aggregate Attempt**: Requestを実行した試行。Attempt ID、Started At、Finished At、Attempt Status、Failure Code / Detail、Worker / Algorithm Versionを保持。再試行ごとに新Attempt ID。
-- **Aggregate Result Revision**: 成功したAttemptのみが生成する不変結果。Revision ID、Request ID、Attempt ID、Input Set Hash、Result Hash、Result Payload Reference、Completed Atを保持。
+### 3.1 IdentityとRequest Fingerprint
+- Request IDは要求インスタンスのUUIDv4 identity。Request Fingerprintは計算意味条件の同一性Hashであり、Request ID・Request Ordinal・時刻を含めない。
+- Fingerprintは次の固定Fieldを含む: DBRunID、ScopeKey、AggregateType、InputSetHash、AssignmentSnapshotSetHash、AlgorithmVersion、ConfigurationVersion、MeasurementSchemaRevision、ProfileSnapshotSetHash、PolicyRevision、AggregateDefinitionVersion、ChannelKey（該当時）。
+- 上記Fieldの全値をRequest Envelopeに保存し、M4W-JCS-1 / SHA-256でFingerprintを算出する。Hashのみ保存は禁止。
+- RequestOrdinalは(DBRunID, ScopeKey, AggregateType)単位で1から単調増加。欠番可、再利用不可。AttemptOrdinalはRequest内で1から単調増加、欠番可、再利用不可。
 
-RequestやAttemptの失敗を成功Revisionとして採番しない。失敗したRequest / Attemptも削除・上書きしない。
+### 3.2 Attempt / Retry / Result
+- Requestは不変。Attemptは試行ごとに新規作成。Attempt StatusはRUNNING / SUCCEEDED / FAILED / CANCELLEDとする。
+- Retryable / Retry ClosedはAttempt結果とは別のRequest Eventで記録する。Retry Closed EventはActor / UTC timestamp / Reason / PolicyVersionを必須とする。
+- Retry Closed後の新規Attemptは禁止。RequestがRetry Closedとなり、成功Attemptが一つもない場合だけFAILEDと確定する。成功Attemptが一つ存在した時点でRequestはSUCCEEDED終端となり、追加Attemptを禁止する。
+- Result Revisionは成功Attemptのみが生成できる。Request内で成功Resultは最大1件。失敗AttemptからResult Revisionを生成しない。
+- 同じ計算条件で再要求した場合も新Request ID / RequestOrdinalを発行する。Fingerprintが同じでもRequest identityは別である。
 
-### 3.2 Pointer定義
+### 3.3 PointerとCurrent Valid
+- Latest Requested RequestはAggregate Owner内で最大RequestOrdinalのRequest。
+- Latest Successful Revisionは成功ResultのうちRequestOrdinalが最大のもの。Request内の成功Resultは最大1件なのでAttempt順の同順位は発生しない。
+- Current Valid RevisionはLatest Requested Requestに属し、そのRequest Fingerprintと完全一致する成功Resultのみ。該当がなければNULL。
+- 古いRequestの遅延成功は履歴に保存するが、Current ValidまたはLatest Requestedを後退させない。
+- Aggregate Pointerは履歴から再構築可能な派生値。Pointer単独を正本とせず、永続キャッシュを持つ場合も検証不能なら破棄して再計算する。
+- CH1 / CH2は独立Aggregate Owner / Input Setとして扱う。平均化・合算は標準Aggregateで禁止。Pair Analysisは明示的な別Artifactとしてのみ許可する。
 
-- Latest Requested Request: 最後に受理したAggregate Request。
-- Latest Successful Revision: 最も新しい成功Result Revision。履歴参照用。
-- Current Valid Revision: Latest Requested RequestのInput Set Hashと一致する成功Revision。無い場合NULL。
-- Recalculation State:
-  - CLEAN: Current Valid RevisionがLatest Requested Requestの入力Hashと一致。
-  - DIRTY: 入力が変化したが、まだ新Requestが受理されていない。
-  - RUNNING: Latest Requested Requestに実行中Attemptがある。
-  - FAILED: Latest Requested Requestの全Attemptが失敗し、成功Resultがない。
-
-### 3.3 状態遷移
-
-1. 入力変更時: Current Valid=NULL、State=DIRTY。Latest Successfulは履歴として維持。
-2. Request受理時: Requestを不変保存しLatest Requested Requestを更新。Current Valid=NULL、State=DIRTY。
-3. Attempt開始時: Attemptを新規作成しRUNNING。
-4. Attempt成功時: Result Revisionを新規作成。Input Set Hashが現在の最新要求・入力と一致する場合に限りLatest Successful / Current Validを更新しCLEAN。
-5. Attempt失敗時: Failure情報をAttemptへ不変保存。Requestに未実行/再試行可能Attemptが残る場合は要求中状態を維持し、すべて失敗し再試行を終了した時点でFAILED。Current ValidはNULLのまま。
-6. 失敗後の再試行: 同じRequestに新Attemptを追加する。入力条件を変更した再計算は新Requestとする。
-7. 遅延した古いRequestの成功結果はResult Revisionとして保存できるが、Latest Requested RequestのInput Set Hashと不一致ならCurrent Validへ昇格させない。
-
-Latest Requested Revisionという曖昧なPointer名は廃止し、Latest Requested Requestへ置換する。
 
 ## 4. DB-RV-05 — Artifact Input DAG / 再解析不変性
 
@@ -150,81 +142,61 @@ Latest Requested Revisionという曖昧なPointer名は廃止し、Latest Reque
 6. 参照先Artifactが欠落・Hash不一致・未確定の場合、生成を中止し、依存ArtifactをQUARANTINED扱いにする。入力の推測補完は禁止。
 7. 削除は禁止。不要化はLifecycle / Superseded参照等の追記で表現する。
 
-## 5. DB-RV-06 — UUIDv5 Canonicalization v2提案
 
-### 5.1 v1の扱い
+## 5. DB-RV-06 — Identity / Hash Contract（v0.8.3決定）
 
-v0.8.2 §9.3の区切り文字連結形式は、NULL・空文字・区切り文字・エスケープの一意性が証明されていないため、実装採用しない。v1 Nameを生成済みIDの正本として扱う証拠が見つかった場合は互換性を別途審査し、黙って再採番しない。
+### 5.1 ID発行方式
+- v0.8.3で新規発行する独立Entity IDはUUIDv4とし、発行元Authorityが一度だけ生成して外部正本へ先行記録する。
+- Physical Run IDはRun Managerが発行する。DB Run / Session / Assignment Snapshot / Measurement / Profile Snapshot / RawLog Object / RawLog Reference / Sample Reference / Operation / Receipt / Artifact / Aggregate Request / Attempt / Result Revision / Recovery Operation / Integrity Reportは、それぞれの作成AuthorityがUUIDv4を発行する。
+- Receipt IDはOperation IDから導出しない。Receipt作成前にUUIDv4を発行し、Intent内に固定する。再起動時はIntentに記録された同じIDを使用する。
+- RUN_SCOPEは独立UUIDを持たず、(PhysicalRunID, ScopeKey)を複合識別子とする。Measurement-Sample LinkとArtifact Inputも親ID + Ordinal等の複合識別子を用いる。Aggregate Pointerは派生値でありIDを持たない。
+- UUID文字列表現は小文字・ハイフン付きCanonical形式のみを受け入れる。大文字、波括弧、短縮形、非Canonical表現は拒否する。全Entity ID間で重複を禁止し、参照時はEntity Typeも一致させる。
+- UUIDv5 / Canonical Binary Name v2 / Namespaceはv0.8.3のID発行方式として採用しない。過去に生成済みのIDは変更・再採番しない。
 
-### 5.2 Canonical Binary Name v2
+### 5.2 Structured Hash Profile M4W-JCS-1
+- 構造化PayloadのHashはSHA-256を使用し、RFC 8785 JSON Canonicalization Schemeに従うUTF-8バイト列を入力とする。
+- Duplicate JSON key、invalid Unicode scalar、NaN / Infinity、浮動小数点数、未知Schema Version、未知Entity Type / Fieldは拒否する。欠落FieldとNULLは区別する。
+- すべての整数はsigned 64-bit範囲。精度が必要な測定値・小数値は正規化済みDecimal文字列で表し、JSON numberとして格納しない。
+- Timestampはtimezone-aware値のみ受け入れ、UTCへ変換し、YYYY-MM-DDTHH:mm:ss.ffffffZの6桁小数秒で固定する。naive timestamp、microsecond未満の精度、範囲外値は拒否し、丸めない。
+- Unicodeは正規化・case-foldを行わず、入力されたUnicode scalar列をそのまま保持する。JCSの文字列順序規則に従う。見た目が同じ文字列でもcode point列が異なれば異なるHashとなる。
+- Byte StringはBase64url（paddingなし）で表現する。NULLはEntity Schemaでnullableと明記されたFieldのみ許可する。
+- 自己Hash Field（例: payload_hash / event_hash）はHash入力から除外する。除外対象FieldはEntityごとに固定し、後から暗黙変更しない。SchemaまたはCanonicalization規則変更は新Versionとする。
+- RawLog ObjectのContent Hashだけは例外として、変換・正規化前のファイル全バイト（header / metadataを含む）にSHA-256を直接適用する。Structured HashとRawLog Content Hashを混同しない。
 
-NameはUTF-8文字列連結ではなく、次のバイナリ文法とする。UUIDv5のNameバイト列へこのバイト列をそのまま渡す。
-
-- Header: ASCII bytes `M4ID` + NUL + ASCII `2`。
-- Entity Type: ASCII大文字。2-byte unsigned big-endian length + bytes。
-- Field Count: 2-byte unsigned big-endian integer。
-- 各Fieldは固定順。Fieldごとに1-byte Type Tag + 4-byte unsigned big-endian payload length + payload。
-- NULL: Type Tag `0x00`, length 0。
-- UTF-8 string: Type Tag `0x01`, Unicode NFC後のUTF-8 bytes。
-- UUID: Type Tag `0x02`, RFC 4122 16-byte network order。
-- Integer: Type Tag `0x03`, ASCII canonical decimal。0は`0`、負数は先頭`-`、先頭ゼロ・`+`は禁止。
-- Timestamp: Type Tag `0x04`, UTC Unix epoch nanosecondsを符号付き64-bit big-endian整数で表現。入力精度はnanosecond以下を拒否。UTC変換後に符号化。
-- Boolean: Type Tag `0x05`, false=`0x00`、true=`0x01`。
-- Byte String: Type Tag `0x06`, bytesそのもの。
-
-空文字列はType Tag `0x01` / length 0であり、NULLとは異なる。値中の区切り文字・パーセント・NULはUTF-8 payload内の通常byteであり、エスケープしない。各Fieldの長さと型で境界を決めるため、連結衝突を生じない。Field順・型・Entity TypeをCanonicalization Versionに固定する。
-
-UUIDv5生成はRFC 9562のSHA-1ベースUUIDv5手順を使用し、Namespace 16 bytes + Name bytesを入力とする。候補Namespace `8f4c2d91-6a73-4e5b-9c20-31d7a8b5e642`は**未承認・未採用**。既存Repo全履歴・全ブランチ・全ファイル・Issue/PR・過去ID生成資産での利用有無を調査し、統括承認後に限り採用する。
-
-### 5.3 Entity Field Schema（論理順）
-
-| Entity | Canonical fields (fixed order) |
+### 5.3 Entity Identityの確定表
+| Entity / Concept | Identity |
 |---|---|
-| DB_RUN | PhysicalRunID(UUID) |
-| RUN_SCOPE | PhysicalRunID(UUID), ScopeKey(ASCII string) |
-| SESSION | PhysicalRunID(UUID), ScopeKey(ASCII string) |
-| OPERATION_EVENT | OperationID(UUID), EventOrdinal(Integer) |
-| RECEIPT | OperationID(UUID) |
-| RECEIPT_EVENT | ReceiptID(UUID), EventOrdinal(Integer) |
-| RAWLOG_REFERENCE | PhysicalRunID(UUID), ScopeKey(ASCII string), LogID(UTF-8 string) |
-| SAMPLE_REFERENCE | RawLogReferenceID(UUID), SampleLocator(UTF-8 string) |
-| MEASUREMENT_SAMPLE_LINK | MeasurementID(UUID), SampleReferenceID(UUID), Role(UTF-8 string), Ordinal(Integer) |
-| ARTIFACT_INPUT | ArtifactID(UUID), InputType(UTF-8 string), InputReferenceID(UUID), Role(UTF-8 string), Ordinal(Integer) |
-| AGGREGATE_RESULT_REVISION | DBRunID(UUID), Revision(Integer) |
+| Physical Run | Run Manager発行UUIDv4 |
+| DB Run | 独立UUIDv4。最初のASSIGNED Operation時に発行 |
+| RUN_SCOPE | (PhysicalRunID, ScopeKey) |
+| Assignment Snapshot | UUIDv4 + (PhysicalRunID, ScopeKey, Revision) unique |
+| Assignment History Event | (PhysicalRunID, ScopeKey, EventOrdinal) |
+| Session | 独立UUIDv4 + (PhysicalRunID, ScopeKey) unique |
+| Measurement Envelope | 独立UUIDv4 |
+| Measurement Profile Snapshot | 独立UUIDv4 |
+| RawLog Object | 独立UUIDv4。Device Native Log IDは別Field |
+| RawLog Reference | 独立UUIDv4 |
+| Sample Reference | 独立UUIDv4 |
+| Measurement Sample Link | (MeasurementID, SampleReferenceID, Role, Ordinal) |
+| Operation / Intent | Operation UUIDv4。IntentはOperationにつき1件 |
+| Operation Journal Event | (OperationID, EventOrdinal) |
+| Receipt Envelope | Intentに固定された独立UUIDv4 |
+| Receipt Event | (ReceiptID, EventOrdinal) |
+| DB Operation Marker | OperationID（Operationにつき最大1件） |
+| Analysis / Simulation Artifact | 独立UUIDv4。ArtifactKindで区別 |
+| Artifact Input | (ArtifactID, Ordinal) |
+| Aggregate Request | 独立UUIDv4 + Aggregate Owner内RequestOrdinal unique |
+| Aggregate Attempt | 独立UUIDv4 + (RequestID, AttemptOrdinal) unique |
+| Aggregate Result Revision | 独立UUIDv4 + (RequestID, ResultOrdinal) unique |
+| Aggregate Pointer | 派生値。独立Identityなし |
+| Recovery Operation | 独立UUIDv4 |
+| Integrity Report | 独立UUIDv4。Recovery Operationとは別Entity |
 
-### 5.3.1 §5.3 Schemaの適用範囲と未定義Entity
+### 5.4 互換性・移行
+- UUIDv4への決定はv0.8.3で新規発行するIDに適用する。既存IDの型・値・参照は変更しない。
+- v0.8.2以前のUUIDv5 / 旧Canonical Nameで生成された可能性のあるIDは、その由来を検証できるまで既存値を保持し、再計算・再採番しない。
+- Canonical Binary Name監査の既存byte vectorsは過去の候補方式の検証記録として保管するが、v0.8.3 ID生成の合格条件にはしない。
 
-§5.3のSchema表は、Canonical Name Field Schemaを定義できたEntity候補の一部であり、Logical Entity Inventory全体を網羅するものではない。Inventory 23種との照合では、直接対応するSchemaが10種、Schema未定義が13種、`OPERATION_EVENT`はInventoryへの対応自体が未確定である。TEST_VALUEは汎用vector用途でありEntity Inventoryには含めない。
-
-Schema未定義EntityへUUIDv5を自動的に追加してはならない。各Entityについて、Identity UUID / Composite identity / Content Hash / Derived Pointer / External event identityのどれで識別するかを、Authority・不変性・更新・保持規則に基づき別途決定する。RawLog ObjectとRawLog Reference、Measurement Envelope IDとEnvelope Hash、Artifact IDとResult Payload Hash、Operation Journal IntentとOperation Eventを混同しない。
-
-Entity 23種ごとの対応と未決事項は `V083_ENTITY_INVENTORY_GAP_REGISTER_DRAFT.md` §6に記録する。本節は適用範囲の明確化であり、Namespace・UUIDv5採用や実装移行の承認ではない。
-
-### 5.4 必須テストベクトルの形式
-
-Namespace承認前に、実UUIDを正解値として固定しない。Canonical byte列のgolden vectorを先に固定し、Namespace承認後にUUID期待値を追加する。各Entityについて最低限、通常値、NULL、空文字、区切り文字、`%`、NUL、Unicode NFC/NFD同値、負数/0/正数、Timestamp epoch/負値/最大精度、UUID byte orderを含める。
-
-Collision pairは必ず異なるCanonical byte列となることを確認する。Unicode NFC/NFDの同値入力は正規化後に同じbyte列となることを確認する。Namespaceが未承認の間はUUIDv5の実装合格を宣言しない。
-
-### 5.5 Canonical byte golden vectors（Namespace非依存）
-
-以下はEntity SchemaとCanonical Binary Name v2のbyte列自体を固定するテストベクトルである。Hexは大文字表記。UUID期待値はNamespace未承認のため未設定。
-
-| Case | 入力 | Expected Name Bytes (hex) |
-|---|---|---|
-| DB_RUN | PhysicalRunID = 00000000-0000-4000-8000-000000000001 | `4D3449440032000644425F52554E0001020000001000000000000040008000000000000001` |
-| RUN_SCOPE | 同UUID + ScopeKey = BATTERY:CH1 | `4D3449440032000952554E5F53434F50450002020000001000000000000040008000000000000001010000000B424154544552593A434831` |
-| NULL | TEST_VALUE / field=NULL | `4D3449440032000A544553545F56414C554500010000000000` |
-| EMPTY | TEST_VALUE / field=empty UTF-8 string | `4D3449440032000A544553545F56414C554500010100000000` |
-| DELIMITER_PERCENT_NUL | TEST_VALUE / Unicode scalar sequence U+0041 U+007C U+0042 U+0025 U+0000 U+0043 (UTF-8 bytes `41 7C 42 25 00 43`) | `4D3449440032000A544553545F56414C554500010100000006417C42250043` |
-| NFC | TEST_VALUE / field = U+00E9 | `4D3449440032000A544553545F56414C554500010100000002C3A9` |
-| NFD input | TEST_VALUE / field = U+0065 U+0301, normalized NFC | `4D3449440032000A544553545F56414C554500010100000002C3A9` |
-
-検証条件:
-- NULLとEMPTYのbyte列は異なる。
-- `A|B%\0C`は値内の区切り・パーセント・NULを含むが、長さ付きpayloadとして一意に復号できる。
-- NFCとNFD入力はNFC正規化後に同一byte列となる。
-- 上記hexは実装テストで完全一致を要求する。EntityごとのField Schemaと異なる型Tag / Field Count / Lengthは拒否する。
 
 ## 6. DB-RV-07 — 外部正本 / DB Mirrorマトリクス
 
@@ -342,16 +314,22 @@ Manifest / RawLog / Envelope / Snapshot / Receiptの欠落、重複、競合は�
 
 V082-001〜030は既存のまま保持する。V082-031〜053は追加案であり、統括承認・試験実装・実行前はPASS扱いしない。
 
-## 12. 未解決・別途証拠が必要な項目
 
-- DB-001〜124の全124 ID個別原文・正式出典・現行有効性・実装テスト対応。範囲履歴は維持し、未回収本文は創作しない。
-- V082-001〜050とDB-001〜124のクロスウォーク。
-- Issue #35のMotor接続・制御・RawLog契約との正式照合。DB設計でIssue #35を上書きしない。
-- Issue #201の匿名運用は旧DB復旧・自動DB取込を許可する根拠ではない。本設計での後日Associationは新DBの将来機能として明示的操作に限定し、旧DB復旧・既存ログの自動再取込とは分離する。
-- Batteryの最終測定 / RawLog契約。CH1 / CH2独立Measurement・独立Benchmark・平均化禁止・Pair Analysis別Artifactを維持。Battery実装変更はDB部門の範囲外。
-- UUID Namespace既存利用調査と統括承認。Canonical Binary Name v2の実装テストベクトルはNamespace承認後にUUID期待値を付与。
-- 全Entityの完全属性表（型・NULL・UNIQUE・CHECK・複合FK）。本書の最低論理制約と物理方式の未確定を分離する。
-- Backup / Restore / Bootstrapの実装試験。論理受入条件の定義と実装試験合格を混同しない。
+## 12. 未回収証拠・適用対象外・受入ゲート（決定済み）
+
+本節に列挙する項目は、設計上の選択を未決定として残すものではない。v0.8.3では次の運用処置に確定する。
+
+1. DB-001〜124の個別原文・承認・テスト実物が回収できないIDは、Evidence Ledgerの定義どおりREFERENCE_ONLY_NOT_EXECUTABLEとして凍結する。原文・テストがない状態を推測補完しない。DB-125〜154は正式体系対象外、DB-155〜176は撤回番号として再利用しない。
+2. V082 crosswalkで根拠がない対応はNO_MAPPINGとする。候補一致・番号の近さ・意味の推測で紐付けない。旧IDを現行受入試験の代替にしない。
+3. Motor Issue #35 / #170に正式定義されていないMotor RawLog field / durability / retentionはDB v0.8.3の対象外。Issue #35のv1原本は非変換で保全し、v2は正式契約のFieldだけを受け入れる。
+4. Battery Issue #16はE2E検証範囲としてのみ扱う。Batteryの完全Measurement / RawLog / Capture End / durability / retention契約は、正式契約受領までDB登録・解析の対象外とする。CH1 / CH2独立性と平均化禁止は維持する。
+5. Profile Snapshot / Artifact / Recovery / Integrity Report等で完全なField Schemaがない部分は、v0.8.3で未知Fieldを創作しない。外部正本の不透明なPayload Reference + exact Content Hashとして保全し、DB Mirrorでは既知の共通Envelope項目だけを索引化する。未知Payloadの意味解析・Aggregate入力は禁止する。
+6. Run Close Operationの発行AuthorityはRun Managerに限定する。正式なClose証拠がない場合SessionはOPENを維持し、終端矛盾・Hash不一致・Writer競合はQUARANTINEDとする。
+7. RawLogの物理耐久性は、対象OS / filesystem / mount条件でSection 8の全工程が試験合格するまでSUPPORTEDとしない。未検証環境ではRawLogをDurable / VERIFIEDとして確定せず、PENDING_RECOVERYまたはQUARANTINEDとする。
+8. SQLiteのTransaction / Marker / WAL / read-back / crash recoveryは物理受入試験合格まで保証済みと扱わない。論理規則は§14で固定し、試験未実施の環境ではDB_COMMITTED / VERIFIEDを宣言しない。
+9. 全Entityの完全物理Schema・DDL・複合FK・Triggerは本論理版の決定範囲外。§14.3 / §14.8の共通Envelope / identity / relation contractのみを確定し、物理DDLは別承認後に作成する。
+10. v0.8.3の設計判断は本書§14およびIssue #210 CC-01 / CC-02で閉じる。実装・受入試験の実行結果、他部門正式契約の回収、統括最終承認は別のGateであり、未実施をPASSとみなさない。
+
 
 ## 13. 自己検証チェックリスト
 
@@ -369,3 +347,77 @@ V082-001〜030は既存のまま保持する。V082-031〜053は追加案であ�
 - [ ] Motor / Battery正式契約照合を完了
 
 **提出状態: 差戻し解消案。統括再審査・承認前。実装移行不可。**
+
+
+## 14. v0.8.3 Decision Baseline — 未決定事項の最終処置
+
+**Status: DB部門設計判断確定 / 統括最終承認・実装許可とは別**
+
+本節は、従来のOPEN / PROPOSAL / TBD項目を、採用・不採用・適用対象外・証拠不足時の固定動作へ閉じる。Issue #210 CC-01 / CC-02はそのまま優先し、本節はその判断を変更しない。本節と旧節に矛盾がある場合、本節を優先する。
+
+### 14.1 Run / Scope / Session / Assignment
+1. Physical RunはRun Manager発行UUIDv4。DB Runは独立UUIDv4で、Physical Run内の最初のASSIGNED Assignment Operationで一度だけ生成する。DB RunはPhysical Runにつき最大1件。
+2. RUN_SCOPEは(PhysicalRunID, ScopeKey)複合識別子。v0.8.3のScopeKeyは既存Family / Channel registryの値のみ許可し、未知値は拒否する。Motor / Battery CH1 / Battery CH2を別Scopeとして扱う。CH1 / CH2の同一化・平均化は禁止。
+3. SessionはScopeごと最大1件。初回ASSIGNED確定時にUUIDv4で生成し、以後Assignment Stateにかかわらず保持する。NONE / ANONYMOUSだけで一度もASSIGNEDにならないScopeにはSessionを生成しない。
+4. DB Run / Session生成前の初期NONE Measurementは外部正本のみ。初回ASSIGNED後のNONE Measurementは、DB利用可能時に取得され既存DB管理下にあるものに限りSessionに所属できる。NONE Measurementの測定時AssignmentはNONE・InstanceID NULLのまま不変。
+5. NONE Measurementの後日Associationは、既存DB管理Measurementに対する明示Operationのみ許可する。1つのMeasurementに同時に有効なAssociationは最大1件。再関連付けは新Operationで旧Associationを閉じ、新Associationを追加する。Actor / UTC time / Reason / before-after / OperationIDを記録する。Assignment-at-Measurementは変更しない。
+6. 初回ASSIGNED前のNONE期間のMeasurement、ANONYMOUS期間のMeasurement / RawLogは外部正本のみ。後日DB取込・Mirror化・Associationは禁止。ANONYMOUSの将来拡張は別設計・明示承認が必要。
+7. NONE MeasurementはCurrent Aggregateから常に除外する。Historical Analysisでの利用は、明示的に指定された場合のみ許可し、ArtifactにRETROSPECTIVE_NONEを記録する。ANONYMOUSは分析入力としても現行範囲外。
+8. Assignment SnapshotはScope単位の不変Revision。Revisionは1から単調増加、欠番不可、再利用不可。Current Assignmentは最新の検証済みSnapshotから導出する。履歴は追記のみ。
+
+### 14.2 Measurement Outcome / Session Close
+1. Measurement OutcomeはCOMPLETE / STOP / ERROR / CANCEL / INCOMPLETE / UNKNOWN。OutcomeはMeasurement単位でありSession Lifecycleへ伝播しない。
+2. COMPLETEは機器固有Capture契約が正常終端を明示した場合のみ。STOP / ERROR / CANCELは明示された終端Eventのみ。開始後にCaptureが途切れ、必要な終端証拠が欠ける場合INCOMPLETE。開始・終端の存在や順序を確定できない、または証拠が矛盾する場合UNKNOWN。時間経過・無通信・アプリ終了・最終値の有無から推定しない。
+3. 各機器の詳細Termination Reasonは発行元の文字列・コードを原形保存し、DB側で意味を再解釈しない。正式MappingがないReasonはUNKNOWN扱い。Current Aggregateへ入るのはOutcome=COMPLETEのMeasurementのみ。
+4. Session LifecycleはNOT_CREATED / OPEN / CLOSED / QUARANTINED。CLOSEDはRun Managerが発行するPHYSICAL_RUN_CLOSED Operationが外部正本に永続化され、全ScopeのDispositionがTERMINAL / ABANDONED / HELDのいずれかで、依存証拠が検証済みの場合のみ。未終端をCOMPLETEに読み替えない。
+5. Close OperationにはPhysicalRunID、OperationID、ActorID、UTC timestamp、Reason、各ScopeのDisposition、各Capture / Measurementの参照とHash、未解決事項一覧を含める。HELD / ABANDONEDは理由必須。未解決の矛盾・欠落・Hash不一致・Authority不明はOPEN維持またはQUARANTINED。機器プロトコルの既存Eventを新設・変更しない。
+
+### 14.3 Entity / Schema境界
+1. 23 Inventory概念は保持するが、23すべてを独立SQL Tableにする要求は採用しない。Authority・identity・lifecycleに従い、外部正本Object / Append-only Event / DB Mirror / Derived Viewに分類する。
+2. OPERATION_EVENTは独立Entityとして採用しない。Operation Journal Eventの型付きEventとして扱い、Identityは(OperationID, EventOrdinal)。TEST_VALUEは試験ベクトル専用で業務Entityではない。
+3. Analysis Artifact / Simulation Artifactは共通Artifact Envelopeを使い、ArtifactKindで区別する。Payload Schemaと検証器はKindごとに分離する。Recovery OperationとIntegrity Reportは別Entity。Aggregate PointerはDerived Viewであり独立ID・正本・独立Tableを持たない。
+4. RawLog ObjectとRawLog Reference、Measurement EnvelopeとMeasurement Content Hash、Artifact IDとPayload Hash、Operation IntentとOperation Eventは別概念として保持する。
+5. 完全なField Schemaが外部契約で定義されていないEntityは、既知の共通Envelope（EntityType、SchemaVersion、EntityID、OwnerReference、CreatedAtUTC、PayloadReference、PayloadHash）と既知の関係だけを扱う。未知のPayloadは不透明データとして保存し、意味解析・Aggregate入力・フィールド補完を禁止する。Payloadの不透明保全も外部正本の保存検証ができない場合は受け入れない。
+6. 全Entityの独立Identityは§5.3に従う。関係Entityは指定複合キーを使用する。全IDはGlobal unique、型付き参照を必須とする。
+7. DELETE / UPDATEによる正本・履歴の書換えは禁止。FKの論理動作はRESTRICT。CASCADE DELETE / CASCADE UPDATEは禁止。訂正・再関連付け・再解析は新Operation / Event / Revisionで表現する。
+
+### 14.4 Operation / Intent / Receipt / Event
+1. Operation IDとReceipt IDは別々のUUIDv4。Receipt IDはIntent永続化前に発行し、Intentに固定する。OperationにつきReceiptは最大1件。
+2. Operation Plan / Intent / Receipt Envelope / Receipt Event / Source Commit Record / DB Markerは別Artifact。IntentはReceipt Envelope再構成に必要な全immutable input、Receipt ID、Plan Hash、Operation Ordinal、Writer Epochを保持する。
+3. Hash生成順はPlan Payload → Plan Hash → Intent Payload → Intent Hash → Receipt Envelope Payload → Envelope Hash → Source Commit Record → Source Commit Hash → DB Marker Payload → Marker Hash → Receipt Event Chainとする。後段Hashを前段Payloadへ戻して含めない。Expected Receipt Hashは廃止。PREPARED時点で将来のSource Commit / DB Marker Hashを予測・固定しない。
+4. Structured HashはM4W-JCS-1 / SHA-256。自己Hash Fieldは除外。Event HashはEvent Payload + Previous Event Hashを対象としEventHash自身を除外する。最初のEventはOrdinal=1、PreviousEventHash=NULL。以降は連続Ordinal・直前EventHash必須。
+5. Operation OrdinalはPhysicalRun単位で1から単調増加、欠番可、再利用不可。完全Intentの永続化（file fsync相当 + read-back hash一致）が確認できた時点で消費。書込み結果不明・partial tailはINDETERMINATEとしてRunをQUARANTINED、Ordinal再利用・後続Operationを禁止。
+6. Receipt Event OrdinalはReceipt単位で1から連続増加、欠番不可、再利用不可。Partial / malformed tail、Hash不一致、Writer競合時はReceiptをQUARANTINEDにし、後続Event追記・tail切捨て・再採番を禁止。
+7. PREPAREDはIntentとEnvelopeが完全永続化された後にのみ記録。中止はPREPARED後、Source Commit不存在を検証し、明示Cancel Intentがある場合のみABORTED。Source Commit後はABORTED禁止。
+8. Manifestは不変Commit Recordの単一系列として扱う。各CommitはOperationID、ExpectedPredecessorHash、PayloadHash、CommitHashを保持。HeadはCommit Chainから導出する。Current Head単独はCommit証拠にしない。後続Commitがある場合も祖先Chainを検証する。同一PredecessorからのFork、Commit欠落、Chain破損はQUARANTINED。
+9. Writer AuthorityはPhysicalRun単位で単一有効Writer。Authority Epochを単調増加させ、すべての更新にEpochを付す。旧EpochのWriterは更新不可。時計・PID・Lock fileの存在だけでAuthorityを証明しない。Epochの一意な発行・比較を証明できない実装は受入不可。
+10. Recovery Authorityは新しいRecovery Operationを発行できる主体に限定。元Intent / Receipt / Event / Manifest Commitを編集しない。Recoveryができるのは検証、Mirror再構築、Derived View再構築、隔離記録の追記のみ。元証拠の書換え・削除・Hash再計算による置換・遡及Assignmentは禁止。
+11. DB MarkerはMirror更新と同一DB Transactionで一度だけ作成し、OperationIDを一意キーとする。Marker Payload HashはSource Commit後に実際のMarker Payloadから計算し、DB_COMMITTED Eventへ記録する。MarkerとMirrorの不一致、同一Operationの異Hash MarkerはQUARANTINED。
+12. DB Commit結果不明時はMarkerとDB整合性を検証する。Marker完全一致ならCommit済み。MarkerなしでもDB integrity / transaction atomicity / consistent readを証明できない場合はQUARANTINEDとし、検索0件だけで未Commit・Rollbackを断定しない。再試行は同一Operation・同一Payloadに限る。
+
+### 14.5 Aggregate / Artifact
+1. Request Fingerprintは§3.1の完全Field集合を用いる。Request ID・Ordinal・時刻を含めず、計算意味条件のみを表す。Full fieldsとHashを両方保存する。
+2. RequestOrdinal / AttemptOrdinalは各Owner内で単調増加・再利用不可。Request内の成功Attemptは最大1件。Retry Closedは明示Eventで記録し、閉鎖後のAttemptを禁止する。
+3. Current Validは最新RequestのFingerprintと一致する成功Resultだけ。古いRequestの遅延成功は履歴に保存するがCurrent Validへ昇格しない。PointerはDerived View。
+4. Artifactは不変。再解析・Simulation・Algorithm / Config変更は新Artifact ID。Analysis / SimulationはArtifactKindで区別する。Artifact Inputは閉じたInputType Registryに従い、未知Type / missing input / hash mismatch / cycleは拒否する。Input Ordinalは1から連続増加、Roleは非NULL、同一Artifact内Ordinal unique。
+5. CH1 / CH2を別Aggregate Ownerとし、暗黙平均・合算を禁止。Pair Analysisは明示入力を持つ別Artifactに限る。
+
+### 14.6 RawLog / Sample / Measurement
+1. RawLog Objectは原本byteを不変保管し、SHA-256はファイル全byteに適用。変換・改行統一・圧縮・metadata追加後のbyteを原本Hashと呼ばない。Format / Schema Versionは発行元の正式Contractから取得し、未知Versionはopaque保全のみ、解析不可。
+2. RawLog IDはUUIDv4。Device Native Log ID、Path、Filenameは別属性でありIdentityにしない。Pathはcase-sensitive exact string。Path変更はReference更新履歴として記録し、RawLog Object identityを変えない。
+3. 同一RawLog ID + 同一Hashの再試行は冪等。ID同一・Hash異なる場合はQUARANTINED。IDが異なりHash同一の場合は別Object identityとして保持可能。同一Path・同一Hashは既存Objectを参照し、同一Path・異Hashは上書き禁止・QUARANTINED。
+4. SampleLocatorは発行元Schemaで定義された形式だけ解釈する。未定義Locatorはopaque referenceとして保全し、時刻・Channel・Sample ordinalを推測しない。Measurement Sample Linkは明示的なRole / Ordinal / Requiredを持つ。
+5. RawLog保存完了は§8の全fsync / read-back / rename / directory fsync / final read-back / completion eventが成功した場合のみ。対象OS / filesystem / mount条件で実証されていない場合はDurable / VERIFIEDにしない。PENDING_RECOVERYまたはQUARANTINEDに固定する。
+6. Measurement Outcomeは§14.2に従う。RawLog / Capture終端契約がないMotor / Batteryデータは意味解析・Current Aggregateに使用しない。Battery CH1 / CH2は独立Measurement / RawLog / Session / Aggregateを保持する。
+
+### 14.7 Restore / Bootstrap
+1. 外部正本を唯一の事実Authorityとし、DB Mirrorから外部正本を逆生成しない。
+2. RestoreはPhase A structural validationとPhase B cross-evidence validationの二段階。Phase B完了前はVERIFIED / normal connectionを許可しない。
+3. Missing / duplicate / fork / hash mismatch / unknown schema / partial tailは対象Objectと依存をQUARANTINED。推測補完・last-write-wins・tail truncationは禁止。
+4. DB Mirror再生成は検証済み外部正本からのみ実行。Bootstrapは明示管理Operationのみで通常起動時に自動実行しない。
+5. Retention Policyが未定義の正本は自動削除しない。既定保持は無期限。削除は別途明示承認されたRetention PolicyとAudit Eventがある場合のみ。
+
+### 14.8 物理方式・受入証拠
+1. 物理Lock方式、Epoch fencing、Filesystem durability、SQLite WAL / synchronous / isolation、crash injectionは本論理版で製品実装を指定しない。ただし§14の論理保証を実現・実証できない方式は採用不可。
+2. 未検証OS / filesystem / SQLite設定ではSource Commit / DB_COMMITTED / VERIFIEDを宣言しない。試験済み構成だけをSupported Environmentとして登録する。
+3. DB-RV-01〜08の論理選択は本節で確定。残るのは実装・テスト・外部契約の証拠回収と統括最終審査であり、設計選択を未決定に戻さない。
