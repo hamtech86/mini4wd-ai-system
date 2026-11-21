@@ -228,3 +228,16 @@ This is a candidate remediation, not an adopted rule. Per-Field domain ranges, U
 CBN-07 NUL notation ambiguity is resolved in Main draft §5.5 by replacing the ambiguous escape spelling with explicit Unicode scalar sequence and UTF-8 bytes. Expected Hex did not change.
 
 **Gate:** CBN-01 coverage and sample vectors have improved, but CBN-02 / 03 / 04 / 05 / 06 / 08 remain open or partial. No UUIDv5 implementation or Namespace approval is claimed.
+
+
+## 15. DB-001〜056 evidence ledger provenance correction (2026-11-21)
+
+A read-back audit found that the ledger's range inventory still described DB-001〜056 as wholly unrecovered even though §4 already contained a conversation-derived short-definition table. The inventory rows and section-2 scope description have been corrected to distinguish three evidence levels:
+
+1. Short definitions / expected outcomes recovered from prior conversation records (DB-001〜056).
+2. Original requirement document, contemporaneous approval, and original test implementation not retrieved.
+3. Current validity and V082 / implementation traceability not established.
+
+A targeted retrieval also resolved an ID conflict in fragments for DB-015〜017. The retained mapping is DB-015 = Session reassociation with history append; DB-016 = RawLog reassociation with history append; DB-017 = Analysis rerun preserving prior results. Conflicting snippets that assigned RawLog metadata changes or RawLog Session/Instance association to these IDs are not used. This remains conversation-derived evidence, not recovery of the original v0.2 specification.
+
+No V082 crosswalk match is promoted: similarity is insufficient without matching preconditions, action, and expected result. DB-057〜124 individual definitions remain unrecovered. This correction does not approve the legacy requirements or authorize DDL, DB generation, migration, Restore execution, implementation, PR, or main changes.
