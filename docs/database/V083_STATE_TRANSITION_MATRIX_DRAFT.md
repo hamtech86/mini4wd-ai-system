@@ -183,3 +183,18 @@ Requestは不変。Attemptは実行ごとに新規作成。FAILEDを確定する
 | 元Receiptが隔離済み | 元Receipt / Event Chainの証拠 | Authority定義済みの新Recovery Operationで別Artifactとして検証結果を記録する候補 | 元ReceiptのEvent Chainを無断修復・書換え |
 
 この追加行は論理受入条件の候補であり、Event初期値・Hash Canonicalization・Recovery Authorityを確定しない。
+
+
+## 8. Manifest競合・後続Commitの復旧受入ケース追加
+
+| Test ID | 条件 | 必須証拠 | 期待扱い |
+|---|---|---|---|
+| RCP-001 | A/Bが同じExpected predecessorを読んで並行Commitを試行 | A/BのOperation ID、Expected predecessor、Commit Payload、Head更新結果 | 一方のCommit後、他方のstale Commitを拒否。両方を同じpredecessorから成功扱いしない |
+| RCP-002 | AのCommit後、応答前に停止。HeadはAのCommit Hash | Aの不変Commit証拠と現Head | AのSource Commitを検証し同一Operationで再開可能 |
+| RCP-003 | AのCommit後にCがCommitし、Recovery時HeadはC | AとCのCommit証拠、predecessor連鎖、Head ancestry | AがCの祖先として検証できればAのCommit成立を認定。HeadがAと不一致という理由だけで失敗にしない |
+| RCP-004 | Bがstale predecessorを使いCommit前に拒否 | BのExpected predecessorと現Headの不一致証拠 | BのSource Commitは不成立。古いpredecessorを書換えて同一Operationを再利用しない |
+| RCP-005 | 同一Operation IDに異なるCommit Payloadが存在 | Operation / Receipt / Commit identity / Payload Hash | QUARANTINED候補。最終更新勝ち禁止 |
+| RCP-006 | Manifest Headは存在するがCommit履歴が欠落 | Headと履歴の完全性検証結果 | Source Commit成否を断定せず隔離 |
+| RCP-007 | Manifest append / Head更新途中で結果不明 | 部分Tail / Head / Commit証拠 | 後続Commitを停止し、黙示切捨て・Head推測再構築を禁止 |
+
+これらは論理受入試験案であり、実装・実行・PASSを意味しない。Manifest履歴の物理構造やCAS方式は定義しない。
