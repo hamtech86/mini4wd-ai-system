@@ -362,9 +362,9 @@ V082-001〜030は既存のまま保持する。V082-031〜053は追加案であ�
 1. Physical RunはRun Manager発行UUIDv4。DB Runは独立UUIDv4で、Physical Run内の最初のASSIGNED Assignment Operationで一度だけ生成する。DB RunはPhysical Runにつき最大1件。
 2. RUN_SCOPEは(PhysicalRunID, ScopeKey)複合識別子。v0.8.3のScopeKey許容値はMOTOR / BATTERY_CH1 / BATTERY_CH2の3値に固定し、未知値は拒否する。Motor / Battery CH1 / Battery CH2を別Scopeとして扱う。CH1 / CH2の同一化・平均化は禁止。
 3. SessionはScopeごと最大1件。初回ASSIGNED確定時にUUIDv4で生成し、以後Assignment Stateにかかわらず保持する。NONE / ANONYMOUSだけで一度もASSIGNEDにならないScopeにはSessionを生成しない。
-4. DB Run / Session生成前の初期NONE Measurementは外部正本のみ。当該Scopeの初回ASSIGNED後に取得され、当該ScopeのSessionが既に存在し、DB利用可能時に外部正本とDB管理下のMeasurement記録が確定したNONE MeasurementだけがSessionに所属できる。他ScopeのASSIGNEDによるDB Run生成は、未ASSIGNED ScopeのNONE Measurementを自動的にDB管理対象へ昇格させない。NONE Measurementの測定時AssignmentはNONE・InstanceID NULLのまま不変。
+4. DB Run / Session生成前の初期NONE Measurementは外部正本のみ。当該Scopeの初回ASSIGNED後に取得され、当該ScopeのSessionが既に存在し、DB利用可能時に外部正本とDB管理下のMeasurement記録が確定したNONE MeasurementだけがSessionに所属できる。他ScopeのASSIGNEDによるDB Run生成は、未ASSIGNED ScopeのNONE Measurementを自動的にDB管理対象へ昇格させない。NONE Measurementの測定時AssignmentはNONE・InstanceID NULLのまま不変。DB unavailable期間のNONE MeasurementはDB管理下に存在しないため、復旧後も取込・Association対象外。
 5. NONE Measurementの後日Associationは、既存DB管理Measurementに対する明示Operationのみ許可する。1つのMeasurementに同時に有効なAssociationは最大1件。再関連付けは新Operationで旧Associationを閉じ、新Associationを追加する。Actor / UTC time / Reason / before-after / OperationIDを記録する。Assignment-at-Measurementは変更しない。
-6. 初回ASSIGNED前のNONE期間のMeasurement、ANONYMOUS期間のMeasurement / RawLogは外部正本のみ。後日DB取込・Mirror化・Associationは禁止。ANONYMOUSの将来拡張は別設計・明示承認が必要。
+6. 初回ASSIGNED前のNONE期間のMeasurement、ANONYMOUS期間のMeasurement / RawLogは外部正本のみ。後日DB取込・Mirror化・Associationは禁止。DB unavailable期間はANONYMOUSと区別し、その期間中はDB Run / Session / Measurement Mirrorを作らない。復旧後の明示Bootstrapでは、当該ScopeのAssignment-at-MeasurementがASSIGNEDで、外部Envelope / RawLog / Profile / Hashが完全検証できるMeasurementに限りDB Mirrorを再構築できる。IDはBootstrap時にUUIDv4で発行して外部Manifestへ先行記録する。DB unavailable中のNONE Measurementは対象外。ANONYMOUSの将来拡張は別設計・明示承認が必要。
 7. NONE MeasurementはCurrent Aggregateから常に除外する。Historical Analysisでの利用は、明示的に指定された場合のみ許可し、ArtifactにRETROSPECTIVE_NONEを記録する。ANONYMOUSは分析入力としても現行範囲外。
 8. Assignment SnapshotはScope単位の不変Revision。Revisionは1から単調増加、欠番不可、再利用不可。Current Assignmentは最新の検証済みSnapshotから導出する。履歴は追記のみ。
 
@@ -373,7 +373,7 @@ V082-001〜030は既存のまま保持する。V082-031〜053は追加案であ�
 2. COMPLETEは機器固有Capture契約が正常終端と必須Sample完了を明示した場合のみ。STOP / ERROR / CANCELは明示された終端Eventのみ。開始が確認でき、Capture終端または必須Sampleの欠落が確認された場合INCOMPLETE。開始・終端の存在や順序を確定できない、または証拠が矛盾する場合UNKNOWN。時間経過・無通信・アプリ終了・最終値の有無から推定しない。
 3. 各機器の詳細Termination Reasonは発行元の文字列・コードを原形保存し、DB側で意味を再解釈しない。正式MappingがないReasonはUNKNOWN扱い。Current Aggregateへ入るのはOutcome=COMPLETEのMeasurementのみ。
 4. Session LifecycleはNOT_CREATED / OPEN / CLOSED / QUARANTINED。CLOSEDはRun Managerが発行するPHYSICAL_RUN_CLOSED Operationが外部正本に永続化され、全ScopeのDispositionがTERMINAL / ABANDONED / HELDのいずれかで、依存証拠が検証済みの場合のみ。未終端をCOMPLETEに読み替えない。
-5. Close OperationにはPhysicalRunID、OperationID、ActorID、UTC timestamp、Reason、各ScopeのDisposition、各Capture / Measurementの参照とHash、未解決事項一覧を含める。HELD / ABANDONEDは理由必須。未解決の矛盾・欠落・Hash不一致・Authority不明はOPEN維持またはQUARANTINED。機器プロトコルの既存Eventを新設・変更しない。
+5. Close OperationにはPhysicalRunID、OperationID、ActorID、UTC timestamp、Reason、各ScopeのDisposition、各Capture / Measurementの参照とHash、未解決事項一覧を含める。ActorIDは認証済みOperator principalとし、UI画面・ボタン名はAuthorityではない（Client / UI versionは任意監査Metadata）。HELD / ABANDONEDは理由必須。未解決の矛盾・欠落・Hash不一致・Authority不明はOPEN維持またはQUARANTINED。機器プロトコルの既存Eventを新設・変更しない。
 
 ### 14.3 Entity / Schema境界
 1. 23 Inventory概念は保持するが、23すべてを独立SQL Tableにする要求は採用しない。Authority・identity・lifecycleに従い、外部正本Object / Append-only Event / DB Mirror / Derived Viewに分類する。
