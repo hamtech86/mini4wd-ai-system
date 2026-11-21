@@ -321,7 +321,7 @@ V082-001〜030は既存のまま保持する。V082-031〜053は追加案であ�
 1. DB-001〜124の個別原文・承認・テスト実物が回収できないIDは、Evidence Ledgerの定義どおりREFERENCE_ONLY_NOT_EXECUTABLEとして凍結する。原文・テストがない状態を推測補完しない。DB-125〜154は正式体系対象外、DB-155〜176は撤回番号として再利用しない。
 2. V082 crosswalkで根拠がない対応はNO_MAPPINGとする。候補一致・番号の近さ・意味の推測で紐付けない。旧IDを現行受入試験の代替にしない。
 3. Motor Issue #35 / #170に正式定義されていないMotor RawLog field / durability / retentionはDB v0.8.3の対象外。Issue #35のv1原本は非変換で保全し、v2は正式契約のFieldだけを受け入れる。
-4. Battery Issue #16はE2E検証範囲としてのみ扱う。Batteryの完全Measurement / RawLog / Capture End / durability / retention契約は、正式契約受領までDB登録・解析の対象外とする。CH1 / CH2独立性と平均化禁止は維持する。
+4. Battery Issue #16はE2E検証範囲としてのみ扱う。5A DATAの原本byte保全、共通Measurement Envelope、CH1 / CH2独立Session / Measurementの保存は許可する。RawLog Schema未回収時はopaque payloadとして保存し、意味解析しない。Feature Extraction / Benchmark Resultの再計算、mAh / Wh / voltage dropの数値妥当性判定、スコア、内部抵抗、CH1 / CH2合算は、単位・計算式・Capture End・RawLog Schemaの正式契約が揃うまで実行しない。CH1 / CH2独立性と平均化禁止は維持する。
 5. Profile Snapshot / Artifact / Recovery / Integrity Report等で完全なField Schemaがない部分は、v0.8.3で未知Fieldを創作しない。外部正本の不透明なPayload Reference + exact Content Hashとして保全し、DB Mirrorでは既知の共通Envelope項目だけを索引化する。未知Payloadの意味解析・Aggregate入力は禁止する。
 6. Run Close Operationの発行AuthorityはRun Managerに限定する。正式なClose証拠がない場合SessionはOPENを維持し、終端矛盾・Hash不一致・Writer競合はQUARANTINEDとする。
 7. RawLogの物理耐久性は、対象OS / filesystem / mount条件でSection 8の全工程が試験合格するまでSUPPORTEDとしない。未検証環境ではRawLogをDurable / VERIFIEDとして確定せず、PENDING_RECOVERYまたはQUARANTINEDとする。
@@ -416,7 +416,7 @@ V082-001〜030は既存のまま保持する。V082-031〜053は追加案であ�
 3. 同一RawLog ID + 同一Hashの再試行は冪等。ID同一・Hash異なる場合はQUARANTINED。IDが異なりHash同一の場合は別Object identityとして保持可能。同一Path・同一Hashは既存Objectを参照し、同一Path・異Hashは上書き禁止・QUARANTINED。
 4. SampleLocatorは発行元Schemaで定義された形式だけ解釈する。未定義Locatorはopaque referenceとして保全し、時刻・Channel・Sample ordinalを推測しない。Measurement Sample Linkは明示的なRole / Ordinal / Requiredを持つ。
 5. RawLog保存完了は§8の全fsync / read-back / rename / directory fsync / final read-back / completion eventが成功した場合のみ。対象OS / filesystem / mount条件で実証されていない場合はDurable / VERIFIEDにしない。PENDING_RECOVERYまたはQUARANTINEDに固定する。
-6. Measurement Outcomeは§14.2に従う。RawLog / Capture終端契約がないMotor / Batteryデータは意味解析・Current Aggregateに使用しない。Battery CH1 / CH2は独立Measurement / RawLog / Session / Aggregateを保持する。
+6. Measurement Outcomeは§14.2に従う。RawLog / Capture終端契約がないMotor / Batteryデータはopaque保存のみ許可し、意味解析・Current Aggregateに使用しない。Battery Issue #16の範囲で5A DATA原本・共通Measurement Envelope・CH1 / CH2独立Measurement / Sessionを保存できるが、正式な単位・式・RawLog Schemaが揃うまでFeature Extraction / Benchmark再計算 / mAh / Wh / voltage drop妥当性判定は行わない。CH1 / CH2は独立Measurement / RawLog / Session / Aggregateを保持し、標準Aggregateで平均化・合算しない。
 
 ### 14.7 Restore / Bootstrap
 1. 外部正本を唯一の事実Authorityとし、DB Mirrorから外部正本を逆生成しない。
