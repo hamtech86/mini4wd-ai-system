@@ -171,3 +171,19 @@ Potential duplicates within DB-001〜056 are recorded for DB-019/035 (missing DB
 
 ### Current gate
 Canonicalization remains a proposal and unapproved. Namespace remains unapproved. Entity Inventory remains incomplete. Physical design / DDL / DB generation / Migration / Restore execution / implementation remain prohibited.
+
+
+## 12. V082-001〜005 legacy Session Outcome aggregation conflict (2026-11-21)
+
+A targeted read of the full V082 crosswalk found that the old Session aggregation expectations were not limited to V082-007:
+
+- V082-001: zero Measurements → NOT_STARTED
+- V082-002: all COMPLETE → COMPLETED
+- V082-003: COMPLETE + FAILED → PARTIAL
+- V082-004: COMPLETE + IN_PROGRESS → IN_PROGRESS
+- V082-005: all FAILED → FAILED
+- V082-007: later ASSIGNED → derive Session Status from existing Measurements
+
+All six are historical Session-level Outcome aggregation expectations and are superseded as Lifecycle rules by Issue #210 CC-01. The crosswalk preserves the old test descriptions but labels their expected Session-state behavior as obsolete. Current acceptance overlays CC-01-T01 / T04 / T05 and SES-017〜020 assert that zero, homogeneous, and mixed Measurement Outcomes do not change Session Lifecycle.
+
+V082-006 (Anonymous Measurement with no DB Session) is not in this obsolete set; it remains compatible with the no-Session behavior for a Scope that has never been ASSIGNED, subject to CC-01/CC-02 boundaries.
