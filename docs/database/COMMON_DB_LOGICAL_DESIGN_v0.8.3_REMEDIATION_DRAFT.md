@@ -146,7 +146,7 @@ Stateは単調遷移とし、PREPAREDからABORTEDへ進めるのは外部正本
 ## 5. DB-RV-06 — Identity / Hash Contract（v0.8.3決定）
 
 ### 5.1 ID発行方式
-- v0.8.3で新規発行する独立Entity IDはUUIDv4とし、発行元Authorityが一度だけ生成して外部正本へ先行記録する。
+- v0.8.3で新規発行する独立Entity IDはUUIDv4とし、暗号学的に安全な乱数源で発行元Authorityが一度だけ生成して外部正本へ先行記録する。乱数品質を確認できない環境では発行を拒否する。
 - Physical Run IDはRun Managerが発行する。DB Run / Session / Assignment Snapshot / Measurement / Profile Snapshot / RawLog Object / RawLog Reference / Sample Reference / Operation / Receipt / Artifact / Aggregate Request / Attempt / Result Revision / Recovery Operation / Integrity Reportは、それぞれの作成AuthorityがUUIDv4を発行する。
 - Receipt IDはOperation IDから導出しない。Receipt作成前にUUIDv4を発行し、Intent内に固定する。再起動時はIntentに記録された同じIDを使用する。
 - RUN_SCOPEは独立UUIDを持たず、(PhysicalRunID, ScopeKey)を複合識別子とする。Measurement-Sample LinkとArtifact Inputも親ID + Ordinal等の複合識別子を用いる。Aggregate Pointerは派生値でありIDを持たない。
@@ -156,7 +156,7 @@ Stateは単調遷移とし、PREPAREDからABORTEDへ進めるのは外部正本
 ### 5.2 Structured Hash Profile M4W-JCS-1
 - 構造化PayloadのHashはSHA-256を使用し、RFC 8785 JSON Canonicalization Schemeに従うUTF-8バイト列を入力とする。
 - Duplicate JSON key、invalid Unicode scalar、NaN / Infinity、浮動小数点数、未知Schema Version、未知Entity Type / Fieldは拒否する。欠落FieldとNULLは区別する。
-- すべての整数はsigned 64-bit範囲。精度が必要な測定値・小数値は正規化済みDecimal文字列で表し、JSON numberとして格納しない。
+- 整数はIEEE-754 safe integer範囲（-(2^53-1)〜+(2^53-1)）に限定する。範囲外整数と精度が必要な測定値・小数値は正規化済みDecimal文字列（指数表記・先頭+・不要な先頭/末尾0・負の0を禁止）で表し、JSON numberとして格納しない。
 - Timestampはtimezone-aware値のみ受け入れ、UTCへ変換し、YYYY-MM-DDTHH:mm:ss.ffffffZの6桁小数秒で固定する。naive timestamp、microsecond未満の精度、範囲外値は拒否し、丸めない。
 - Unicodeは正規化・case-foldを行わず、入力されたUnicode scalar列をそのまま保持する。JCSの文字列順序規則に従う。見た目が同じ文字列でもcode point列が異なれば異なるHashとなる。
 - Byte StringはBase64url（paddingなし）で表現する。NULLはEntity Schemaでnullableと明記されたFieldのみ許可する。
@@ -357,7 +357,7 @@ V082-001〜030は既存のまま保持する。V082-031〜053は追加案であ�
 
 ### 14.1 Run / Scope / Session / Assignment
 1. Physical RunはRun Manager発行UUIDv4。DB Runは独立UUIDv4で、Physical Run内の最初のASSIGNED Assignment Operationで一度だけ生成する。DB RunはPhysical Runにつき最大1件。
-2. RUN_SCOPEは(PhysicalRunID, ScopeKey)複合識別子。v0.8.3のScopeKeyは既存Family / Channel registryの値のみ許可し、未知値は拒否する。Motor / Battery CH1 / Battery CH2を別Scopeとして扱う。CH1 / CH2の同一化・平均化は禁止。
+2. RUN_SCOPEは(PhysicalRunID, ScopeKey)複合識別子。v0.8.3のScopeKey許容値はMOTOR / BATTERY_CH1 / BATTERY_CH2の3値に固定し、未知値は拒否する。Motor / Battery CH1 / Battery CH2を別Scopeとして扱う。CH1 / CH2の同一化・平均化は禁止。
 3. SessionはScopeごと最大1件。初回ASSIGNED確定時にUUIDv4で生成し、以後Assignment Stateにかかわらず保持する。NONE / ANONYMOUSだけで一度もASSIGNEDにならないScopeにはSessionを生成しない。
 4. DB Run / Session生成前の初期NONE Measurementは外部正本のみ。初回ASSIGNED後のNONE Measurementは、DB利用可能時に取得され既存DB管理下にあるものに限りSessionに所属できる。NONE Measurementの測定時AssignmentはNONE・InstanceID NULLのまま不変。
 5. NONE Measurementの後日Associationは、既存DB管理Measurementに対する明示Operationのみ許可する。1つのMeasurementに同時に有効なAssociationは最大1件。再関連付けは新Operationで旧Associationを閉じ、新Associationを追加する。Actor / UTC time / Reason / before-after / OperationIDを記録する。Assignment-at-Measurementは変更しない。
@@ -384,7 +384,7 @@ V082-001〜030は既存のまま保持する。V082-031〜053は追加案であ�
 ### 14.4 Operation / Intent / Receipt / Event
 1. Operation IDとReceipt IDは別々のUUIDv4。Receipt IDはIntent永続化前に発行し、Intentに固定する。OperationにつきReceiptは最大1件。
 2. Operation Plan / Intent / Receipt Envelope / Receipt Event / Source Commit Record / DB Markerは別Artifact。IntentはReceipt Envelope再構成に必要な全immutable input、Receipt ID、Plan Hash、Operation Ordinal、Writer Epochを保持する。
-3. Hash生成順はPlan Payload → Plan Hash → Intent Payload → Intent Hash → Receipt Envelope Payload → Envelope Hash → Source Commit Record → Source Commit Hash → DB Marker Payload → Marker Hash → Receipt Event Chainとする。後段Hashを前段Payloadへ戻して含めない。Expected Receipt Hashは廃止。PREPARED時点で将来のSource Commit / DB Marker Hashを予測・固定しない。
+3. Hash依存はPlan Payload → Plan Hash → Intent Payload → Intent Hash → Receipt Envelope Payload → Envelope Hashの順に確定する。PREPARED EventはEnvelope Hash確定後、SOURCE_COMMITTED EventはSource Commit Record / Hash確定後、DB_COMMITTED EventはDB Marker Payload / Hash確定後にそれぞれ追記し、VERIFIED Eventは全依存検証後に追記する。後段Hashを前段Payloadへ戻して含めない。Expected Receipt Hashは廃止。PREPARED時点で将来のSource Commit / DB Marker Hashを予測・固定しない。
 4. Structured HashはM4W-JCS-1 / SHA-256。自己Hash Fieldは除外。Event HashはEvent Payload + Previous Event Hashを対象としEventHash自身を除外する。最初のEventはOrdinal=1、PreviousEventHash=NULL。以降は連続Ordinal・直前EventHash必須。
 5. Operation OrdinalはPhysicalRun単位で1から単調増加、欠番可、再利用不可。完全Intentの永続化（file fsync相当 + read-back hash一致）が確認できた時点で消費。書込み結果不明・partial tailはINDETERMINATEとしてRunをQUARANTINED、Ordinal再利用・後続Operationを禁止。
 6. Receipt Event OrdinalはReceipt単位で1から連続増加、欠番不可、再利用不可。Partial / malformed tail、Hash不一致、Writer競合時はReceiptをQUARANTINEDにし、後続Event追記・tail切捨て・再採番を禁止。
