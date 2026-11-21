@@ -324,3 +324,13 @@ Entity Inventory 23種をMain §§1–10および利用可能な正式Issueへ�
 **対応:** Entity Inventory §10とCross-document Audit §32に根拠・Authorityマップを追加。未回収項目は未定義として維持し、DB部門による推測補完を禁止する。
 
 **残件:** 各契約所有者から正式なField Schema / lifecycle / retention / Restore evidenceを受領すること。UUIDv5 Namespace・Canonicalization、DDL、物理設計、DB生成、Migration、Restore実行、実装、PR、main反映の承認境界は変更なし。
+
+
+## 12. SR-20 — Aggregate Request Fingerprint / Retry終端 / Pointer順序がMainで未完
+**重大度: HIGH / DB-RV-04 / 統括再審査条件**
+
+Main §3とState Matrix §5の読み合わせで、Current Valid判定がInput Set Hash中心かRequest Fingerprint全体か、Latest Successfulの順序、Retry Closedの証拠と権限、Pointerの同時更新・再構築が未同期と確認した。
+
+**対応:** Entity Inventory §11とCross-document Audit §33へ、Fingerprint identityとRequest identityの分離、未決定の代替案、最低限維持できる不変条件を記録した。
+
+**決定待ち:** Request IDをFingerprintに含めるか、Full fingerprint fieldsを保存するか、Attempt / Result順序キー、Retry Closed Event / authority、Pointer concurrency。Main §3は未変更。State Matrix候補を承認仕様に昇格させていない。
