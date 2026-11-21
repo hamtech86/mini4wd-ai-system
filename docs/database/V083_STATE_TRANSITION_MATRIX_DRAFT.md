@@ -21,8 +21,8 @@
 |---|---|---|---|---|
 | 初期 → NONE | なし | なし | 外部正本のみ | 対象外 |
 | 初期 → ANONYMOUS | なし | なし | 外部正本のみ | 対象外 |
-| NONE → ASSIGNED(A) | なければ作成 | なければ作成 | 以後のASSIGNED測定をMirror登録 | A測定のみ候補 |
-| ANONYMOUS → ASSIGNED(A) | なければ作成 | なければ作成 | 以後のASSIGNED測定をMirror登録。過去ANONYMOUSデータは取込禁止 | A測定のみ候補 |
+| NONE → ASSIGNED(A) | DB正常利用可能時になければ作成 | 論理Session identityを外部Manifestへ生成。DB正常利用可能時のみDB Session Mirror作成 | DB正常利用可能時の以後のASSIGNED測定をMirror登録 | A測定のみ候補 |
+| ANONYMOUS → ASSIGNED(A) | DB正常利用可能時になければ作成 | 論理Session identityを外部Manifestへ生成。DB正常利用可能時のみDB Session Mirror作成 | DB正常利用可能時の以後のASSIGNED測定をMirror登録。過去ANONYMOUSデータは取込禁止 | A測定のみ候補 |
 | ASSIGNED(A) → ASSIGNED(A) | 保持 | 保持 | 測定時Revisionを固定 | A測定のみ候補 |
 | ASSIGNED(A) → ASSIGNED(B) | 保持 | 保持 | 新規測定はB。A測定の帰属は不変 | B測定のみ候補 |
 | ASSIGNED(A) → NONE | 保持 | 保持・非アクティブ | DB正常利用可能時に登録されたNONE MeasurementはSession membershipを登録時点で固定。後日のAssociationはInstance関連付けのみ。障害期間のCaptureはAnonymous Mode扱いで後日取込禁止 | 対象外 |
