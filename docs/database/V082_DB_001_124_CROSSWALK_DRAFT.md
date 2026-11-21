@@ -21,11 +21,11 @@ DB-001〜056は過去会話記録から個別の短縮定義・期待結果を�
 
 | V082 ID | 試験条件 | 期待結果 | DB-001〜124対応 | 判定理由 |
 |---|---|---|---|---|
-| V082-001 | Measurement 0件のSession | NOT_STARTED | 未対応付け | DB-001〜056は短縮定義を回収済みだが、正式原文・同一条件/操作/期待結果の証拠が不足。DB-057〜124の個別定義も未回収のため判定不能 |
-| V082-002 | 全Measurement COMPLETED | COMPLETED | 未対応付け | 個別DB-ID原文未回収のため判定不能 |
-| V082-003 | COMPLETED + FAILED | PARTIAL | 未対応付け | 個別DB-ID原文未回収のため判定不能 |
-| V082-004 | COMPLETED + IN_PROGRESS | IN_PROGRESS | 未対応付け | 個別DB-ID原文未回収のため判定不能 |
-| V082-005 | 全Measurement FAILED | FAILED | 未対応付け | 個別DB-ID原文未回収のため判定不能 |
+| V082-001 | Measurement 0件のSession | NOT_STARTED（旧Session状態） | 旧期待値はCC-01で廃止 | Measurement件数からLifecycleを決めない。初回ASSIGNED後のSessionはMeasurement 0件でもOPENのまま。旧NOT_STARTEDはLifecycleではなく旧Outcome集約案として隔離 |
+| V082-002 | 全Measurement COMPLETED | COMPLETED（旧Session状態） | 旧期待値はCC-01で廃止 | Measurement Outcomeは各Measurementに保持。全件COMPLETEでもSession LifecycleをCLOSED / COMPLETEへ変更しない |
+| V082-003 | COMPLETED + FAILED | PARTIAL（旧Session状態） | 旧期待値はCC-01で廃止 | Outcome混在からSession Lifecycleを導出しない。PARTIAL等の集約サマリーが必要ならSession Lifecycleと別の派生値として別途定義 |
+| V082-004 | COMPLETED + IN_PROGRESS | IN_PROGRESS（旧Session状態） | 旧期待値はCC-01で廃止 | Measurementの実行中/未終端状態はSession Lifecycleと別。IN_PROGRESSをSession Lifecycleに設定しない |
+| V082-005 | 全Measurement FAILED | FAILED（旧Session状態） | 旧期待値はCC-01で廃止 | 全MeasurementがERROR等でもSession Lifecycleは自動CLOSED / FAILEDにならない |
 | V082-006 | Anonymous Measurement COMPLETED | Sessionなしで状態保持 | 未対応付け | 個別DB-ID原文未回収のため判定不能 |
 | V082-007 | 後日ASSIGNED | 旧案: 既存MeasurementからSession Status導出 | 未対応付け（旧期待結果はCC-01で廃止） | 個別DB-ID原文未回収。Measurement OutcomeからSession Lifecycleを導出する旧案はIssue #210 CC-01と矛盾し、現行仕様ではない |
 | V082-008 | Journal Intent前停止 | Operation未確定 | 未対応付け | 個別DB-ID原文未回収のため判定不能 |
@@ -82,12 +82,16 @@ DB-001〜056は過去会話記録から個別の短縮定義・期待結果を�
 | Overlay ID | 条件 | 現行期待結果 | 状態 |
 |---|---|---|---|
 | CC-01-T01 | 同一Session内にCOMPLETE / STOP / ERROR等のOutcomeが混在 | Session LifecycleはOutcome集合・件数から導出されず、Measurement単位のOutcomeを保持 | 提案・未実行 |
+| CC-01-T04 | 初回ASSIGNEDでSession生成後、Measurementが0件のまま | Session LifecycleはOPEN。NOT_STARTED等のMeasurement集約値をLifecycleへ割り当てない | 提案・未実行 |
+| CC-01-T05 | 全MeasurementがCOMPLETE、または全件ERROR / STOP | Outcomeは各Measurementに保持。LifecycleはOPENのまま。CLOSEDは明示Close Operationのみ | 提案・未実行 |
 | CC-01-T02 | STOP ACK / 最終Telemetry / アプリ終了 / プロセス消失 / 無通信のみ | SessionをCLOSEDにしない。Run管理側Close Operationと外部正本・依存参照の検証が必要 | 提案・未実行 |
 | CC-01-T03 | Close受入時に対象Captureが未終端・未放棄・未保留、または参照不整合 | CLOSED拒否。OPEN維持またはQUARANTINED | 提案・未実行 |
 | CC-02-T01 | NONE測定でDB利用可能、外部正本とDB管理Measurement記録が既存 | 明示Associationのみ設計対象。測定時Assignment=NONEを保持し、Actor/時刻/変更前後/理由を監査。自動Mirror生成なし、Current Aggregateへ自動算入なし | 提案・未実行 |
 | CC-02-T02 | ANONYMOUS期間のMeasurement / RawLog | 後日DB取込・Mirror化・Instance再紐付けを拒否。明示操作による例外も不可 | 提案・未実行 |
 
 ## 集計
+
+- V082-001〜005 / V082-007は、旧Session状態をMeasurement集合から導出する期待値を含むため、CC-01で現行Lifecycle判定として廃止。旧台帳履歴は保持する。
 
 - V082項目数: 53
 - DB-ID対応確定: 0（DB-001〜056の短縮定義は回収したが、個別正式原文・同一性証拠が不足）
