@@ -349,3 +349,55 @@ Main draft §2.1「正規順序」および同節直後の補足文を、Receipt
 次の論理設計作業は、14.3の未決定項目を個別に閉じ、Main §2.1・§2.2・§2.3と補助契約を同時に改訂できる変更表を作成すること。物理耐久性・filesystem / SQLiteの実証は論理受入条件の確定後に別工程とする。
 
 **状態:** Main §2.1との項目照合は完了。同期差分は可視化したが、DB-RV-03は未解決。Main本文への反映・承認・実装許可を意味しない。
+
+
+## 15. Main §2.1〜§2.3 同期に向けた論理決定台帳（2026-11-21）
+
+本節は、Main §2.1の正規順序、§2.2のReceipt State、§2.3のクラッシュ復旧表を補助契約と同時に改訂するための決定台帳である。ここで「論理規則案」とした内容は、現行本文から導ける安全側の提案であり、Main本文へ反映済み・統括承認済みとは扱わない。物理方式は決めない。
+
+### 15.1 Main §2.1〜§2.3 の同期変更表
+
+| Main箇所 | 現行記述・不足 | 補助契約との関係 | 同期に必要な論理規則 | 状態 |
+|---|---|---|---|---|
+| §2.1 1〜3 | 排他ロック、Ordinal確定、Intent永続化完了時の消費 | §§2, 6 | Physical Run単位の単一有効Writer、Ordinal発行Authority、Intentの完全性検証、部分Tail時の非再利用・隔離を定義する。ロック方式・fencing実装は物理保留 | OPEN |
+| §2.1 2〜4 | Intent列挙だけではReceipt全項目を再構成できない可能性 | §§2, 3.1 | Intent PlanをReceipt Envelope再構成に必要な完全な不変入力とし、Plan Hash / Intent Hash / Expected Receipt Hashの相互関係を定義する | PARTIAL |
+| §2.1 4〜5 | Envelope永続化とPREPARED Eventの間のクラッシュ | §§3.1, 3.2, 4, 6 | Envelopeが存在しEventが未記録の場合、Envelope HashとIntentを検証して同じReceiptへPREPAREDを補完。Event部分書込み時は後続Eventを追加しない | PARTIAL |
+| §2.1 6〜7 | Manifest Head更新・predecessor競合・Source Commit Eventの境界が抽象的 | §§4, 6 | Source CommitはExpected predecessorと現Headが一致する場合のみ確定。結果不明時は再読込し、確定不能・競合は保留またはQUARANTINED | OPEN |
+| §2.1 8〜9 | DB Marker Hash / DB Commit Payload Hashの同一性が不明 | §7 | Expected Marker Payload Hashと実Marker Payload Hashを同一Canonical Payload範囲で比較する。DB transaction commitの成否不明時はSOURCE_COMMITTEDのまま保留 | OPEN |
+| §2.1 10〜12 | Receipt EventのOrdinal、部分書込み、Hash Chainの補完規則が不足 | §§3.2, 4, 6 | Event Chainの連続性・単一Writer・Tail検証を定義。部分/不正Tailの後ろへ追記せず、証拠保全して隔離 | OPEN |
+| §2.1 11 | 「全依存正本」の集合を誰が確定するか不明 | §§3.2, 7 | Intent Planで固定された対象・依存参照の閉包を検証対象とし、後から依存を暗黙追加しない | OPEN |
+| §2.2 | PREPARED / SOURCE_COMMITTED / DB_COMMITTED等の状態定義はあるが、未着・部分Eventの状態が不足 | §§3.2, 4, 5 | 状態は完全に検証できるEvent Chainからのみ導出。Event未着は状態進行とみなさず、検証不能は保留または隔離 | PARTIAL |
+| §2.3 | Intent後〜PREPARED前、DB transaction中、Hash/Ordinal競合の復旧条件が粗い | §6 | Crash pointをEnvelope作成前後、Event追記中、Manifest更新中、DB commit結果不明に分解し、各点で同一Operation再開・保留・QUARANTINEDの条件を揃える | PARTIAL |
+| §2.1 / §2.2 | Receipt IDの決定的導出、Envelope/Event/Intent/Marker Hashの自己参照除外が未確定 | §§2, 3, 7 | ID導出入力・Version・再現性とHash対象Field/Canonical Schemaを確定する。Namespaceは統括承認まで未採用 | OPEN |
+
+### 15.2 現行資料から導ける安全側の論理規則案
+
+以下は物理実装を指定せず、復旧時に推測で成功・中止・Ordinal再利用を行わないための候補規則である。Mainへの規範反映前に、統括の承認対象として明示する。
+
+1. **単一Writer:** 同一Physical RunのOperation Journal / Manifest Head / Receipt Event Chainは、論理上同時に1つの有効Writerだけが更新できる。複数Writerを検出した場合は新規更新を停止しQUARANTINEDとする。排他の具体方式・stale lock・fencingは物理設計へ保留。
+2. **Ordinal非再利用:** Operation OrdinalとReceipt Event Ordinalは、それぞれのAuthority内で単調増加し、再利用しない。完全なIntent/Eventが検証できない部分Tailがある場合、Tailを黙って切り捨てたり、そのOrdinalの後ろへ追記したりせず、証拠を保全してQUARANTINEDとする。欠番を許容するか、Event Chainの連番必須とするかは同じ規則内で明記する必要がある。
+3. **Event補完:** Envelopeが完全・Hash一致で存在しPREPARED Eventだけが欠落している場合に限り、同一ReceiptへのEvent補完候補とする。Event書込み結果が不明な場合はChainを再読込し、完全なEventとして検証できれば既存Eventとして扱い、不正Tailなら追記せず隔離する。
+4. **Manifest競合:** Source Commit前にExpected predecessorと現在Headが一致しない場合はCommitを拒否する。Head更新結果が不明なら再読込し、当該OperationのExpected Head / Commit Hashと一致する場合のみSource Commit済みと認定する。別OperationのHead、欠落、Hash不一致は自動上書きせず隔離する。
+5. **DB Marker不確実性:** DB unavailableまたはCommit結果不明の間はSOURCE_COMMITTEDのまま保留する。Markerの単純な検索0件だけでRollback済みと断定しない。DBの一貫した読戻しで不存在とRollbackを確定できる場合に限り同一Operationの再試行候補とする。読戻し保証・Isolation条件は物理設計で実証する。
+6. **依存閉包:** VERIFIED判定ではIntent Planに固定されたSource Revision、Manifest、DB Marker、Receipt、Journalおよび明示された依存参照を対象とする。依存集合のauthorityと列挙形式が確定するまではVERIFIEDへ進めない。
+7. **Hash自己参照:** Intent Hash / Plan Hash / Envelope Hash / Event Hash / Marker Hashは、自身のHash値Fieldを入力対象から除外する必要がある。ただし、除外対象の全Field、Canonical serialization、Hash algorithm、Schema Versionは未確定であり、本節では具体値を採用しない。
+8. **Receipt ID:** 決定的再構成が必要だが、導出方式・入力・Namespaceは未確定。UUIDv5候補Namespaceを使用したり、既存IDを推測再採番したりしない。
+
+### 15.3 決定権・保留区分
+
+| 項目 | 論理段階で必要な決定 | 物理段階へ保留する事項 |
+|---|---|---|
+| Writer / Ordinal | Authority、単一Writer要件、予約/消費点、欠番・部分Tailの状態 | Lock API、lease、fencing token、filesystem lock |
+| Receipt Event | Event順序、Ordinal、部分Eventの扱い、補完条件 | append/fsync、atomic file operation、Tail修復実装 |
+| Manifest | predecessor照合、Head競合時の拒否・隔離条件 | atomic rename / CAS実装、Directory fsync保証 |
+| DB Marker | Marker PayloadとMirrorの一体性、Commit不確実時の保留規則 | SQLite Isolation / WAL / synchronous / read-after-commit実証 |
+| Hash / ID | Hash対象・除外Field・Version、Receipt IDの決定的入力 | Namespace採用後の実装性能・耐久試験 |
+| Recovery | 同一Operation再開条件、QUARANTINEDへの移行、Recovery Operationの権限 | Crash injection、電源断・I/O error試験 |
+
+### 15.4 現時点の結論
+
+- Main §2.1〜§2.3の同期変更表は作成したが、Main本文は未変更。
+- 15.2は安全側の論理規則案であり、未承認事項を確定仕様へ昇格させない。
+- DB-RV-03はOPEN。Receipt ID、Hash範囲、Ordinal Authority、Manifest競合、DB Marker不存在の確定条件が閉じていない。
+- fsync / atomic rename / SQLite durability / crash injectionは物理設計・実装工程であり、論理文書の記述だけでPASSにしない。
+- v0.8.2 ORANGE / v0.8.3未承認。UUIDv5 Namespace未承認・未採用。DDL / DB生成 / Migration / Restore実行 / 実装 / PR / main反映は禁止継続。
