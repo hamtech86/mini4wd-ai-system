@@ -412,7 +412,7 @@ Main §8は、RawLog保存完了に対し、temporary write完了、File Handle 
 ### 13.2 決定状態
 Identity、Storage class、Unknown schemaの扱い、削除/更新方針はMain §14で確定。物理DDL・列型・index・trigger・複合FKの実装形は本論理設計の対象外であり、実装Gateで別途確定する。
 
-NONE AssociationはSession membershipと別概念であり、既存DB管理Measurementへの明示的なInstance関連付け履歴のみを追加する。Session membershipは初回Mirror登録時に固定し、Associationで変更しない。DB unavailable期間のMeasurementはAnonymous Mode扱いで後日Mirror化しない。
+NONE AssociationはSession membershipと別概念であり、既存DB管理Measurementへの明示的なInstance関連付け履歴のみを追加する。独立UUID Entityは追加せず、Operation Journal Eventとして記録する。Association History Recordの論理Identityは(MeasurementID, AssociationOrdinal)、Event Identityは(OperationID, EventOrdinal)。NONE_ASSOCIATION_CREATED / NONE_ASSOCIATION_CLOSEDでActive / Closedを表し、CloseReason必須。Reassignmentは同一Operation内のClose→Createとし、必要Event集合をSource Commitで束ねる。Session membershipは初回Mirror登録時に固定し、Associationで変更しない。DB unavailable期間のMeasurementはAnonymous Mode扱いで後日Mirror化しない。
 
 ### 13.3 Aggregate Request / Attemptの終端決定
 Request StateはOPEN / SUCCEEDED / FAILED / CANCELLED / INDETERMINATE。AttemptはRUNNING / SUCCEEDED / FAILED / CANCELLED / INDETERMINATE。Retry ClosedはFAILED Attemptあり・RUNNINGなしの場合のみ。Request Cancelledは認証済みOperatorの明示EventかつRUNNINGなし。Attempt結果不明のcrashはWorker fencing proof前にAggregate OwnerをQUARANTINEDとし、proof後にのみINDETERMINATEへ終端。
