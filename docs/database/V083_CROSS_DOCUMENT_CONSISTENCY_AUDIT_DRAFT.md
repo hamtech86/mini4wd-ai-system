@@ -771,3 +771,24 @@ Entity Inventory §10に、Main §§1–10、Issue #210 CC-01/02、Motor Issue #
 23 Entityの根拠所在を一覧化できたが、完全なField Schemaを提供する一次契約は不足している。特にMotor RawLog v2 / Battery Measurement・RawLog / Run管理Close / Profile Snapshot / Artifact / Recovery authorityは、各契約所有者または統括から正式な根拠が必要である。DB部門はそれらを推測補完しない。
 
 本監査は文書調査のみ。Main本文、DDL、DB、Migration、Restore実行、機器実装、PR、main反映は変更していない。
+
+
+## 33. DB-RV-04の選択肢・証拠要件を分離（2026-11-21）
+
+Main §3とState Matrix §5の差分について、未決定事項を選択肢として分解し、Entity Inventory §11へ記録した。
+
+### 33.1 確認された差分
+- Main §3.2 Current ValidはInput Set Hash一致を中心に記述するが、State Matrix §5.1はAssignment Snapshot Set / Algorithm / Configuration / Measurement・Profile・Policy Revision / Aggregate Definition Versionを含むRequest Fingerprint全体一致を要求する。
+- Main §3.2のLatest Successfulは「最も新しい成功Result Revision」とだけ記載し、Request Ordinal / Attempt Ordinal / Result Revision順序の優先関係がない。
+- Main §3.3のFAILEDは「全Attempt失敗かつ再試行終了」とするが、State Matrix §5.3が要求するRetryable / Retry Closedの明示Event・状態と、閉鎖権限・Actor / Time / ReasonがMainに定義されていない。
+- Pointerの同時更新・古いWorkerの遅延成功・再構築時の順序と整合性保証が未完了。
+
+### 33.2 未決定選択肢
+- FingerprintにRequest IDを含める案 / 計算条件だけを含める案 / Input Set Hashのみの案を比較。Input Set Hash単独では要求条件全体を表さない。
+- Fingerprint Hashのみ保存する案と、全構成Field + Hashを保存する案を比較。再現・監査のためのpreimage保持が必要か未決定。
+- Latest SuccessfulをRequest Ordinal + Attempt Ordinalで順序付ける案と、Result Revision独立Ordinalを使う案を比較。
+- Retry Closedを追記Eventとする案、別状態記録とする案、現状失敗から推定する案を比較。明示終端なしのFAILED推定はMatrix案と整合しない。
+- Pointerの条件付き更新と履歴再構築の案を比較。物理Concurrency保証は未承認。
+
+### 33.3 判定
+分離・不変性・遅延旧RequestのCurrent Valid昇格禁止・Input Set Hash単独判定禁止・Retry終端の明示証拠要求は、現行資料から最低限維持できる。完全Fingerprint schema、順序キー、Retry Closed authority、Pointer concurrencyは決定待ち。Main §3は変更していない。
