@@ -52,7 +52,7 @@
 
 ANONYMOUSは「その期間の測定をInstanceに帰属させない」状態であり、過去にASSIGNEDだった期間の履歴を自動消去・書換えする命令ではない。過去データの消去・匿名化要求はAssignment変更と分離した、別の明示的なプライバシー処理として扱う。通常のAssignment Operationで既存Session・Measurement・Historyを削除しない。
 
-### 1.4 Session Status / Aggregate対象
+### 1.4 Session Lifecycle / Measurement Outcome / Aggregate対象
 
 1. Session LifecycleとMeasurement Outcomeは完全に分離する。Session LifecycleはNOT_CREATED / OPEN / CLOSED / QUARANTINEDとし、Measurement Outcome（COMPLETE / STOP / ERROR / CANCEL / INCOMPLETE / UNKNOWN）の集合・混在・件数からSession Lifecycleを導出しない。NOT_CREATEDはSessionレコードが存在しない状態である。初回ASSIGNED確定時にSessionを生成してOPENとし、Assignment変更や個々のMeasurement終了では閉じない。CLOSEDはRun管理側の明示的Close Operationが外部正本へ記録され、その記録と依存参照を検証できた場合に限る。Close Operationは論理Run管理イベントであり、STOP ACK・最終Telemetry・アプリ終了・プロセス消失・無通信時間からRun終了を推定しない。Close受入時は対象ScopeのCaptureが終端または明示的に放棄・保留され、未確定MeasurementをCOMPLETEへ読み替えない。終端不明・参照不整合はOPEN維持またはQUARANTINEDとし、推測でCLOSEDにしない。DB unavailable / ANONYMOUS運用ではDB Sessionを生成せず、外部正本上のRun / Capture情報を保持する。
 2. **Current Aggregate**の対象は、現在ASSIGNEDであるScopeのうち、Measurement開始時点もASSIGNEDで、かつ測定時Instance IDが現在Instance IDと一致するMeasurementだけとする。
