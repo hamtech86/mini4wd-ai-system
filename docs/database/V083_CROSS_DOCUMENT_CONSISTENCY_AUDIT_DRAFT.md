@@ -822,6 +822,7 @@ Main §14をDecision Authorityとして、従来のOPEN / TBD / candidateを以�
 - **不採用:** UUIDv5 / Canonical Binary Name v2、OperationIDからのReceipt ID導出、Expected Receipt Hash、PREPARED時点のExpected DB Marker Hash、Current Head単独のCommit証明、last-write-wins、Aggregate Pointerを正本とする方式。
 - **適用対象外:** DB契約のないMotor/Battery Field、未知Profile / Artifact Payloadの意味解析、Anonymous後日DB取込、旧ID推測復元、未契約SampleLocator解釈。
 - **fail-closed:** Unknown Schema / Field / EventType / InputType、partial tail、hash mismatch、fork、stale writer、unknown Capture End、未実証Filesystem / SQLite環境は拒否・OPEN維持・PENDING_RECOVERY・QUARANTINEDのいずれか。
+- **Recovery Authority:** Bootstrap登録済みPROJECT_RECOVERY_ADMINのみ。v0.8.3では元証拠不変・QUARANTINED解除禁止。
 - **Entity境界:** OPERATION_EVENT独立Entityは不採用、Aggregate PointerはDerived View、Analysis / Simulationは共通Envelope + ArtifactKind、Recovery OperationとIntegrity Reportは別Entity。
 - **Session / NONE / ANONYMOUS:** Issue #210 CC-01 / CC-02を維持し、Main §14.1–14.2で具体的なSession membership / Association / Outcome動作を固定。
 
