@@ -383,12 +383,12 @@ Main §8は、RawLog保存完了に対し、temporary write完了、File Handle 
 | # | Entity | Identity / Storage決定 | 未契約時の固定動作 |
 |---:|---|---|---|
 | 1 | Physical Run / Run Manifest | Run Manager UUIDv4、外部正本 | Manifest欠落・forkはQUARANTINED |
-| 2 | DB Run | UUIDv4、DB Mirror | DB正常利用可能時の初回ASSIGNEDで生成。DB unavailable中の初回ASSIGNEDはAnonymous Mode扱いとし生成しない。障害期間のRunを復旧後BootstrapでDB化しない。同一Physical Run内でDB管理を再開する場合の明示的再開契約は未定義のため、本版では許可せず、新しいPhysical RunからDB管理を開始する |
+| 2 | DB Run | UUIDv4、DB Mirror | DB正常利用可能時の初回有効ASSIGNEDで生成。DB unavailable中は有効ASSIGNED Operationを成立させず、障害期間CaptureのAssignment-at-MeasurementはANONYMOUS。障害期間のRunを復旧後BootstrapでDB化しない。DB管理は新しいPhysical Runから開始する |
 | 3 | RUN_SCOPE | (PhysicalRunID, ScopeKey)複合キー | MOTOR / BATTERY_CH1 / BATTERY_CH2以外は拒否 |
 | 4 | Assignment Snapshot | UUIDv4 + Scope/Revision unique、不変外部正本 | Snapshot欠落・Hash不一致はAssignment更新拒否 |
 | 5 | Assignment History / Event | Scope + EventOrdinal、append-only | 部分TailはScope隔離 |
-| 6 | Session | Run Manager発行UUIDv4、Scopeごと最大1 | Run Managerが初回ASSIGNED Assignment Operation確定時にLogical Session IDを外部Run Manifestへ発行・記録。DB正常利用可能時のみ同一IDのDB Session Mirrorを生成。DB unavailable期間も論理Session identity / Lifecycleは外部正本で保持するが、DB Session Mirrorは生成せず復旧後の遡及Mirror化も禁止。Session membershipはMeasurementの外部Manifest初回登録時に同一Scope Sessionが存在する場合のみ固定 |
-| 7 | Measurement Envelope | UUIDv4、外部正本 + DB Mirror | DB正常利用可能時のASSIGNED MeasurementのみMirror登録。DB unavailable期間はAssignmentにかかわらずAnonymous Mode扱いで外部正本のみ、復旧後のBootstrap / 取込 / Mirror化禁止。Battery 5A DATAはIssue #16の範囲で原本byte / 共通Envelope / CH1・CH2独立保全まで許可し、契約未回収Payloadはopaque、意味解析・Feature Extraction不可 |
+| 6 | Session | Run Manager発行UUIDv4、Scopeごと最大1 | Run ManagerがDB正常利用可能時の初回有効ASSIGNED Assignment Operation確定時にLogical Session IDを外部Run Manifestへ発行・記録し、同一IDのDB Session Mirrorを生成する。DB unavailable期間は有効ASSIGNED Operation・新規Session identity・DB Session Mirrorを生成しない。障害開始前から存在する論理Session identity / Lifecycleは外部正本で保持し、障害中CaptureのAssignment-at-MeasurementはANONYMOUSとして後日Mirror化しない。Session membershipはMeasurementの外部Manifest初回登録時に同一Scope Sessionが存在する場合のみ固定 |
+| 7 | Measurement Envelope | UUIDv4、外部正本 + DB Mirror | DB正常利用可能時の有効ASSIGNED MeasurementのみMirror登録。DB unavailable期間のCapture / MeasurementはAssignment-at-Measurement=ANONYMOUS（InstanceID=NULL）として外部正本のみ、復旧後のBootstrap / 取込 / Mirror化 / Association禁止。Battery 5A DATAはIssue #16の範囲で原本byte / 共通Envelope / CH1・CH2独立保全まで許可し、契約未回収Payloadはopaque、意味解析・Feature Extraction不可 |
 | 8 | Measurement Profile Snapshot | UUIDv4、不変外部Snapshot | Schema不明時はopaque、解析・Aggregate入力不可 |
 | 9 | RawLog Object / Reference | Object UUIDv4 / Reference UUIDv4、別Entity | Hash・durability未検証はPENDING_RECOVERY / QUARANTINED |
 | 10 | Sample Reference | UUIDv4、RawLog Referenceに従属 | Locator不明はopaque、時刻/Channel推定禁止 |
@@ -412,7 +412,7 @@ Main §8は、RawLog保存完了に対し、temporary write完了、File Handle 
 ### 13.2 決定状態
 Identity、Storage class、Unknown schemaの扱い、削除/更新方針はMain §14で確定。物理DDL・列型・index・trigger・複合FKの実装形は本論理設計の対象外であり、実装Gateで別途確定する。
 
-NONE AssociationはSession membershipと別概念であり、既存DB管理Measurementへの明示的なInstance関連付け履歴のみを追加する。独立UUID Entityは追加せず、Operation Journal Eventとして記録する。Association History Recordの論理Identityは(MeasurementID, AssociationOrdinal)、Event Identityは(OperationID, EventOrdinal)。NONE_ASSOCIATION_CREATED / NONE_ASSOCIATION_CLOSEDでActive / Closedを表し、CloseReason必須。Reassignmentは同一Operation内のClose→Createとし、必要Event集合をSource Commitで束ねる。Session membershipはMeasurementを外部Run Manifestへ初回確定記録する時点で固定し、Associationで変更しない。DB unavailable中も論理Session membershipは外部正本で保全できるが、DB Session Mirror membershipへは追加・遡及追加しない。DB unavailable期間のMeasurementはAnonymous Mode扱いで後日Mirror化しない。
+NONE AssociationはSession membershipと別概念であり、既存DB管理Measurementへの明示的なInstance関連付け履歴のみを追加する。独立UUID Entityは追加せず、Operation Journal Eventとして記録する。Association History Recordの論理Identityは(MeasurementID, AssociationOrdinal)、Event Identityは(OperationID, EventOrdinal)。NONE_ASSOCIATION_CREATED / NONE_ASSOCIATION_CLOSEDでActive / Closedを表し、CloseReason必須。Reassignmentは同一Operation内のClose→Createとし、必要Event集合をSource Commitで束ねる。Session membershipはMeasurementを外部Run Manifestへ初回確定記録する時点で固定し、Associationで変更しない。障害開始前から論理Session identityが存在する場合に限り、DB unavailable中のCapture membershipは外部正本で保全できるが、CaptureのAssignment-at-MeasurementはANONYMOUSであり、DB Session Mirror membershipへは追加・遡及追加しない。障害中に初回ASSIGNEDを試みたScopeはSession identityを生成しない。
 
 ### 13.3 Aggregate Request / Attemptの終端決定
 Request StateはOPEN / SUCCEEDED / FAILED / CANCELLED / INDETERMINATE。AttemptはRUNNING / SUCCEEDED / FAILED / CANCELLED / INDETERMINATE。Retry ClosedはFAILED Attemptあり・RUNNINGなしの場合のみ。Request Cancelledは認証済みOperatorの明示EventかつRUNNINGなし。Attempt結果不明のcrashはWorker fencing proof前にAggregate OwnerをQUARANTINEDとし、proof後にのみINDETERMINATEへ終端。
