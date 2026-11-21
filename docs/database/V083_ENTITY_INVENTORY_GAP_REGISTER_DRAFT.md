@@ -153,3 +153,68 @@
 10. Motor / Battery / RawLog正式契約との整合。
 
 **結論:** 現行草案はEntityの存在と一部の最低制約を定義しているが、全Entityの属性・キー・参照・制約を完成させていない。本Inventoryは未確定箇所を可視化するもので、物理設計・DDL・実装へ移行できる完成設計ではない。
+
+
+## 8. Entity 23種 属性・制約カバレッジ表（2026-11-21追加）
+
+### 8.1 判定方法
+
+本表は、現行v0.8.3草案と補助資料に**明記されている範囲**を転記・整理したカバレッジ表である。一般的なDB設計慣行から属性・制約を補完していない。
+
+- **明記**: 現行草案に属性・制約・ライフサイクルの記述がある。
+- **部分**: 一部の識別子や最低条件だけが記載されている。
+- **未定義**: 属性・型・NULL・一意性・参照先等を確定できる記述がない。
+- **候補**: Identity分類の検討候補であり、採用決定ではない。
+- **不存在**: 今回の検索で見つからなかっただけでは判定しない。作成されなかった可能性も調べるが、根拠が不足する場合は「存在未確認」とする。
+
+PK / FK欄は論理的な参照・一意性の記載状況であり、SQLite DDLや物理キーの確定を意味しない。保持・削除は「通常運用で証拠のUPDATE / DELETEを禁止し、訂正は新Operation / Revisionで追記」という本文の共通最低契約を前提にするが、各Entityへの適用範囲が明記されていない場合は個別未確定とした。
+
+### 8.2 23 Entity 個別カバレッジ
+
+| # | Entity | 草案に明記された属性 / 型 | NULL・UNIQUE・参照 / Cardinalityの根拠 | Identity分類（候補・未承認） | Lifecycle / 保持 | 未確定・不足 |
+|---:|---|---|---|---|---|---|
+| 1 | Physical Run / Run Manifest | PhysicalRunID: UUIDv4。Manifest内容・Hash | PhysicalRunIDはRun識別子。DB Runとは別ID。Manifest IDの有無は未定義 | Identity UUID候補。Manifest Content Hashは別概念 | 外部正本。Run事実・履歴を保持。削除・ID再発行禁止 | Manifest属性、Manifest ID、Hash対象・版、作成・終端・保持期間、Run単位UNIQUE |
+| 2 | DB Run | DBRunID: UUIDv5候補、PhysicalRunID: UUID | Physical Runにつき最大1件。最初のASSIGNED確定時に生成。PhysicalRunIDと別ID | Identity UUID候補（Namespace未承認） | DB Mirror。生成後は全ScopeがNONE/ANONYMOUSでも保持。削除・再生成禁止 | Namespace、Field Domain、全属性、FK実装論理、NULL、DB Run status/close semantics |
+| 3 | RUN_SCOPE | PhysicalRunID(UUID), ScopeKey(ASCII string) | PhysicalRunID + ScopeKeyの組を識別候補。Physical Run初期化時に全Scope分の外部正本を作成 | Composite identity候補 | Scope Manifestが外部正本。Run内Scopeの履歴を保持 | ScopeKey許容値・正規化・長さ、Scope一覧のAuthority、FK/Cardinality、Scope追加・廃止 |
+| 4 | Assignment Snapshot | Assignment Revision / State / Instance ID / Snapshot Reference / Hashの記述あり | Scope単位の不変Snapshot。ASSIGNEDならInstance ID必須、NONE/ANONYMOUSならNULL。Revision一意性は値域未確定 | Composite identity / Identity UUID / Content Hashの選択未決 | 外部正本の不変Revision。訂正は新Operation / Revision | Snapshot ID、Revision開始・連番・欠番、全属性、Instance FK、Profile参照、Hash範囲 |
+| 5 | Assignment History / Event | Operation ID / Ordinal / Actor / Timestamp / before-after / Reasonの一部記述 | Assignment Snapshot / HistoryはScope単位。EventとOperation Eventの同一性は未確定 | External event identity候補（OperationID + Ordinal） | 追記履歴。過去Assignmentを更新しない | Event ID、Ordinal適用範囲、Actor/Reason型、Event Type、Hash Chain、OPERATION_EVENTとの対応 |
+| 6 | Session | PhysicalRunID(UUID), ScopeKey(ASCII string)。Lifecycle: NOT_CREATED/OPEN/CLOSED/QUARANTINED | RUN_SCOPEにつき最大1件。初回ASSIGNEDで生成。Outcome集合からLifecycleを導出しない | Identity UUID / Composite identity候補（Canonical SchemaはRunID + ScopeKey） | 一度生成したらAssignment変更後も保持。CLOSEDは検証済み明示Close Operationのみ | SessionIDの独立発行/決定規則、Close Actor/Time/Reason属性、Close参照、FK/Cardinality詳細 |
+| 7 | Measurement Envelope | MeasurementID、PhysicalRunID、ScopeKey、Measurement Type、Benchmark Type、Purpose、Started/Ended At、Outcome、Termination Reason、Assignment Snapshot Ref/Revision/State/Instance ID、Profile Snapshot refs、RawLog/Sample refs、Canonicalization Version、Envelope Hash | Assignment Snapshot必須。ASSIGNEDならInstance ID必須、他状態はNULL。測定時帰属を不変保持 | Identity UUID候補。Envelope Hashは別のContent Hash | 外部正本。Measurement OutcomeはCOMPLETE/STOP/ERROR/CANCEL/INCOMPLETE/UNKNOWN。ANONYMOUS後日取込禁止。NONEの扱いはCC-02とSession membership未決に従う | MeasurementID発行、全Field型/NULL/domain、時間整合、Capture終端契約、Profile snapshot全属性、Hash範囲、Session membership |
+| 8 | Measurement Profile Snapshot | Profile Snapshot Reference / Hash / Snapshot Status。Model Profile / Instance Profile参照 | Measurement Envelopeから参照。Hash検証後にMirror再生成 | Content Hash / Identity UUID / Composite identity候補 | 不変Snapshot。削除・更新規則は個別未定義 | Snapshot ID、Profile ID/revision、完全属性、欠損時Status、NULL条件、参照Cardinality |
+| 9 | RawLog Object / RawLog Reference | Reference側: PhysicalRunID(UUID), ScopeKey(ASCII), LogID(UTF-8)。Object側: 本文とSHA-256の記述 | RAWLOG_REFERENCE SchemaはReferenceのみ。Object本文とReferenceを同一Entityとしない | ObjectはContent Hash / immutable object identity候補。ReferenceはIdentity UUIDまたはComposite候補 | Objectは不変ファイル。Reference Mirrorは本文Hash検証後に再生成。ANONYMOUS後日取込禁止 | Object IDとLogIDの関係、Path/format/size/time/channel、Hash algorithm scope、複数Reference共有、Retention/ownership |
+| 10 | Sample Reference | RawLogReferenceID(UUID), SampleLocator(UTF-8 string) | RawLog Referenceに従属する候補。SampleLocatorのgrammar / domain uniqueness未定義 | Composite identity候補（RawLogReferenceID + Locator） | Reference Manifestから再生成候補。個別削除規則なし | Locator grammar、sample index/time/channel/field semantics、NULL/UNIQUE、RawLog typeとの対応 |
+| 11 | Measurement Sample Link | MeasurementID(UUID), SampleReferenceID(UUID), Role(UTF-8), Ordinal(Integer) | MeasurementとSample Referenceの関連。Role / Ordinal domain未定義。Ordinal一意性は未確定 | Composite identity候補（Measurement + Sample + Role + Ordinal） | Linkは参照情報。訂正・削除の扱いは個別未定義 | PK/UK、同一Sample複数Role許否、Required/Optional、複合FK、順序規則、Retention |
+| 12 | Operation Journal / Intent | OperationID、Ordinal、Intent Payload、Intent Hash、Expected Source Payload Hashes、Expected DB Marker Hash、Target Entity ID等 | Physical Run単位のJournal。Ordinalは消費後再利用禁止。OperationとReceiptは1:1候補 | External event identity候補（OperationID + Ordinal）。Intent HashはContent Hash | 外部正本。追記・不変。Recoveryは新Operation | OperationID発行規則、Journal/Intent/Operation EventのEntity境界、全属性・型、Actor/lock fields、Retention |
+| 13 | Receipt Envelope | OperationID(UUID)。Receipt IDはOperationIDから決定的に導出する草案 | Operationにつき最大1 Receipt。Receipt ID/Operation IDの関係は1:1 | Identity UUIDまたはdeterministic identity候補（Namespace/algorithm未確定） | PREPARED→SOURCE_COMMITTED→DB_COMMITTED→VERIFIED等。VERIFIED不変。QUARANTINED解除は新Recovery Operation | ReceiptID導出規則、全Payload属性、Hash自己参照除外、NULL、Operation FK、保持期間 |
+| 14 | Receipt Event | ReceiptID(UUID), EventOrdinal(Integer)。Event Type / Timestamp / Payloadの記述 | Receipt内Ordinal一意。Receiptへの従属。Event Type domain未確定 | Composite / External event identity候補（ReceiptID + EventOrdinal） | 追記のみ。State遷移単調。VERIFIED後の追記禁止 | Event ID、Actor、Timestamp、Payload schema、Hash Chain、Ordinal開始値/欠番、Unknown Typeの扱い |
+| 15 | DB Operation Marker | OperationID / Ordinal / Intent Hash / Receipt ID / Source Commit Hash / DB Commit Payload Hash / Target Entity Type/ID / Schema Version等 | DB Mirror変更とMarkerは同一Transaction。OperationにつきMarker cardinality候補1 | Composite identity候補（OperationID + Ordinal） | DB内Mirror。Source Commit後にのみ作成。DB Mirror再生成可能 | Marker独立IDの有無、完全Payload、UNIQUE/FK、Hash算出範囲、Transaction durability / isolation |
+| 16 | Analysis Artifact | ArtifactID、Algorithm Version、Configuration Version、Input Set Hash、Result Hash、Payload Reference等 | Artifact Inputを通じて入力参照。Artifactは作成後不変。ID/Hashを区別 | Identity UUID候補 + Content Hash | 再解析は新Artifact。旧Artifact保持。DAG循環禁止 | Artifact Envelope全属性、Algorithm/Configの完全識別、Measurement/Profile relation、Status、Retention |
+| 17 | Simulation Artifact | ArtifactID候補、Algorithm/Configuration/Input/Resultの共通概念のみ | Analysis Artifactと共通Schemaか別Entityか未確定 | Identity UUID候補 + Content Hash候補 | 不変・再実行で新Artifactとする案はAnalysisと共通適用候補だが、正式適用範囲未確定 | 完全属性、Artifact Type境界、Simulation専用Input/Output、参照制約、Retention |
+| 18 | Artifact Input | ArtifactID(UUID), InputType(UTF-8), InputReferenceID(UUID), Role(UTF-8), Ordinal(Integer) | 親Artifactに従属。InputTypeと参照Entity Type一致、参照先存在/Hash一致、DAG非循環。Ordinal uniqueness等未確定 | Composite identity候補（ArtifactID + Type + Ref + Role + Ordinal） | 追記・不変Artifactの構成要素。参照先削除禁止 | InputType許容集合、Reference polymorphism全型、Required、Source Revision、PK/UK、NULL |
+| 19 | Aggregate Request | RequestID、RequestOrdinal、Input Set Hash、Assignment Snapshot Set Hash、Requested At、Reason、Algorithm/Configuration Version | DB Run/Scopeとの関係は一部記載。Request Ordinal一意性・開始値は未確定 | Identity UUID候補。Request Fingerprintは別のContent Hash相当 | Requestは不変。再計算ごとに新Request | 全属性、RequestID生成、Scope/Run cardinality、Reason domain、NULL、retry closure reference |
+| 20 | Aggregate Attempt | AttemptID、Started/Finished At、Attempt Status、Failure Code/Detail、Worker/Algorithm Version | Requestに従属。再試行ごとに新Attempt ID | Identity UUIDまたはRequestID + AttemptOrdinal候補 | Attemptは不変履歴。失敗AttemptからResult Revisionを生成しない | Attempt Ordinal、Status domain、Failure Code/Detail型、Worker identity、Request/Attempt cardinality、Retry terminal event |
+| 21 | Aggregate Result Revision | RevisionID、RequestID、AttemptID、Input Set Hash、Result Hash、Result Payload Reference、Completed At。Canonical fields: DBRunID + Revision | 成功Attemptのみ生成。DBRunID + Revision候補。Revision scope (Run/Scope)未確定 | Composite identity候補（DBRunID + Revision）+ Payload Content Hash | 不変成功結果。失敗要求/AttemptはRevision化しない | Revision domain/開始値、Scope/Run単位、Algorithm provenance、FK、Payload schema、保持期間 |
+| 22 | Aggregate Pointer | Latest Requested Request / Latest Successful Revision / Current Valid Revision | 対象Request/Revisionへの参照。Current Validは最新要求とInput Set Hashが一致する成功Revisionのみ | Derived Pointer候補。独立UUID不要の可能性 | 派生・再構築可能とする案。履歴正本と混同しない | Pointer owner scope、NULL条件、並行更新/再構築、stale pointer判定、保存場所 |
+| 23 | Recovery Operation / Integrity Report | Recovery Operation ID / Ordinal / Intent / Receipt / Plan / Evidence Hash / Result Artifact等の一部 | 元Receiptを変更せず新Operationで記録。Integrity Reportとの関係は未定義 | Recovery OperationはExternal event identity候補。ReportはContent Hash / Identity UUID候補 | Recovery失敗も証拠を保持。元QUARANTINED ReceiptをVERIFIEDへ変更しない | Report ID、Recovery/ReportのEntity分離、完全属性、親Receipt cardinality、成功/失敗状態、Retention |
+
+### 8.3 カバレッジ結論
+
+- 23/23 Entityについて、現行草案から明記済み属性・制約と未確定項目を区別した。
+- **23/23の完全属性表が完成したという意味ではない。** 全属性・型・NULL・UNIQUE・CHECK・FK / 複合FK・Cardinality・Retentionが一式揃うEntityは現時点で確認できない。
+- §5.3 Canonical Schemaが直接対応する10 Entityのうち、Canonical fieldsが示すのはIdentity候補の一部であり、全属性表ではない。残る13 EntityはCanonical Schema未定義である。OPERATION_EVENTはInventoryとの対応自体が未解決。
+- したがって、Canonical Schemaを持たないEntityにUUIDv5を追加したり、空欄を一般的な設計慣行で埋めたりしない。
+- 今後は「明記」「部分」「未定義」「Authority未確認」「個別原文未確認」を属性ごとに追跡し、論理的に必要な判断と物理設計へ持ち越す判断を分離する。
+
+### 8.4 次の検証単位
+
+次回はEntityを一括で完成扱いせず、次の列ごとに証拠を追加する。
+
+1. 属性定義（名称 / 型 / NULL / domain / unit / normalization）
+2. Identity / PK / UK（単一・複合・外部ID・Content Hash）
+3. FK / Composite FK / Polymorphic ReferenceとCardinality
+4. Lifecycle / Revision / Ordinal / State transition
+5. Authority / DB Mirror生成条件 / Restore再構築条件
+6. Update / Delete / Correction / Retention
+7. DB-001〜124 / V082 / Motor / Battery正式契約の根拠
+
+この表は文書調査・論理カバレッジ資料であり、仕様承認、物理設計、DDL、DB生成、Migration、Restore実行、実装を許可しない。
