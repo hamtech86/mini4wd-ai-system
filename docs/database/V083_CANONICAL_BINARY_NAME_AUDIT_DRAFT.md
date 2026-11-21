@@ -355,3 +355,19 @@ A schema-only extension that adds a field, changes field order/type, changes nor
 ## 17. CBN-07 notation correction verification
 
 Read-back check confirms Main draft §5.5 uses the explicit Unicode scalar sequence and six UTF-8 bytes. CBN-07 is resolved as a documentation ambiguity only; no encoding rule or Expected Hex changed.
+
+
+## 18. Independent semantic recalculation of all audit vectors (2026-11-21)
+
+Beyond the Entity sample checks in §15, the 10 generic Field-type vectors in §7 and 10 collision-pair encodings in §9 were independently reconstructed from their documented typed inputs.
+
+| Group | Cases | Result |
+|---|---:|---|
+| Entity-specific vectors in §6 | 9 | 9/9 exact match |
+| Generic Field vectors in §7 | 10 | 10/10 exact match |
+| Collision-pair encodings in §9 | 10 | 10/10 exact match |
+| **Total Expected Hex occurrences in this audit memo** | **29** | **29/29 exact match** |
+
+The two DB_RUN / RUN_SCOPE vectors in Main draft §5.5 were separately recalculated and matched exactly (2/2). The additional NULL / EMPTY / delimiter / NFC / NFD examples in Main draft §5.5 remain byte-consistent with the previously recorded independent check.
+
+This is byte-level reproduction of published sample inputs only. It does not prove that the Entity schemas are semantically correct, that every Inventory entity has a schema, that values meet per-Field domains, that Namespace is safe/approved, or that UUIDv5 implementations interoperate.
