@@ -422,8 +422,6 @@ Request StateはOPEN / SUCCEEDED / FAILED / CANCELLED / INDETERMINATE。Attempt�
 **規範優先順位:** COMMON_DB_LOGICAL_DESIGN_v0.8.3_REMEDIATION_DRAFT.md §14（DB-RV-04は§3、DB-RV-05は§4、DB-RV-06は§5、RawLog durabilityの論理条件は§8）が現行Decision Authority。本書の§1〜§34にあるOPEN / TBD / candidate / decision pendingは調査時点の履歴であり、現行設計判断としては適用しない。矛盾時はMainの該当条項を優先する。
 
 | 論点 / DB-RV | 最終状態 | 決定根拠 | 残るもの（設計未決定ではない） |
-
-**番号対応の拘束:** DB-RV-01〜08はIssue #209の元定義を固定して使用する。上表のIDと意味を別の論点へ転用しない。Entity / identity inventoryは横断的な設計資料であり、独立したDB-RV番号ではない。新規の統括差戻し論点はV083-RV-01等の別系列で追跡する。表中の「DB部門案あり」は統括承認・実証完了を意味しない。
 |---|---|---|---|
 | DB-RV-01 Session存在条件とAssignment State | DB部門案あり・統括承認待ち | Main §1（Session生成・保持・membership境界） | Session Manager実装・権限試験、NONE Session membershipの統括確認 |
 | DB-RV-02 DB Run生成後ライフサイクル | DB部門案あり・統括承認待ち | Main §1（DB Run生成・保持・再割当条件） | Run Manager実装・権限試験 |
@@ -433,6 +431,8 @@ Request StateはOPEN / SUCCEEDED / FAILED / CANCELLED / INDETERMINATE。Attempt�
 | DB-RV-06 UUIDv5 Canonical Input（旧要求） | 旧UUIDv5案を不採用とする変更案・統括承認待ち | Main §5（UUIDv4 / M4W-JCS-1案） | JCS適合試験、Entity別入力・期待Hash vector、Namespace不採用の統括確認 |
 | DB-RV-07 外部正本とDB Entity / Mirror境界 | DB部門案あり・統括承認待ち | Main §6、§8 | 機器別Capture / RawLog契約、OS / filesystem durability、Restore実証 |
 | DB-RV-08 AssignmentとAggregate対象範囲 | DB部門案あり・統括承認待ち | Main §1、§7 | NONE / ANONYMOUS対象条件とAggregate / Pair Analysisの正式契約照合 |
+
+**番号対応の拘束:** DB-RV-01〜08はIssue #209の元定義を固定して使用する。上表のIDと意味を別の論点へ転用しない。Entity / identity inventoryは横断的な設計資料であり、独立したDB-RV番号ではない。新規の統括差戻し論点はV083-RV-01等の別系列で追跡する。表中の「DB部門案あり」は統括承認・実証完了を意味しない。
 
 ### 36.1 過去の未決定記述の置換規則
 1. NONE Session membershipのA/B/C案は不採用。Main §14.1(4)–(7)のScope単位・Session存在条件・DB availability・ANONYMOUS禁止境界を採用。
