@@ -116,10 +116,10 @@ Journal Intent、Receipt Envelope、Receipt Event、Source Commit Record、DB Ma
 - RequestOrdinalは(DBRunID, ScopeKey, AggregateType)単位で1から単調増加。欠番可、再利用不可。AttemptOrdinalはRequest内で1から単調増加、欠番可、再利用不可。
 
 ### 3.2 Attempt / Retry / Result
-- Requestは不変。Attemptは試行ごとに新規作成。Attempt StatusはRUNNING / SUCCEEDED / FAILED / CANCELLEDとする。
-- Retryable / Retry ClosedはAttempt結果とは別のRequest Eventで記録する。Retry Closed EventはActor / UTC timestamp / Reason / PolicyVersionを必須とする。
-- Retry Closed後の新規Attemptは禁止。RequestがRetry Closedとなり、成功Attemptが一つもない場合だけFAILEDと確定する。成功Attemptが一つ存在した時点でRequestはSUCCEEDED終端となり、追加Attemptを禁止する。
-- Result Revisionは成功Attemptのみが生成できる。Request内で成功Resultは最大1件。失敗AttemptからResult Revisionを生成しない。
+- Requestは不変。Attemptは試行ごとに新規作成。Attempt StatusはRUNNING / SUCCEEDED / FAILED / CANCELLED / INDETERMINATEとする。同一Request内で同時にRUNNINGとなるAttemptは最大1件。
+- Request StateはOPEN / SUCCEEDED / FAILED / CANCELLED / INDETERMINATE。RetryableはOPENの既定状態とし、Retry ClosedはAttempt終了後の明示Request Eventで記録する。Retry Closed EventはActor / UTC timestamp / Reason / PolicyVersionを必須とする。
+- Retry Closed後の新規Attemptは禁止。RequestがRetry Closedとなり、成功Attemptが一つもない場合だけFAILEDと確定する。成功Attemptが一つ存在した時点でRequestはSUCCEEDED終端となり、追加Attemptを禁止する。Attempt CANCELLEDはRequestを終端させず、明示Retry ClosedまたはRequest CancelledまでOPENを維持する。Attempt結果が証明不能なクラッシュはAttempt / RequestをINDETERMINATE終端とし、同じRequestの再試行を禁止する。再計算が必要なら新Requestを発行する。
+- Request Cancelledは認証済みOperatorの明示Eventでのみ成立し、RUNNING Attemptがない場合に限る。Result Revisionは成功Attemptのみが生成できる。Request内で成功Resultは最大1件（ResultOrdinal=1）。失敗 / CANCELLED / INDETERMINATE AttemptからResult Revisionを生成しない。
 - 同じ計算条件で再要求した場合も新Request ID / RequestOrdinalを発行する。Fingerprintが同じでもRequest identityは別である。
 
 ### 3.3 PointerとCurrent Valid
@@ -398,10 +398,10 @@ V082-001〜030は既存のまま保持する。V082-031〜053は追加案であ�
 11. DB MarkerはMirror更新と同一DB Transactionで一度だけ作成し、OperationIDを一意キーとする。Marker Payload HashはSource Commit後に実際のMarker Payloadから計算し、DB_COMMITTED Eventへ記録する。MarkerとMirrorの不一致、同一Operationの異Hash MarkerはQUARANTINED。
 12. DB Commit結果不明時はMarkerとDB整合性を検証する。Marker完全一致ならCommit済み。MarkerなしでもDB integrity / transaction atomicity / consistent readを証明できない場合はQUARANTINEDとし、検索0件だけで未Commit・Rollbackを断定しない。再試行は同一Operation・同一Payloadに限る。
 13. Receipt EventType RegistryはPREPARED / SOURCE_COMMITTED / DB_COMMITTED / VERIFIED / ABORTED / QUARANTINEDに固定する。未知EventTypeは拒否する。QUARANTINED Eventを元Chainへ追記できない破損時は別Integrity Reportへ記録し、元Chainを変更しない。
-14. Operation Journal EventType RegistryはINTENT_PERSISTED / CANCEL_REQUESTED / SOURCE_COMMIT_RECORDED / DB_MARKER_COMMITTED / PHYSICAL_RUN_CLOSED / NONE_ASSOCIATION_CREATED / RETRY_CLOSED / RECOVERY_OPERATION_CREATED / INTEGRITY_REPORT_CREATEDに固定する。EventにはEventType / EventOrdinal / OperationID / ActorID（system principalを含む）/ OccurredAtUTC / PayloadSchemaVersion / Payload / PreviousEventHash / EventHashを持たせる。Operation単位でOrdinal=1から連続し、最初のPreviousEventHashはNULL。Authority不明のEvent、未知EventType、partial tailは拒否・QUARANTINED。
+14. Operation Journal EventType RegistryはINTENT_PERSISTED / CANCEL_REQUESTED / SOURCE_COMMIT_RECORDED / DB_MARKER_COMMITTED / PHYSICAL_RUN_CLOSED / NONE_ASSOCIATION_CREATED / RETRY_CLOSED / REQUEST_CANCELLED / ATTEMPT_INDETERMINATE / RECOVERY_OPERATION_CREATED / INTEGRITY_REPORT_CREATEDに固定する。EventにはEventType / EventOrdinal / OperationID / ActorID（system principalを含む）/ OccurredAtUTC / PayloadSchemaVersion / Payload / PreviousEventHash / EventHashを持たせる。Operation単位でOrdinal=1から連続し、最初のPreviousEventHashはNULL。Authority不明のEvent、未知EventType、partial tailは拒否・QUARANTINED。
 15. Writer Grant EventはOperation Journal Eventと分離したAuthority Registry Chainとし、(PhysicalRunID, Epoch)で識別する。Epochは1から単調増加、欠番可・再利用不可。Grant Chainのpartial tail / Hash mismatch / ForkはWriter交代を禁止しRunをQUARANTINEDとする。
 16. Assignment History EventはScope単位のappend-only chainとし、初期EventOrdinal=1、以降連続増加させる。Snapshot Revisionは初期0、以降の実変更ごとに連続増加させる。初期EventのBeforeStateはNULL、AfterStateはNONEまたはANONYMOUS。以降EventにはBeforeState / AfterState / AssignmentSnapshotID / Revision / ActorID / Reason / OccurredAtUTC / PreviousEventHash / EventHashを保持する。許容StateはASSIGNED / NONE / ANONYMOUS。未知State・Revision gap・Hash不一致はAssignment更新拒否・Scope隔離。
-17. Event AuthorityはEventTypeごとに固定する。PHYSICAL_RUN_CLOSEDはRun Manager、WRITER_GRANTED / WRITER_RELEASEDはRun Manager Authority RegistryのAuthority Chain専用Event（Operation Journal Eventではない）、NONE_ASSOCIATION_CREATEDは当該ScopeのSessionが存在する場合の認証済みDB Session Manager、RETRY_CLOSEDはAggregate Managerまたは権限を持つOperator、RECOVERY_OPERATION_CREATEDはRecovery Authorityのみが発行できる。ActorIDまたは権限証拠がない場合はEventを作成しない。
+17. Event AuthorityはEventTypeごとに固定する。PHYSICAL_RUN_CLOSEDはRun Manager、WRITER_GRANTED / WRITER_RELEASEDはRun Manager Authority RegistryのAuthority Chain専用Event（Operation Journal Eventではない）、NONE_ASSOCIATION_CREATEDは当該ScopeのSessionが存在する場合の認証済みDB Session Manager、RETRY_CLOSED / REQUEST_CANCELLEDはAggregate Managerまたは権限を持つOperator、ATTEMPT_INDETERMINATEはAggregate Managerの検証済みcrash判定のみ、RECOVERY_OPERATION_CREATEDはRecovery Authorityのみが発行できる。ActorIDまたは権限証拠がない場合はEventを作成しない。
 
 ### 14.5 Aggregate / Artifact
 1. Request Fingerprintは§3.1の完全Field集合を用いる。Request ID・Ordinal・時刻を含めず、計算意味条件のみを表す。Full fieldsとHashを両方保存する。
