@@ -188,3 +188,47 @@ Current Valid判定がInput Set Hash中心だが、RequestにはAssignment Snaps
 | SR-09 | 解決・旧案廃止 | CC-01によりSession LifecycleとMeasurement Outcomeを完全分離。OutcomeからLifecycleを導出しない |
 
 このDecision Overlayは初回レビューの履歴を消去せず、現行規範判断を上書き表示する。CC-01 / CC-02以外の未解決事項、v0.8.3全体の未承認状態、物理設計・実装禁止を変更しない。
+
+
+## 7. Motor / Battery正式契約の再照合（2026-11-21）
+
+### 7.1 Motor — Issue #35（唯一の現行仕様正本）
+
+参照: [Issue #35](https://github.com/hamtech86/mini4wd-ai-system/issues/35)
+
+Issue #35本文を読み、DB側の契約と境界を次のとおり再確認した。
+
+| 領域 | Issue #35で確認できた正本契約 | DB設計への影響 / 未確定 |
+|---|---|---|
+| RawLog v1 | 歴史的実測資料として原本保全。改変・削除・自動変換・推測変換・再分類しない | DB側でv1を新スキーマへ自動変換しない |
+| RawLog v2 | 現行測定目的・現行HW/配線/FWから独立設計。v1列/全項目継承義務なし。JSONL等の具体保存形式・必須任意fieldはIssue #170で定義し統括承認 | DB側は未承認のv2 schemaを推測しない。DB Measurement / RawLog Referenceが参照する正式schema version・identityは未受領 |
+| 取得値 | A0巻線電流、A1独立ブラシ観測、A4/A5電圧、A2/A3参考値。A0/A1平均禁止、A2/A3を制御・判定に使用禁止 | Measurement Sample / Profile Snapshotにセンサー意味を混同したfieldを設けない。正式なv2 field listは未受領 |
+| RawLogとAnalysis | 個体推定に生ログ使用。推定値をRawLogへ混入しない。Analysisは別途算出・推定 | Artifact InputがRawLog/Sample/Algorithmをどう参照するかはDB論理候補にあるが、Motor側正式Artifact contractはIssue #35本文にない |
+| 欠損・耐久性 | 初期段階のTelemetry/RawLog欠損は頻度・範囲を記録したうえで許容可能。全サンプル完全保存を安全要件として目的化しない | DB草案§8の全RawLog一律fsync/hash/atomic durability要求は適用範囲の分類が必要。全種類へ一律適用しない |
+| Session / Instance | Issue #35本文には、共通DBのSession ID発行・Session membership・Assignment Snapshot・遅延Associationの正式データ契約なし | DB側でMotor固有の不足属性・FK・Session semanticsを補完してはならない。共通DB統括決定を待つ |
+| Device identity | INFOのIDはFW内部識別文字列であり、物理デバイス固有IDでもMotor Instance IDでもない | Device IDをMotor Instance IDやDB Entity IDへ流用しない |
+
+### 7.2 Battery — Issue #16（E2E検証タスクであり完全データ契約ではない）
+
+参照: [Issue #16](https://github.com/hamtech86/mini4wd-ai-system/issues/16)
+
+Issue #16で確認できるのは、main統合済みと記述された旧Battery Database + Benchmark Analysisに対するE2E検証タスクである。5A DATA取り込み、CH1/CH2独立Session、Measurement保存、Feature Extraction、Benchmark Result保存、mAh/Wh/電圧降下の妥当性、Measurement不変性を検証対象としている。一方、同IssueはArduino FW変更なし、内部抵抗算出なし、評価スコア基準確定なし、STARTALLのCH1/CH2合算なしと境界を定める。
+
+このIssueだけから、以下を新DBの正式契約として確定することはできない。
+
+- Battery Model / Instance / Profileの完全属性・identity・Family制約。
+- CH1/CH2の共通Run配下Scope表現、Session生成・閉鎖条件、Assignment Snapshot semantics。
+- Measurement OutcomeとSession Lifecycleの関係（現在はCC-01が優先）。
+- RawLog v2 schema、Sample Locator、Channel metadata、Capture終端イベント。
+- Benchmark Feature / Resultの完全schema、Algorithm/Configuration version、Artifact provenance。
+- NONE late associationのSession membership、ANONYMOUSの後日取込禁止に関する例外の有無（現行CC-02に例外なし）。
+
+### 7.3 共通DB側の契約受領状況
+
+| 対象 | 正式根拠 | DB側で確定してよいこと | 未受領・禁止 |
+|---|---|---|---|
+| Motor | Issue #35 | RawLog v1/v2の境界、センサー意味、推定値とRawLogの分離、Telemetry欠損許容、Device IDの意味 | Motor固有DB schema、Session/Assignment完全契約、Artifact schemaを補完しない |
+| Battery | Issue #16 | E2E検証の対象・境界とCH1/CH2独立性の検証要求 | Issue #16を完全データ契約と見なさない。Battery担当へ直接指示・実装変更しない |
+| Shared DB | Issue #210 CC-01/CC-02、Issue #201等 | Session Lifecycle / Outcome分離、NONEとANONYMOUSの境界 | NONE Session membershipの統括決定がない限り関連付け規則を確定しない |
+
+**結論:** Motorの正本契約はDB側で上書きしない。Batteryの現存IssueはE2E taskにとどまり、新DBの完全データ契約としては不足する。両者の不足をDB部門が推測で埋めず、統括経由で正式契約を受領する必要がある。これは契約照合であり、Motor/Battery実装の変更指示ではない。
