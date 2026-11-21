@@ -792,3 +792,24 @@ Main §3とState Matrix §5の差分について、未決定事項を選択肢�
 
 ### 33.3 判定
 分離・不変性・遅延旧RequestのCurrent Valid昇格禁止・Input Set Hash単独判定禁止・Retry終端の明示証拠要求は、現行資料から最低限維持できる。完全Fingerprint schema、順序キー、Retry Closed authority、Pointer concurrencyは決定待ち。Main §3は変更していない。
+
+
+## 34. RawLog durability条件の適用範囲・証拠不足（2026-11-21）
+
+Main §8のRawLog durability条件を、Motor Issue #35 / #170およびBattery Issue #16と照合した。
+
+### 34.1 確認できたこと
+- Main §8はfile fsync相当、read-back SHA-256、Path衝突検査、Atomic Rename、directory fsync相当、final read-back hash、Journal completion Event、PENDING_RECOVERY、同一ID/Hash冪等再試行を論理受入条件として列挙する。
+- Motor Issue #35はRawLog v1保全・非変換、v2独立Schema、保存形式等をIssue #170で定義する責務境界を明示する。Issue #170本文は通信・Python入力・RawLog v2 schema/validationを定義する作業を記載するが、Main §8の全Filesystem durability要件が確定済みであることは確認できない。
+- Battery Issue #16は5A E2E検証であり、Battery固有のRawLog durability / retention / loss toleranceを定義していない。
+
+### 34.2 未閉鎖条件
+RawLog ID発行Authority、Expected Hash対象byte範囲、Path grammar、Temp file ownership / orphan recovery、completion Event schema、PENDING_RECOVERY判定・Recovery authority、duplicate ID/pathの意味、Retention / loss toleranceが未定義。これらがないまま物理方式・実装・Restore完了を合格扱いしない。
+
+### 34.3 受入ゲートを分離
+- 論理契約: ID / Hash / Path / Event / retry / quarantine semantics。
+- 物理Filesystem: fsync / directory fsync / rename / read-back / crash durability。
+- 機器別契約: Motor v2 / Battery RawLog schemaとCapture終端。
+- Restore: partial / missing / duplicate / hash mismatchを証拠別に判定。
+
+Main §8の要求はDB論理案として残すが、各OS/filesystemで実証済みとは扱わない。Batteryへ同じ方式を適用するとも決めない。実装変更なし。
