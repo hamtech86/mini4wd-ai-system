@@ -141,6 +141,15 @@ Sessionの表示用サマリーを設ける場合も、Measurement Outcome別件
 | SES-015 | RawLog Telemetry欠損のみ | Telemetry欠損を記録。Measurement Outcomeを自動ERROR/INCOMPLETEにしない |
 | SES-016 | Anonymous Measurement | DB Session / DB Measurementを作らず、外部正本と匿名RawLogを維持 |
 
+| SES-017 | 初回ASSIGNED後、Measurement 0件 | Session OPEN。NOT_STARTED等へ変化しない |
+| SES-018 | Session OPEN、全Measurement COMPLETE | Session OPENを維持 |
+| SES-019 | Session OPEN、全Measurement ERROR / STOP | Session OPENを維持 |
+| SES-020 | COMPLETE / STOP / ERROR / CANCEL混在 | 各Measurement Outcomeを保持。Session LifecycleはOPEN |
+| SES-021 | STOP ACK / 最終Telemetry / app exit / inactivityのみ | 明示Close OperationなしではCLOSEDにしない |
+| SES-022 | 明示Close Operation + Capture終端/明示放棄/保留 + 参照検証成功 | CLOSED許可 |
+| SES-023 | Close時に未終端Capture / 参照不整合 | CLOSED拒否。OPEN維持またはQUARANTINED |
+| SES-024 | Close Operationの外部正本欠落 / Hash不一致 | CLOSED拒否。OPEN維持またはQUARANTINED |
+
 これらは提案テストIDであり、既存V082-001〜053との対応・採番統合は未実施。合格実行済みを意味しない。
 
 ## 7. 未解決事項
@@ -160,3 +169,6 @@ Issue #210のCC-01統括判断に従い、Session Lifecycle（NOT_CREATED / OPEN
 CLOSEDはRun管理側の明示的Close Operationが外部正本に記録され、その記録と依存参照を検証できた場合に限る。これは論理Run管理イベントであり、機器プロトコル・STOP ACK・最終Telemetry・アプリ終了等を変更・代用する指示ではない。Close Operationの詳細とMeasurement Capture終端契約は引き続き照合対象である。
 
 本資料はCC-01の判断反映案であり、v0.8.3全体の承認、物理設計、DDL、DB生成、Migration、実装を許可しない。
+
+
+補足: V082-001〜005 / 007にあるNOT_STARTED / COMPLETED / PARTIAL / IN_PROGRESS / FAILED等のSession集約期待値は、Issue #210 CC-01で現行Lifecycleとして廃止された旧案である。これらの語彙をSession Lifecycleへ再導入しない。現行受入ケースはSES-017〜024を含む本書のCC-01契約を優先する。
