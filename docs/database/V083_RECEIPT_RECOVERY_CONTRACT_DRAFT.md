@@ -756,6 +756,8 @@ Physical Run Writer Authorityを持つことと、Operation Ordinal / Receipt Ev
 - 証拠が完全一致すれば既存Operationの状態を進める。
 - 競合・欠落・不正Tail・Hash不一致・Writer Epoch不明はQUARANTINED。
 - QUARANTINED元証拠は変更しない。Recoveryは別Operationで記録する。
+- DB Run / Session Mirrorは、DB unavailable開始前に有効AssignmentのManifest Source Commitが検証済みで、Entity IDがIntent / Receiptに固定され、Source Chain / Receipt / Expected ID / DB状態をRecovery Authorityが検証できた場合に限り、復旧後に同一IDで再構築できる。既存Mirrorがあれば冪等no-op、ID競合・Source不一致・Commit結果不明はQUARANTINED。これは新規Identity発行やオフラインASSIGNEDの成立ではない。
+- DB unavailable期間のCapture / Measurement / RawLogはAssignment-at-Measurement=ANONYMOUSとして外部正本のみへ保持し、復旧後もDB取込・Measurement Mirror化・Associationしない。Run / Session Mirror再構築とMeasurement取込を混同しない。
 - 物理的なEpoch fencing / Atomic append / fsync / SQLite transactionの実装方式は選択しないが、Main §14.8の実証Gateを満たさない実装は不採用。
 
 ### 22.2 Event Registry / Authorityの固定
