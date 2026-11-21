@@ -399,7 +399,7 @@ Request StateとAttempt StateをMain §3.2で固定。Retry ClosedはFAILED Atte
 
 ### SR-12 / SR-16 / SR-18の閉鎖
 1. Issue #210 CC-02が許可したNONE後日Associationを、既存DB管理Measurementに対する明示的なInstance関連付け履歴として定義した。AssociationはAssignment-at-Measurementを変更せず、Current Aggregateへ算入せず、Session membershipも変更しない。
-2. Session membershipはMeasurement Mirror初回登録時点で同一Physical Run / ScopeのSessionが存在する場合に固定する。Session生成前のNONE Measurementは後日の初回ASSIGNED後もSessionへ遡及所属しない。Session生成後のNONE Measurementは登録時点でmembershipを固定する。
+2. Session membershipはMeasurement Mirror初回登録時点で同一Physical Run / ScopeのSessionが存在する場合に固定する。Session生成前のNONE Measurementは後日の初回ASSIGNED後もSessionへ遡及所属しない。Session生成後のNONE Measurementは登録時点でmembershipを固定する。 採用理由は既存の「Session生成後に登録されたMeasurement集合」という規則の維持と、存在しないSessionへの遡及接続防止。不採用案は、(A)初回ASSIGNED時の過去NONE自動一括追加、(B)Association時のSession membership追加・移動、(C)Session存在中のNONE MeasurementをSession外にする案。A/Bは履歴の遡及変更、Cは既存membership定義との矛盾を理由に不採用。
 3. NONE AssociationのEvent Authorityは、Session Entityの存在有無で発行権限を失わないよう、当該Physical Run / Scopeの認証済みDB Session Managerとした。Event RegistryにはNONE_ASSOCIATION_CREATED / NONE_ASSOCIATION_CLOSEDを登録。AssociationOrdinal・Active / Closed・CloseReason・再関連付け順序・Source CommitのEvent集合・DB Marker同一TransactionをMain §14.1.5で定義した。これは論理Authority / 原子性契約であり、実装・権限・crash実証済みを意味しない。
 
 ### Issue #201との矛盾修正
