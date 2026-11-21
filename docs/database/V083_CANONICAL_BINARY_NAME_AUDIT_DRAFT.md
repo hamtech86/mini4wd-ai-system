@@ -371,3 +371,15 @@ Beyond the Entity sample checks in §15, the 10 generic Field-type vectors in §
 The two DB_RUN / RUN_SCOPE vectors in Main draft §5.5 were separately recalculated and matched exactly (2/2). The additional NULL / EMPTY / delimiter / NFC / NFD examples in Main draft §5.5 remain byte-consistent with the previously recorded independent check.
 
 This is byte-level reproduction of published sample inputs only. It does not prove that the Entity schemas are semantically correct, that every Inventory entity has a schema, that values meet per-Field domains, that Namespace is safe/approved, or that UUIDv5 implementations interoperate.
+
+## 19. Canonical Identity方式の最終決定（2026-11-21）
+
+**決定: UUIDv5 / Canonical Binary Name v2 / Namespaceはv0.8.3で不採用。**
+
+- 新規独立Entity IDは暗号学的乱数源によるUUIDv4。IDは作成時に外部正本へ記録し、Restore時に再発行しない。
+- Receipt IDもUUIDv4としてIntentに固定する。Operation IDからの決定的導出は廃止。
+- 構造化Payloadの整合性HashはMain §5.2のM4W-JCS-1 / SHA-256。RawLogは原本全byteのSHA-256。
+- §6〜§18の既存Canonical byte vectorsは候補方式の監査記録として保管するが、UUIDv5採用・実装のPASS根拠にはしない。
+- Namespace既存利用調査とUUIDv5 RFC vectorsはv0.8.3の承認条件から除外。M4W-JCS-1のJCS conformance testとPayload schema testは実装前の受入試験として残す。
+
+CBN-01〜08の未解決表現は、UUIDv5を採用しないことでv0.8.3のIdentity設計判断から切り離す。
