@@ -91,7 +91,54 @@
 
 また、Canonical Nameで識別するEntityと、Content Hashで識別する不変ファイル / Payloadを区別する必要がある。同じ概念にEntity UUIDとContent Hashのどちらを正本識別子として使うか、混同しない。
 
-## 6. 完成判定のゲート
+## 6. Canonical Identity Coverage Matrix（2026-11-21）
+
+この表はEntity Inventory 23種とMain draft §5.3のCanonical Field Schemaを対応照合したもの。ここでいう「Schemaあり」はCanonical NameのUUIDv5採用承認を意味せず、Namespace・Field domain・UUIDv5出力も未承認である。
+
+| # | Entity Inventory | §5.3 schema | 現在の判定 | 不足 / 注意 |
+|---:|---|---|---|---|
+| 1 | Physical Run / Run Manifest | — | 未定義・UUIDv4候補 | PhysicalRunIDはUUIDv4として記載。ManifestはContent Hashと別にIDを持つか未定義。UUIDv5を追加しない |
+| 2 | DB Run | DB_RUN | Schemaあり・部分 | PhysicalRunIDのみ。DBRun ID生成規則はNamespace未承認 |
+| 3 | RUN_SCOPE | RUN_SCOPE | Schemaあり・部分 | PhysicalRunID + ScopeKey。ScopeKey domain/正規化/長さが未確定 |
+| 4 | Assignment Snapshot | — | 未定義 | Snapshot ID / Revision / Scope composite identityのどれを使うか未決定 |
+| 5 | Assignment History / Event | — | 未定義 | Operation eventとの同一性、OperationID + Ordinalの適用範囲を未決定 |
+| 6 | Session | SESSION | Schemaあり・部分 | PhysicalRunID + ScopeKey。Lifecycle・Run closeとの整合は別途必要 |
+| 7 | Measurement Envelope | — | 未定義 | MeasurementIDの発行方式、Envelope Hashとの識別関係を未決定 |
+| 8 | Measurement Profile Snapshot | — | 未定義 | Snapshot ID、Profile ID + revision、Content Hashのどれが識別子か未決定 |
+| 9 | RawLog Object / RawLog Reference | RAWLOG_REFERENCE | Referenceのみ | Object本文はContent Hash / immutable object identityの区別が未定義。Reference schemaをObjectへ流用しない |
+| 10 | Sample Reference | SAMPLE_REFERENCE | Schemaあり・部分 | RawLogReferenceID + SampleLocator。Locator grammarとdomain uniqueness未確定 |
+| 11 | Measurement Sample Link | MEASUREMENT_SAMPLE_LINK | Schemaあり・部分 | MeasurementID + SampleReferenceID + Role + Ordinal。Role / Ordinal domain未確定 |
+| 12 | Operation Journal / Intent | — | 未定義 | OPERATION_EVENTとの対応は未確定。Intent本体とEventを同一視しない |
+| 13 | Receipt Envelope | RECEIPT | Schemaあり・部分 | OperationIDのみ。ReceiptIDの独立発行 / OperationIDからの決定的生成を確定していない |
+| 14 | Receipt Event | RECEIPT_EVENT | Schemaあり・部分 | ReceiptID + EventOrdinal。EventType domain / ordinal規則未確定 |
+| 15 | DB Operation Marker | — | 未定義 | OperationIDで一意に特定するMirrorか、独立Marker IDを持つか未決定 |
+| 16 | Analysis Artifact | — | 未定義 | ArtifactIDの発行方式とPayload Content Hashの区別未定義 |
+| 17 | Simulation Artifact | — | 未定義 | Analysis Artifactと共通ID Schemaか、別Entity Typeか未定義 |
+| 18 | Artifact Input | ARTIFACT_INPUT | Schemaあり・部分 | ArtifactID + InputType + InputReferenceID + Role + Ordinal。InputType domainとpolymorphic identity未確定 |
+| 19 | Aggregate Request | — | 未定義 | RequestIDの発行方式 / Request Fingerprintとの区別未定義 |
+| 20 | Aggregate Attempt | — | 未定義 | AttemptID / RequestID + AttemptOrdinalのどちらで識別するか未定義 |
+| 21 | Aggregate Result Revision | AGGREGATE_RESULT_REVISION | Schemaあり・部分 | DBRunID + Revision。Scope単位かRun単位か、revision domain未確定 |
+| 22 | Aggregate Pointer | — | 派生・identity要否未決定 | 派生参照であり独立UUIDを持たない可能性。Pointer Scope / keyを定義する |
+| 23 | Recovery Operation / Integrity Report | — | 未定義 | Recovery Operation IDとIntegrity Report ID / Content Hashの区別未定義 |
+
+### 6.1 Canonical Schema側の孤立・未対応定義
+
+- Main draft §5.3の `OPERATION_EVENT(OperationID, EventOrdinal)` は、Entity Inventory 23種のいずれかへ一意に対応付けられていない。
+- Assignment History / EventまたはOperation Journal Eventの候補にはなるが、Intent本体、Assignment Snapshot、Operation Eventを同一Entityと断定しない。
+- §5.3には11 schema row（うちTEST_VALUEは別の汎用vector用途）がある。Entity Inventory 23種のうち10種に直接対応するschemaがある。13種はschema未定義、OPERATION_EVENT 1種はinventoryへの対応が未確定。
+- 「schema未定義」はUUIDv5を必ず追加すべきという意味ではない。既存UUIDv4、親ID+ordinal、Content Hash、自然キー、派生Pointerのいずれが適切かをAuthorityと更新・保持規則から決める。
+
+### 6.2 次に確定すべき分類ルール
+
+1. **Identity UUID**: Entityそのものの永続ID。UUIDv4かUUIDv5かをEntityごとに決める。
+2. **Composite identity**: 親ID + Revision / Ordinal / Scope等で一意になる行。独立UUIDの必要性を証明してから採用する。
+3. **Content Hash**: 不変ファイル・Payloadの内容同一性。Entity UUIDの代用と混同しない。
+4. **Derived Pointer**: 最新参照・検索状態。正本IDを新規発行せず再構築できるか検討する。
+5. **External event identity**: OperationID / EventOrdinal等のEvent ID。Journal IntentとEventの境界を定義する。
+
+この分類を埋めるまでは、23 EntityすべてへのUUIDv5適用・Namespace採用・Canonicalization完成を宣言しない。
+
+## 7. 完成判定のゲート
 
 このInventoryを完成扱いにするには、各Entityについて次を個別に埋める必要がある。
 1. 正式名称 / 定義 / 責務。
