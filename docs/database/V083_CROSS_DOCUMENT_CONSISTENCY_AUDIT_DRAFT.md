@@ -241,3 +241,59 @@ A read-back audit found that the ledger's range inventory still described DB-001
 A targeted retrieval also resolved an ID conflict in fragments for DB-015〜017. The retained mapping is DB-015 = Session reassociation with history append; DB-016 = RawLog reassociation with history append; DB-017 = Analysis rerun preserving prior results. Conflicting snippets that assigned RawLog metadata changes or RawLog Session/Instance association to these IDs are not used. This remains conversation-derived evidence, not recovery of the original v0.2 specification.
 
 No V082 crosswalk match is promoted: similarity is insufficient without matching preconditions, action, and expected result. DB-057〜124 individual definitions remain unrecovered. This correction does not approve the legacy requirements or authorize DDL, DB generation, migration, Restore execution, implementation, PR, or main changes.
+
+
+## 16. 追加監査 — Entity属性・存在証拠・Receipt Recovery（2026-11-21）
+
+### 16.1 Entity 23種の属性・制約カバレッジ
+
+Entity Inventory Gap Register §8に23 Entity個別のカバレッジ表を追加した。属性・型・NULL・一意性・参照/Cardinality・Identity分類・Lifecycle/保持・未確定事項を、Main draft等に明記された範囲に限定して記載した。
+
+- 23/23 Entityについて明記済み / 部分 / 未定義の境界を整理。
+- 23/23の完全属性・制約が完成したとは判定しない。
+- Canonical Schemaのある10 Entityでも、SchemaはIdentity候補Fieldの一部にすぎず、全属性表を代替しない。
+- 13 EntityはCanonical Schema未定義。OPERATION_EVENTはInventoryへの対応自体が未解決。
+- 一般的なDB慣行から属性・FK・NULL・Retentionを補完しない。UUIDv5を未定義Entityへ自動追加しない。
+
+### 16.2 DB-001〜124の存在確認レベル
+
+Evidence Ledger §10に、EXISTS_CONFIRMED / EXISTENCE_EVIDENCED_CONTENT_MISSING / EXISTENCE_POSSIBLE_NOT_FOUND / EXISTENCE_UNCONFIRMED / LIKELY_NOT_CREATED / SEARCH_INCOMPLETEを定義した。
+
+現時点の判定:
+- DB-001〜056: 会話記録上の短縮定義は確認済み。原本仕様書・正式承認・番号付き実装テストの存在は未確認。
+- DB-057〜078: 範囲履歴のみ。個別本文未回収、存在した可能性はあるが未発見。
+- DB-079〜109: 維持指示の範囲履歴のみ。各試験実物の存在は未確認。
+- DB-110〜124: 追加対象の範囲履歴のみ。個別成果物の存在未確認。
+- 現時点でLIKELY_NOT_CREATEDと確定した範囲はない。これは存在を前提とする意味ではなく、未作成と高確度に判断する否定証拠も不足しているため。
+
+2026-11-21にGitHub default-branch code search、Issue #207全コメント、Issue/PR searchを追加確認したが、DB-057〜124個別本文の実物は取得できなかった。Code Searchはdefault branch対象であり、非default / 削除済みbranch、全commit tree、過去会話全文、Library全体を網羅しない。検索0件を不存在証明としない。
+
+### 16.3 Receipt Recoveryのクラッシュ点再監査
+
+Receipt Recovery Contract §12に追加監査を記録した。
+
+整合している候補:
+- Intent → Envelope/PREPARED → Source Commit → DB Marker/Mirror Commit → VERIFIEDの順序。
+- Source Commit後はABORTED禁止、同一Operation再開。
+- DB MarkerとMirrorの同一Transaction、Commit結果不明時のMarker読戻し。
+- VERIFIED / ABORTED不変、QUARANTINEDの解決は新Recovery Operation。
+
+未解決:
+- PREPARED / SOURCE_COMMITTED / DB_COMMITTED / VERIFIED / ABORTED Event自体の部分書込み。
+- Event Ordinalの予約・消費と部分Tailの補完条件。
+- 同一Receiptへの並行Recovery、stale lock / fencing。
+- Manifest Head更新の競合・compare-and-swap相当の条件。
+- DB Commit後の読戻し一貫性 / Isolation前提。
+- Intent / Receiptの完全Canonical payloadと自己Hash除外規則。
+- Receipt ID決定的導出の根拠とNamespace承認。
+- Main draft §2.1との項目単位同期。
+
+よってDB-RV-03を解消済みとは判定しない。物理耐久性・filesystem / DB durabilityは未実証であり、Issue #35のRawLog契約を一律拡張しない。
+
+### 16.4 CC-02 Session membership
+
+NONE late associationの対象MeasurementがSessionに属する条件は引き続き未決定。Existing-Session-only / Detached-Measurement / Session-link-on-associationの3案を維持し、DB部門のExisting-Session-only推奨は未採択。統括から追加判断がないため、Main draftの確定規則として閉じない。
+
+### 16.5 作業境界
+
+今回の変更は専用ブランチのdocs/database文書のみ。v0.8.2 ORANGE、v0.8.3未承認、UUIDv5 Namespace未承認を維持する。DDL / DB生成 / Migration / Restore実行 / 実装 / PR / main反映 / mergeは行わない。
