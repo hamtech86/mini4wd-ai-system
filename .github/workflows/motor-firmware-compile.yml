@@ -7,10 +7,14 @@ on:
       - fix/firmware-stop-disables-voltage-control-20261021
     paths:
       - "firmware/motor/MotoreRev.ino"
+      - "firmware/motor/PwmDetectSequence.h"
+      - "tests/firmware_safety/test_pwm_detect_sequence.cpp"
       - ".github/workflows/motor-firmware-compile.yml"
   pull_request:
     paths:
       - "firmware/motor/MotoreRev.ino"
+      - "firmware/motor/PwmDetectSequence.h"
+      - "tests/firmware_safety/test_pwm_detect_sequence.cpp"
       - ".github/workflows/motor-firmware-compile.yml"
   workflow_dispatch:
 
@@ -36,6 +40,10 @@ jobs:
         run: |
           g++ -std=c++11 -Wall -Wextra -I tests/firmware_safety tests/firmware_safety/test_motor_firmware_safety.cpp -o /tmp/motor_firmware_safety_test
           /tmp/motor_firmware_safety_test
+      - name: Run PWM detect sequence unit tests
+        run: |
+          g++ -std=c++11 -Wall -Wextra -Werror tests/firmware_safety/test_pwm_detect_sequence.cpp -o /tmp/pwm_detect_sequence_test
+          /tmp/pwm_detect_sequence_test
       - name: Compile for Arduino Uno
         run: arduino-cli compile --fqbn arduino:avr:uno --output-dir build/uno /tmp/MotoreRev
       - name: Record HEX SHA-256
