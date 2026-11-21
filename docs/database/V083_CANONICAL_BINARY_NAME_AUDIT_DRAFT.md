@@ -1,4 +1,6 @@
-# UUIDv5 Canonical Binary Name v2 — 独立監査メモ（ドラフト）
+# UUIDv5 Canonical Binary Name v2 — 不採用決定・歴史監査メモ
+
+> **Decision Overlay:** §19によりUUIDv5 / Canonical Binary Name v2 / Namespaceはv0.8.3で不採用。§1〜§18は過去候補方式の監査記録であり、現在のID発行仕様ではない。
 
 - 基準日: 2026-11-21
 - 対象: `COMMON_DB_LOGICAL_DESIGN_v0.8.3_REMEDIATION_DRAFT.md` §5.2〜5.5
