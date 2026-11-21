@@ -198,3 +198,18 @@ Requestは不変。Attemptは実行ごとに新規作成。FAILEDを確定する
 | RCP-007 | Manifest append / Head更新途中で結果不明 | 部分Tail / Head / Commit証拠 | 後続Commitを停止し、黙示切捨て・Head推測再構築を禁止 |
 
 これらは論理受入試験案であり、実装・実行・PASSを意味しない。Manifest履歴の物理構造やCAS方式は定義しない。
+
+
+## 9. Manifest後続Commit・Writer交代・Recovery Authorityの受入ケース追加
+
+| Test ID | 条件 | 必須証拠 | 期待扱い |
+|---|---|---|---|
+| RCP-008 | Operation AがManifest Commit後に停止し、後続Operation CがHeadを進めた | A/CのCommit identity、Expected predecessor、Commit Payload Hash、Head ancestry | AのCommitがCの祖先として検証できればAをSource Committedと認定可能。現Head≠Aだけで不成立としない |
+| RCP-009 | A/Bが同じExpected predecessorを使い、両方がCommit成功を主張 | 両OperationのCommit証拠とManifest履歴 | 同一predecessorからの競合Commitを検出し、両方を正当な単一系列として扱わない |
+| RCP-010 | Writer AからBへ交代後、Aが古いAuthorityで復帰し更新 | Authority交代証拠、Owner identity / generation等の論理証拠 | 旧Writerの更新を拒否できる証拠が必要。拒否を証明できなければ更新停止・隔離 |
+| RCP-011 | Authorityが期限切れに見えるが旧Writerの停止を証明できない | Authority状態・Writer更新履歴 | 時刻だけで旧Writer停止を推定しない。新Writerの有効化を保留 |
+| RCP-012 | Recovery要求があるが発行Actor / Scope / 権限が未定義 | Recovery要求と元Receipt / Run証拠 | 元Receipt / Manifestを変更しない。Recovery Operationの発行を保留 |
+| RCP-013 | Recovery Operationが元Receipt Event Chainを修復しようとする | 元Receipt不変条件とRecovery Authority定義 | Authority・許可操作が明示承認されるまで修復・追記禁止 |
+| RCP-014 | Physical Run lockは単一でも、共有DBで別Runのtransactionが競合 | 各Run AuthorityとDB transaction結果 | Physical Run単一WriterだけでDB全体の排他を推定しない。DB側競合は別途検証 |
+
+これらは未実行の論理受入ケース案である。Authority generation、lease、fencing token、OS lock、CAS、DB isolation等の具体方式を定義・採用しない。
