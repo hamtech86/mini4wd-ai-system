@@ -288,3 +288,18 @@ Entityごとの照合結果・未決事項は `V083_ENTITY_INVENTORY_GAP_REGISTE
 | UUIDv5 RFC vector / 2実装相互照合 | 未実施 |
 
 **監査結論:** Canonical Nameの正常値vector作成済み範囲と、Entity Inventory全体のIdentity設計完成は別工程である。v0.8.3は引き続き未完成・未承認。
+
+
+## 15. §5.5 / §6 Entity vector independent recalculation (2026-11-21)
+
+The fixed sample inputs for all 11 §5.3 Schema rows were independently re-encoded from the documented v2 grammar (Header, Entity Type length/name, Field Count, Type Tag, Payload Length, and payload bytes).
+
+| Vector group | Cases | Result |
+|---|---:|---|
+| §5.5 baseline | DB_RUN, RUN_SCOPE | 2/2 exact match |
+| §6 Entity additions | SESSION, OPERATION_EVENT, RECEIPT, RECEIPT_EVENT, RAWLOG_REFERENCE, SAMPLE_REFERENCE, MEASUREMENT_SAMPLE_LINK, ARTIFACT_INPUT, AGGREGATE_RESULT_REVISION | 9/9 exact match |
+| **Total** | **11 Entity Schema rows** | **11/11 exact match** |
+
+The recalculation confirms the byte strings for the documented sample inputs. It does not validate the appropriateness or completeness of each Entity Field Schema, field-domain restrictions, UUIDv5 output, Namespace, uniqueness, or full Entity Inventory coverage.
+
+The Inventory coverage matrix is now in `V083_ENTITY_INVENTORY_GAP_REGISTER_DRAFT.md` §6. It identifies 10 direct mappings, 13 Inventory entities without a defined Schema, and one `OPERATION_EVENT` Schema whose Inventory mapping remains unresolved. This reconciles the apparent difference between 11 schema rows and 23 logical entities without inventing UUIDv5 identities.
