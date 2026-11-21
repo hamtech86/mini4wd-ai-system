@@ -718,10 +718,13 @@ Physical Run Writer Authorityを持つことと、Operation Ordinal / Receipt Ev
 
 ### 22.2 Event Registry / Authorityの固定
 - Receipt EventTypeはPREPARED / SOURCE_COMMITTED / DB_COMMITTED / VERIFIED / ABORTED / QUARANTINEDのみ。未知値は拒否。
-- Operation Journal EventTypeはMain §14.4(14)のINTENT_PERSISTED / CANCEL_REQUESTED / SOURCE_COMMIT_RECORDED / DB_MARKER_COMMITTED / PHYSICAL_RUN_CLOSED / NONE_ASSOCIATION_CREATED / ATTEMPT_STARTED / ATTEMPT_SUCCEEDED / ATTEMPT_FAILED / ATTEMPT_CANCELLED / ATTEMPT_INDETERMINATE / RETRY_CLOSED / REQUEST_CANCELLED / RECOVERY_OPERATION_CREATED / INTEGRITY_REPORT_CREATEDに固定する。未知値は拒否。
+- Operation Journal EventTypeはMain §14.4(14)のINTENT_PERSISTED / CANCEL_REQUESTED / SOURCE_COMMIT_RECORDED / DB_MARKER_COMMITTED / PHYSICAL_RUN_CLOSED / NONE_ASSOCIATION_CREATED / NONE_ASSOCIATION_CLOSED / ATTEMPT_STARTED / ATTEMPT_SUCCEEDED / ATTEMPT_FAILED / ATTEMPT_CANCELLED / ATTEMPT_INDETERMINATE / RETRY_CLOSED / REQUEST_CANCELLED / RECOVERY_OPERATION_CREATED / INTEGRITY_REPORT_CREATEDに固定する。未知値は拒否。
 - Operation Journal EventOrdinalはOperation単位で1から連続。Assignment History EventOrdinalはScope単位で1から連続。Receipt EventOrdinalはReceipt単位で1から連続。Ordinalを相互流用しない。
 - Writer Grant / ReleaseはOperation Journal EventではなくAuthority Registry Chainに記録し、(PhysicalRunID, Epoch)で識別する。
 - Event発行ActorはMain §14.4(17)のEventType別Authorityを満たす必要がある。Actor / Authority proof欠落は作成拒否。
+- NONE AssociationはMain §14.1.5に従い、AssociationOrdinal=(Measurementごとの1始まり連続Ordinal)、History Record identity=(MeasurementID, AssociationOrdinal)、Event identity=(OperationID, EventOrdinal)。CREATEDはTargetInstanceID等を保持し、CLOSEDはPreviousCreatedEventRef / CloseReasonを必須とする。
+- Active AssociationはCreated後にClosedされていない状態。MeasurementごとActive最大1件。Closeは現在ActiveのOrdinalのみ。Reassignmentは同一Operation内のCLOSED→次Ordinal CREATEDの順。Operation Planで必要Event集合を固定し、Source Commitは集合全体を束ねる。DB Mirror更新とOperation Markerは同一Transaction。
+- Close / Createの片方欠落、partial tail、順序違反、Hash mismatch、Commit結果不明はOperation / ScopeをQUARANTINEDとし、元Eventの補修・削除・再採番、後続Association更新を禁止する。
 
 - Recovery AuthorityはBootstrapで登録されたPROJECT_RECOVERY_ADMIN principalに限定。Recovery Operationは元証拠を変更せず、v0.8.3ではQUARANTINED解除を行わない。
 - Writer Grant / ReleaseはOperation Journal EventではなくAuthority Registry Chainに属する。
