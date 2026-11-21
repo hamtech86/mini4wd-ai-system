@@ -267,3 +267,36 @@ NOT_CREATED_CONFIRMED / RETIRED_NOT_CREATEDへの変更は、個別成果物が�
 ### 8.4 審査への影響
 
 このOverlayは証拠管理上の処理であり、旧要件の正式承認・廃止、V082 crosswalkの完了、現行受入条件の変更、v0.8.3承認を意味しない。SR-10の未解決事項のうち、旧ID来歴の証拠管理と未回収時の暫定処理は本Overlayで整理したが、個別原文・正式性・V082対応・実装トレーサビリティは未解決のまま残す。物理設計・DDL・DB生成・Migration・Restore実行・実装・PR・main反映の禁止を維持する。
+
+
+## 9. 2026-11-21 DB-RV横断照合の追加所見
+
+### SR-12 — NONE AssociationとSession membershipの境界が未定義
+**重大度: HIGH / DB-RV-01・02・08**
+
+Issue #210 CC-02はNONE期間の既存DB管理Measurementについて明示Associationを許容する一方、Session membershipの条件・関連付け先Sessionの適格性は決めていない。Main §1.2(6)の「Session生成後にDBへ登録されたMeasurement集合」と、NONE Associationの関係が未定義。Session生成前のNONE Measurementと、Session生成後のNONE Measurementを分け、membership / audit-only / exclusionのどれかを統括判断対象として明確化する。ANONYMOUSは後日取込・membership追加とも禁止。
+
+### SR-13 — Aggregate Request FingerprintがMainと補助Matrixで不一致
+**重大度: HIGH / DB-RV-04**
+
+Main §3.2 / §3.3はCurrent Validの主条件をInput Set Hash一致としている。一方State Matrix §5.1はRequest ID、Scope / DB Run、Input Set Hash、Assignment Snapshot Set Hash、Algorithm / Configuration Version、Measurement / Profile / Policy Revision、Aggregate Definition Versionを含むFingerprintを要求する。Mainへ同期する前にFingerprintの完全Field集合・順序・Hash対象と、Latest Successfulの順序、Retry Closedの証拠を決定する必要がある。
+
+### SR-14 — Artifact / SimulationのEntity境界とPolymorphic Inputが未完成
+**重大度: HIGH / DB-RV-05**
+
+Main §4はDAG不変性・循環拒否・Input Set Hashの骨格を定義するが、Entity InventoryではAnalysis Artifact / Simulation Artifactの共通性、Artifact Inputの全InputType・参照Entity型・Role / Ordinal / NULL / uniqueness、IDとPayload Hashの区別が未定義。一般的なpolymorphic FK方式を推測採用しない。
+
+### SR-15 — Canonical Identity Schemaの対象範囲不足
+**重大度: BLOCKER / DB-RV-06**
+
+Main §5.3の11 Schema rowsはEntity Inventory 23種の全体を覆わない。直接対応10種、未定義13種、OPERATION_EVENTのInventory対応未確定。29 Expected Hexの構造検査29/29通過はbyte syntaxの検査であり、Entity domain / UUIDv5 / Namespace / 2実装一致を証明しない。23 EntityのIdentity分類・完全Field Schema・boundary vectorsが閉じるまでCanonicalization完了としない。
+
+### SR-16 — External Source / DB Mirror / RestoreのEntity単位契約が未完成
+**重大度: HIGH / DB-RV-07**
+
+外部正本優先・DB Mirror再生成の基本方針はあるが、Entityごとの完全なAuthority、Restore Phase A/B証拠、Mirror再生成可能性、RawLog durabilityの種別境界が未完了。Issue #35のTelemetry欠損許容を無視して全RawLogへ一律完全耐久性を要求しない。Motor/Battery正式契約を統括経由で受領してから照合する。
+
+### SR-17 — DB-001〜124 / V082のトレーサビリティ未確定
+**重大度: BLOCKER / 統括再提出条件**
+
+DB-001〜056は会話由来短縮定義のみ、DB-057〜124は個別本文未回収。V082-001〜053は全件未対応付けで、確定対応・部分対応・重複・未カバー確定は各0。これは試験が存在しない・要件がないという意味ではない。原文未回収IDは参照専用・実行不可で凍結し、DB-032等の旧期待値はCC-02との競合を明示する。DB-007のNONE Session意味は原文確認まで未決定。
