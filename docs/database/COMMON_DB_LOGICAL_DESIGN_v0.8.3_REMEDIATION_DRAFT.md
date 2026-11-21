@@ -156,11 +156,11 @@ Journal Intent、Receipt Envelope、Receipt Event、Source Commit Record、DB Ma
 - 構造化PayloadのHashはSHA-256を使用し、RFC 8785 JSON Canonicalization Schemeに従うUTF-8バイト列を入力とする。
 - Duplicate JSON key、invalid Unicode scalar、NaN / Infinity、浮動小数点数、未知Schema Version、未知Entity Type / Fieldは拒否する。欠落FieldとNULLは区別する。
 - 整数はIEEE-754 safe integer範囲（-(2^53-1)〜+(2^53-1)）に限定する。範囲外整数と精度が必要な測定値・小数値は正規化済みDecimal文字列（指数表記・先頭+・不要な先頭/末尾0・負の0を禁止）で表し、JSON numberとして格納しない。
-- Timestampはtimezone-aware値のみ受け入れ、UTCへ変換し、YYYY-MM-DDTHH:mm:ss.ffffffZの6桁小数秒で固定する。naive timestamp、microsecond未満の精度、範囲外値は拒否し、丸めない。
-- Unicodeは正規化・case-foldを行わず、入力されたUnicode scalar列をそのまま保持する。JCSの文字列順序規則に従う。見た目が同じ文字列でもcode point列が異なれば異なるHashとなる。Decimal文字列は指数表記・先頭+・不要な先頭ゼロ・不要な小数末尾ゼロを禁止し、負の0は0へ正規化する。
+- Timestampはtimezone-aware値のみ受け入れ、UTCへ変換し、YYYY-MM-DDTHH:mm:ss.ffffffZの6桁小数秒で固定する。naive timestamp、microsecond未満の精度、範囲外値、leap second（秒=60）は拒否し、丸めない。
+- Unicodeは正規化・case-foldを行わず、入力されたUnicode scalar列をそのまま保持する。JCSの文字列順序規則に従う。見た目が同じ文字列でもcode point列が異なれば異なるHashとなる。Decimal文字列は指数表記・先頭+・不要な先頭ゼロ・不要な小数末尾ゼロを禁止し、負の0表現（-0）は拒否する。
 - Byte StringはBase64url（paddingなし）で表現する。NULLはEntity Schemaでnullableと明記されたFieldのみ許可する。
 - 自己Hash Field（例: payload_hash / event_hash）はHash入力から除外する。除外対象FieldはEntityごとに固定し、後から暗黙変更しない。SchemaまたはCanonicalization規則変更は新Versionとする。
-- RawLog ObjectのContent Hashだけは例外として、変換・正規化前のファイル全バイト（header / metadataを含む）にSHA-256を直接適用する。Structured HashとRawLog Content Hashを混同しない。
+- RawLog ObjectのContent Hashだけは例外として、変換・正規化前のファイル全バイト（header / metadataを含む）にSHA-256を直接適用する。Structured HashとRawLog Content Hashを混同しない。 M4W-JCS-1の規範例・期待Canonical UTF-8 bytes / SHA-256はCanonicalization Audit §19に記録する。§19は設計ベクトルであり、独立実装の適合PASSではない。
 
 ### 5.3 Entity Identityの確定表
 | Entity / Concept | Identity |
