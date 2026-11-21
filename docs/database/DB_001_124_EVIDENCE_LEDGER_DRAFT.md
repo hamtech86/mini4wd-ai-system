@@ -179,7 +179,7 @@ DB-125〜154は正式体系の対象から撤回済み。DB-155〜176は提案�
 | DB-004 | Motor Instance登録 | 成功 | 原本照合待ち |
 | DB-005 | Battery Instance登録 | 成功 | 原本照合待ち |
 | DB-006 | Family不一致Instance登録 | 拒否 | Motor/Battery Family整合を維持 |
-| DB-007 | NONE Session | 成功 | NONEの意味・Session作成条件はCC-01/02と再照合 |
+| DB-007 | NONE Session | 成功 | 初期NONEでのSession新規作成を意味する場合はCC-01と不整合（Sessionは初回ASSIGNEDで生成）。既存SessionのCurrent AssignmentがNONEとなる状態を指すなら別扱い。原文照合待ち |
 | DB-008 | Anonymous Session | 拒否 | DB Sessionを作らないCC-01/Issue #201方針と整合 |
 | DB-009 | Battery CH1 / CH2 | 成功 | CH独立契約と再照合 |
 | DB-010 | 同一Run・同一CH重複 | 拒否 | 原本照合待ち |
