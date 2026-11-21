@@ -8,7 +8,7 @@ import sqlite3
 import uuid
 from datetime import datetime
 from PyQt5.QtCore import QTimer
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QGroupBox, QLabel, QPushButton, QComboBox, QTabWidget, QMessageBox
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QGroupBox, QLabel, QPushButton, QComboBox, QTabWidget, QScrollArea, QMessageBox
 from battery_system.serial import BatterySerial
 from raw_log_library import RawLog, RawLogLibrary
 from ui.battery_database_ui import BatteryDatabaseDialog
@@ -61,25 +61,6 @@ class BatteryTab(QWidget):
             sg.addWidget(self.status_labels[ch], 0, col)
         op.addWidget(status)
 
-        assignment = QGroupBox("BATTERY INSTANCE ASSIGNMENT")
-        ar = QVBoxLayout(assignment)
-        mr = QHBoxLayout()
-        self.model = QComboBox()
-        mr.addWidget(QLabel("Battery Model"))
-        mr.addWidget(self.model)
-        ar.addLayout(mr)
-        ir = QHBoxLayout()
-        self.ch1_instance = QComboBox()
-        self.ch2_instance = QComboBox()
-        ir.addWidget(QLabel("CH1 Instance"))
-        ir.addWidget(self.ch1_instance)
-        ir.addWidget(QLabel("CH2 Instance"))
-        ir.addWidget(self.ch2_instance)
-        ar.addLayout(ir)
-        self.assignment_status = QLabel("Battery Model / Instanceを読み込み中...")
-        ar.addWidget(self.assignment_status)
-        op.addWidget(assignment)
-
         controls = QGroupBox("5A DISCHARGE")
         cr = QGridLayout(controls)
         for col, name in enumerate(("ALL", "CH1", "CH2")):
@@ -101,6 +82,25 @@ class BatteryTab(QWidget):
         self.ch1_stop.clicked.connect(lambda: self.stop_channel(1))
         self.ch2_stop.clicked.connect(lambda: self.stop_channel(2))
         op.addWidget(controls)
+
+        assignment = QGroupBox("BATTERY INSTANCE ASSIGNMENT")
+        ar = QVBoxLayout(assignment)
+        mr = QHBoxLayout()
+        self.model = QComboBox()
+        mr.addWidget(QLabel("Battery Model"))
+        mr.addWidget(self.model)
+        ar.addLayout(mr)
+        ir = QHBoxLayout()
+        self.ch1_instance = QComboBox()
+        self.ch2_instance = QComboBox()
+        ir.addWidget(QLabel("CH1 Instance"))
+        ir.addWidget(self.ch1_instance)
+        ir.addWidget(QLabel("CH2 Instance"))
+        ir.addWidget(self.ch2_instance)
+        ar.addLayout(ir)
+        self.assignment_status = QLabel("Battery Model / Instanceを読み込み中...")
+        ar.addWidget(self.assignment_status)
+        op.addWidget(assignment)
 
         live = QGroupBox("LIVE DATA")
         grid = QGridLayout(live)
@@ -128,7 +128,10 @@ class BatteryTab(QWidget):
         rr.addWidget(self.retry_raw_log_button, 3, 0, 1, 2)
         op.addWidget(result)
         op.addWidget(QLabel("正常終了(COMPLETE)した測定だけを、確認後に手動登録します。STOP/ERROR/CANCELはDB登録しません。"))
-        tabs.addTab(operation, "5A DISCHARGE")
+        operation_scroll = QScrollArea()
+        operation_scroll.setWidgetResizable(True)
+        operation_scroll.setWidget(operation)
+        tabs.addTab(operation_scroll, "5A DISCHARGE")
 
         db_page = QWidget()
         db_layout = QVBoxLayout(db_page)
@@ -205,10 +208,10 @@ class BatteryTab(QWidget):
         if value == "COMPLETE":
             self.completed[ch] = True
             self.result_labels[f"CH{ch}"].setText(f"CH{ch} Result: COMPLETE / {len(self.samples[ch])} samples")
-        elif value in ("STOPPED", "STOP", "CANCEL", "CANCELLED", "ERROR"):
+        elif value in ("STOPPED", "STOP", "TIMEOUT", "CANCEL", "CANCELLED", "ERROR"):
             self.completed[ch] = False
             self.result_labels[f"CH{ch}"].setText(f"CH{ch} Result: {value} / DB登録不可")
-        if self.anonymous_mode and value in ("COMPLETE", "STOPPED", "STOP", "CANCEL", "CANCELLED", "ERROR"):
+        if self.anonymous_mode and value in ("COMPLETE", "STOPPED", "STOP", "TIMEOUT", "CANCEL", "CANCELLED", "ERROR"):
             self._finalize_anonymous_raw_log(ch, value)
         self._update_register_button()
 
@@ -281,7 +284,7 @@ class BatteryTab(QWidget):
         if channel is None:
             return True
         other = 2 if channel == 1 else 1
-        return self.latest_status[other] not in ("IDLE", "STOPPED", "DISCONNECTED", "COMPLETE", "ERROR", "CANCEL", "CANCELLED")
+        return self.latest_status[other] not in ("IDLE", "STOPPED", "DISCONNECTED", "COMPLETE", "TIMEOUT", "ERROR", "CANCEL", "CANCELLED")
 
     def start_channel(self, channel):
         if not self.transport.connected:
@@ -383,7 +386,7 @@ class BatteryTab(QWidget):
             self.live_labels[(prefix, "Time")].setText(f"{prefix} Time: {sample.elapsed_sec:.1f} s")
             if str(sample.state).strip().upper() == "COMPLETE":
                 self._status(ch, "COMPLETE")
-            elif str(sample.state).strip().upper() in ("ERROR", "CANCEL", "CANCELLED", "STOPPED"):
+            elif str(sample.state).strip().upper() in ("ERROR", "CANCEL", "CANCELLED", "STOPPED", "TIMEOUT"):
                 self._status(ch, sample.state)
             else:
                 self.result_labels[prefix].setText(f"{prefix} Result: {len(self.samples[ch])} samples / latest {sample.voltage:.3f} V, {sample.current:.3f} A")
