@@ -218,3 +218,24 @@ PK / FK欄は論理的な参照・一意性の記載状況であり、SQLite DDL
 7. DB-001〜124 / V082 / Motor / Battery正式契約の根拠
 
 この表は文書調査・論理カバレッジ資料であり、仕様承認、物理設計、DDL、DB生成、Migration、Restore実行、実装を許可しない。
+
+
+## 9. DB-RV横断の未解決属性・責務マップ（2026-11-21）
+
+Entity Inventory 23種をDB-RVの審査項目へ対応付ける。これは責務の所在を整理するもので、Entityの正式Schemaや新しい要件を確定しない。
+
+| DB-RV | 主なEntity | 未解決の中心項目 |
+|---|---|---|
+| RV-01 / 02 | Physical Run / Run Manifest / DB Run / RUN_SCOPE / Assignment Snapshot / Assignment History / Session | Run/Manifest identity、Scope domain、Assignment Snapshot identity/revision、Session ID、Close Operation、NONE Association membership |
+| RV-03 | Operation Journal / Intent / Receipt Envelope / Receipt Event / DB Operation Marker / Recovery Operation | Plan / Hash DAG、Ordinal authority、Manifest ancestry、Writer / Recovery authority、Marker identity/hash |
+| RV-04 | Aggregate Request / Attempt / Result Revision / Pointer | Request fingerprint、Attempt order/retry closure、Result revision scope、Pointer concurrency/rebuild |
+| RV-05 | Analysis Artifact / Simulation Artifact / Artifact Input | Artifact identity、Analysis/Simulation boundary、InputType set、polymorphic references、DAG and retention |
+| RV-06 | DB Run / RUN_SCOPE / Session / RawLog Reference / Sample Reference / Measurement Sample Link / Receipt / Event / Artifact Input / Aggregate Result Revision | Canonical identity vs composite identity vs Content Hash; 13 Entity schemas absent; OPERATION_EVENT orphan |
+| RV-07 | All external-authority entities and DB Mirror entities | source-of-truth authority, mirror rebuild eligibility, Restore verification and retention |
+| RV-08 | Measurement Envelope / Profile Snapshot / RawLog Object / Sample Reference / Measurement Sample Link | Measurement identity, assignment snapshot, profile snapshot, capture end, sample locator, RawLog linkage |
+
+### 9.1 完了扱いにできない境界
+- 23/23 Entityの存在・責務を一覧化したことと、23/23完全Schemaがあることを区別する。
+- Canonical Schema 10 Entity分の対応があることと、全属性表があることを区別する。
+- 外部正本 / DB Mirrorの分類があることと、各EntityのRestore可否・再生成証拠が閉じたことを区別する。
+- CH1 / CH2独立性はDB論理上のScope / Measurement分離の要求として記録し、Battery固有RawLog契約の不足をDB部門で推測補完しない。
