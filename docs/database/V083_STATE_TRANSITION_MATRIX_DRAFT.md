@@ -75,6 +75,7 @@ Session LifecycleにNOT_STARTED / IN_PROGRESS / COMPLETE / PARTIAL / FAILEDを�
 | SES-027 | DB正常利用可能時、Session生成前のNONE Measurementを登録し、その後初回ASSIGNED | Session membershipへ遡及追加しない |
 | SES-028 | 既存SessionのあるScopeでDB正常利用可能時にNONE Measurementを登録 | 登録時点で同一Scope Session membershipを固定。後日Associationでmembership変更なし |
 | SES-029 | DB unavailable中、Assignment=ASSIGNEDのCaptureを取得しDB復旧 | Anonymous Modeとして外部正本のみ。Bootstrap / DB取込 / Mirror化 / Associationを拒否 |
+| SES-030 | NONE Measurementへ2回の明示Associationを実施 | 各NONE_ASSOCIATION_CREATED Eventを不変追記。最新の検証済みEventのみCurrent Association。過去Event保持、Session membership / Assignment-at-Measurement不変 |
 
 これらはIssue #210決定の受入ケース案であり、実装・実行・PASSを意味しない。
 
