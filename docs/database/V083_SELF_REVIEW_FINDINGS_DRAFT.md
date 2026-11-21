@@ -308,3 +308,19 @@ DB-001〜056は会話由来短縮定義のみ、DB-057〜124は個別本文未�
 **重大度: HIGH / DB-RV-07・08・統括再提出条件**
 
 Issue #35はMotorの現行仕様唯一の正本であり、未記載事項を担当側で復元しない権限境界がある。RawLog v1 / v2は別形式、v2の完全Schemaは別の正式決定を要する。Issue #16はBattery E2E検証タスクであり、完全なBattery DB / RawLog契約ではない。DB部門はRawLog v2、Battery Channel metadata、Capture終端、durability / retentionを推測で補完しない。Issue #201 / #210に従いAnonymous RawLogの後日DB取込は禁止、NONE Associationは限定許容だがSession membershipは未決定。Motor/Batteryの実装変更や担当への直接指示は行わない。
+
+
+## 11. SR-19 — Entity別の一次根拠・Authority・契約所有者が未完
+**重大度: HIGH / DB-RV-01〜08横断 / 統括再審査条件**
+
+Entity Inventory 23種をMain §§1–10および利用可能な正式Issueへ照合し、根拠所在と契約責任境界を整理した。
+
+- Main §§6–9に正本 / Mirror、Measurement Envelope、RawLog保存、Restore手順の論理案はあるが、各Entityの完全Field Schema、NULL / key / retention、Restore実証までは揃っていない。
+- Motor Issue #35 / #170はRawLog v1/v2の境界とv2契約の作業範囲を定めるが、DB部門が未記載Fieldやdurabilityを補完する権限はない。
+- Battery Issue #16はE2E検証タスクであり、Battery固有の完全DB / RawLog / Capture終端 / durability / retention契約ではない。
+- OPERATION_EVENT、Assignment Event、Intent、Receipt Eventの境界は未決定。Analysis / Simulation Artifact、Recovery Operation / Integrity Reportも完全な独立Entity契約は未完。
+- NONE Session membershipはIssue #210で未決定のため、A/B/Cいずれも採用仕様として扱わない。
+
+**対応:** Entity Inventory §10とCross-document Audit §32に根拠・Authorityマップを追加。未回収項目は未定義として維持し、DB部門による推測補完を禁止する。
+
+**残件:** 各契約所有者から正式なField Schema / lifecycle / retention / Restore evidenceを受領すること。UUIDv5 Namespace・Canonicalization、DDL、物理設計、DB生成、Migration、Restore実行、実装、PR、main反映の承認境界は変更なし。
