@@ -11,7 +11,7 @@
 1. Physical Run IDは外部正本上の識別子。DB Run IDとは別ID。
 2. DB Runは、利用承認済みで既に存在するDBが正常利用可能な場合に限り、Physical Run内で最初の確定ASSIGNED Operationに伴うMirror recordとして作成する。
 3. この作成規則はDB file / schema / empty DB / migration / Bootstrapの生成許可ではない。
-4. SessionはScopeごとに最大1件。DB正常利用可能時の初回有効ASSIGNED Assignment Operation確定時にRun ManagerがUUIDv4の論理Session identityを発行し、同じ外部Run Manifest Commitへ記録する。以後NONE / ANONYMOUS / 別Instanceへの遷移でも保持する。DB Session Mirrorは同一IDで生成する。DB unavailable期間はAnonymous Modeとして有効ASSIGNED Operation・新規Session identity・DB Session Mirrorを生成しない。
+4. SessionはScopeごとに最大1件。DB正常利用可能時の初回有効ASSIGNED Assignment Operation確定時にRun ManagerがUUIDv4の論理Session identityを発行し、同じ外部Run Manifest Commitへ記録する。以後NONE / ANONYMOUS / 別Instanceへの遷移でも保持する。DB Session Mirrorは同一IDで生成する。DB unavailable期間はAnonymous Modeとして有効ASSIGNED Operation・新規Session identity・DB Session Mirrorを生成しない。障害前に有効AssignmentのManifest Source Commitまで検証済みでDB Session Mirrorのみ未確定なら、復旧後にRecovery Authorityが同一IDのMirrorを再構築できる。
 5. ANONYMOUS期間およびDB unavailable期間のMeasurement / RawLogは外部正本に保全し、後日DB取込・Mirror化・Instance再紐付けを禁止する。DB unavailableはAssignment StateにかかわらずAnonymous Mode扱いとする。NONE期間は別扱いとし、DB正常利用可能時に取得され既にDB管理Measurementとして登録済みのものに限り、後日の明示Association Operationを許容する。AssociationはInstance関連付け履歴のみでSession membershipを変更せず、Assignment-at-Measurement=NONEを保持し、Current Aggregateへ自動算入しない。
 6. MeasurementのAssignment-at-Measurementは開始確定時の不変Snapshotであり、Current Assignmentの変更で更新しない。
 
@@ -81,6 +81,7 @@ Session LifecycleにNOT_STARTED / IN_PROGRESS / COMPLETE / PARTIAL / FAILEDを�
 | SES-033 | Reassignment中にClose / Createの片方欠落、partial tail、順序違反、Hash mismatch | Operation / Scope QUARANTINED。元Event修復・後続Association更新禁止 |
 | SES-034 | 既にClosedのAssociationを再度Close、またはActiveがある状態で別Create | 拒否。Ordinal再利用・二重Active禁止 |
 | SES-035 | DB unavailable中に初回ASSIGNEDを試みる | 有効Assignment / Logical Session identity / DB Run / DB Session Mirrorを生成しない。Anonymous Modeの外部Captureのみ |
+| SES-036 | DB正常時に有効ASSIGNEDのManifest Source Commit完了後、DB Mirror確定前に障害。復旧後に再開 | 事前確定済みLogical Session ID / DB Run IDのみをReceipt・Manifest検証後に同一IDでMirror化。新ID発行なし。障害期間CaptureはANONYMOUSで後日取込禁止 |
 
 これらはIssue #210決定の受入ケース案であり、実装・実行・PASSを意味しない。
 
