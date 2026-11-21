@@ -387,7 +387,7 @@ Main §8は、RawLog保存完了に対し、temporary write完了、File Handle 
 | 3 | RUN_SCOPE | (PhysicalRunID, ScopeKey)複合キー | MOTOR / BATTERY_CH1 / BATTERY_CH2以外は拒否 |
 | 4 | Assignment Snapshot | UUIDv4 + Scope/Revision unique、不変外部正本 | Snapshot欠落・Hash不一致はAssignment更新拒否 |
 | 5 | Assignment History / Event | Scope + EventOrdinal、append-only | 部分TailはScope隔離 |
-| 6 | Session | UUIDv4、Scopeごと最大1 | DB正常利用可能時の初回ASSIGNEDで生成。Session membershipはMeasurement Mirror初回登録時に同一Scope Sessionが存在する場合のみ固定。Session生成前のNONE Measurementは遡及所属させない。DB unavailable期間はAnonymous Mode扱いで新規生成せず、復旧後の同一Physical Runへの遡及生成も禁止 |
+| 6 | Session | UUIDv4、Scopeごと最大1 | 初回ASSIGNED時に論理Session identityを外部Run Manifestへ生成。DB正常利用可能時のみ同一IDのDB Session Mirrorを生成。DB unavailable期間も論理Session identity / Lifecycleは外部正本で保持するが、DB Session Mirrorは生成せず復旧後の遡及Mirror化も禁止。Session membershipはMeasurementの外部Manifest初回登録時に同一Scope Sessionが存在する場合のみ固定 |
 | 7 | Measurement Envelope | UUIDv4、外部正本 + DB Mirror | DB正常利用可能時のASSIGNED MeasurementのみMirror登録。DB unavailable期間はAssignmentにかかわらずAnonymous Mode扱いで外部正本のみ、復旧後のBootstrap / 取込 / Mirror化禁止。Battery 5A DATAはIssue #16の範囲で原本byte / 共通Envelope / CH1・CH2独立保全まで許可し、契約未回収Payloadはopaque、意味解析・Feature Extraction不可 |
 | 8 | Measurement Profile Snapshot | UUIDv4、不変外部Snapshot | Schema不明時はopaque、解析・Aggregate入力不可 |
 | 9 | RawLog Object / Reference | Object UUIDv4 / Reference UUIDv4、別Entity | Hash・durability未検証はPENDING_RECOVERY / QUARANTINED |
