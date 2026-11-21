@@ -215,3 +215,17 @@ Requestは不変。Attemptは実行ごとに新規作成。FAILEDを確定する
 | RCP-014 | Physical Run lockは単一でも、共有DBで別Runのtransactionが競合 | 各Run AuthorityとDB transaction結果 | Physical Run単一WriterだけでDB全体の排他を推定しない。DB側競合は別途検証 |
 
 これらは未実行の論理受入ケース案である。Authority generation、lease、fencing token、OS lock、CAS、DB isolation等の具体方式を定義・採用しない。
+
+
+## 10. Decision Baseline追加受入ケース（未実行）
+
+| Test ID | 条件 | 期待結果 |
+|---|---|---|
+| RCP-015 | Receipt Eventの初回Eventを生成 | Ordinal=1 / PreviousHash=NULL。2件目以降は連続 |
+| RCP-016 | Operation Journal Eventに未知EventType | 作成拒否 |
+| RCP-017 | Assignment HistoryのRevision / EventOrdinalにgap | Assignment更新拒否・Scope QUARANTINED |
+| RCP-018 | Writer GrantのEpochが旧Epoch以下、またはFenceProof欠落 | Writer Grant拒否・Run QUARANTINED |
+| RCP-019 | PROJECT_RECOVERY_ADMIN以外がRecovery Operationを要求 | 作成拒否 |
+| RCP-020 | Recovery Operationが元Receipt / Manifestを変更またはQUARANTINED解除しようとする | 拒否。元証拠不変・隔離維持 |
+| RCP-021 | M4W-JCS-1に浮動小数点・duplicate key・unknown field | Hash対象として拒否 |
+| RCP-022 | RawLog orphan tempにIntent / Operation / Expected Hashの対応がない | 削除・上書きせず隔離 |
