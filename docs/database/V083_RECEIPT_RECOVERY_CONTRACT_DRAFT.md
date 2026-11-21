@@ -401,3 +401,40 @@ Main draft §2.1「正規順序」および同節直後の補足文を、Receipt
 - DB-RV-03はOPEN。Receipt ID、Hash範囲、Ordinal Authority、Manifest競合、DB Marker不存在の確定条件が閉じていない。
 - fsync / atomic rename / SQLite durability / crash injectionは物理設計・実装工程であり、論理文書の記述だけでPASSにしない。
 - v0.8.2 ORANGE / v0.8.3未承認。UUIDv5 Namespace未承認・未採用。DDL / DB生成 / Migration / Restore実行 / 実装 / PR / main反映は禁止継続。
+
+
+## 16. Hash / ID依存関係監査 — 循環・未定義参照候補（2026-11-21）
+
+### 16.1 確認した一次記述
+- §2 Intent PlanはOperation Plan Hash / Intent Hashを列挙する。
+- §2 Receipt再構成手順は、Intentに固定したExpected Receipt Hashとの一致を要求するが、最低限Intent PlanのField一覧にはExpected Receipt Hashが列挙されていない。
+- §3.1 EnvelopeはIntent Hash / Plan Hashを保持し、Envelope HashをCanonical serializationの自己Hashとする。
+- §3.2 EventはPrevious Event HashとEvent Hashを保持する。
+- §7 DB MarkerはIntent Hash / Receipt ID / Source Commit Hash等を保持し、Expected DB Marker Payload HashもCanonical PayloadのFieldとして列挙する。
+- Main §2.1はExpected DB Marker HashをReceiptへ固定し、Marker側にはDB Commit Payload Hashを保持すると記述する。両Hashの同一性・対象範囲は定義されていない。
+
+### 16.2 循環依存・欠落の可能性
+
+| ID | 依存候補 | 問題 | 現時点の判定 |
+|---|---|---|---|
+| H-01 | Operation Plan Hash → Plan全体 → Operation Plan Hash | 自身を含むHash計算なら自己参照 | Hash対象Fieldの除外規則未定義 |
+| H-02 | Intent Hash → Intent Payload / Plan Hash → Intent Hash | Plan HashとIntent Hashの包含・生成順が未定義 | 相互依存の可能性 |
+| H-03 | Expected Receipt Hash → Intent Plan → Intent Hash / Plan Hash → Receipt Envelope Hash | IntentにExpected Receipt Hashを固定し、EnvelopeにIntent/Plan Hashを含める場合に循環し得る。Expected Receipt Hash自体もPlan Field一覧に欠落 | Field欠落と循環可能性を確認 |
+| H-04 | Expected DB Marker Hash → Intent Plan / Receipt → DB Marker Payload → Expected DB Marker Payload Hash | Marker自身のHashをMarker Payloadに含める場合に自己参照。Expected DB Marker HashとDB Commit Payload Hashの関係も不明 | Hash対象・除外規則未定義 |
+| H-05 | Envelope Hash → Envelope全体 → Envelope Hash | 自己HashFieldの除外が必要だが具体規則なし | 自己参照除外未定義 |
+| H-06 | Event Hash → Event Payload / Previous Event Hash → Event Hash | 自身のHashField除外、Canonical Event Schema、最初のEventのPrevious Hash表現が未定義 | 連鎖の計算規則未完成 |
+| H-07 | Source Commit Hash / Manifest Head Hash → Source Commit対象 | ManifestにReceipt/Expected Hashを含める場合の依存順序が未定義 | Manifest payload境界未確定 |
+
+### 16.3 Hash依存グラフを閉じるために必要な定義
+
+1. 各Hashの対象となるCanonical Payloadを、Field単位で列挙する。
+2. Hash自身、後段でしか決まらない値、別Hashを含めるかを明示し、Hash生成順を有向非循環グラフとして提示する。
+3. Operation Plan Hash / Intent Hash / Expected Receipt Hash / Envelope Hashの役割と包含関係を分離する。
+4. Expected Receipt Hashが必要ならIntent Planの正式Fieldとして定義する。不要なら再構成手順から削除する。どちらも現時点では選択しない。
+5. Expected DB Marker Hash / Expected DB Marker Payload Hash / DB Commit Payload Hashの同一性・包含関係を決める。名称の類似だけで同一扱いしない。
+6. Event HashはPrevious Event Hashを含むか、Event Hash自身を除外するか、初回EventのPrevious Hashをどう表すかを固定する。
+7. Canonicalization Version / Envelope Schema Version / Event Schema Version / Marker Schema Versionのどれが各Hashに適用されるかを定義する。
+8. Receipt IDの決定的導出はHash依存グラフと分離して定義し、未承認Namespaceを前提にしない。
+
+### 16.4 結論
+現行資料だけではHash依存グラフが非循環であることを証明できない。これは実装不具合の確定ではなく、仕様のHash入力・除外・生成順が未定義であることを示す。Hash関数・Namespace・Field順を推測で補完しない。DB-RV-03はOPENを維持する。
