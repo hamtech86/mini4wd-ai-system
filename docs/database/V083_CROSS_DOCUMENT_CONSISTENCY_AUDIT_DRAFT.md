@@ -365,3 +365,25 @@ Receipt Recovery Contract §13で、未解決事項を論理設計段階で閉�
 
 ### 18.4 承認境界
 今回の分類は未解決事項の責任境界と作業順序を明確にしたもので、DB-RV-03解消、v0.8.3承認、物理設計・DDL・DB生成・Migration・Restore実行・実装許可を意味しない。
+
+
+## 19. Main §2.1 / Receipt Contract 項目単位同期監査（2026-11-21）
+
+Receipt Recovery Contract §14に、Main draft §2.1と補助契約 §§2〜4 / 6 / 7の項目単位Traceability Matrixを追加した。
+
+### 19.1 確認結果
+
+- Main §2.1の13工程を個別に照合した。
+- 方向性が一致するのは、Intent先行永続化、PREPAREDのSource/DB Commit前配置、Source Commit後のABORTED禁止・同一Operation再開、MarkerとMirrorの同一Transaction、終端Receiptの不変性。
+- 13工程の多くは部分一致であり、論理契約として完全同期済みとは判定しない。
+- Main §2.1に明示されない補助契約項目として、Envelope / Eventの詳細Schema、Envelope/Event Hash、Event Ordinal / Previous Event Hash、Event Payload / Actor、ABORTEDの積極的不存在証明がある。
+- Mainと補助案のHash項目（DB Commit Payload Hash / Expected DB Marker Payload Hash等）は、同一範囲・同一意味と確認できない。
+- Receipt ID決定方式、Operation Plan完全性、Hash自己参照除外、Event Ordinal発行/消費/部分書込み、Manifest predecessor競合、DB Marker不存在の確定条件は未解決。
+
+### 19.2 変更判断
+
+Main §2.1本文は変更していない。補助契約の追加項目をそのままMainへ転記すると、authority・Hash範囲・Ordinal・競合規則が未決定のまま規範化されるためである。
+
+次の論理作業は、Receipt Contract §14.3に列挙した未決定事項を個別に閉じ、Main §2.1 / §2.2 / §2.3と補助契約を同期改訂するための変更表を作成すること。未承認アルゴリズム・Namespace・Hash規則・物理保証を先行採用しない。
+
+**監査結論:** 項目照合は完了したが、同期完了ではない。DB-RV-03はOPENのまま。v0.8.3承認、Main反映、物理設計、DDL、DB生成、Migration、Restore、実装、PR、main反映を許可しない。
