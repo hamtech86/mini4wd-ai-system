@@ -1,7 +1,7 @@
 # DB-001〜124 証拠台帳（初期棚卸し・未完了）
 
 - 基準日: 2026-11-20
-- 状態: **初期棚卸し。124件の個別本文・正式根拠・V082対応は未確定**
+- 状態: **初期棚卸し。DB-001〜056は過去会話記録から内容を再回収。原本照合・正式性判定・V082対応は未完了。DB-057〜078 / 079〜109 / 110〜124は個別定義未回収**
 - 対象: DB-001〜DB-124
 - 方針: 番号の存在履歴と個別定義の回収状態を分離する。未回収の試験名・期待結果・カテゴリを創作しない。
 - 参照:
@@ -14,7 +14,8 @@
 ## 1. 判定語彙
 
 - **範囲履歴あり**: 過去会話・作業記録でID範囲の成立/追加/維持指示が確認されている。
-- **個別本文未回収**: そのIDに対応する正確な要求・試験名・前提・期待結果の一次資料を取得できていない。
+- **個別本文未回収**: そのIDに対応する要求・試験名・前提・期待結果を会話記録等からも回収できていない。
+- **会話記録から再回収**: 過去会話の記録に個別定義が残っている状態。原本文書・当時の正式承認までは未検証。
 - **正式性未確定**: 範囲履歴だけでは、個別行の最終承認・廃止・置換を判断できない。
 - **実装対応未確認**: 現行テストコードとの一対一対応を示す根拠がない。
 - **V082未対応付け**: V082-001〜050との重複・包含・未カバー関係がまだ確定していない。
@@ -166,7 +167,78 @@ DB-125〜154は正式体系の対象から撤回済み。DB-155〜176は提案�
 | DB-123 | 追加指示対象 | 未回収・推測補完禁止 | 過去会話の追加指示履歴あり。個別IDごとの指示原文は未回収 | 追加対象という範囲履歴のみ確認。個別正式本文は未回収 | 番号との対応未確認。旧SQLite tests/databaseとは同一視しない | 未対応付け |
 | DB-124 | 追加指示対象 | 未回収・推測補完禁止 | 過去会話の追加指示履歴あり。個別IDごとの指示原文は未回収 | 追加対象という範囲履歴のみ確認。個別正式本文は未回収 | 番号との対応未確認。旧SQLite tests/databaseとは同一視しない | 未対応付け |
 
-## 4. 既存テスト資産との識別
+## 4. DB-001〜056 個別定義の再回収（会話記録ベース）
+
+次表は2026-11-18 13:51:54 UTC付近の過去会話に残るDB-001〜056の個別定義を再回収したもの。これは元の要件書・ユーザー指示書・テスト実装の原本を取得したことを意味しない。期待結果の意味を保って転記し、表現が短い項目は原文照合待ちとする。各行の正式性・現行有効性・実装対応・V082対応は未確定。
+
+| ID | 回収できた試験条件 / 要求 | 回収できた期待結果 | 現行判断上の注記 |
+|---|---|---|---|
+| DB-001 | Motor Model登録 | 成功 | 原本照合待ち |
+| DB-002 | Battery Model登録 | 成功 | 原本照合待ち |
+| DB-003 | 同一Family・Code重複登録 | 拒否 | 原本照合待ち |
+| DB-004 | Motor Instance登録 | 成功 | 原本照合待ち |
+| DB-005 | Battery Instance登録 | 成功 | 原本照合待ち |
+| DB-006 | Family不一致Instance登録 | 拒否 | Motor/Battery Family整合を維持 |
+| DB-007 | NONE Session | 成功 | NONEの意味・Session作成条件はCC-01/02と再照合 |
+| DB-008 | Anonymous Session | 拒否 | DB Sessionを作らないCC-01/Issue #201方針と整合 |
+| DB-009 | Battery CH1 / CH2 | 成功 | CH独立契約と再照合 |
+| DB-010 | 同一Run・同一CH重複 | 拒否 | 原本照合待ち |
+| DB-011 | CH1 Anonymous / CH2 Instance | Instance側SessionのみDB登録 | CH独立性・匿名Scope非生成と再照合 |
+| DB-012 | CH1 / CH2双方Anonymous | DB Sessionなし | CC-01/Issue #201方針と整合 |
+| DB-013 | RawLog ID重複 | 拒否 | 原本照合待ち |
+| DB-014 | RawLog本文変更 | 原本保全検証で検出 | 原本照合待ち |
+| DB-015 | Session再紐付け | 履歴追加 | 操作対象・許可条件の原本照合待ち |
+| DB-016 | RawLog再紐付け | 履歴追加 | ANONYMOUS後日再紐付けはIssue #210 CC-02により現行範囲で禁止 |
+| DB-017 | Analysis再実行 | 過去結果保持 | 原本照合待ち |
+| DB-018 | 外部キー不整合 | 拒否 | 原本照合待ち |
+| DB-019 | DB不存在時の通常起動 | 暗黙生成なし | Issue #201 fail-closed方針と整合 |
+| DB-020 | 明示Bootstrap | 初期化・検証成功 | 過去要件記録。現行ではDB生成/Bootstrapは別途明示承認まで未許可 |
+| DB-021 | Motor ModelにBattery Profileを設定 | 拒否 | Family整合 |
+| DB-022 | Battery ModelにMotor Profileを設定 | 拒否 | Family整合 |
+| DB-023 | Motor SessionにBattery Measurementを登録 | 拒否 | Family整合 |
+| DB-024 | Battery SessionにMotor Measurementを登録 | 拒否 | Family整合 |
+| DB-025 | CH1 SessionにCH2 RawLogを関連付け | 拒否 | Channel整合 |
+| DB-026 | 同一Sessionに複数RawLog | 成功 | 原本照合待ち |
+| DB-027 | RawLog ID変更 | 拒否 | RawLog ID不変 |
+| DB-028 | RawLog原本パス変更 | 拒否、または専用移動処理のみ | 移動処理の定義は原本照合待ち |
+| DB-029 | Association History更新 | 拒否 | 追記専用履歴方針と整合 |
+| DB-030 | 削除 | 拒否 | 対象Entity・例外条件は原本照合待ち |
+| DB-031 | NONEからInstance割当 | 履歴付き成功 | 現行CC-02のNONE限定Associationと境界照合が必要 |
+| DB-032 | ANONYMOUSからInstance割当 | RawLog確認・明示確認後、新規Measurement Run / Session作成、RawLog関連付け、履歴付き成功 | **旧要求はIssue #210 CC-02により現行設計範囲で不採用・後日DB取込/再紐付け禁止** |
+| DB-033 | 処理途中の強制エラー | 全体ROLLBACK | 原本照合待ち |
+| DB-034 | CH1成功 / CH2失敗 | Run PARTIAL | CH単位の独立結果とRun集約条件を再照合 |
+| DB-035 | DB不存在時の通常起動 | DBファイル未生成 | Issue #201 fail-closed方針と整合 |
+| DB-036 | 明示Bootstrap | 成功 | 過去要件記録。現行では実行許可を意味しない |
+| DB-037 | Migration失敗 | 全体ROLLBACK | 現行Migration禁止境界を優先 |
+| DB-038 | ProfileなしModelの有効化 | 拒否 | 原本照合待ち |
+| DB-039 | Visibility変更 | Instance本体不変 | 原本照合待ち |
+| DB-040 | Battery SessionのChannel=NULL | 拒否 | Battery Scope/Channel必須の旧要求記録 |
+| DB-041 | Motor SessionにChannel指定 | 拒否 | Motor/Battery概念分離 |
+| DB-042 | RunなしBattery Session | 拒否 | Run参照必須 |
+| DB-043 | Motor SessionにBattery Instanceを割当 | 拒否 | Family整合 |
+| DB-044 | 同一SessionにMeasurement重複登録 | 拒否 | 重複定義の原本照合待ち |
+| DB-045 | 同一Sessionの別Algorithm Version解析 | 複数保存可能 | Artifact/Algorithm versioningと再照合 |
+| DB-046 | Analysis再実行 | 過去結果不変 | 不変Artifact方針と整合 |
+| DB-047 | Analysis入力RawLog参照欠落 | 検証エラー | 原本照合待ち |
+| DB-048 | 同じRawLogを複数Sessionに割当 | 拒否 | RawLog所有・共有制約の原本照合待ち |
+| DB-049 | RawLogとSessionのFamily不一致 | 拒否 | Family整合 |
+| DB-050 | RawLogとSessionのChannel不一致 | 拒否 | Channel整合 |
+| DB-051 | Anonymous RawLogにSession ID指定 | 拒否 | Issue #201 / CC-02方針と整合 |
+| DB-052 | Foreign Key設定なしの接続 | 起動時検出・拒否 | 接続時のfail-closed要件として再照合 |
+| DB-053 | integrity_check | OK | 実行環境・対象DB・時点の証拠未回収 |
+| DB-054 | foreign_key_check | 違反0件 | 実行環境・対象DB・時点の証拠未回収 |
+| DB-055 | Backup後の復元 | 整合性維持 | Restore受入条件・実行証拠は未回収 |
+| DB-056 | 同時書込み競合 | データ破損なし | 競合制御方式・実行証拠は未回収 |
+
+### 4.1 再回収範囲の確定
+- DB-001〜056: 個別の短い試験条件・期待結果を過去会話記録から再回収。ただし原本文書・承認状態・テスト実装との対応は未確認。
+- DB-057〜078: 2026-11-19「新DB設計書 v0.2」で追加された範囲という履歴のみ。個別本文は未回収。
+- DB-079〜109: 既存受入試験として維持する指示あり。個別定義・原文は未回収。
+- DB-110〜124: 追加指示対象という範囲履歴のみ。個別本文は未回収。
+- DB-032は旧要件記録であり、ANONYMOUS後日関連付けを許可する現行要件ではない。Issue #210 CC-02を優先する。
+- DB-020 / DB-036のBootstrap成功期待は歴史的要件記録であり、現在のDB生成・Bootstrap禁止境界を解除しない。
+
+## 5. 既存テスト資産との識別
 
 現行mainの旧SQLiteテスト群はConnection / Schema / MotorRepository / MotorInstanceRepository / MeasurementSessionRepository / BreakinLogRepository / DatabaseManager等のグループであり、DB-001〜124の番号付き個別定義との同一性は確認できていない。旧runnerにはimport先欠落・`run()`未定義の静的実行整合性疑義も記録済み。
 
