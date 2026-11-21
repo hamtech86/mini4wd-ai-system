@@ -103,7 +103,8 @@ Receipt EnvelopeはOperationにつき一つの不変記録。Receipt Eventは状
 | 現在状態 / 停止点 | 必須証拠 | 許される次状態 | 回復動作 |
 |---|---|---|---|
 | Intentなし | なし | なし | 未実行。Ordinal未消費 |
-| Intent永続化後・Receipt Envelope作成前 | Journal Intent / Intent Hash | PREPARED、または中止時ABORTED | 同一Operationから決定的Receipt Envelopeを再構成。ABORTEDならEnvelope作成後にABORTED Eventを追記 |
+| Intent永続化後・Receipt Envelope作成前 | Journal Intent / Intent Hash | PREPARED | 同一OperationからReceipt Envelopeを決定的に再構成・永続化し、PREPARED Eventを追記する。中止要求がある場合も、まずPREPAREDを成立させる |
+| PREPARED成立後・Source Commit前の中止 | Intent / Envelope / PREPARED Event / Source Commit不存在証拠 / 明示中止Intent | ABORTED、または証拠不十分時は保留・QUARANTINED | Source Commit不存在を完全検証し、明示中止Intentを記録した場合のみ、同一ReceiptへABORTED Eventを追記する。PREPAREDを経由せずABORTEDにしない |
 | PREPARED・Source Commit前 | Intent / PREPARED Envelope + Event | SOURCE_COMMITTED、ABORTED、QUARANTINED | 同一Operationを再開。中止はSource Commit不存在を検証できた場合のみ |
 | Source Manifest Commit後・SOURCE_COMMITTED Event前 | Intent / PREPARED / Manifest Head / Source Hash | SOURCE_COMMITTED | Source Commitを検証し、同一ReceiptへSOURCE_COMMITTED Eventを補完 |
 | SOURCE_COMMITTED後・DB Commit前 | 上記 + SOURCE_COMMITTED Event | DB_COMMITTED、QUARANTINED | 同一OperationでDB Mirrorを再開 |
