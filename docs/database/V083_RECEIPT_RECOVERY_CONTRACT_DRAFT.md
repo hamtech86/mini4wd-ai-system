@@ -648,3 +648,41 @@ ManifestのCommit成否を判定するには、少なくとも以下の関係を
 
 ### 20.6 結論
 Manifest Head Pointerだけでは、後続Commit後の先行OperationのCommit成否を安全に判定できるとは証明できない。Operation単位の不変Commit証拠とManifest履歴上の祖先関係を検証できる論理契約が必要か、統括判断対象として残す。特定のMerkle DAG / append-only log / CAS方式等は採用しない。DB-RV-03 OPEN。Main本文未変更。
+
+
+## 21. Writer Authority・stale owner・fencing論理境界監査（2026-11-21）
+
+### 21.1 現行根拠と適用範囲
+- Main §2.1 step 1はPhysical Run単位の排他ロック取得を要求する。
+- Main §2.1 step 13は全永続化・照合成功後に排他ロックを解放する。
+- Receipt Contract §15.2は同一Physical RunのOperation Journal / Manifest Head / Receipt Event Chainについて論理上同時に1つの有効Writerを要求する候補を示す。
+- ただし、Lock Ownerの識別子、所有権世代、期限切れ判定、stale ownerの復帰、Writer切替時の旧Owner排除証拠は定義されていない。
+
+この単一Writer範囲はPhysical Runの外部正本に対する要件である。複数Physical Runから共有DBへ行うMirror transactionの競合制御と混同しない。DB側のtransaction isolation / uniqueness等は別の物理・DB設計検証対象である。
+
+### 21.2 Split-brain / stale ownerの問題
+単に「lockがある」「lockが期限切れに見える」だけでは、以前のWriterが停止したこと、または今後更新しないことを証明できない。停止したように見えたWriterが復帰して書込みを続ける場合、新旧Writerが同時に有効化する可能性がある。
+
+したがって以下を未解決として扱う。
+- Writer Authorityを発行する主体・scope・永続証拠。
+- 同時に有効なWriterを一つに制限する論理的保証。
+- Writer交代の単調増加世代・Epoch等を必要とするか。
+- 旧Writerが復帰したとき、Manifest / Journal / Eventへの更新を拒否する検証条件。
+- Writerのクラッシュ・再起動・端末時計ずれ・期限切れ時の所有権判定。
+- Physical RunをまたぐDB transaction / RawLog保管先など、別共有資源のWriter Authorityとの境界。
+
+### 21.3 論理受入要件候補
+1. 同一Physical RunのJournal / Manifest / Receipt Event Chainに対し、同時に有効な更新Authorityは一つのみ。
+2. Authorityの取得・更新・解放・失効は、復旧後に第三者が検証可能な証拠を残す。
+3. Writer交代後、旧Writerが保持する古い権限だけで更新を成立させてはならない。
+4. Authorityの有効性を証明できない、複数Writerを検出した、または所有権世代の順序が矛盾する場合は更新停止・QUARANTINED候補とする。
+5. 壁時計時刻・PID・lock file存在だけでWriter Authorityを確定しない。
+6. Authority証拠が不明なままRecovery Writerが元Receipt / Manifestを変更しない。
+
+これは論理的な単一有効Writer要件候補であり、lease、fencing token、OS lock、DB lock、CAS、ネットワーク協調サービスのいずれも選択しない。
+
+### 21.4 AuthorityとOrdinal発行権限の分離
+Physical Run Writer Authorityを持つことと、Operation Ordinal / Receipt Event Ordinalを発行できることは同義ではない。Operation OrdinalのAuthority、Event OrdinalのAuthority、Recovery Operationの発行権限、ABORTED / VERIFIED / QUARANTINED Eventの発行権限を個別に定義する必要がある。単一Writerを導入しただけでこれらの権限が自動的に確定したと扱わない。
+
+### 21.5 結論
+単一有効Writerは論理要件候補として必要だが、stale owner / split-brainを排除する証明方式・Authority発行主体・世代管理・旧Writer拒否条件が未定義。Physical Run単位の排他と共有DB側の競合制御は別問題。DB-RV-03 OPEN。物理方式未選択、Main本文未変更。
