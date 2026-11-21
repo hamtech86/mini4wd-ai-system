@@ -300,3 +300,11 @@ Main §5.3の11 Schema rowsはEntity Inventory 23種の全体を覆わない。�
 **重大度: BLOCKER / 統括再提出条件**
 
 DB-001〜056は会話由来短縮定義のみ、DB-057〜124は個別本文未回収。V082-001〜053は全件未対応付けで、確定対応・部分対応・重複・未カバー確定は各0。これは試験が存在しない・要件がないという意味ではない。原文未回収IDは参照専用・実行不可で凍結し、DB-032等の旧期待値はCC-02との競合を明示する。DB-007のNONE Session意味は原文確認まで未決定。
+
+
+## 10. Motor / Battery / Anonymous正式契約の照合結果（2026-11-21）
+
+### SR-18 — Device-specific Data ContractをDB側で補完できない
+**重大度: HIGH / DB-RV-07・08・統括再提出条件**
+
+Issue #35はMotorの現行仕様唯一の正本であり、未記載事項を担当側で復元しない権限境界がある。RawLog v1 / v2は別形式、v2の完全Schemaは別の正式決定を要する。Issue #16はBattery E2E検証タスクであり、完全なBattery DB / RawLog契約ではない。DB部門はRawLog v2、Battery Channel metadata、Capture終端、durability / retentionを推測で補完しない。Issue #201 / #210に従いAnonymous RawLogの後日DB取込は禁止、NONE Associationは限定許容だがSession membershipは未決定。Motor/Batteryの実装変更や担当への直接指示は行わない。
