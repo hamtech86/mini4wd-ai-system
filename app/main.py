@@ -23,6 +23,7 @@ from battery_system.serial import BatterySerial
 from app.application_builder import ApplicationBuilder
 from app.raw_log_paste import install_raw_log_paste_ui
 from ui.battery_tab_ui import BatteryTab
+from ui.diagnostic_report_dialog import DiagnosticReportDialog
 from workers.breakin_worker import BreakinWorker
 from analysis.analysis_engine import AnalysisEngine
 from controllers.session_controller import SessionController
@@ -74,6 +75,13 @@ class MainWindow(BaseMainWindow):
 
     def _build_integrated_ui(self):
         old_central=self.takeCentralWidget() or self.motor_page; root=QWidget(); root_layout=QVBoxLayout(root); root_layout.setContentsMargins(5,5,5,5)
+        # Place the always-available emergency stop beside the database/mode
+        # status. The status text can occupy two lines while the stop remains
+        # visible in the free space on its right.
+        status_bar = QWidget()
+        status_layout = QHBoxLayout(status_bar)
+        status_layout.setContentsMargins(0, 0, 0, 0)
+        status_layout.setSpacing(10)
         self.database_mode_status = QLabel()
         self.database_mode_status.setWordWrap(True)
         if self.database_available:
@@ -84,7 +92,17 @@ class MainWindow(BaseMainWindow):
                 + (self.database_error or "Database schema unavailable")
                 + " / Instance registration and DB result registration are disabled; local RawLogs are used."
             )
-        root_layout.addWidget(self.database_mode_status)
+        status_layout.addWidget(self.database_mode_status, 1)
+
+        # Keep the physical-stop request available even while idle; it must
+        # never be disabled by recipe selection, scrolling, or run-state changes.
+        self.emergency_stop_fixed = QPushButton("EMERGENCY STOP")
+        self.emergency_stop_fixed.setMinimumHeight(44)
+        self.emergency_stop_fixed.setEnabled(True)
+        self.emergency_stop_fixed.clicked.connect(self.stop_run)
+        status_layout.addWidget(self.emergency_stop_fixed, 0, Qt.AlignVCenter)
+        root_layout.addWidget(status_bar)
+
         device_box=QGroupBox("DEVICE CONNECTION"); row=QGridLayout(device_box)
         self.motor_serial_status=QLabel("MOTOR: DISCONNECTED  /dev/ttyACM0"); self.motor_connect=QPushButton("MOTOR CONNECT"); self.motor_disconnect=QPushButton("MOTOR DISCONNECT"); self.motor_disconnect.setEnabled(False)
         self.motor_arm=QPushButton("ARM / RE-ARM"); self.motor_arm.setEnabled(False); self.motor_arm.setToolTip("Explicit ARM is required before drive. After STOP, reconnecting cannot clear the latch; physically switch motor power off before starting a fresh application session.")
@@ -93,14 +111,6 @@ class MainWindow(BaseMainWindow):
         self.battery_connect.clicked.connect(self.connect_battery_serial); self.battery_disconnect.clicked.connect(self.disconnect_battery_serial)
         row.addWidget(self.motor_serial_status,0,0); row.addWidget(self.motor_connect,0,1); row.addWidget(self.motor_disconnect,0,2); row.addWidget(self.motor_arm,0,3); row.addWidget(self.battery_serial_status,1,0); row.addWidget(self.battery_connect,1,1); row.addWidget(self.battery_disconnect,1,2)
         root_layout.addWidget(device_box)
-        # Fixed emergency stop outside the scrollable MOTOR tab.
-        self.emergency_stop_fixed = QPushButton("EMERGENCY STOP")
-        self.emergency_stop_fixed.setMinimumHeight(44)
-        # Keep the physical-stop request available even while idle; it must
-        # never be disabled by recipe selection, scrolling, or run-state changes.
-        self.emergency_stop_fixed.setEnabled(True)
-        self.emergency_stop_fixed.clicked.connect(self.stop_run)
-        root_layout.addWidget(self.emergency_stop_fixed)
         tabs=QTabWidget(); tabs.addTab(old_central,"MOTOR BREAK-IN"); self.battery_tab=BatteryTab(self.db_path,transport=self.battery_serial_controller,parent=self,database_available=self.database_available); tabs.addTab(self.battery_tab,"BATTERY"); root_layout.addWidget(tabs,1); self._build_ui_log_panel(root_layout); self.setCentralWidget(root)
 
     BENCHMARK_PRESETS = UI_BENCHMARK_PRESETS
@@ -171,12 +181,92 @@ class MainWindow(BaseMainWindow):
         self.sequence_execute.setEnabled(True)
 
     def _build_ui_log_panel(self, parent_layout):
-        box=QGroupBox("LOG / ERROR LOG"); layout=QVBoxLayout(box)
-        self.ui_log=QPlainTextEdit(); self.ui_log.setReadOnly(True); self.ui_log.setMaximumBlockCount(500); self.ui_log.setPlaceholderText("Controller / UI / Sequence events will appear here."); layout.addWidget(self.ui_log)
-        self.error_code_label=QLabel("Error Code: --"); self.error_message_label=QLabel("Error Message: --"); self.error_message_label.setWordWrap(True); layout.addWidget(self.error_code_label); layout.addWidget(self.error_message_label)
-        actions=QHBoxLayout(); self.copy_error_button=QPushButton("COPY ERROR DETAILS"); self.copy_error_button.setEnabled(False); self.copy_error_button.clicked.connect(self.copy_error_details); actions.addWidget(self.copy_error_button)
-        clear=QPushButton("CLEAR LOG"); clear.clicked.connect(self.ui_log.clear); actions.addWidget(clear); actions.addStretch(); layout.addLayout(actions); parent_layout.addWidget(box)
-        self._ui_error_code=None; self._ui_error_message=None; self._log_event("UI ready; hardware identity has not been verified."); self._log_event("Driver input current uses ACS712 #1/A0 current1 from the documented wiring; this is not motor winding current.")
+        """Compact footer with inline error status and vertical actions."""
+        box = QGroupBox()
+        outer = QVBoxLayout(box)
+        outer.setContentsMargins(6, 6, 6, 6)
+        outer.setSpacing(4)
+
+        # Keep the section title and current error status on one compact row.
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.setSpacing(10)
+        title = QLabel("LOG / ERROR LOG")
+        title.setStyleSheet("font-weight: bold;")
+        header.addWidget(title)
+
+        self.error_code_label = QLabel("Error Code: --")
+        self.error_code_label.setMinimumWidth(105)
+        header.addWidget(self.error_code_label)
+
+        self.error_message_label = QLabel("Error Message: --")
+        self.error_message_label.setWordWrap(False)
+        self.error_message_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.error_message_label.setToolTip("Current error message")
+        header.addWidget(self.error_message_label, 1)
+        outer.addLayout(header)
+
+        panel = QHBoxLayout()
+        panel.setContentsMargins(0, 0, 0, 0)
+        panel.setSpacing(8)
+
+        # Keep the footer short. Long output remains available through the
+        # editor's scrollbars instead of expanding the main window vertically.
+        self.ui_log = QPlainTextEdit()
+        self.ui_log.setReadOnly(True)
+        self.ui_log.setMaximumBlockCount(500)
+        self.ui_log.setPlaceholderText(
+            "Controller / UI / Sequence events will appear here."
+        )
+        self.ui_log.setLineWrapMode(QPlainTextEdit.NoWrap)
+        self.ui_log.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.ui_log.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.ui_log.setMinimumHeight(58)
+        self.ui_log.setMaximumHeight(86)
+        panel.addWidget(self.ui_log, 1)
+
+        actions = QVBoxLayout()
+        actions.setContentsMargins(0, 0, 0, 0)
+        actions.setSpacing(5)
+        actions.setAlignment(Qt.AlignTop)
+
+        self.diagnostic_report_button = QPushButton("SEND RAWLOG TO GITHUB")
+        self.diagnostic_report_button.setToolTip(
+            "Review and explicitly select RawLogs before sending a diagnostic report "
+            "to hamtech86/mini4wd-raw-logs."
+        )
+        self.diagnostic_report_button.clicked.connect(self.open_diagnostic_report)
+        actions.addWidget(self.diagnostic_report_button)
+
+        self.copy_error_button = QPushButton("COPY ERROR DETAILS")
+        self.copy_error_button.setEnabled(False)
+        self.copy_error_button.clicked.connect(self.copy_error_details)
+        actions.addWidget(self.copy_error_button)
+
+        clear = QPushButton("CLEAR LOG")
+        clear.clicked.connect(self.ui_log.clear)
+        actions.addWidget(clear)
+        actions.addStretch(1)
+
+        panel.addLayout(actions)
+        outer.addLayout(panel)
+        box.setMaximumHeight(158)
+        self._ui_error_code = None
+        self._ui_error_message = None
+        self._log_event("UI ready; hardware identity has not been verified.")
+        self._log_event(
+            "Driver input current uses ACS712 #1/A0 current1 from the documented wiring; "
+            "this is not motor winding current."
+        )
+        parent_layout.addWidget(box)
+
+    def open_diagnostic_report(self):
+        library = getattr(getattr(self, "battery_tab", None), "raw_log_library", None)
+        if library is None:
+            from raw_log_library import RawLogLibrary
+            library = RawLogLibrary()
+        dialog = DiagnosticReportDialog(self, library)
+        dialog.exec_()
 
     def _log_event(self, message):
         if hasattr(self,"ui_log"):
