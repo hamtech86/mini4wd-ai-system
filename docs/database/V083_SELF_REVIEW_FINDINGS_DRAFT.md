@@ -5,6 +5,7 @@
 - Branch: `docs/db-logical-design-v0.8.3-remediation-20261120`
 - 対象Blob（レビュー開始時）: `73255a791e3f0c8e469d6f2e32c069c7c1c20aba`
 - 判定: **自己検証未完了。統括再提出不可**
+- 更新注記: 本書の「初回」所見は作成時点の履歴。2026-11-21 Issue #210決定によりSR-01 / SR-02 / SR-09の一部または全部は下記Decision Overlayで解決・置換され、未解決課題としてそのまま再掲しない。
 - 本書は論理レビュー記録であり、仕様承認・実装許可ではない。
 
 ## 1. 上位指示の再確認
@@ -19,8 +20,8 @@
 - State: CLOSED（統括指示・Phase 2の範囲を記録）
 - DBファイル新規生成、空DB暗黙生成、migration、初期化、テストデータ投入、旧DB復旧・移行は禁止。
 - fail-closed、DB不存在時の暗黙DB生成禁止を維持。
-- 匿名RawLogからDBへの再取込、Instance再紐付けは「将来DB再設計」の別設計として扱う。現在の匿名運用復旧範囲には含めない。
-- したがって、本v0.8.3草案が定義する後日Associationは、現段階で実行可能な機能・確定要件として扱えない。別途統括承認が必要。
+- ANONYMOUS期間のRawLog / Measurementは現行範囲で後日DB取込・Mirror化・Instance再紐付け禁止。NONEとは区別する。
+- NONE期間については、DB利用可能時に取得され、外部正本およびDB管理下のMeasurement記録が既に存在する場合に限り、後日の明示Associationを論理設計対象としてよい。自動取込・新規Mirror生成は不可。測定時Assignment=NONEを保持し、監査履歴を残す。
 
 ### Issue #85 / #86 — DB安全化
 - 運用DBの選定・切替・書込み・migration・初期化は別途承認が必要。
@@ -39,20 +40,19 @@
 
 該当: §1.2(6)、§1.3、§6 Measurement行・後段説明、§12。
 
-草案はNONE / ANONYMOUS期間の既存Measurementを後日DB Mirrorへ登録する明示Association Operationを許容する。しかしIssue #201は、匿名RawLogからDBへの再取込・Instance再紐付けを将来の別設計として明確に対象外としている。
+初回レビュー時の草案はNONE / ANONYMOUSを一括して後日Association対象に含めていた。Issue #210（CC-02）はこの扱いを分離し、ANONYMOUSは後日取込・Mirror化・再紐付けを禁止、NONEは既存DB管理Measurementに限る明示Associationのみを論理設計対象として許容した。
 
 修正方針:
-1. v0.8.3現行範囲では、匿名/DB unavailable期間のRawLog・Measurement Envelopeを外部正本として保全する。
-2. それらのDB取込・Instance再紐付け・Sessionへの後付け所属は、本版では許可・定義済み機能としない。
-3. 将来実施する場合は、別設計・別受入条件・統括の明示承認を必要とする。
-4. 測定時Assignment Snapshotは不変であり、後日登録によって遡及変更しないという原則のみ維持する。
+1. ANONYMOUS期間のRawLog / Measurementは外部正本として保全し、現行範囲で後日DB取込・Mirror化・Instance再紐付けを禁止する。将来変更は別設計と統括の明示承認を要する。
+2. NONE期間は、DB利用可能時に取得され、外部正本およびDB管理下のMeasurement記録が既に存在する場合に限り、明示Associationを論理設計対象としてよい。自動取込・新規Mirror生成は不可。
+3. NONE AssociationではAssignment-at-Measurement=NONEを不変とし、Actor・時刻・変更前後・理由を監査履歴に記録する。関連付けだけでCurrent Aggregateへ算入しない。
 
 ### SR-02 — Session Measurement集合の時点定義がAssociation案と衝突
 **重大度: BLOCKER（SR-01と連動）**
 
 該当: §1.2(6)、§1.3、§1.4。
 
-§1.2はSession生成後にDB登録されたMeasurementをSession集合とする一方、後日AssociationはSession生成前に取得されたMeasurementも登録可能とする。Session membershipの基準が「測定時刻」「DB登録時刻」「明示関連付け時刻」のどれか一意でない。
+初回レビュー時は、Session membershipと後日Associationの境界が未定義だった。Issue #210 CC-02によりNONEの明示Associationが限定許容されたため、既存DB管理MeasurementのSession membership条件・関連付け先Sessionの適格性は別途論理定義が必要。
 
 修正方針:
 - SR-01のとおり後日Associationを本版から外す場合、Sessionの通常所属条件を「Session生成後に測定・登録され、測定時Assignmentが当該ScopeのASSIGNED状態であるMeasurement」として定義する。
@@ -132,16 +132,10 @@ Current Valid判定がInput Set Hash中心だが、RequestにはAssignment Snaps
 - Revision/Ordinalの開始値と単調増加条件をEntityごとに明示する。
 - 物理実装方式へ持ち越す事項と、論理設計段階で確定する事項を分離する。
 
-### SR-09 — Session Status導出式と状態遷移が未定義
-**重大度: HIGH**
+### SR-09 — Session Status導出式と状態遷移が未定義（旧所見・CC-01で解決）
+**状態: SUPERSEDED / Issue #210 CC-01**
 
-該当: §1.4。
-
-「Measurement集合から導出する」とあるが、Measurement Status / Session Statusの具体的な集約規則、COMPLETE / STOP / ERROR / CANCEL / INCOMPLETE等の扱い、複数Measurementが混在した場合の優先順位が明示されていない。Issue #201の匿名運用では完了・中断の区別が重要であり、Session導出にもその意味を持ち込む場合は正式契約との照合が必要。
-
-修正方針:
-- Measurement StatusとSession Statusを分離したうえで、Session Statusの導出表を定義する。
-- 匿名運用でDB Sessionがない場合の外部正本側の状態表現と混同しない。
+初回レビュー時の「Measurement集合からSession Statusを導出する」旧案は、Issue #210の統括決定により不採用。Session Lifecycle（NOT_CREATED / OPEN / CLOSED / QUARANTINED）とMeasurement Outcome（COMPLETE / STOP / ERROR / CANCEL / INCOMPLETE / UNKNOWN）を完全分離し、Outcome集合・混在・件数からLifecycleを導出しない。CLOSEDはRun管理側の明示Close Operationと外部正本・依存参照の検証が成立した場合に限る。詳細はMain draft §1.4.1、`V083_SESSION_LIFECYCLE_OUTCOME_DRAFT.md`、State Transition Matrixを参照。
 
 ### SR-10 — DB-001〜124 / V082 crosswalkは証拠回収未完了
 **重大度: BLOCKER / 統括再提出条件**
@@ -159,7 +153,7 @@ Current Valid判定がInput Set Hash中心だが、RequestにはAssignment Snaps
 | 対象 | 確認結果 | 次に必要な作業 |
 |---|---|---|
 | DB Run | 初回ASSIGNEDで生成、生成後保持、再ASSIGNEDで同一IDを使う方針は一貫 | DB record生成とDB file/schema/bootstrapを明確に分離 |
-| Session | 一度ASSIGNED後は保持する方針は一貫 | 後日Associationを本版から除外し、Measurement membershipを再定義 |
+| Session | 初回ASSIGNEDで生成し、Assignment変更後も保持 | CC-01に従いLifecycle/Outcome分離。NONE Association時の既存Session membership条件を別途定義 |
 | Assignment | Current AssignmentとAssignment-at-Measurementの分離は妥当 | NONE/ANONYMOUSの既存履歴・プライバシー処理境界を明文化 |
 | Current Aggregate | 現在ASSIGNED、測定時ASSIGNED、Instance ID一致という基準は一貫 | Request ID/Algorithm/Configuration/Assignment Snapshotを含む完全Fingerprintで有効性判定 |
 | Receipt | Source Commit後ABORTED禁止、同一Operation再開は一貫 | Event遷移・Restore時の未完了状態・ABORTED証拠条件を表形式で完成 |
@@ -183,3 +177,14 @@ Current Valid判定がInput Set Hash中心だが、RequestにはAssignment Snaps
 - main、v0.8.2、運用DB、DBファイル、DDL、Migration、実装コードへの変更なし。
 - 実装テスト・DB生成・Restore実行・物理試験は未実施。
 - 統括承認なし。ユーザー作業なし。
+
+
+## 6. Decision Overlay — Issue #210（2026-11-21）
+
+| 初回所見 | 現在の扱い | 決定・残作業 |
+|---|---|---|
+| SR-01 | 部分解決 | CC-02でANONYMOUS後日取込禁止、NONEの既存DB管理Measurementに限る明示Associationを分離。資料同期の残りを監査 |
+| SR-02 | 要再定義 | NONE Association対象MeasurementのSession membership条件が残る。ANONYMOUSは後付け所属禁止 |
+| SR-09 | 解決・旧案廃止 | CC-01によりSession LifecycleとMeasurement Outcomeを完全分離。OutcomeからLifecycleを導出しない |
+
+このDecision Overlayは初回レビューの履歴を消去せず、現行規範判断を上書き表示する。CC-01 / CC-02以外の未解決事項、v0.8.3全体の未承認状態、物理設計・実装禁止を変更しない。
