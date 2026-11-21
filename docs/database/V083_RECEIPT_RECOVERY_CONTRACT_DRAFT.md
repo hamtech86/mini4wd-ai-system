@@ -199,3 +199,50 @@ DB Commitの成否が不明な場合はMarkerを読み戻す。
 IntentがReceiptを決定的に再構成できる完全なOperation Planを保持すること、Receipt EnvelopeとEventを分離すること、ABORTEDをSource Commit不存在の積極的証明に限定すること、DB状態不明時は新Operationへ置換せず同一Operationを保留・再開することを修正候補とする。
 
 本書は未承認の論理補助案である。v0.8.3本文への反映・統括再提出・DDL・DB生成・Migration・実装を許可しない。
+
+
+## 12. Crash-point / idempotency / authority再監査（2026-11-21追加）
+
+### 12.1 現行草案で論理的に整合している点
+
+1. Journal Intentを先に永続化し、Receipt Envelope / PREPARED EventをSource Commitより前に記録する順序は、Main draft §2.1の順序と整合する。
+2. Source Commit後はABORTEDへ戻さず、同一OperationでDB Mirrorを再開する方針は一貫している。
+3. DB MarkerとDB Mirror更新を同一Transactionに含め、Commit結果不明時にMarkerを読み戻す方針は二重適用を避ける方向で整合する。
+4. VERIFIED / ABORTEDは終端不変、QUARANTINEDの解除は新Recovery Operationとする境界は、元証拠の書換え防止と整合する。
+5. Receipt EnvelopeとReceipt Eventを分離し、Stateを検証済みEvent Chainから導出する考え方は、Envelopeのmutable state化を避けている。
+
+上記は文書内の論理整合の確認であり、実装可能性・電源断耐性・ファイルシステム耐久性・SQLite transaction durabilityの実証ではない。
+
+### 12.2 Crash matrixに追加が必要な未カバー点
+
+| 未カバー点 | 発生し得る状態 | 現行の不足 | 必要な論理受入条件（提案・未承認） |
+|---|---|---|---|
+| PREPARED Eventの追記途中 | Envelopeは永続化済み、Eventファイル/recordが部分書込み | Envelope後〜PREPARED Event前は扱うが、Event自体の部分書込み・再読込判定がない | Eventは完全なHash/Ordinal単位で検証。部分Eventを有効Eventとして採用せず、同一Event Ordinalを安全に補完できる条件と不可能時の隔離を定義 |
+| SOURCE_COMMITTED Eventの追記途中 | Source Commit済み、Eventが部分書込み | Event欠落は補完するが、部分Event・破損Tailの扱いが未定義 | Source Manifestを再検証後、既存Tailを破壊せず同一OperationのEventを補完。Tailの切捨て・上書き可否は物理耐久契約へ |
+| DB_COMMITTED Eventの追記途中 | Marker/DB Mirror Commit済み、Eventが部分書込み | Marker一致後の補完はあるが、破損Tailとの競合条件がない | DB MarkerとSource Commitを照合し、Event Chainの有効Tailを確定できる場合だけ同一Receiptを補完。確定不能ならQUARANTINED |
+| VERIFIED Eventの追記途中 | 依存検証済み、終端Eventが不完全 | VERIFIED後は不変とあるが、終端Eventの不完全書込み状態が未定義 | VERIFIED Eventの完全性を再検証できない限りVERIFIEDと認定しない。再検証・補完の可否をOrdinal / Hash Chain規則に含める |
+| ABORTED / QUARANTINED Eventの追記途中 | Operator判断は行われたがEvent永続化結果が不明 | 明示判断とEvent耐久化の間の結果不明を規定していない | 判断IntentとEvent記録の権威境界を明記。Event永続化を確認できなければ終端確定としない。別Operationによる重複判断を禁止 |
+| 同一Operationの並行Recovery | 2つのRecovery worker / operatorが同一Receiptを同時に再開 | Physical Run lockは言及するが、Receipt単位のfencing / stale lock対策がない | 同一Operation / Receiptに対する単一writerとfencing tokenの論理要件を定義。物理方式は保留 |
+| Manifest Head更新後の読戻し競合 | 他OperationがHeadを先行更新 | predecessor検証はあるが、CAS相当の競合拒否・再試行条件が未定義 | Expected predecessorと新Headの一意な対応を検証し、別Operationが介在したら上書きせずQUARANTINEDまたは安全な直列再開 |
+| DB Commit結果の読戻し可視性 | Commit後に別接続からMarkerが見えない / 遅延読出し | Marker不存在とrollback確認を条件にするが、読戻し一貫性・Isolationの前提が未定義 | 「Marker不存在」を確定できるDB読戻し条件を定義。読出し一貫性を保証できない場合はSOURCE_COMMITTED保留 |
+| Receipt Event Ordinal予約 | Event追記中にクラッシュしOrdinalだけ消費 / 競合 | gap検出はあるが、Ordinal予約・消費の正本が未定義 | Event Ordinalの発行主体・消費時点・欠番許容/拒否を定義。再利用禁止と補完可能条件を区別 |
+| Intent / Receiptの自己Hash計算 | Hash対象に自己Hash欄や相互参照Hashが含まれる | Canonical payload範囲の完全定義がない | 自己Hash対象から除外するfieldと相互参照Hashの生成順を定義。循環依存がないCanonicalization vectorを提示 |
+
+### 12.3 Main draftとの同期が必要な項目
+
+1. 本書§2の「完全なOperation Plan」にはExpected Receipt Hashを含める提案があるが、Main draft §2.1のIntent項目一覧には明記がない。採用する場合はMainと本書の両方へ同期する。
+2. 本書§3のReceipt Envelope属性（Envelope Schema Version / Created At / Expected Source Manifest Head / Plan Hash等）とMain draft §2.1の列挙を項目単位で照合し、Main本文の最低契約へ反映するか、補助資料に委任する範囲を明記する。
+3. Main draft §2.1の「Receipt PREPARED Eventを追記・永続化」は、Envelope本体の永続化とEventの永続化を別々の完了条件として記載する必要がある。補助資料のCrash Matrixと同じ粒度にする。
+4. Receipt IDのOperation ID決定的導出は、Canonical Namespace未承認のままUUIDv5採用を前提にしてはならない。決定的導出方式・Namespace・互換性の根拠が確定するまで実装規則にしない。
+5. Main draft §8のRawLog耐久要件をReceipt一般のファイル耐久要件へ拡張しない。Journal / Receipt / RawLog / Telemetryで正本性・損失許容・durabilityを分類し、Issue #35のMotor RawLog契約と照合する必要がある。
+
+### 12.4 現時点の判定
+
+- 論理順序（Intent → Envelope/PREPARED → Source Commit → DB Marker/Mirror Commit → VERIFIED）は文書上の候補として整合。
+- クラッシュ点の列挙は改善済みだが、Event append途中、Event Ordinal消費、並行Recovery / fencing、Manifest Head競合、DB read-after-commit保証が未定義。
+- Intent / Receiptの完全Canonical payloadと自己Hash除外規則が未確定。
+- Main draftとの項目単位の同期は未完了。
+- Receipt IDの決定的導出とUUIDv5 Namespaceは未承認。
+- したがってReceipt Recovery Contractは完成扱いにせず、DB-RV-03解消済みとも判定しない。
+
+次の作業は、上記の未カバー点を論理要件・物理耐久契約・未受領の外部仕様に分け、Main draftと補助資料の同期差分を作成することである。実装・DDL・DB生成・Migration・Restore実行は禁止境界を維持する。
