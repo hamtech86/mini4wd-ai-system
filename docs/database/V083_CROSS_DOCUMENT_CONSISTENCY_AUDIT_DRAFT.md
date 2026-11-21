@@ -438,3 +438,15 @@ Hash依存グラフが循環しないことを現行資料から証明できな�
 
 ### 承認境界
 Hash algorithm、Canonicalization、UUIDv5 Namespace、Receipt ID方式は未承認・未採用。DB-RV-03 OPEN。Main本文は未変更。DDL / DB生成 / Migration / Restore実行 / 実装 / PR / main反映なし。
+
+
+## 22. Operation Ordinal / Receipt Event Ordinalの規則分離（2026-11-21）
+
+§15.2のOrdinal候補規則を、既存Main / Receipt Schemaの明示記述に合わせて修正した。
+
+- Operation Ordinal: Main §2.3の現行規則どおり欠番を許容し、再利用しない。発行Authority・消費点は未確定。
+- Receipt Event Ordinal: Receipt Event Schemaの「Event Ordinal gapは検証失敗」を維持し、連続Chainとする。発行Authority・部分書込み後の復旧条件は未確定。
+- 両者を一律に「欠番許容」または「欠番禁止」と扱わない。
+- 部分Tailを黙って切り捨てたり、その後ろへ追記したりせず、証拠を保全して隔離する候補方針は維持する。
+
+これは既存記述の整合化であり、Ordinal Authorityや物理的な追記・耐久方式の確定ではない。DB-RV-03 OPENを維持する。
