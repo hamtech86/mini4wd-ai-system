@@ -749,3 +749,25 @@ Issue #201はDB不存在時のMainUI起動と匿名運用の境界を定め、DB
 
 ### 31.4 判定
 Motor / Batteryの不足契約はDB部門の裁量で補完しない。Issue #35 / #16 / #201 / #210の範囲を維持し、正式契約の受領・統括判断後にのみ関連DB条項を同期する。
+
+
+## 32. Entity 23種の根拠・Authority照合と未回収契約境界（2026-11-21）
+
+Entity Inventory §10に、Main §§1–10、Issue #210 CC-01/02、Motor Issue #35 / #170、Battery Issue #16の根拠をEntity単位で対応付けた。
+
+### 32.1 新たに明確化した点
+
+- Main §6の正本 / Mirror表はAuthority分類の論理案であり、全Entityの完全Schema・Retention・Restore実証ではない。
+- Main §7はMeasurement Envelopeの最低属性を示すが、Motor/Battery別のCapture終端・RawLog全属性は確定しない。
+- Main §8はRawLog保存完了の論理要求を記載する一方、OS/filesystem別のfsync保証・電源断耐久性は物理実証が必要。Issue #35 / #170のMotor RawLog契約、およびBattery Issue #16のE2E検証範囲から、機器別の完全なdurability / retention契約を推測してはならない。
+- Main §9はRestore / Bootstrapの二段階手順案である。各Entityの完全な証拠集合、復元可否、Loss toleranceがすべて定義・実証済みという意味ではない。
+- OPERATION_EVENTをAssignment HistoryまたはOperation Journal Eventへ自動的に割り当てない。Intent / Event / SnapshotのEntity境界は未決定。
+- Analysis ArtifactとSimulation Artifact、Recovery OperationとIntegrity Report、RawLog ObjectとRawLog Referenceはそれぞれ概念上区別するが、全Entityの独立ID・物理表分割までは決めていない。
+- Aggregate Pointerは派生値として扱う候補であり、独立IDや保存表を追加する根拠はない。
+- NONE Session membershipはIssue #210で未決定。Inventory §10.2もA/B/Cのいずれかを採用したとは扱わない。
+
+### 32.2 監査結論
+
+23 Entityの根拠所在を一覧化できたが、完全なField Schemaを提供する一次契約は不足している。特にMotor RawLog v2 / Battery Measurement・RawLog / Run管理Close / Profile Snapshot / Artifact / Recovery authorityは、各契約所有者または統括から正式な根拠が必要である。DB部門はそれらを推測補完しない。
+
+本監査は文書調査のみ。Main本文、DDL、DB、Migration、Restore実行、機器実装、PR、main反映は変更していない。
