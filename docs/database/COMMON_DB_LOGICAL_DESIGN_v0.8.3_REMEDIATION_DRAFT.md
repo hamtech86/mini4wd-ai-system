@@ -367,6 +367,7 @@ V082-001〜030は既存のまま保持する。V082-031〜053は追加案であ�
 6. 初回ASSIGNED前のNONE期間のMeasurement、ANONYMOUS期間のMeasurement / RawLog、DB unavailable期間のすべてのCapture / Measurementは外部正本のみ。Issue #201によりDB unavailableはAnonymous Modeとして扱うため、ASSIGNED状態であっても当該期間中のDB Run / Session / Measurement Mirror生成を行わず、復旧後のBootstrap・取込・Mirror化・Associationも禁止する。DB unavailable前から存在するDB Run / Sessionは履歴として保持する。ANONYMOUS / outage期間の将来取込は別設計・統括の明示承認が必要。
 7. NONE MeasurementはCurrent Aggregateから常に除外する。Historical Analysisでの利用は、明示的に指定された場合のみ許可し、ArtifactにRETROSPECTIVE_NONEを記録する。ANONYMOUSは分析入力としても現行範囲外。
 8. Assignment SnapshotはScope単位の不変Revision。初期SnapshotはRevision=0（StateはNONEまたはANONYMOUS）。以降、実際のState / Instance変更ごとにRevisionを1ずつ増やし、欠番・再利用を禁止する。同じState / Instanceへの重複Assignmentはidempotent no-opとし、新Revisionを作らない。Current Assignmentは最新の検証済みSnapshotから導出する。履歴は追記のみ。
+9. DB unavailable期間に当該Physical Runの最初のASSIGNEDが発生した場合、そのRunはAnonymous Modeのまま扱い、DB復旧後に同一Physical RunをDB管理へ遡及変換しない。同一Physical Run内でのDB管理再開手順は本版では定義・許可しない。DB管理を再開する場合は新しいPhysical Runを開始する。DB unavailable以前にDB Run / Sessionが既に生成されていた場合は、その既存Identityを削除・再採番せず、障害期間のCaptureを取り込まない。
 
 ### 14.2 Measurement Outcome / Session Close
 1. Measurement OutcomeはCOMPLETE / STOP / ERROR / CANCEL / INCOMPLETE / UNKNOWN。OutcomeはMeasurement単位でありSession Lifecycleへ伝播しない。
