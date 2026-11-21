@@ -393,3 +393,33 @@ Request StateとAttempt StateをMain §3.2で固定。Retry ClosedはFAILED Atte
 - **契約証拠:** Motor / Battery / Run Managerからの正式Schema・Lifecycle・Capture終端・Close authorityは未受領のものがある。未受領項目は本版の適用対象外またはopaque/fail-closedであり、他部門仕様を推測しない。
 - **実証:** UUID/JCS、filesystem、SQLite、crash recovery、Restore、Concurrencyの受入試験は未実施。
 - **承認:** v0.8.3はDraft。統括最終承認・実装許可・DDL/DB生成/Migration/Restore実行/PR/main反映を意味しない。
+
+
+## 37. DB部門追補自己審査 — CC-02 / DB unavailable / Session membership（2026-11-21）
+
+### SR-12 / SR-16 / SR-18の閉鎖
+1. Issue #210 CC-02が許可したNONE後日Associationを、既存DB管理Measurementに対する明示的なInstance関連付け履歴として定義した。AssociationはAssignment-at-Measurementを変更せず、Current Aggregateへ算入せず、Session membershipも変更しない。
+2. Session membershipはMeasurement Mirror初回登録時点で同一Physical Run / ScopeのSessionが存在する場合に固定する。Session生成前のNONE Measurementは後日の初回ASSIGNED後もSessionへ遡及所属しない。Session生成後のNONE Measurementは登録時点でmembershipを固定する。
+3. NONE AssociationのEvent Authorityは、Session Entityの存在有無で発行権限を失わないよう、当該Physical Run / Scopeの認証済みDB Session Managerとした。これはEvent発行Authorityの論理定義であり、実装・権限実証済みを意味しない。
+
+### Issue #201との矛盾修正
+4. DB unavailableはIssue #201のAnonymous Modeとして扱う。障害期間中に取得されたCapture / Measurement / RawLogはAssignment-at-MeasurementがASSIGNEDであっても外部正本のみとし、復旧後のBootstrap / DB取込 / Mirror化 / Associationを禁止する。
+5. 障害前から存在するDB Run / Sessionは削除しない。障害期間中のCaptureは既存Sessionへ追加しない。
+6. 同一Physical Run内で障害中に初回ASSIGNEDとなった場合、復旧後にそのRunを遡及してDB管理へ変換しない。同一Run内のDB管理再開契約は本版で定義せず、新しいPhysical RunからDB管理を開始する。
+
+### 文書同期
+- Main v0.8.3 §1.1–1.4 / §6 / §14.1 / §14.4.17
+- Session Lifecycle §§1 / 4 / 5 / 6 / 7
+- State Transition Matrix §§1 / 2 / 3
+- Entity Inventory §§13.2–13.3
+- Cross-document Consistency Audit §37
+
+### 実施状態
+- 論理文書修正: 実施
+- DB-001〜124原文回収 / V082 Crosswalk完全照合: 未完了（未回収は未回収のまま維持）
+- Motor / Battery正式Capture・RawLog契約受領: 未完了
+- UUIDv4 / M4W-JCS-1 conformance test vectorsの実行: 未実施
+- Filesystem / SQLite / crash / Restore実証: 未実施・禁止境界内
+- 統括最終審査: 未実施
+
+本追補は設計全体の承認・実装移行許可ではない。
