@@ -45,4 +45,5 @@ inline void digitalWrite(uint8_t pin, uint8_t value) {
     if (pin < 32) mock_digital_write[pin] = value;
 }
 inline unsigned long millis() { return 1000UL; }
+inline unsigned long micros() { return 1000000UL; }
 inline void delay(unsigned long) {}
