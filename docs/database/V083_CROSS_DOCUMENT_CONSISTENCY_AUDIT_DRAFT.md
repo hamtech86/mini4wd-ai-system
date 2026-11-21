@@ -870,3 +870,39 @@ Request StateをOPEN / SUCCEEDED / FAILED / CANCELLED / INDETERMINATEに固定�
 - **契約証拠:** Motor / Battery / Run Managerからの正式Schema・Lifecycle・Capture終端・Close authorityは未受領のものがある。未受領項目は本版の適用対象外またはopaque/fail-closedであり、他部門仕様を推測しない。
 - **実証:** UUID/JCS、filesystem、SQLite、crash recovery、Restore、Concurrencyの受入試験は未実施。
 - **承認:** v0.8.3はDraft。統括最終承認・実装許可・DDL/DB生成/Migration/Restore実行/PR/main反映を意味しない。
+
+
+## 37. CC-02 / DB unavailable / Session membershipの最終整合処置（2026-11-21）
+
+**この節は本書の旧OPEN / candidate記述（特に§30.7、§31、§35.1）を更新する現行DB部門Decision Baselineである。** Issue #210 CC-01 / CC-02およびIssue #201を上位根拠とし、Main v0.8.3 §1 / §14.1、Session Lifecycle §§1 / 4 / 5 / 7、State Transition Matrix §§1–3を同期対象とする。
+
+### 37.1 DB unavailableはAnonymous Mode
+- Issue #201はDB unavailable動作を既存Anonymous Modeへ統合し、障害期間中のRawLog / Captureをローカル外部正本へ保全する一方、後日DB取込・Instance再紐付けは将来の別設計範囲としている。
+- よってDB unavailable期間はAssignment-at-MeasurementがASSIGNEDであってもAnonymous Modeとして扱う。新規DB Run / Session / Measurement Mirrorを作成せず、障害期間中のCapture / Measurement / RawLogを復旧後にBootstrap・取込・Mirror化・Associationしない。
+- 障害前にDB Run / Sessionが存在した場合、そのIdentityと履歴は保持する。障害期間のCaptureは既存Session membershipへ追加しない。
+- 同一Physical Run内で障害期間に初回ASSIGNEDとなった場合、復旧後に同一RunをDB管理へ遡及変換しない。同一Run内のDB管理再開契約は本版対象外とし、新しいPhysical RunからDB管理を開始する。
+
+### 37.2 NONE AssociationとSession membershipの分離
+- Session membershipはMeasurement Mirror初回登録時点で同一Physical Run / ScopeのSessionが存在する場合に限り固定する。membershipは後日変更・遡及追加しない。
+- Session生成前に登録されたNONE Measurementは、後に初回ASSIGNEDでSessionが生成されてもSessionへ遡及所属しない。
+- Session生成後、DB正常利用可能時に取得・登録されたNONE Measurementは、登録時点で同一Scope Sessionへ所属する。後日のNONE AssociationはInstanceへの関連付け履歴のみを追加し、Session membershipを変更しない。
+- NONE Associationは明示操作のみ。Actor / UTC timestamp / Reason / before-after / OperationIDを記録し、Assignment-at-Measurement=NONEを不変とする。Current Aggregateへ算入しない。
+- ANONYMOUS / DB unavailable期間のデータはAssociation対象外。
+
+### 37.3 旧記述の処置
+- §30.7、§31、§35.1にある「DB unavailable中のASSIGNED Measurementを復旧後BootstrapでMirror化できる」という記述は、Issue #201と不整合な旧候補として廃止する。
+- NONE MeasurementのSession membershipを統括判断待ちとした旧記述は、本節37.2で閉鎖する。
+- 本節は論理設計文書の同期であり、DB作成・Bootstrap実行・Restore実行・Migration・実装許可を意味しない。
+
+### 37.4 受入ケース（未実行）
+| ID | 条件 | 期待結果 |
+|---|---|---|
+| XDC-001 | DB outage中にASSIGNED Measurementを取得 | 外部正本のみ。DB Mirrorなし |
+| XDC-002 | XDC-001後にDB復旧 | 障害期間データのBootstrap / 取込 / Mirror化を拒否 |
+| XDC-003 | outage前にDB Run / Sessionあり、outage中にCapture | 既存Identity保持。outage CaptureはSession membershipに追加しない |
+| XDC-004 | outage中に同一Physical Runで初回ASSIGNED、後にDB復旧 | 同一Runの遡及DB化を拒否。新Physical RunからDB管理 |
+| XDC-005 | Session生成前にNONE MeasurementをDB登録し、後にSession生成 | Session membershipへ遡及追加しない |
+| XDC-006 | Session生成後にNONE MeasurementをDB登録 | 登録時点で同一Scope Session membershipを固定 |
+| XDC-007 | XDC-006対象を後日Association | Instance関連付け履歴のみ。Session membership / Assignment-at-Measurement不変 |
+
+全ケースは論理受入案であり、実行・PASS未確認。
