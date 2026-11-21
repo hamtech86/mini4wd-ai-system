@@ -10,6 +10,8 @@
 
 ## 1. 用語の分離
 
+> **旧調査時点の記録 — 現行規範ではない。** 本節は調査・候補・差分履歴として保持する。現行の規範はMain §14.4および本書§22を優先し、矛盾時はMain §14.4に従う。
+
 | 概念 | 役割 | 不変性 |
 |---|---|---|
 | Journal Intent | 何を行うOperationかを事前に固定する外部正本 | 追記後不変 |
@@ -22,6 +24,8 @@
 Receipt EnvelopeはStateをUPDATEして使い回す mutable rowではない。現在Stateは、Envelopeと検証済みReceipt Event Chainから導出する。DB MirrorのReceiptコピーは外部正本を代替しない。
 
 ## 2. Journal Intentの再構成可能性
+
+> **旧調査時点の記録 — 現行規範ではない。** 本節は調査・候補・差分履歴として保持する。現行の規範はMain §14.4および本書§22を優先し、矛盾時はMain §14.4に従う。
 
 v0.8.3 §2.1ではIntent永続化後・Receipt作成前のクラッシュ時にReceiptを再作成するとしている。しかし現行列挙のIntent Hash / Intent Payloadだけでは、ReceiptのExpected Source Payload HashesやExpected DB Marker Hashを再構成できない場合がある。
 
@@ -49,6 +53,8 @@ Receipt作成前のクラッシュ時:
 5. Intentが部分書込み・Hash不一致・Ordinal競合で完全に検証できない場合、Ordinalを再利用せずPhysical RunをQUARANTINEDにする。別Operationとして同じOrdinalを再発行しない。
 
 ## 3. Receipt Envelope / Eventの最小論理Schema
+
+> **旧調査時点の記録 — 現行規範ではない。** 本節は調査・候補・差分履歴として保持する。現行の規範はMain §14.4および本書§22を優先し、矛盾時はMain §14.4に従う。
 
 ### 3.1 Receipt Envelope（immutable）
 
@@ -85,6 +91,8 @@ Event TypeとPayloadの許可組合せを固定し、未定義Event Type / 余�
 
 ## 4. Receipt Event遷移表
 
+> **旧調査時点の記録 — 現行規範ではない。** 本節は調査・候補・差分履歴として保持する。現行の規範はMain §14.4および本書§22を優先し、矛盾時はMain §14.4に従う。
+
 | Current State | Event | 次State | 許可条件 |
 |---|---|---|---|
 | 未作成 | PREPARED | PREPARED | 完全なJournal IntentからEnvelopeを作成し、Source Commit前に永続化 |
@@ -103,6 +111,8 @@ PREPAREDからSOURCE_COMMITTEDへ直接進む場合、Source Commitが既に発�
 
 ## 5. Source Commit不存在の証明
 
+> **旧調査時点の記録 — 現行規範ではない。** 本節は調査・候補・差分履歴として保持する。現行の規範はMain §14.4および本書§22を優先し、矛盾時はMain §14.4に従う。
+
 ABORTEDは「Source Commitが見つからなかった」という単純な検索結果では許可しない。
 
 必要な条件:
@@ -115,6 +125,8 @@ ABORTEDは「Source Commitが見つからなかった」という単純な検索
 いずれかを満たさない場合、ABORTEDにせず、証拠が単に未到着なら保留、競合・検証不能ならQUARANTINEDとする。保留状態を成功・中止に読み替えない。
 
 ## 6. クラッシュ点ごとの再開規則
+
+> **旧調査時点の記録 — 現行規範ではない。** 本節は調査・候補・差分履歴として保持する。現行の規範はMain §14.4および本書§22を優先し、矛盾時はMain §14.4に従う。
 
 | Crash point | 正本証拠 | 再起動後の状態 / 動作 |
 |---|---|---|
@@ -137,6 +149,8 @@ ABORTEDは「Source Commitが見つからなかった」という単純な検索
 
 ## 7. DB Marker / Receipt Eventの相互整合
 
+> **旧調査時点の記録 — 現行規範ではない。** 本節は調査・候補・差分履歴として保持する。現行の規範はMain §14.4および本書§22を優先し、矛盾時はMain §14.4に従う。
+
 DB MarkerはSource Commit後にのみ作成する。MarkerのCanonical Payloadは少なくとも以下を含む。
 - Physical Run ID / Operation ID / Operation Ordinal
 - Intent Hash / Receipt ID
@@ -155,6 +169,8 @@ DB Commitの成否が不明な場合はMarkerを読み戻す。
 
 ## 8. Recovery Operation
 
+> **旧調査時点の記録 — 現行規範ではない。** 本節は調査・候補・差分履歴として保持する。現行の規範はMain §14.4および本書§22を優先し、矛盾時はMain §14.4に従う。
+
 1. 元Receipt / Journal / Source Commit / DB Markerを変更しない。
 2. Recovery Operationは新しいOperation ID / Ordinal / Intent / Receiptを持つ。
 3. Recovery Planに対象元Receipt ID、検出状態、証拠Hash、実施する修復・再検証の範囲、Actor Intentを固定する。
@@ -163,6 +179,8 @@ DB Commitの成否が不明な場合はMarkerを読み戻す。
 6. Recovery Operationが不成功なら新しいReceiptも未完了 / QUARANTINEDとして保持する。証拠の削除・隠蔽は禁止。
 
 ## 9. 追加受入テスト案
+
+> **旧調査時点の記録 — 現行規範ではない。** 本節は調査・候補・差分履歴として保持する。現行の規範はMain §14.4および本書§22を優先し、矛盾時はMain §14.4に従う。
 
 | Test ID | 条件 | 期待結果 |
 |---|---|---|
@@ -187,6 +205,8 @@ DB Commitの成否が不明な場合はMarkerを読み戻す。
 
 ## 10. 未解決事項
 
+> **旧調査時点の記録 — 現行規範ではない。** 本節は調査・候補・差分履歴として保持する。現行の規範はMain §14.4および本書§22を優先し、矛盾時はMain §14.4に従う。
+
 1. Journal Intentの既存Canonical Schema / Hash Chainがあるか。新フィールドを追加する場合の互換性。
 2. Manifest Head / Source Commitの具体的な原子的更新・読み戻し契約。
 3. Intent / Receipt / EventのCanonical Binary Name / Payload Hashの完全文法。
@@ -198,12 +218,16 @@ DB Commitの成否が不明な場合はMarkerを読み戻す。
 
 ## 11. 結論
 
+> **旧調査時点の記録 — 現行規範ではない。** 本節は調査・候補・差分履歴として保持する。現行の規範はMain §14.4および本書§22を優先し、矛盾時はMain §14.4に従う。
+
 IntentがReceiptを決定的に再構成できる完全なOperation Planを保持すること、Receipt EnvelopeとEventを分離すること、ABORTEDをSource Commit不存在の積極的証明に限定すること、DB状態不明時は新Operationへ置換せず同一Operationを保留・再開することを修正候補とする。
 
 本書は未承認の論理補助案である。v0.8.3本文への反映・統括再提出・DDL・DB生成・Migration・実装を許可しない。
 
 
 ## 12. Crash-point / idempotency / authority再監査（2026-11-21追加）
+
+> **旧調査時点の記録 — 現行規範ではない。** 本節は調査・候補・差分履歴として保持する。現行の規範はMain §14.4および本書§22を優先し、矛盾時はMain §14.4に従う。
 
 ### 12.1 現行草案で論理的に整合している点
 
@@ -252,6 +276,8 @@ IntentがReceiptを決定的に再構成できる完全なOperation Planを保�
 
 ## 13. 未解決事項の責任境界と閉鎖順序（2026-11-21追加）
 
+> **旧調査時点の記録 — 現行規範ではない。** 本節は調査・候補・差分履歴として保持する。現行の規範はMain §14.4および本書§22を優先し、矛盾時はMain §14.4に従う。
+
 本節は§10 / §12の未解決事項を、論理設計で決める事項と、物理方式・実装証拠がなければ決められない事項に分ける。未決事項を推測で埋めず、論理承認前に必要な判断と、物理設計ゲートへ送る判断を混同しない。
 
 ### 13.1 論理設計段階で閉じる必要がある事項
@@ -293,6 +319,8 @@ IntentがReceiptを決定的に再構成できる完全なOperation Planを保�
 
 
 ## 14. Main §2.1 項目単位照合と同期差分案（2026-11-21）
+
+> **旧調査時点の記録 — 現行規範ではない。** 本節は調査・候補・差分履歴として保持する。現行の規範はMain §14.4および本書§22を優先し、矛盾時はMain §14.4に従う。
 
 ### 14.1 照合範囲・判定方法
 
@@ -355,6 +383,8 @@ Main draft §2.1「正規順序」および同節直後の補足文を、Receipt
 
 ## 15. Main §2.1〜§2.3 同期に向けた論理決定台帳（2026-11-21）
 
+> **旧調査時点の記録 — 現行規範ではない。** 本節は調査・候補・差分履歴として保持する。現行の規範はMain §14.4および本書§22を優先し、矛盾時はMain §14.4に従う。
+
 本節は、Main §2.1の正規順序、§2.2のReceipt State、§2.3のクラッシュ復旧表を補助契約と同時に改訂するための決定台帳である。ここで「論理規則案」とした内容は、現行本文から導ける安全側の提案であり、Main本文へ反映済み・統括承認済みとは扱わない。物理方式は決めない。
 
 ### 15.1 Main §2.1〜§2.3 の同期変更表
@@ -407,6 +437,8 @@ Main draft §2.1「正規順序」および同節直後の補足文を、Receipt
 
 ## 16. Hash / ID依存関係監査 — 循環・未定義参照候補（2026-11-21）
 
+> **旧調査時点の記録 — 現行規範ではない。** 本節は調査・候補・差分履歴として保持する。現行の規範はMain §14.4および本書§22を優先し、矛盾時はMain §14.4に従う。
+
 ### 16.1 確認した一次記述
 - §2 Intent PlanはOperation Plan Hash / Intent Hashを列挙する。
 - §2 Receipt再構成手順は、Intentに固定したExpected Receipt Hashとの一致を要求するが、最低限Intent PlanのField一覧にはExpected Receipt Hashが列挙されていない。
@@ -443,6 +475,8 @@ Main draft §2.1「正規順序」および同節直後の補足文を、Receipt
 
 
 ## 17. Hash依存グラフ候補と生成順の検証（2026-11-21）
+
+> **旧調査時点の記録 — 現行規範ではない。** 本節は調査・候補・差分履歴として保持する。現行の規範はMain §14.4および本書§22を優先し、矛盾時はMain §14.4に従う。
 
 ### 17.1 現行記述から確定できる入力・参照関係
 
@@ -521,6 +555,8 @@ Receipt IDはOperation IDから決定的導出すると記載されるが、導�
 
 ## 18. Operation Ordinalの部分Intent・消費境界監査（2026-11-21）
 
+> **旧調査時点の記録 — 現行規範ではない。** 本節は調査・候補・差分履歴として保持する。現行の規範はMain §14.4および本書§22を優先し、矛盾時はMain §14.4に従う。
+
 ### 18.1 現行規則
 - Main §2.1 step 1: Journalと直近Ordinalを検証。
 - Main §2.1 step 2: Operation ID / Ordinal / Intent Payload / Intent Hashを確定。
@@ -555,6 +591,8 @@ Mainの「永続化完了時に消費」と、補助契約の「部分Intentで�
 
 
 ## 19. Receipt Event Chainの初回Event・Ordinal消費・部分Tail監査（2026-11-21）
+
+> **旧調査時点の記録 — 現行規範ではない。** 本節は調査・候補・差分履歴として保持する。現行の規範はMain §14.4および本書§22を優先し、矛盾時はMain §14.4に従う。
 
 ### 19.1 現行記述で確認できること
 - §3.2ではEvent Ordinalを必須とし、Receipt内で単調増加・再利用禁止としている。
@@ -597,6 +635,8 @@ NOT_ATTEMPTEDの場合のみ同じ次Ordinalで作成を開始できる。COMMIT
 
 
 ## 20. Manifest Head競合・Commit結果不明・後続Commit監査（2026-11-21）
+
+> **旧調査時点の記録 — 現行規範ではない。** 本節は調査・候補・差分履歴として保持する。現行の規範はMain §14.4および本書§22を優先し、矛盾時はMain §14.4に従う。
 
 ### 20.1 現行規則の確認
 Main §2.1 step 6〜7は、変更対象の外部正本を不変Revisionとして書き込み、Current Manifest / Head Pointerを同一Operationのcommit markerとして更新し、その後Revision / Manifest Hashを読み戻す順序を定める。§2.3はSource Commit後にABORTEDへ戻さず、同一OperationでDB Mirrorを再開する。
@@ -653,6 +693,8 @@ Manifest Head Pointerだけでは、後続Commit後の先行OperationのCommit�
 
 
 ## 21. Writer Authority・stale owner・fencing論理境界監査（2026-11-21）
+
+> **旧調査時点の記録 — 現行規範ではない。** 本節は調査・候補・差分履歴として保持する。現行の規範はMain §14.4および本書§22を優先し、矛盾時はMain §14.4に従う。
 
 ### 21.1 現行根拠と適用範囲
 - Main §2.1 step 1はPhysical Run単位の排他ロック取得を要求する。
