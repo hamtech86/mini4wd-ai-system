@@ -1,7 +1,8 @@
 # V082-001〜053 ↔ DB-001〜124 クロスウォーク（初期台帳）
 
 - 基準日: 2026-11-20
-- 状態: **未完了・個別対応未確定**
+- 状態: **未完了・個別対応未確定（CC-01 / CC-02 decision overlay追記）**
+- 注記: V082-001〜053は旧v0.8.2の受入案を保存した履歴台帳。Issue #210後の現行規範は本書末尾のCC decision overlayを優先し、旧期待結果を現行要件として再利用しない。
 - 関連: [DB-001〜124証拠台帳](./DB_001_124_EVIDENCE_LEDGER_DRAFT.md)
 - v0.8.2: [共通DB論理設計 v0.8.2](https://github.com/hamtech86/mini4wd-ai-system/blob/docs/db-logical-design-v0.8.2-20261120/docs/database/COMMON_DB_LOGICAL_DESIGN_v0.8.2.md)
 - v0.8.3修正案: [差戻し解消案](https://github.com/hamtech86/mini4wd-ai-system/blob/docs/db-logical-design-v0.8.3-remediation-20261120/docs/database/COMMON_DB_LOGICAL_DESIGN_v0.8.3_REMEDIATION_DRAFT.md)
@@ -26,7 +27,7 @@ DB-001〜124の範囲成立履歴は分かっているが、個別124項目の�
 | V082-004 | COMPLETED + IN_PROGRESS | IN_PROGRESS | 未対応付け | 個別DB-ID原文未回収のため判定不能 |
 | V082-005 | 全Measurement FAILED | FAILED | 未対応付け | 個別DB-ID原文未回収のため判定不能 |
 | V082-006 | Anonymous Measurement COMPLETED | Sessionなしで状態保持 | 未対応付け | 個別DB-ID原文未回収のため判定不能 |
-| V082-007 | 後日ASSIGNED | 既存MeasurementからSession Status導出 | 未対応付け | 個別DB-ID原文未回収のため判定不能 |
+| V082-007 | 後日ASSIGNED | 旧案: 既存MeasurementからSession Status導出 | 未対応付け（旧期待結果はCC-01で廃止） | 個別DB-ID原文未回収。Measurement OutcomeからSession Lifecycleを導出する旧案はIssue #210 CC-01と矛盾し、現行仕様ではない |
 | V082-008 | Journal Intent前停止 | Operation未確定 | 未対応付け | 個別DB-ID原文未回収のため判定不能 |
 | V082-009 | Intent後Commit前停止 | 同じOperationで復旧 | 未対応付け | 個別DB-ID原文未回収のため判定不能 |
 | V082-010 | Commit後Receipt前停止 | Receipt再生成 | 未対応付け | 個別DB-ID原文未回収のため判定不能 |
@@ -74,6 +75,18 @@ DB-001〜124の範囲成立履歴は分かっているが、個別124項目の�
 | V082-052 | DB Commit後・DB_COMMITTED Event前クラッシュ | Marker / Source Hash照合後に同一Receipt Event補完 | 未対応付け | 個別DB-ID原文未回収のため判定不能 |
 | V082-053 | Source Commit前のOperation中止 | ABORTED記録・Ordinal消費済み・再利用禁止 | 未対応付け | 個別DB-ID原文未回収のため判定不能 |
 
+## CC-01 / CC-02 Decision Overlay（現行規範）
+
+以下はV082旧試験の意味を改変せず、Issue #210決定を検証するために追加するv0.8.3補助受入ケース。V082-001〜053の番号・履歴とは別管理とする。
+
+| Overlay ID | 条件 | 現行期待結果 | 状態 |
+|---|---|---|---|
+| CC-01-T01 | 同一Session内にCOMPLETE / STOP / ERROR等のOutcomeが混在 | Session LifecycleはOutcome集合・件数から導出されず、Measurement単位のOutcomeを保持 | 提案・未実行 |
+| CC-01-T02 | STOP ACK / 最終Telemetry / アプリ終了 / プロセス消失 / 無通信のみ | SessionをCLOSEDにしない。Run管理側Close Operationと外部正本・依存参照の検証が必要 | 提案・未実行 |
+| CC-01-T03 | Close受入時に対象Captureが未終端・未放棄・未保留、または参照不整合 | CLOSED拒否。OPEN維持またはQUARANTINED | 提案・未実行 |
+| CC-02-T01 | NONE測定でDB利用可能、外部正本とDB管理Measurement記録が既存 | 明示Associationのみ設計対象。測定時Assignment=NONEを保持し、Actor/時刻/変更前後/理由を監査。自動Mirror生成なし、Current Aggregateへ自動算入なし | 提案・未実行 |
+| CC-02-T02 | ANONYMOUS期間のMeasurement / RawLog | 後日DB取込・Mirror化・Instance再紐付けを拒否。明示操作による例外も不可 | 提案・未実行 |
+
 ## 集計
 
 - V082項目数: 53
@@ -89,5 +102,6 @@ DB-001〜124の範囲成立履歴は分かっているが、個別124項目の�
 2. 既存DBテストとの対応は、テストコードのassertionと個別DB項目の文言・期待結果を照合して証拠を添える。
 3. V082-031〜053はv0.8.3差戻し解消案で追加提案した試験であり、統括承認・試験実装・実行前はPASSとして扱わない。
 4. クロスウォークの確定は文書照合であり、テスト実行PASSとは別の進捗工程とする。
+5. Issue #210 CC-01 / CC-02の現行期待結果は本書末尾のDecision Overlayを優先し、V082旧期待結果の誤再利用を防ぐ。
 
 **本書は対応表の初期棚卸しであり、V082がDB-001〜124を置換・網羅・合格したことを意味しない。**
