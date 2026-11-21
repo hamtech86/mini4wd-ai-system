@@ -330,15 +330,19 @@ V082-001〜030は既存のまま保持する。V082-031〜053は追加案であ�
 10. v0.8.3の設計判断は本書§14およびIssue #210 CC-01 / CC-02で閉じる。実装・受入試験の実行結果、他部門正式契約の回収、統括最終承認は別のGateであり、未実施をPASSとみなさない。
 
 
-## 13. 自己検証チェックリスト
+## 13. 自己検証・実証ステータス
 
-- [ ] DB Run / Sessionの初期生成と履歴保持の状態遷移を全組合せ確認
-- [ ] Current AssignmentとAssignment-at-Measurementを分離してAggregate対象を確認
-- [ ] Journal / Receipt / DB Markerの永続化順と全クラッシュ点を確認
-- [ ] Request / Attempt / Result Revision / Pointerの全状態遷移を確認
-- [ ] Artifact DAG循環禁止と不変再解析を確認
-- [ ] UUIDv4発行条件とM4W-JCS-1 / SHA-256のCanonicalization testを確認
-- [ ] 外部正本 / DB Mirrorの全Entityを復元条件付きで確認
+| 項目 | 論理設計 | 実装 / 実行証拠 |
+|---|---|---|
+| DB Run / Session / Assignment | §14で決定済み | 未実施 |
+| Measurement Outcome / Close | §14で決定済み | Run Manager / device contract未受領・未実施 |
+| Journal / Receipt / DB Marker | §14で決定済み | Filesystem / SQLite crash test未実施 |
+| Aggregate / Artifact | §14で決定済み | 実装・受入試験未実施 |
+| UUIDv4 / M4W-JCS-1 | §5・§14で決定済み | JCS conformance / payload schema test未実施 |
+| RawLog / Restore | §14で決定済み | OS / filesystem別durability / Restore test未実施 |
+| Entity 23種 | Identity / Storage / unsupported動作決定済み | 完全Field Schemaの機器別契約は一部未受領 |
+
+「設計決定済み」は実装PASS・受入PASS・統括承認を意味しない。未実施項目は未実施のまま記録する。
 - [ ] Measurement EnvelopeにAssignment-at-Measurement必須参照を追加
 - [ ] RawLogのFile fsync / Directory fsync / collision / recovery条件を確認
 - [ ] Restore二段階Receipt検証とMirror再生成条件を確認
@@ -393,6 +397,10 @@ V082-001〜030は既存のまま保持する。V082-031〜053は追加案であ�
 10. Recovery Authorityは新しいRecovery Operationを発行できる主体に限定。元Intent / Receipt / Event / Manifest Commitを編集しない。Recoveryができるのは検証、Mirror再構築、Derived View再構築、隔離記録の追記のみ。元証拠の書換え・削除・Hash再計算による置換・遡及Assignmentは禁止。
 11. DB MarkerはMirror更新と同一DB Transactionで一度だけ作成し、OperationIDを一意キーとする。Marker Payload HashはSource Commit後に実際のMarker Payloadから計算し、DB_COMMITTED Eventへ記録する。MarkerとMirrorの不一致、同一Operationの異Hash MarkerはQUARANTINED。
 12. DB Commit結果不明時はMarkerとDB整合性を検証する。Marker完全一致ならCommit済み。MarkerなしでもDB integrity / transaction atomicity / consistent readを証明できない場合はQUARANTINEDとし、検索0件だけで未Commit・Rollbackを断定しない。再試行は同一Operation・同一Payloadに限る。
+13. Receipt EventType RegistryはPREPARED / SOURCE_COMMITTED / DB_COMMITTED / VERIFIED / ABORTED / QUARANTINEDに固定する。未知EventTypeは拒否する。QUARANTINED Eventを元Chainへ追記できない破損時は別Integrity Reportへ記録し、元Chainを変更しない。
+14. Operation Journal EventType RegistryはINTENT_PERSISTED / CANCEL_REQUESTED / SOURCE_COMMIT_RECORDED / DB_MARKER_COMMITTED / PHYSICAL_RUN_CLOSED / NONE_ASSOCIATION_CREATED / RETRY_CLOSED / RECOVERY_OPERATION_CREATED / INTEGRITY_REPORT_CREATED / WRITER_GRANTED / WRITER_RELEASEDに固定する。EventにはEventType / EventOrdinal / OperationID / ActorID（system principalを含む）/ OccurredAtUTC / PayloadSchemaVersion / Payload / PreviousEventHash / EventHashを持たせる。Operation単位でOrdinal=1から連続し、最初のPreviousEventHashはNULL。Authority不明のEvent、未知EventType、partial tailは拒否・QUARANTINED。
+15. Assignment History EventはScope単位のappend-only chainとし、Revision / EventOrdinalを1から連続増加させる。EventにはBeforeState / AfterState / AssignmentSnapshotID / Revision / ActorID / Reason / OccurredAtUTC / PreviousEventHash / EventHashを保持する。許容StateはASSIGNED / NONE / ANONYMOUS。未知State・Revision gap・Hash不一致はAssignment更新拒否・Scope隔離。
+16. Event AuthorityはEventTypeごとに固定する。PHYSICAL_RUN_CLOSEDはRun Manager、WRITER_GRANTED / WRITER_RELEASEDはRun Manager Authority Registry、NONE_ASSOCIATION_CREATEDは認証済みDB Session Manager、RETRY_CLOSEDはAggregate Managerまたは権限を持つOperator、RECOVERY_OPERATION_CREATEDはRecovery Authorityのみが発行できる。ActorIDまたは権限証拠がない場合はEventを作成しない。
 
 ### 14.5 Aggregate / Artifact
 1. Request Fingerprintは§3.1の完全Field集合を用いる。Request ID・Ordinal・時刻を含めず、計算意味条件のみを表す。Full fieldsとHashを両方保存する。
