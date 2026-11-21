@@ -23,7 +23,7 @@
 
 1. Physical Runは測定実行の外部正本上の単位であり、必ずUUIDv4を持つ。
 2. DB RunはPhysical Runにつき最大1件。Physical Run IDとは別のUUIDv4を持つ。
-3. DB Runは、そのPhysical Run内で**最初のASSIGNED Assignment Operationが確定した時点で一度だけ生成**する。DB unavailable時はその場でDB Runを作らず、復旧後の明示Bootstrapで外部Assignment Historyを検証して生成できる。
+3. DB Runは、そのPhysical Run内で**DBが正常利用可能な状態で最初のASSIGNED Assignment Operationが確定した時点で一度だけ生成**する。DB unavailable時はIssue #201のAnonymous Modeとして扱い、その期間中にDB Runを生成しない。障害期間中に取得したMeasurement / RawLogは外部正本に保全するが、復旧後のBootstrap・再取込・Mirror化の対象にしない。既に存在するDB Runは削除せず履歴として保持する。
 4. 一度生成されたDB Runは履歴コンテナとして保持し、全ScopeがNONE / ANONYMOUSへ移行しても削除しない。後日再ASSIGNEDとなっても同一DB Run IDを再利用する。
 5. 一度もASSIGNEDになっていないPhysical RunにはDB Runを作らない。初期状態が全Scope NONE / ANONYMOUSであることと、過去にASSIGNED履歴がありDB Runが残存する状態を区別する。
 6. DB Runの削除・再生成・ID再採番は禁止。訂正はOperation / Historyとして追加する。
@@ -31,11 +31,11 @@
 ### 1.2 RUN_SCOPE / Session
 
 1. RUN_SCOPEはPhysical Run初期化時に全Scopeについて外部正本として作成する。Scope Keyごとに一意。
-2. SessionはRUN_SCOPEにつき最大1件。**当該Scopeが一度でもASSIGNEDになった最初の確定Operationで生成し、その後はAssignment Stateにかかわらず保持する。** DB unavailable時はその場でDB Sessionを作らず、復旧後の明示Bootstrapで外部Assignment Historyを検証して生成できる。
+2. SessionはRUN_SCOPEにつき最大1件。**当該ScopeがDB正常利用可能時に一度でもASSIGNEDとなった最初の確定Operationで生成し、その後はAssignment Stateにかかわらず保持する。** DB unavailable期間はIssue #201のAnonymous Modeとして扱い、新規DB Sessionを生成しない。障害期間中のCapture / Measurementは外部正本に保全するが、復旧後にDB Session / Measurement Mirrorを生成するためのBootstrap対象にしない。
 3. 初期ANONYMOUS / NONEで一度もASSIGNEDになっていないScopeにはSessionを生成しない。
 4. ASSIGNED→NONE→ASSIGNED、ASSIGNED→ANONYMOUS→ASSIGNED、ASSIGNED→別InstanceのいずれでもSession IDは変更しない。
 5. Sessionの存在は「現在ASSIGNED」を意味しない。現在の割当状態はCurrent Assignment Snapshotのみで判定する。
-6. Sessionに所属するMeasurement集合は、Session生成後にDBへ登録されたMeasurement Mirrorの集合であり、各MeasurementのAssignment-at-Measurementを必ず保持する。NONE期間のMeasurementについては、DB利用可能時に取得され、外部正本およびDB管理下のMeasurement記録が既に存在する場合に限り、後日の明示的Association Operationを論理設計対象としてよい。この操作は測定時AssignmentをNONEのまま保持し、実行主体・時刻・変更前後・理由を監査履歴へ記録する。既存DB管理Measurementを対象とし、新規RawLog取込やMeasurement Mirrorの自動生成を意味しない。NONEからの後日関連付けだけを理由にCurrent Aggregateへ算入しない。ANONYMOUS期間のMeasurement / RawLogは現行設計範囲で後日DB取込・Mirror化・Instance再紐付けを禁止し、明示操作による例外も認めない。将来の拡張は別設計と統括承認を要する。
+6. Session membershipは、Measurement Mirrorの初回登録時点で同一Physical Run / ScopeのSessionが既に存在する場合に限り、そのSessionへ不変に所属させる。Session生成前に登録されたNONE MeasurementはSessionに遡及所属させない。NONE期間のMeasurementは、DB正常利用可能時に取得され、外部正本およびDB管理下のMeasurement記録が既に存在する場合に限り、後日の明示Association Operationを許可する。AssociationはInstanceへの関連付け履歴であり、Session membershipを新規作成・変更しない。測定時AssignmentはNONE・InstanceID NULLのまま保持し、Actor / UTC時刻 / 変更前後 / Reason / OperationIDを監査記録へ残す。既存DB管理Measurementのみを対象とし、新規RawLog取込・Measurement Mirror生成を意味しない。NONE Associationだけを理由にCurrent Aggregateへ算入しない。ANONYMOUS期間およびDB unavailable期間のMeasurement / RawLogは外部正本に保全し、後日DB取込・Mirror化・Instance再紐付けを禁止する。
 
 ### 1.3 Assignment遷移
 
@@ -46,8 +46,8 @@
 | 初期NONE/ANONYMOUS | ASSIGNED | DB RunとSessionを生成 | 開始時点以降のASSIGNED測定をDB Mirrorへ登録 |
 | ASSIGNED | ASSIGNED（同一Instance） | 維持 | 測定時Assignment Revisionを記録 |
 | ASSIGNED | ASSIGNED（別Instance） | 維持 | 過去測定の帰属は変更しない |
-| ASSIGNED | NONE | 維持・非アクティブ | NONE期間のAssignment-at-Measurementを固定。既にDB管理下にあるMeasurementのみ後日明示Association対象になり得る。新規取込・自動Mirror生成は禁止 |
-| ASSIGNED | ANONYMOUS | 維持・制限状態 | ANONYMOUS期間の測定は外部正本のみ |
+| ASSIGNED | NONE | 維持・非アクティブ | DB正常利用可能時に既存DB管理Measurementとして登録されたもののみ明示Association対象。AssociationはSession membershipを変更しない。障害期間のCaptureはAnonymous Mode扱いで後日取込禁止 |
+| ASSIGNED | ANONYMOUS | 維持・制限状態 | ANONYMOUS期間の測定は外部正本のみ。後日取込・Mirror化・再紐付け禁止 |
 | NONE/ANONYMOUS（過去ASSIGNEDあり） | ASSIGNED | 既存IDを再利用 | 新規測定のみ現在のAssignmentに従う |
 
 ANONYMOUSは「その期間の測定をInstanceに帰属させない」状態であり、過去にASSIGNEDだった期間の履歴を自動消去・書換えする命令ではない。過去データの消去・匿名化要求はAssignment変更と分離した、別の明示的なプライバシー処理として扱う。通常のAssignment Operationで既存Session・Measurement・Historyを削除しない。
@@ -56,7 +56,7 @@ ANONYMOUSは「その期間の測定をInstanceに帰属させない」状態で
 
 1. Session LifecycleとMeasurement Outcomeは完全に分離する。Session LifecycleはNOT_CREATED / OPEN / CLOSED / QUARANTINEDとし、Measurement Outcome（COMPLETE / STOP / ERROR / CANCEL / INCOMPLETE / UNKNOWN）の集合・混在・件数からSession Lifecycleを導出しない。NOT_CREATEDはSessionレコードが存在しない状態である。初回ASSIGNED確定時にSessionを生成してOPENとし、Assignment変更や個々のMeasurement終了では閉じない。CLOSEDはRun管理側の明示的Close Operationが外部正本へ記録され、その記録と依存参照を検証できた場合に限る。Close Operationは論理Run管理イベントであり、STOP ACK・最終Telemetry・アプリ終了・プロセス消失・無通信時間からRun終了を推定しない。Close受入時は対象ScopeのCaptureが終端または明示的に放棄・保留され、未確定MeasurementをCOMPLETEへ読み替えない。終端不明・参照不整合はOPEN維持またはQUARANTINEDとし、推測でCLOSEDにしない。DB unavailable / ANONYMOUS運用ではDB Sessionを生成せず、外部正本上のRun / Capture情報を保持する。
 2. **Current Aggregate**の対象は、現在ASSIGNEDであるScopeのうち、Measurement開始時点もASSIGNEDで、かつ測定時Instance IDが現在Instance IDと一致するMeasurementだけとする。
-3. NONE / ANONYMOUS期間に開始したMeasurementは、後日ASSIGNEDになってもCurrent Aggregateへ遡及追加しない。既存Measurement IDをDB Mirrorへ明示登録する場合も、測定時AssignmentとInstance IDは不変であり、Current Aggregateの対象外とする。
+3. NONE / ANONYMOUS期間に開始したMeasurementは、後日ASSIGNEDになってもCurrent Aggregateへ遡及追加しない。NONEの既存DB管理Measurementに対する明示AssociationはInstance関連付け履歴のみであり、Measurement Mirrorの新規生成・Session membership変更・Current Aggregateへの追加を伴わない。
 4. 過去に別InstanceへASSIGNEDだったMeasurementは、再割当後のInstanceのCurrent Aggregateへ混入させない。
 5. Current AssignmentがNONE / ANONYMOUSのScopeはCurrent Aggregate対象外。除外理由、Current Assignment Revision / State / HashをAggregate Requestに固定する。
 6. 過去Assignmentの測定結果を分析する場合は、Current Aggregateとは別の明示的なHistorical Analysis Artifactを生成する。Pair Analysisも入力Measurementの時点帰属を維持し、CH1/CH2を平均化しない。
@@ -204,7 +204,7 @@ Journal Intent、Receipt Envelope、Receipt Event、Source Commit Record、DB Ma
 | Physical Run | Run Manifest | DB Run生成後に任意の検索Mirror | Manifestから復元。ID再発行禁止 |
 | RUN_SCOPE | Scope Manifest / Assignment Snapshot | DB Run生成後、Physical Run内の全ScopeをMirror可能 | 外部Scope一覧から再生成 |
 | Assignment Snapshot / History | Scope単位の不変ファイル | あり（Mirrorのみ） | Hash Chain検証後に再生成 |
-| Measurement | Measurement Envelope | DB利用可能時のASSIGNED Measurementを登録。DB unavailable期間のASSIGNED Measurementは復旧後の明示Bootstrapで完全検証できるもののみMirror再構築。NONEは同一Scope Session存在中にDB管理下で取得されたもののみAssociation対象。初回ASSIGNED前のNONE / outage NONE / ANONYMOUSは取込禁止 | Envelopeから再生成。測定時Assignmentを変更しない。NONE AssociationはOperation ID / Actor / UTC時刻 / 変更前後 / 理由を監査履歴へ記録 |
+| Measurement | Measurement Envelope | DB正常利用可能時のASSIGNED Measurementを登録。DB unavailable期間の測定はIssue #201 Anonymous Mode扱いで外部正本のみとし、復旧後のBootstrap / Mirror再構築 / Associationを禁止。NONEは既存DB管理Measurementのみ明示Association対象 | Envelopeから再生成。測定時Assignmentを変更しない。NONE AssociationはInstance関連付け履歴のみで、Session membershipを変更しない。Operation ID / Actor / UTC時刻 / 変更前後 / 理由を監査履歴へ記録 |
 | Measurement Profile Snapshot | Measurement Envelopeが参照する不変Snapshot | あり（Mirrorのみ） | Snapshot Hash検証後に再生成 |
 | RawLog / Sample Reference | RawLog本体 / Reference Manifest | 参照Mirrorのみ | 本文Hash一致を検証して再生成 |
 | Analysis / Simulation Artifact | Artifact Envelope / Result Payload | 参照・検索Mirror | DAGと入力Hash検証後に再生成 |
@@ -212,7 +212,7 @@ Journal Intent、Receipt Envelope、Receipt Event、Source Commit Record、DB Ma
 | Receipt / Receipt Event | Receipt Envelope / Event Log | あり（Mirrorのみ） | 依存証拠の二段階検証後に再生成 |
 | Aggregate Request / Attempt / Result | Aggregate Envelope / Result Payload | Pointer / 検索Mirror | Request/Attempt/ResultのHash検証後に再生成 |
 
-全ScopeがNONE / ANONYMOUSで一度もASSIGNEDになっていない場合、Physical Run / RUN_SCOPE / Assignment Snapshot / Measurement Envelope / RawLog / Artifact等は外部正本だけで再構築可能とする。DB Run / Session / DB Mirrorを作らない。後日初回ASSIGNEDでDB Runを生成した後は、必要な全ScopeのManifestとSnapshotをMirrorする。DB unavailable期間中にASSIGNEDが成立していた場合は、復旧後の明示BootstrapでのみDB Run / Session IDをUUIDv4発行してManifestへ先行記録し、DB Mirrorを生成する。NONE期間のMeasurementは、DB利用可能時に取得され、外部正本およびDB管理下のMeasurement記録が既に存在する場合に限り、既存Measurement IDを維持した明示的Association Operationの対象にできる。関連付け時もAssignment-at-MeasurementはNONEのままとし、実行主体・時刻・変更前後・理由を監査履歴へ残す。関連付けだけを理由にCurrent Aggregateへ遡及包含しない。ANONYMOUS期間のMeasurement / RawLogは後日DB取込・Mirror化・Instance再紐付けを禁止し、明示操作による例外も認めない。
+全ScopeがNONE / ANONYMOUSで一度もASSIGNEDになっていない場合、Physical Run / RUN_SCOPE / Assignment Snapshot / Measurement Envelope / RawLog / Artifact等は外部正本だけで保全し、DB Run / Session / DB Mirrorを作らない。DB正常利用可能時に初回ASSIGNEDとなったScopeのみDB Run / Sessionを生成する。DB unavailable期間はIssue #201 Anonymous Modeであり、ASSIGNED状態であってもDB Run / Session / Measurement Mirrorを生成しない。当該期間のCaptureは外部正本に保全するが、復旧後のBootstrap / DB取込 / Mirror化を禁止する。DB unavailable前から存在するDB Run / Sessionは削除せず、既存履歴として保持する。NONEの後日Associationは、DB正常利用可能時に既にDB管理Measurementとして登録済みのものに限り、Instance関連付け履歴として明示Operationで許可する。AssociationはSession membershipを変更せず、Assignment-at-Measurement=NONEを保持し、Actor / UTC時刻 / before-after / Reason / OperationIDを監査履歴に残す。Session生成前のNONE Measurementは後からSessionへ遡及所属させない。ANONYMOUS / DB unavailable期間のMeasurement / RawLogは後日取込・Mirror化・Instance再紐付けを禁止する。
 
 外部正本の欠落・Hash不一致・ID競合はQUARANTINED。DB Mirrorから外部正本を逆生成して事実を補完してはならない。DB Mirrorが欠落・破損した場合は外部正本から再生成する。
 
@@ -362,9 +362,9 @@ V082-001〜030は既存のまま保持する。V082-031〜053は追加案であ�
 1. Physical RunはRun Manager発行UUIDv4。DB Runは独立UUIDv4で、Physical Run内の最初のASSIGNED Assignment Operationで一度だけ生成する。DB RunはPhysical Runにつき最大1件。
 2. RUN_SCOPEは(PhysicalRunID, ScopeKey)複合識別子。v0.8.3のScopeKey許容値はMOTOR / BATTERY_CH1 / BATTERY_CH2の3値に固定し、未知値は拒否する。Motor / Battery CH1 / Battery CH2を別Scopeとして扱う。CH1 / CH2の同一化・平均化は禁止。
 3. SessionはScopeごと最大1件。初回ASSIGNED確定時にUUIDv4で生成し、以後Assignment Stateにかかわらず保持する。NONE / ANONYMOUSだけで一度もASSIGNEDにならないScopeにはSessionを生成しない。
-4. DB Run / Session生成前の初期NONE Measurementは外部正本のみ。当該Scopeの初回ASSIGNED後に取得され、当該ScopeのSessionが既に存在し、DB利用可能時に外部正本とDB管理下のMeasurement記録が確定したNONE MeasurementだけがSessionに所属できる。他ScopeのASSIGNEDによるDB Run生成は、未ASSIGNED ScopeのNONE Measurementを自動的にDB管理対象へ昇格させない。NONE Measurementの測定時AssignmentはNONE・InstanceID NULLのまま不変。DB unavailable期間のNONE MeasurementはDB管理下に存在しないため、復旧後も取込・Association対象外。
-5. NONE Measurementの後日Associationは、既存DB管理Measurementに対する明示Operationのみ許可する。1つのMeasurementに同時に有効なAssociationは最大1件。再関連付けは新Operationで旧Associationを閉じ、新Associationを追加する。Actor / UTC time / Reason / before-after / OperationIDを記録する。Assignment-at-Measurementは変更しない。
-6. 初回ASSIGNED前のNONE期間のMeasurement、ANONYMOUS期間のMeasurement / RawLogは外部正本のみ。後日DB取込・Mirror化・Associationは禁止。DB unavailable期間はANONYMOUSと区別し、その期間中はDB Run / Session / Measurement Mirrorを作らない。復旧後の明示Bootstrapでは、当該ScopeのAssignment-at-MeasurementがASSIGNEDで、外部Envelope / RawLog / Profile / Hashが完全検証できるMeasurementに限りDB Mirrorを再構築できる。IDはBootstrap時にUUIDv4で発行して外部Manifestへ先行記録する。DB unavailable中のNONE Measurementは対象外。ANONYMOUSの将来拡張は別設計・明示承認が必要。
+4. Session membershipは初回DB Measurement Mirror登録時点で同一Scope Sessionが既に存在する場合のみ成立し、後からSessionへ遡及所属させない。DB Run生成済みの別Scopeがあっても、未ASSIGNED ScopeのNONE Measurementを自動Mirror化しない。NONE MeasurementのAssignment-at-MeasurementはNONE・InstanceID NULLのまま不変。DB unavailable期間の測定はAnonymous Mode扱いであり、復旧後も取込・Association対象外。
+5. NONE Measurementの後日Associationは、DB正常利用可能時に既にDB管理Measurementとして登録済みのMeasurementに対する明示Operationのみ許可する。AssociationはSession membershipと独立したInstance関連付け履歴であり、Sessionへの追加・移動を行わない。1つのMeasurementに同時に有効なAssociationは最大1件。再関連付けは新Operationで旧Associationを閉じ、新Associationを追加する。Actor / UTC time / Reason / before-after / OperationIDを記録する。Assignment-at-MeasurementはNONEのまま変更しない。Session生成前のNONE MeasurementはSessionへ遡及所属させない。
+6. 初回ASSIGNED前のNONE期間のMeasurement、ANONYMOUS期間のMeasurement / RawLog、DB unavailable期間のすべてのCapture / Measurementは外部正本のみ。Issue #201によりDB unavailableはAnonymous Modeとして扱うため、ASSIGNED状態であっても当該期間中のDB Run / Session / Measurement Mirror生成を行わず、復旧後のBootstrap・取込・Mirror化・Associationも禁止する。DB unavailable前から存在するDB Run / Sessionは履歴として保持する。ANONYMOUS / outage期間の将来取込は別設計・統括の明示承認が必要。
 7. NONE MeasurementはCurrent Aggregateから常に除外する。Historical Analysisでの利用は、明示的に指定された場合のみ許可し、ArtifactにRETROSPECTIVE_NONEを記録する。ANONYMOUSは分析入力としても現行範囲外。
 8. Assignment SnapshotはScope単位の不変Revision。初期SnapshotはRevision=0（StateはNONEまたはANONYMOUS）。以降、実際のState / Instance変更ごとにRevisionを1ずつ増やし、欠番・再利用を禁止する。同じState / Instanceへの重複Assignmentはidempotent no-opとし、新Revisionを作らない。Current Assignmentは最新の検証済みSnapshotから導出する。履歴は追記のみ。
 
@@ -402,7 +402,7 @@ V082-001〜030は既存のまま保持する。V082-031〜053は追加案であ�
 14. Operation Journal EventType RegistryはINTENT_PERSISTED / CANCEL_REQUESTED / SOURCE_COMMIT_RECORDED / DB_MARKER_COMMITTED / PHYSICAL_RUN_CLOSED / NONE_ASSOCIATION_CREATED / ATTEMPT_STARTED / ATTEMPT_SUCCEEDED / ATTEMPT_FAILED / ATTEMPT_CANCELLED / ATTEMPT_INDETERMINATE / RETRY_CLOSED / REQUEST_CANCELLED / RECOVERY_OPERATION_CREATED / INTEGRITY_REPORT_CREATEDに固定する。EventにはEventType / EventOrdinal / OperationID / ActorID（system principalを含む）/ OccurredAtUTC / PayloadSchemaVersion / Payload / PreviousEventHash / EventHashを持たせる。Operation単位でOrdinal=1から連続し、最初のPreviousEventHashはNULL。Authority不明のEvent、未知EventType、partial tailは拒否・QUARANTINED。
 15. Writer Grant EventはOperation Journal Eventと分離したAuthority Registry Chainとし、(PhysicalRunID, Epoch)で識別する。Epochは1から単調増加、欠番可・再利用不可。Grant Chainのpartial tail / Hash mismatch / ForkはWriter交代を禁止しRunをQUARANTINEDとする。
 16. Assignment History EventはScope単位のappend-only chainとし、初期EventOrdinal=1、以降連続増加させる。Snapshot Revisionは初期0、以降の実変更ごとに連続増加させる。初期EventのBeforeStateはNULL、AfterStateはNONEまたはANONYMOUS。以降EventにはBeforeState / AfterState / AssignmentSnapshotID / Revision / ActorID / Reason / OccurredAtUTC / PreviousEventHash / EventHashを保持する。許容StateはASSIGNED / NONE / ANONYMOUS。未知State・Revision gap・Hash不一致はAssignment更新拒否・Scope隔離。
-17. Event AuthorityはEventTypeごとに固定する。PHYSICAL_RUN_CLOSEDはRun Manager、WRITER_GRANTED / WRITER_RELEASEDはRun Manager Authority RegistryのAuthority Chain専用Event（Operation Journal Eventではない）、NONE_ASSOCIATION_CREATEDは当該ScopeのSessionが存在する場合の認証済みDB Session Manager、ATTEMPT_STARTED / ATTEMPT_SUCCEEDED / ATTEMPT_FAILED / ATTEMPT_CANCELLEDはAggregate ManagerのWorker principal、RETRY_CLOSED / REQUEST_CANCELLEDはAggregate Managerまたは権限を持つOperator、ATTEMPT_INDETERMINATEはAggregate ManagerがWorker停止 / fencing proofを検証した場合のみ、RECOVERY_OPERATION_CREATEDはRecovery Authorityのみが発行できる。ActorIDまたは権限証拠がない場合はEventを作成しない。
+17. Event AuthorityはEventTypeごとに固定する。PHYSICAL_RUN_CLOSEDはRun Manager、WRITER_GRANTED / WRITER_RELEASEDはRun Manager Authority RegistryのAuthority Chain専用Event（Operation Journal Eventではない）、NONE_ASSOCIATION_CREATEDは当該Scope / Physical Runの認証済みDB Session Manager、ATTEMPT_STARTED / ATTEMPT_SUCCEEDED / ATTEMPT_FAILED / ATTEMPT_CANCELLEDはAggregate ManagerのWorker principal、RETRY_CLOSED / REQUEST_CANCELLEDはAggregate Managerまたは権限を持つOperator、ATTEMPT_INDETERMINATEはAggregate ManagerがWorker停止 / fencing proofを検証した場合のみ、RECOVERY_OPERATION_CREATEDはRecovery Authorityのみが発行できる。ActorIDまたは権限証拠がない場合はEventを作成しない。
 18. Physical Run Writer Authorityは、そのRunのJournal / Manifest / Receipt Chainだけを保護し、共有DB全体の排他を意味しない。異なるPhysical RunのDB transactionはDB engineのtransaction / isolation / unique constraintで整合させる。競合時はlast-write-winsを禁止し、同じOperation / Payloadの冪等再試行または新Operationでの再計画のみ許可する。DB側の競合分離・一意性を実証できないSQLite構成はSupported Environmentにしない。
 
 ### 14.5 Aggregate / Artifact
