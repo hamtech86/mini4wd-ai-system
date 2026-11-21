@@ -378,6 +378,8 @@ Main §8は、RawLog保存完了に対し、temporary write完了、File Handle 
 
 ## 13. Entity 23種の最終Identity / Storage / 未契約時処置（Main §14）
 
+> Main §14が最終Decision Authority。§1〜§12のOPEN / candidate / gap記録は調査時点の履歴であり、現在の設計選択は本節とMain §14に従う。
+
 | # | Entity | Identity / Storage決定 | 未契約時の固定動作 |
 |---:|---|---|---|
 | 1 | Physical Run / Run Manifest | Run Manager UUIDv4、外部正本 | Manifest欠落・forkはQUARANTINED |
