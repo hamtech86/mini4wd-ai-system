@@ -239,3 +239,61 @@ Entity Inventory 23種をDB-RVの審査項目へ対応付ける。これは責�
 - Canonical Schema 10 Entity分の対応があることと、全属性表があることを区別する。
 - 外部正本 / DB Mirrorの分類があることと、各EntityのRestore可否・再生成証拠が閉じたことを区別する。
 - CH1 / CH2独立性はDB論理上のScope / Measurement分離の要求として記録し、Battery固有RawLog契約の不足をDB部門で推測補完しない。
+
+
+## 10. Entity 23種の一次根拠・Authority・契約所有者マップ（2026-11-21）
+
+### 10.1 判定の意味
+
+本表は、Entityの定義根拠がどの文書に存在するか、外部正本とDB MirrorのどちらがAuthorityか、他部門の正式契約が必要かを分離する。Main draftに記載があることは、Entityの完全Schemaが承認済みであることを意味しない。
+
+- **DB草案根拠**: v0.8.3本文または補助資料に概念・最低条件が記載されている。
+- **外部正式契約**: DB部門以外の正本に仕様が明記され、DB側で変更・補完できない。
+- **契約未回収**: 対象Entityに必要な完全属性・保存形式・Capture終端等の正式契約が現在の証拠から確認できない。
+- **Authority分類**: 現行草案の分類を記録する。物理的保存先、durability、Restore可否の実証完了を意味しない。
+
+### 10.2 Entity別の根拠と責務
+
+| # | Entity | DB草案上の根拠 | Authority / Mirror | 外部正式契約・責任境界 | 判定 |
+|---:|---|---|---|---|---|
+| 1 | Physical Run / Run Manifest | Main §§1.1, 6, 9, 10。Receipt ContractのManifest / ancestry項 | Run Manifestが外部正本。DB Run生成後の検索Mirrorは任意 | Run開始・終了Event、Manifest完全Schema、Actor、revision/hashは統括Run管理契約が必要 | 部分定義。Run lifecycle契約未完 |
+| 2 | DB Run | Main §§1.1, 5.3, 6, 10 | DB Mirror。PhysicalRunIDから再生成候補 | DB Run IDのCanonical Namespace / field domainは統括承認待ち | 部分定義。ID方式未承認 |
+| 3 | RUN_SCOPE | Main §§1.2, 5.3, 6, 10 | Scope Manifest / Assignment Snapshotが外部正本。DB Mirrorは再生成可能 | ScopeKeyの正式語彙・許容値・Scope追加規則は未提示 | 部分定義。Scope domain未確定 |
+| 4 | Assignment Snapshot | Main §§1.2–1.3, 6。CC-02はIssue #210 | Scope単位の不変外部正本。DBはMirror | Assignment状態とInstanceID NULL条件は明記。Snapshot完全属性・ID/revision/hash契約は未完 | 部分定義。Snapshot schema未完 |
+| 5 | Assignment History / Event | Main §1.3, §6。Receipt/Operation資料は別系統 | 外部正本の追記履歴。DB Mirror | Assignment EventとOperation Eventの同一性・ordinal/hash境界は未決定 | 境界未確定。統合を推測しない |
+| 6 | Session | Main §§1.2, 1.4, 6, 9, 10。CC-01はIssue #210 | DB Mirror。Scopeごと最大1。LifecycleはRun管理の明示Closeに従う | CC-01でLifecycleとMeasurement Outcome分離、初回ASSIGNED時生成、Close条件を統括決定 | Lifecycle方針は確定。ID・Close payloadは未完 |
+| 7 | Measurement Envelope | Main §§6–7, 9–10。Motor #35 / Battery #16 | 外部正本。測定時Assignmentを不変保持し、DB Mirror再生成 | Motor #35はRawLog v2契約を別途要求。Battery #16はE2E検証タスクであり完全DB契約ではない | 共通最低項目のみ。機器別契約未完 |
+| 8 | Measurement Profile Snapshot | Main §§6–7, 9 | Envelopeが参照する不変外部Snapshot。Hash検証後Mirror | Model / Instance Profileの完全Field Schema、version、単位、校正は各Profile正式契約が必要 | 部分定義。Profile schema未回収 |
+| 9 | RawLog Object / RawLog Reference | Main §§6, 8–9。Canonical RAWLOG_REFERENCE。Motor #35 / #170 | RawLog Object本文が外部正本。Reference Manifest / DB Referenceは参照Mirror | Motor #35はv1保全・非変換、v2を独立形式とし詳細を#170で定義。#170は通信・保存契約タスク。Batteryの同等完全契約は未確認 | Object / Reference分離は明記。完全Schema・durability・retention未完 |
+| 10 | Sample Reference | Main §§7, 9。Canonical SAMPLE_REFERENCE。Motor #170 | Reference Manifest由来の参照情報。DB Mirror | SampleLocator grammar、sample/time/channel意味はRawLog v2正式契約が必要。Battery固有定義は未確認 | 部分定義。Locator contract未完 |
+| 11 | Measurement Sample Link | Main §§7, 10。Canonical MEASUREMENT_SAMPLE_LINK | DB Mirror上のMeasurement-Sample関係 | Role / Ordinal / Required / uniquenessと機器別Sample cardinalityは未定義 | 部分定義。Link semantics未完 |
+| 12 | Operation Journal / Intent | Main §§2.1–2.3, 6, 9。Receipt Contract §§15–21 | Physical Run Journalが外部正本。DB Marker / Journal Mirror | Intent / Operation Event / Assignment EventのEntity境界、writer authority、ordinal消費・回復契約が未完 | 部分定義。DB-RV-03 OPEN |
+| 13 | Receipt Envelope | Main §§2.1–2.3, 9。Receipt Recovery Contract | 外部正本。DB Mirrorは再生成 | Receipt ID derivation、Expected Receipt Hash、Hash DAG、full payload schema未承認 | 部分定義。Hash / ID contract OPEN |
+| 14 | Receipt Event | Main §§2.1–2.3, 9。Canonical RECEIPT_EVENT | 外部正本Event Log。DB Mirror | Event payloadごとのschema、NULL条件、Actor、EventType registry、partial append recovery未完 | 部分定義。Event contract OPEN |
+| 15 | DB Operation Marker | Main §§2.1–2.3, 6, 9。Receipt Recovery Contract | DB内Mirror。DB更新と同一Transactionという論理要求 | Marker identity/hash payload、DB transaction durability / isolationの物理実証は別工程 | 部分定義。Marker hash / durability未完 |
+| 16 | Analysis Artifact | Main §§4, 6, 9–10 | Artifact Envelope / Result Payloadが外部正本。DBは参照・検索Mirror | Motor #35はAnalysis入力の一部制約のみ。Artifact完全Schema・algorithm provenanceはDB/解析正式契約が必要 | 不変/DAG方針のみ。完全schema未完 |
+| 17 | Simulation Artifact | Main §§4, 6, 9–10 | Artifact Envelope / Result Payloadが外部正本候補。DB Mirror | Analysisと同一Entityか別Entityか、Simulation専用Input/Output契約が未決 | Entity境界未決 |
+| 18 | Artifact Input | Main §§4, 5.3, 9–10。Canonical ARTIFACT_INPUT | Artifact Envelopeに従属する外部正本 / DB Mirror | InputType許容集合、polymorphic reference全型、Role / Required / source revision未定義 | DAG方針あり。参照schema未完 |
+| 19 | Aggregate Request | Main §3, §§6, 9–10 | Aggregate Envelopeが外部正本。DB Mirror | Request Fingerprint完全項目・scope/run cardinality・retry closeが未完 | 部分定義。DB-RV-04 OPEN |
+| 20 | Aggregate Attempt | Main §3, §§6, 9–10 | Aggregate Envelopeが外部正本。DB Mirror | Attempt ordinal、retry terminal event、failure detail / NULL規則未定義 | 部分定義。DB-RV-04 OPEN |
+| 21 | Aggregate Result Revision | Main §3, §§5.3, 6, 9–10。Canonical AGGREGATE_RESULT_REVISION | Result Payloadが外部正本。DB Mirror | Revision scope / sequence、Algorithm / Config provenance、Payload schema未完 | 部分定義。Revision domain未完 |
+| 22 | Aggregate Pointer | Main §§3.2–3.3, 6, 9 | 派生Pointer。外部正本から再構築 | Owner scope、concurrency、rebuild ordering、stale result protection未定義 | 派生概念のみ。独立Entity/IDは未決 |
+| 23 | Recovery Operation / Integrity Report | Main §§2.3, 9。Receipt Recovery Contract §§18–21 | Recovery Operationは新規Operation外部正本候補。ReportのAuthorityは未確定 | Recovery authority、Report identity/schema、approval/retentionが未定義 | 責務境界未完。別Entity要否も未決 |
+
+### 10.3 この照合から確定できること / できないこと
+
+**確定できること**
+1. v0.8.3本文には23 Entityの概念・最低責務の根拠があるが、完全属性Schemaが揃ったEntityはない。
+2. Main §6は正本 / Mirrorの分類案を提示し、§7はMeasurementの最低Envelope項目、§8はRawLog保存完了の論理要求、§9はRestore二段階検証案を提示する。
+3. MotorのRawLog v1/v2境界はIssue #35、v2通信・保存契約の作業範囲はIssue #170にある。Issue #35は未記載事項の担当側復元を禁止する。
+4. Battery Issue #16は5A E2E検証タスクであり、Batteryの完全Measurement / RawLog / durability / retention契約ではない。
+5. NONE / ANONYMOUSの方針はIssue #210 CC-02に従う。NONE Session membershipのA/B/C選択は未決定のまま。
+
+**この資料だけでは確定できないこと**
+- Entityごとの全属性、型、NULL、PK/UK/FK、CHECK、Cardinality、Retention。
+- RawLog v2の全Field・ファイル形式・耐久性・保持期間、およびBattery RawLogの同等契約。
+- Restore / Bootstrapが各Entityのどの証拠を使ってどこまで再生成できるかの実証。
+- UUIDv5適用対象、Namespace、Canonical Name field domain、Content Hashとの一意な境界。
+- Issue #210 CC-02のNONE MeasurementとSession membershipの選択。
+
+このマップは証拠所在と契約所有者の整理であり、未回収契約の代替や承認済Schemaではない。
