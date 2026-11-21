@@ -980,3 +980,17 @@ Main §8.1を照合した。
 
 ### 39.3 承認・実証境界
 本節は仕様文書の照合結果であり、Motor / Batteryの機器契約を変更しない。fsync相当操作の実効性、Crash / Restore、Event atomicity、権限実装のPASSは宣言しない。DDL / DB生成 / Migration / Restore実行 / 実装 / PR / main反映は禁止継続。
+
+## 40. MAJOR項目の残存判断・証拠Gate一覧（2026-11-21）
+
+| 統括MAJOR | DB部門処置 | 残存Gate / 判定 |
+|---|---|---|
+| NONE Session membership | Main §1.2.6 / §14.1.4に選択案と理由・不採用案を明記。Session生成前のNONEは遡及所属なし、生成後に同一Scopeで登録されたNONEは登録時点でmembership固定。Associationはmembershipを変更しない | **統括の明示確認待ち。** Issue #210 CC-02単独ではmembership決定を含まないため、DB部門案を承認済みと扱わない |
+| Current AggregateのOutcome=COMPLETE限定 | Main §14.2.3に理由を追記。機器固有Capture契約が正常終端と必須Sample完了を証明する場合のみCOMPLETE。STOP / ERROR / CANCEL / INCOMPLETE / UNKNOWNはCurrent Aggregateから除外 | 論理案あり。正式Capture契約未受領のMeasurementはCOMPLETE推定禁止。Motor / Battery契約照合・受入試験は未実施 |
+| UUIDv4 / M4W-JCS-1 | Main §5.2のDecimal負の0矛盾を修正。Canonical Audit §19にJCS-01〜13の期待Canonical bytes / SHA-256と拒否ケースを追加 | **Issuer Authority mapping未完成。** Entity Typeごとの単一Issuer登録、CSPRNG、JCS二実装相互試験、Entity schema試験は未実施。期待ベクトル追加はPASSを意味しない |
+| DB-001〜124 | Evidence Ledger全124 IDの来歴・個別本文・正式性・実装対応の分離を維持。REFERENCE_ONLY_NOT_EXECUTABLEは要求の撤回ではないことを明記 | DB-001〜056は会話由来短縮定義のみ。DB-057〜124は個別原文未回収。承認原本・番号付きテスト実物は未回収 |
+| V082 Crosswalk | V082-001〜030（v0.8.2定義）とV082-031〜053（v0.8.3追加案）を分離。候補一致をConfirmed Mappingへ昇格しない | Confirmed DB-ID mapping 0。実装 / fixture / 実行ログ未回収。未カバー確定0は網羅証明ではない |
+| Entity Inventory | 23概念のIdentity / Authority / Mirror / Derived分類を保持。契約未受領Payloadは既知Envelope・Reference・Hashのみ検証し、opaque保存 / reject | 完全Field Schema、NULL / domain / cardinality / FK等は未完成。未受領Entityを意味解析・Aggregate入力へ使わない |
+| Receipt / Recovery補助文書 | Receipt Contract §§1〜21に「旧調査時点・現行規範ではない」警告を各節冒頭へ追加。Main §14.4 / Receipt Contract §22を優先 | filesystem / SQLite crash / Restore / fencing実証未実施。文書同期と耐久性PASSを混同しない |
+
+**結論:** V083-RV-01〜05の文書修正案はDB部門で反映したが、NONE Session membershipの統括判断、UUID issuer map、外部正式契約、実証試験、DB-001〜124原本・V082実行証拠は未完了。v0.8.3最終承認は保留のまま。
