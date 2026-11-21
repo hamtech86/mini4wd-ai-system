@@ -110,7 +110,7 @@ Sessionの表示用サマリーを設ける場合も、Measurement Outcome別件
 - Anonymous ModeではDB Sessionを作らない。
 - Motorのin-memory SessionはDB Sessionとは別物。
 - 匿名RawLogはローカル保全し、COMPLETE / STOP / ERROR / CANCEL等を区別する。
-- 匿名RawLogのDB再取込・Instance再紐付けは将来DB再設計の別範囲であり、本案では扱わない。
+- ANONYMOUS期間のRawLog / Measurementは現行範囲で後日DB取込・Mirror化・Instance再紐付けを禁止する。将来変更は別設計と統括の明示承認を要する。
 - CH1 / CH2はそれぞれ独立した匿名RawLogとして扱う既承認方針を維持する。
 
 ### Issue #35
@@ -133,7 +133,7 @@ Sessionの表示用サマリーを設ける場合も、Measurement Outcome別件
 | SES-007 | Measurement STOP | Measurement STOP。Session OPEN |
 | SES-008 | Measurement ERROR / CANCEL | 個別Outcomeを保持。Session OPEN |
 | SES-009 | 複数MeasurementにCOMPLETEとSTOPが混在 | Sessionを単一COMPLETE/STOPへ集約しない |
-| SES-010 | 検証済みPHYSICAL_RUN_CLOSED | SessionをCLOSED |
+| SES-010 | Run管理側の明示Close Operationが外部正本へ記録され、依存参照の検証成功 | SessionをCLOSED。これは論理Run管理Eventであり機器Event / STOP ACKではない |
 | SES-011 | プロセス終了のみ、Run Close Eventなし | SessionをCLOSEDにしない |
 | SES-012 | Run Close Event Hash不一致 | Session / RunをQUARANTINED |
 | SES-013 | CLOSED後にMeasurement開始要求 | 拒否 |
