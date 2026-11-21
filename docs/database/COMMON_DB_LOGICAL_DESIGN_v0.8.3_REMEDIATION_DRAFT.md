@@ -202,7 +202,9 @@ Journal Intent、Receipt Envelope、Receipt Event、Source Commit Record、DB Ma
 | Entity / Record | 正本 | DB Mirror | 作成・再生成条件 |
 |---|---|---|---|
 | Physical Run | Run Manifest | DB Run生成後に任意の検索Mirror | Manifestから復元。ID再発行禁止 |
+| DB Run | Run Manifest上のDB Run identity reference | DB正常利用可能時に生成するDB Run Mirror | DB unavailable期間の初回ASSIGNEDでは生成しない。復旧後の同一Physical Runへの遡及生成は禁止 |
 | RUN_SCOPE | Scope Manifest / Assignment Snapshot | DB Run生成後、Physical Run内の全ScopeをMirror可能 | 外部Scope一覧から再生成 |
+| Session | Run Manifest上のLogical Session identity / Lifecycle | DB正常利用可能時の初回ASSIGNED時のみ同一Session IDのDB Session Mirrorを生成 | Logical Session identityは初回ASSIGNED時にDB availabilityにかかわらず外部正本へ生成。DB unavailable時はDB Mirrorなし、復旧後の遡及生成禁止。Session LifecycleのAuthorityは外部正本 |
 | Assignment Snapshot / History | Scope単位の不変ファイル | あり（Mirrorのみ） | Hash Chain検証後に再生成 |
 | Measurement | Measurement Envelope | DB正常利用可能時のASSIGNED Measurementを登録。DB unavailable期間の測定はIssue #201 Anonymous Mode扱いで外部正本のみとし、復旧後のBootstrap / Mirror再構築 / Associationを禁止。NONEは既存DB管理Measurementのみ明示Association対象 | Envelopeから再生成。測定時Assignmentを変更しない。NONE AssociationはInstance関連付け履歴のみで、Session membershipを変更しない。Operation ID / Actor / UTC時刻 / 変更前後 / 理由を監査履歴へ記録 |
 | Measurement Profile Snapshot | Measurement Envelopeが参照する不変Snapshot | あり（Mirrorのみ） | Snapshot Hash検証後に再生成 |
