@@ -166,6 +166,8 @@ Issue #210 CC-01 / CC-02およびMain §14により、以下をv0.8.3の確定�
 3. Run CloseはRun Manager発行のPHYSICAL_RUN_CLOSED Operationだけで成立。Actor / UI / Operation evidenceが未提供ならCloseを拒否し、SessionをOPEN維持。終端矛盾・Hash不一致はQUARANTINED。
 4. Close時は全ScopeをTERMINAL / ABANDONED / HELDのいずれかに分類。ABANDONED / HELDにはActor・Reason・時刻を必須とし、未確定MeasurementをCOMPLETEに読み替えない。
 5. DB unavailable期間はIssue #201のAnonymous Modeとして扱い、Assignment-at-MeasurementにかかわらずDB Run / Session / Measurement Mirrorを生成しない。障害期間中のCapture / Measurement / RawLogは外部正本に保全するが、復旧後の明示Bootstrap・DB取込・Mirror化・Associationを禁止する。障害前から存在するDB Run / Sessionは削除せず保持する。初回ASSIGNED前のNONE Measurementも外部正本のみであり、後日Session membershipへ遡及追加しない。Session生成後、DB正常利用可能時に登録された同一ScopeのMeasurementは、測定時AssignmentがNONEであってもSession membershipを登録時点で固定できる。NONE AssociationはInstance関連付け履歴のみであり、Session membershipを変更しない。他ScopeのASSIGNEDによるDB Run生成は未ASSIGNED ScopeのNONE MeasurementをDB管理対象へ昇格させない。ANONYMOUS / outage期間の将来取込は別設計・統括の明示承認が必要。
+
+NONE Associationは独立Entityを追加せず、Operation JournalのNONE_ASSOCIATION_CREATED Event（Identity=(OperationID, EventOrdinal)）として記録する。PayloadはPhysicalRunID / ScopeKey / MeasurementID / AssignmentSnapshotID・Revision / PreviousAssociationEventRef（初回NULL）/ NewInstanceID / ActorID / OccurredAtUTC / Reasonを持つ。Current Associationは検証済みEvent Chain内の最新Eventから導出し、過去Eventは不変保持する。再関連付けは新Operation / Eventを追記し、Session membershipとAssignment-at-Measurementを変更しない。
 6. Current AggregateはAssignment-at-MeasurementがASSIGNEDかつ現在Instanceと一致し、Outcome=COMPLETEのMeasurementだけを対象とする。NONEはHistorical Analysisに明示指定された場合のみRETROSPECTIVE_NONEとして扱い、Current Aggregateへ入れない。
 7. 機器固有Termination Reasonは原形保存。正式Mappingがない値をDB側で推測分類しない。
 
