@@ -375,3 +375,37 @@ Main §8は、RawLog保存完了に対し、temporary write完了、File Handle 
 4. **Restore試験**: partial temp、final path only、completion event missing、hash mismatch、duplicate ID/path、manifest reference missingをPhase A/Bで分類し、未検証をVERIFIED扱いしない。
 
 試験条件・OS/filesystem・機器別仕様が未確定のため、上記は受入試験案であり実行済みPASSではない。
+
+## 13. Entity 23種の最終Identity / Storage / 未契約時処置（Main §14）
+
+| # | Entity | Identity / Storage決定 | 未契約時の固定動作 |
+|---:|---|---|---|
+| 1 | Physical Run / Run Manifest | Run Manager UUIDv4、外部正本 | Manifest欠落・forkはQUARANTINED |
+| 2 | DB Run | UUIDv4、DB Mirror | 初回ASSIGNEDまで生成しない |
+| 3 | RUN_SCOPE | (PhysicalRunID, ScopeKey)複合キー | MOTOR / BATTERY_CH1 / BATTERY_CH2以外は拒否 |
+| 4 | Assignment Snapshot | UUIDv4 + Scope/Revision unique、不変外部正本 | Snapshot欠落・Hash不一致はAssignment更新拒否 |
+| 5 | Assignment History / Event | Scope + EventOrdinal、append-only | 部分TailはScope隔離 |
+| 6 | Session | UUIDv4、Scopeごと最大1 | 初回ASSIGNED前は生成しない |
+| 7 | Measurement Envelope | UUIDv4、外部正本 + DB Mirror | 機器固有契約のないPayloadはopaque、意味解析不可 |
+| 8 | Measurement Profile Snapshot | UUIDv4、不変外部Snapshot | Schema不明時はopaque、解析・Aggregate入力不可 |
+| 9 | RawLog Object / Reference | Object UUIDv4 / Reference UUIDv4、別Entity | Hash・durability未検証はPENDING_RECOVERY / QUARANTINED |
+| 10 | Sample Reference | UUIDv4、RawLog Referenceに従属 | Locator不明はopaque、時刻/Channel推定禁止 |
+| 11 | Measurement Sample Link | MeasurementID + SampleReferenceID + Role + Ordinal | Link cardinality不明時は作成拒否 |
+| 12 | Operation Journal / Intent | Operation UUIDv4、Intentは1件、外部正本 | Intent partial tailはRun隔離 |
+| 13 | Receipt Envelope | UUIDv4をIntentに固定、不変外部正本 | Intentから再構成不能はQUARANTINED |
+| 14 | Receipt Event | ReceiptID + EventOrdinal、append-only | Genesis以外のgap / partial tailは隔離 |
+| 15 | DB Operation Marker | OperationID unique、DB内同一Transaction | Marker不一致はQUARANTINED |
+| 16 | Analysis Artifact | UUIDv4、共通Artifact Envelope | 未知Payloadはopaque、計算入力不可 |
+| 17 | Simulation Artifact | UUIDv4、ArtifactKindで区別 | 未知Payloadはopaque、計算入力不可 |
+| 18 | Artifact Input | ArtifactID + Ordinal | 未知InputType / cycle / hash mismatch拒否 |
+| 19 | Aggregate Request | UUIDv4 + Owner内RequestOrdinal | Fingerprint完全項目がないRequest拒否 |
+| 20 | Aggregate Attempt | UUIDv4 + RequestID/AttemptOrdinal | Retry Closed後は新規Attempt拒否 |
+| 21 | Aggregate Result Revision | UUIDv4 + RequestID/ResultOrdinal | 成功Attempt以外はResult生成不可 |
+| 22 | Aggregate Pointer | Derived View、独立Identityなし | 検証不能時破棄・再構築 |
+| 23 | Recovery Operation / Integrity Report | 別UUIDv4 Entity | Recoveryは元証拠不変。Reportは監査用 |
+
+### 13.1 共通Entity Envelopeの扱い
+外部正式契約がないEntityの未知Fieldは創作しない。既知の共通EnvelopeとPayloadReference / PayloadHashのみをMirror化し、完全な外部正本byteを保全する。opaque保全できない場合は受入拒否。未知Payloadを解析・Aggregate・再関連付けに使用しない。
+
+### 13.2 決定状態
+Identity、Storage class、Unknown schemaの扱い、削除/更新方針はMain §14で確定。物理DDL・列型・index・trigger・複合FKの実装形は本論理設計の対象外であり、実装Gateで別途確定する。
