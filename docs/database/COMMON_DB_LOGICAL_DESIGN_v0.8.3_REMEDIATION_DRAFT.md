@@ -25,7 +25,7 @@
 2. DB RunはPhysical Runにつき最大1件。Physical Run IDとは別のUUIDv4を持つ。
 3. DB Runは、そのPhysical Run内で**DBが正常利用可能な状態で最初のASSIGNED Assignment Operationが確定した時点で一度だけ生成**する。DB unavailable時はIssue #201のAnonymous Modeとして扱い、その期間中にDB Runを生成しない。障害期間中に取得したMeasurement / RawLogは外部正本に保全するが、復旧後のBootstrap・再取込・Mirror化の対象にしない。既に存在するDB Runは削除せず履歴として保持する。
 4. 一度生成されたDB Runは履歴コンテナとして保持し、全ScopeがNONE / ANONYMOUSへ移行しても削除しない。後日再ASSIGNEDとなっても同一DB Run IDを再利用する。
-5. 一度もASSIGNEDになっていないPhysical RunにはDB Runを作らない。初期状態が全Scope NONE / ANONYMOUSであることと、過去にASSIGNED履歴がありDB Runが残存する状態を区別する。
+5. 一度もDB正常利用可能時にASSIGNEDとなっていないPhysical RunにはDB Runを作らない。DB unavailable期間のASSIGNEDはAnonymous Mode扱いであり、DB Run生成条件を満たさない。初期状態が全Scope NONE / ANONYMOUSであることと、過去にDB管理下でASSIGNED履歴がありDB Runが残存する状態を区別する。
 6. DB Runの削除・再生成・ID再採番は禁止。訂正はOperation / Historyとして追加する。
 
 ### 1.2 RUN_SCOPE / Session
@@ -43,7 +43,7 @@
 |---|---|---|---|
 | 初期NONE | NONE | 生成しない | 外部正本のみ |
 | 初期ANONYMOUS | ANONYMOUS | 生成しない | 外部正本のみ |
-| 初期NONE/ANONYMOUS | ASSIGNED | DB RunとSessionを生成 | 開始時点以降のASSIGNED測定をDB Mirrorへ登録 |
+| 初期NONE/ANONYMOUS | ASSIGNED | DB正常利用可能時のみDB RunとSessionを生成。DB unavailable中は生成しない | DB正常利用可能時の新規ASSIGNED測定のみDB Mirrorへ登録。障害期間中の測定は外部正本のみ・後日取込禁止 |
 | ASSIGNED | ASSIGNED（同一Instance） | 維持 | 測定時Assignment Revisionを記録 |
 | ASSIGNED | ASSIGNED（別Instance） | 維持 | 過去測定の帰属は変更しない |
 | ASSIGNED | NONE | 維持・非アクティブ | DB正常利用可能時に既存DB管理Measurementとして登録されたもののみ明示Association対象。AssociationはSession membershipを変更しない。障害期間のCaptureはAnonymous Mode扱いで後日取込禁止 |
@@ -54,7 +54,7 @@ ANONYMOUSは「その期間の測定をInstanceに帰属させない」状態で
 
 ### 1.4 Session Lifecycle / Measurement Outcome / Aggregate対象
 
-1. Session LifecycleとMeasurement Outcomeは完全に分離する。Session LifecycleはNOT_CREATED / OPEN / CLOSED / QUARANTINEDとし、Measurement Outcome（COMPLETE / STOP / ERROR / CANCEL / INCOMPLETE / UNKNOWN）の集合・混在・件数からSession Lifecycleを導出しない。NOT_CREATEDはSessionレコードが存在しない状態である。初回ASSIGNED確定時にSessionを生成してOPENとし、Assignment変更や個々のMeasurement終了では閉じない。CLOSEDはRun管理側の明示的Close Operationが外部正本へ記録され、その記録と依存参照を検証できた場合に限る。Close Operationは論理Run管理イベントであり、STOP ACK・最終Telemetry・アプリ終了・プロセス消失・無通信時間からRun終了を推定しない。Close受入時は対象ScopeのCaptureが終端または明示的に放棄・保留され、未確定MeasurementをCOMPLETEへ読み替えない。終端不明・参照不整合はOPEN維持またはQUARANTINEDとし、推測でCLOSEDにしない。DB unavailable / ANONYMOUS運用ではDB Sessionを生成せず、外部正本上のRun / Capture情報を保持する。
+1. Session LifecycleとMeasurement Outcomeは完全に分離する。Session LifecycleはNOT_CREATED / OPEN / CLOSED / QUARANTINEDとし、Measurement Outcome（COMPLETE / STOP / ERROR / CANCEL / INCOMPLETE / UNKNOWN）の集合・混在・件数からSession Lifecycleを導出しない。NOT_CREATEDはSessionレコードが存在しない状態である。DB正常利用可能時の初回ASSIGNED確定時にSessionを生成してOPENとし、Assignment変更や個々のMeasurement終了では閉じない。DB unavailable期間の初回ASSIGNEDではSessionを生成しない。CLOSEDはRun管理側の明示的Close Operationが外部正本へ記録され、その記録と依存参照を検証できた場合に限る。Close Operationは論理Run管理イベントであり、STOP ACK・最終Telemetry・アプリ終了・プロセス消失・無通信時間からRun終了を推定しない。Close受入時は対象ScopeのCaptureが終端または明示的に放棄・保留され、未確定MeasurementをCOMPLETEへ読み替えない。終端不明・参照不整合はOPEN維持またはQUARANTINEDとし、推測でCLOSEDにしない。DB unavailable / ANONYMOUS運用ではDB Sessionを生成せず、外部正本上のRun / Capture情報を保持する。
 2. **Current Aggregate**の対象は、現在ASSIGNEDであるScopeのうち、Measurement開始時点もASSIGNEDで、かつ測定時Instance IDが現在Instance IDと一致するMeasurementだけとする。
 3. NONE / ANONYMOUS期間に開始したMeasurementは、後日ASSIGNEDになってもCurrent Aggregateへ遡及追加しない。NONEの既存DB管理Measurementに対する明示AssociationはInstance関連付け履歴のみであり、Measurement Mirrorの新規生成・Session membership変更・Current Aggregateへの追加を伴わない。
 4. 過去に別InstanceへASSIGNEDだったMeasurementは、再割当後のInstanceのCurrent Aggregateへ混入させない。
