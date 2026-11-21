@@ -375,7 +375,7 @@ Main draft §2.1「正規順序」および同節直後の補足文を、Receipt
 以下は物理実装を指定せず、復旧時に推測で成功・中止・Ordinal再利用を行わないための候補規則である。Mainへの規範反映前に、統括の承認対象として明示する。
 
 1. **単一Writer:** 同一Physical RunのOperation Journal / Manifest Head / Receipt Event Chainは、論理上同時に1つの有効Writerだけが更新できる。複数Writerを検出した場合は新規更新を停止しQUARANTINEDとする。排他の具体方式・stale lock・fencingは物理設計へ保留。
-2. **Ordinal非再利用:** Operation OrdinalとReceipt Event Ordinalは、それぞれのAuthority内で単調増加し、再利用しない。完全なIntent/Eventが検証できない部分Tailがある場合、Tailを黙って切り捨てたり、そのOrdinalの後ろへ追記したりせず、証拠を保全してQUARANTINEDとする。欠番を許容するか、Event Chainの連番必須とするかは同じ規則内で明記する必要がある。
+2. **Ordinal非再利用:** Operation OrdinalはPhysical Run内で単調増加し、欠番を許容するが再利用しない（Main §2.3の現行規則を維持）。Receipt Event OrdinalはReceipt内で単調増加し、既存Schemaの「gapは検証失敗」を維持して連続Chainとする。両Ordinalの発行Authority・消費点は別々に定義する。完全なIntent/Eventが検証できない部分Tailがある場合、Tailを黙って切り捨てたり、そのOrdinalの後ろへ追記したりせず、証拠を保全してQUARANTINEDとする。
 3. **Event補完:** Envelopeが完全・Hash一致で存在しPREPARED Eventだけが欠落している場合に限り、同一ReceiptへのEvent補完候補とする。Event書込み結果が不明な場合はChainを再読込し、完全なEventとして検証できれば既存Eventとして扱い、不正Tailなら追記せず隔離する。
 4. **Manifest競合:** Source Commit前にExpected predecessorと現在Headが一致しない場合はCommitを拒否する。Head更新結果が不明なら再読込し、当該OperationのExpected Head / Commit Hashと一致する場合のみSource Commit済みと認定する。別OperationのHead、欠落、Hash不一致は自動上書きせず隔離する。
 5. **DB Marker不確実性:** DB unavailableまたはCommit結果不明の間はSOURCE_COMMITTEDのまま保留する。Markerの単純な検索0件だけでRollback済みと断定しない。DBの一貫した読戻しで不存在とRollbackを確定できる場合に限り同一Operationの再試行候補とする。読戻し保証・Isolation条件は物理設計で実証する。
