@@ -879,7 +879,7 @@ Request StateをOPEN / SUCCEEDED / FAILED / CANCELLED / INDETERMINATEに固定�
 ### 37.1 DB unavailableはAnonymous Mode
 - Issue #201はDB unavailable動作を既存Anonymous Modeへ統合し、障害期間中のRawLog / Captureをローカル外部正本へ保全する一方、後日DB取込・Instance再紐付けは将来の別設計範囲としている。
 - よってDB unavailable期間はAssignment-at-MeasurementがASSIGNEDであってもAnonymous Modeとして扱う。DB Run / Session Mirror / Measurement Mirrorを作成せず、障害期間中のCapture / Measurement / RawLogを復旧後にBootstrap・取込・Mirror化・Associationしない。ただしCC-01に従い、初回ASSIGNED時の論理Session identityは外部Run ManifestへUUIDv4で生成し、Logical Session Lifecycleを外部正本で保持する。DB Session Mirrorは障害中に生成せず、復旧後も同一Runへ遡及生成しない。
-- 障害前にDB Run / Sessionが存在した場合、そのIdentityと履歴は保持する。障害期間のCaptureは既存Session membershipへ追加しない。
+- 障害前にDB Run / Session Mirrorが存在した場合、そのIdentityと履歴は保持する。障害期間のCaptureは外部Logical Session identityが存在すれば外部Manifest上のmembershipへ記録できるが、DB Session Mirror membershipへは追加せず、復旧後の遡及追加もしない。
 - 同一Physical Run内で障害期間に初回ASSIGNEDとなった場合、論理Session identityは外部Run Manifestへ生成するが、復旧後に同一RunをDB管理へ遡及変換しない。同一Run内のDB管理再開契約は本版対象外とし、新しいPhysical RunからDB管理を開始する。
 
 ### 37.2 NONE AssociationとSession membershipの分離
@@ -900,7 +900,7 @@ Request StateをOPEN / SUCCEEDED / FAILED / CANCELLED / INDETERMINATEに固定�
 
 ### 37.4 同一Physical Run内のモード再開境界
 - outage中に当該Runの初回ASSIGNEDが発生した場合、DB復旧後に同一Physical Runを遡及DB化しない。
-- outage前からDB Run / Sessionが存在する場合はIdentityを保持するが、outage中Captureの後日取込は禁止する。
+- outage前からDB Run / Session Mirrorが存在する場合はIdentityを保持する。outage中Captureは外部Logical Session membershipに限って保全し、DB Session Mirror membershipへ追加・後日取込しない。
 - outage中の初回ASSIGNED後に同一Run内でDB管理へ移行する手順は現行契約に存在しないため、本版では許可せず、新しいPhysical Runを要求する。
 
 ### 37.5 External Evidence StorageとDevice Captureの責務境界
@@ -915,8 +915,8 @@ Request StateをOPEN / SUCCEEDED / FAILED / CANCELLED / INDETERMINATEに固定�
 |---|---|---|
 | XDC-001 | DB outage中にASSIGNED Measurementを取得 | 外部正本のみ。DB Mirrorなし |
 | XDC-002 | XDC-001後にDB復旧 | 障害期間データのBootstrap / 取込 / Mirror化を拒否 |
-| XDC-003 | outage前にDB Run / Sessionあり、outage中にCapture | 既存Identity保持。outage CaptureはSession membershipに追加しない |
-| XDC-004 | outage中に同一Physical Runで初回ASSIGNED、後にDB復旧 | 論理Session identityは外部Manifestに存在。DB Session Mirror / Run Mirrorは遡及生成せず、障害期間データを取込まない。新Physical RunからDB管理 |
+| XDC-003 | outage前にDB Run / Session Mirrorあり、outage中にCapture | 既存Identity保持。外部Logical Session membershipは保全し、DB Session Mirror membershipへは追加せず後日取込もしない |
+| XDC-004 | outage中に同一Physical Runで初回ASSIGNED、後にDB復旧 | 論理Session identityは外部Manifestに生成し、Captureは外部membershipに保全。DB Session Mirror / Run Mirrorは遡及生成せず、障害期間データを取込まない。新Physical RunからDB管理 |
 | XDC-005 | Session生成前にNONE MeasurementをDB登録し、後にSession生成 | Session membershipへ遡及追加しない |
 | XDC-006 | Session生成後にNONE MeasurementをDB登録 | 登録時点で同一Scope Session membershipを固定 |
 | XDC-007 | XDC-006対象を後日Association | Instance関連付け履歴のみ。Session membership / Assignment-at-Measurement不変 |
