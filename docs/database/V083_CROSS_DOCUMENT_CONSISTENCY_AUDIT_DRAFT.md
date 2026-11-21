@@ -474,3 +474,30 @@ Plan Payload → Plan Hash → Intent Payload / Intent Hash → Receipt Envelope
 
 ### 判定
 これは非循環化の候補であり、規範仕様・承認済みの設計ではない。Hash algorithm / Canonicalization / Namespaceを採用していない。DB-RV-03 OPEN。Main本文未変更。DDL / DB生成 / Migration / Restore / 実装 / PR / main反映なし。
+
+
+## 24. Intent後・Receipt作成前のABORTED経路不整合（2026-11-21）
+
+### 24.1 照合した記述
+- Main §2.3「Intent後、Receipt PREPARED前」: 「同一Operation ID / OrdinalでReceipt PREPAREDを作成、またはABORTEDを記録」と記載。
+- Receipt Contract §4 Event遷移表: 未作成 → PREPARED と PREPARED → ABORTED のみ定義。未作成からABORTEDへの直接遷移は定義されていない。
+- Receipt Contract §6 Crash Matrix: Intent後はEnvelopeを再構成しPREPARED、Envelope後・PREPARED Event前はPREPARED Eventを補完する。
+- State Transition Matrix §4: 旧行は「Envelope作成後にABORTED Event」としており、PREPARED Eventを先に追記する必要が明示されていなかった。
+
+### 24.2 不整合判定
+Main §2.3は、Receipt Event遷移表に存在しない「Intent後・PREPARED前からABORTED」への直接遷移を許すように読める。またState Transition Matrix旧行はEnvelope作成後にABORTED Eventを追記するとだけ記載し、PREPARED Eventの先行を欠いていた。これは単なる説明不足ではなく、Event Chain上の許可遷移・Ordinal順序・復旧処理を曖昧にする。
+
+### 24.3 安全側の同期修正案
+State Transition Matrix Draftは次の2行へ修正した。
+1. Intent永続化後・Envelope作成前: 同一OperationからEnvelopeを再構成・永続化し、PREPARED Eventを追記する。
+2. PREPARED成立後・Source Commit前の中止: Source Commit不存在の完全検証と明示中止Intentを確認した場合のみ、同一ReceiptへABORTED Eventを追記する。不成立なら保留またはQUARANTINED。
+
+この修正はReceipt Contract §4 / §6と整合する。Main §2.3本文は未変更であり、統括承認前に規範反映していない。
+
+### 24.4 残る統括判断・同期作業
+- Main §2.3の該当行を、Envelope / PREPARED Event / ABORTED Eventの順序が分かるように改訂するか承認が必要。
+- ABORTED Event Payloadに必須のOperator Intent / Actor / Timestamp / Source Commit不存在証拠参照の完全Field定義は引き続き必要。
+- PREPARED EventのOrdinal消費・部分書込み復旧はReceipt Event Chainの規則と同期する必要がある。
+
+### 24.5 状態
+State Transition Matrix Draftは修正済み。Main §2.3は未変更。Receipt Contract §4の許可遷移と整合した候補修正であり、DB-RV-03全体の解決・承認を意味しない。DB-RV-03 OPEN、v0.8.3未承認を維持する。
