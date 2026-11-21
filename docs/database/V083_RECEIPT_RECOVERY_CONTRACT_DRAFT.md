@@ -686,3 +686,30 @@ Physical Run Writer Authorityを持つことと、Operation Ordinal / Receipt Ev
 
 ### 21.5 結論
 単一有効Writerは論理要件候補として必要だが、stale owner / split-brainを排除する証明方式・Authority発行主体・世代管理・旧Writer拒否条件が未定義。Physical Run単位の排他と共有DB側の競合制御は別問題。DB-RV-03 OPEN。物理方式未選択、Main本文未変更。
+
+
+## 22. DB-RV-03 — 最終決定（Main §14.4を規範）
+
+本節で従来§15〜§21のOPEN / candidateを閉じる。Main §14.4が規範であり、旧候補表と矛盾する場合はMain §14.4を優先する。
+
+| 論点 | 最終決定 |
+|---|---|
+| Receipt ID | Operation IDから導出しない。UUIDv4を発行し、Intent永続化前に固定 |
+| Expected Receipt Hash | 廃止。PREPARED時点で未来のEnvelope HashをIntentへ逆参照させない |
+| Hash profile | M4W-JCS-1 / SHA-256。Hash field自身は対象外。Plan→Intent→Envelope→Source Commit→DB Markerの順で確定 |
+| Expected DB Marker Hash | 廃止。Source Commit後に実Marker Payload Hashを算出し、DB_COMMITTED Eventへ記録 |
+| Event Genesis | EventOrdinal=1、PreviousEventHash=NULL。2件目以降は連続Ordinal + 直前EventHash |
+| Operation Ordinal | Physical Run内で単調増加。完全Intentのfsync相当 + read-back一致で消費。部分Tail / 結果不明はRun隔離、再利用禁止 |
+| Event Ordinal | Receipt内1始まり連続。gap / partial / malformed tailはReceipt隔離、後続追記禁止 |
+| Manifest Commit | 不変Commit Recordの単一Hash Chain。Headは派生。後続Commit後も祖先証拠を検証 |
+| Fork / stale predecessor | 自動選択・last-write-wins禁止。QUARANTINED |
+| Writer Authority | Physical Run単位の単一Writer + 単調Epoch。旧Epoch更新拒否。時計だけで失効判定しない |
+| Recovery Authority | 新Recovery Operationのみ。元Receipt / Event / Manifestを書換えない。検証・Mirror再構築・Derived View再構築・隔離記録のみ |
+| DB Marker | Mirrorと同一Transaction、OperationID unique。Commit結果不明時はMarker・DB integrity・consistent readを照合。証明不足は隔離 |
+| ABORTED | PREPARED後、Source Commit不存在と明示Cancel Intentを証明できる場合のみ。Source Commit後は禁止 |
+
+### 22.1 受入結果の固定動作
+- 証拠が完全一致すれば既存Operationの状態を進める。
+- 競合・欠落・不正Tail・Hash不一致・Writer Epoch不明はQUARANTINED。
+- QUARANTINED元証拠は変更しない。Recoveryは別Operationで記録する。
+- 物理的なEpoch fencing / Atomic append / fsync / SQLite transactionの実装方式は選択しないが、Main §14.8の実証Gateを満たさない実装は不採用。
