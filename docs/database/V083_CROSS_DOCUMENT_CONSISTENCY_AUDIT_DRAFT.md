@@ -187,3 +187,28 @@ A targeted read of the full V082 crosswalk found that the old Session aggregatio
 All six are historical Session-level Outcome aggregation expectations and are superseded as Lifecycle rules by Issue #210 CC-01. The crosswalk preserves the old test descriptions but labels their expected Session-state behavior as obsolete. Current acceptance overlays CC-01-T01 / T04 / T05 and SES-017〜020 assert that zero, homogeneous, and mixed Measurement Outcomes do not change Session Lifecycle.
 
 V082-006 (Anonymous Measurement with no DB Session) is not in this obsolete set; it remains compatible with the no-Session behavior for a Scope that has never been ASSIGNED, subject to CC-01/CC-02 boundaries.
+
+
+## 13. CC-02 NONE Association — Session membership boundary remains OPEN (2026-11-21)
+
+Issue #210 permits design of explicit late association only when the NONE-period Measurement already has both an external authoritative record and a DB-managed Measurement record. It does not decide how that record relates to Session membership.
+
+### Boundary scenarios requiring an explicit rule
+
+| Scenario | Current facts | Unresolved question |
+|---|---|---|
+| A. Scope already has Session (earlier ASSIGNED → NONE) | Session exists and remains OPEN under CC-01. DB is available; a NONE Measurement is captured and already stored as DB-managed Measurement. | Is it immediately a member of the existing Session with Assignment-at-Measurement=NONE, and does later association only add an Instance link/history? |
+| B. Scope has never been ASSIGNED (initial NONE) | No DB Run / Session exists under current v0.8.3 generation rules. | Can a DB-managed Measurement exist without a Session, or is this scenario ineligible for later association? |
+| C. Measurement exists before first ASSIGNED | External and DB Measurement record may exist, but Session is not yet created. | After first ASSIGNED creates Session, may the existing NONE Measurement be linked to it, or must it remain outside Session membership? |
+
+### Design alternatives — not selected
+
+1. **Existing-Session-only**: NONE late association is eligible only where the Scope already had a Session at Measurement capture. The Measurement is immediately recorded under that existing Session with Assignment-at-Measurement=NONE; later association changes only a separate Instance association/audit relation. Initial-NONE-before-first-ASSIGNED has no DB Measurement Mirror and is ineligible.
+2. **Detached-Measurement**: DB-managed NONE Measurement may exist without Session; later Session creation requires an explicit, audited membership-link rule. This would extend the current "Session membership is Measurements registered after Session creation" statement and requires explicit approval.
+3. **Session-link-on-association**: Existing NONE Measurement may be linked to a later-created Session only by explicit association; this requires a rule for whether this is permitted when the Measurement's Physical Run / Scope has an existing Session, and must not change Assignment-at-Measurement.
+
+**DB department recommendation for risk containment:** prefer Alternative 1 unless central command explicitly authorizes a detached or delayed Session-membership model. This is a recommendation only, not a selected rule.
+
+No automatic Session creation, DB Run creation, RawLog import, Mirror generation, or Current Aggregate inclusion is inferred from NONE. ANONYMOUS remains prohibited from later DB import / Mirror / Instance re-association under CC-02.
+
+**Status: OPEN — return to central command for a narrow boundary decision before finalizing Session membership and the CC-02 association contract.**
