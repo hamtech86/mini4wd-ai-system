@@ -437,3 +437,9 @@ Request StateとAttempt StateをMain §3.2で固定。Retry ClosedはFAILED Atte
 - **V083-RV-03:** DB unavailableはIssue #201のAnonymous Mode。障害期間CaptureのAssignment-at-MeasurementはANONYMOUS（InstanceID=NULL）。障害中の初回ASSIGNED試行は有効Operationではなく、DB Run / Logical Session identity / Mirrorを生成しない。障害期間データは復旧後も取込・Mirror化・Associationしない。
 - 障害前から存在するDB Run / Session identity / Mirrorは履歴として保持する。障害期間Captureは既存Logical Sessionがある場合でも外部正本のみで保全し、DB Mirror membershipへ遡及追加しない。
 - 検証は文書間の読み戻し・文字列照合に限定。DB unavailable実機試験、Run Manager実装、Manifest/Assignment authorityの実証は未実施。統括承認・実装許可を意味しない。
+
+## 39. V083-RV-04 / 05 自己審査更新（2026-11-21）
+
+- **V083-RV-04:** Main §1.4.5 / §14.1.5 / §14.4.14でNONE_ASSOCIATION_CREATED / NONE_ASSOCIATION_CLOSED、Record / Event identity、CREATED / CLOSED Payload、Active / Closed、CloseReason、REASSIGNの同一Operation内Close→Create、Source Commit、DB Marker同一Transaction、fail-closed条件、Event Authorityを定義。State Transition Matrix SES-030〜032と照合済み。仕様文書上は補完済み案、実装・権限・crash実証は未実施。
+- **V083-RV-05:** Main §8.1はDB側External Evidence Storageによる引渡し済みbyte objectの永続化に限定。Motor / Battery担当がCapture / RawLog / Schema / Outcome / Channel / Retention / Loss契約を所有する。fsync / read-back / Atomic Rename等は共通ストレージ受入条件であり、機器固有契約ではない。契約未受領byteはopaque保存のみ。Issue #35 / #170 / #16をDB側で拡張しない。
+- OS / filesystem別のdurability、SQLite crash / restore、Association Eventの実装・権限・atomicity試験は未実施。統括承認・実装許可を意味しない。
