@@ -383,11 +383,11 @@ Main §8は、RawLog保存完了に対し、temporary write完了、File Handle 
 | # | Entity | Identity / Storage決定 | 未契約時の固定動作 |
 |---:|---|---|---|
 | 1 | Physical Run / Run Manifest | Run Manager UUIDv4、外部正本 | Manifest欠落・forkはQUARANTINED |
-| 2 | DB Run | UUIDv4、DB Mirror | DB正常利用可能時の初回有効ASSIGNEDで生成。DB unavailable中は有効ASSIGNED Operationを成立させず、障害期間CaptureのAssignment-at-MeasurementはANONYMOUS。障害期間のRunを復旧後BootstrapでDB化しない。DB管理は新しいPhysical Runから開始する |
+| 2 | DB Run | UUIDv4、DB Mirror | DB正常利用可能時の初回有効ASSIGNEDのManifest Source CommitでIDを発行。DB unavailable中は有効ASSIGNED Operationを成立させず、障害期間CaptureのAssignment-at-MeasurementはANONYMOUS。障害前Source Commit済みでDB Run Mirrorのみ未確定ならRecovery Authorityが同一IDでMirror再構築可能。障害期間のRun / Captureを新規AssignmentやBootstrapでDB化しない。 |
 | 3 | RUN_SCOPE | (PhysicalRunID, ScopeKey)複合キー | MOTOR / BATTERY_CH1 / BATTERY_CH2以外は拒否 |
 | 4 | Assignment Snapshot | UUIDv4 + Scope/Revision unique、不変外部正本 | Snapshot欠落・Hash不一致はAssignment更新拒否 |
 | 5 | Assignment History / Event | Scope + EventOrdinal、append-only | 部分TailはScope隔離 |
-| 6 | Session | Run Manager発行UUIDv4、Scopeごと最大1 | Run ManagerがDB正常利用可能時の初回有効ASSIGNED Assignment Operation確定時にLogical Session IDを外部Run Manifestへ発行・記録し、同一IDのDB Session Mirrorを生成する。DB unavailable期間は有効ASSIGNED Operation・新規Session identity・DB Session Mirrorを生成しない。障害開始前から存在する論理Session identity / Lifecycleは外部正本で保持し、障害中CaptureのAssignment-at-MeasurementはANONYMOUSとして後日Mirror化しない。Session membershipはMeasurementの外部Manifest初回登録時に同一Scope Sessionが存在する場合のみ固定 |
+| 6 | Session | Run Manager発行UUIDv4、Scopeごと最大1 | Run ManagerがDB正常利用可能時の初回有効ASSIGNED Assignment Operation確定時にLogical Session IDを外部Run Manifestへ発行・記録し、同一IDのDB Session Mirrorを生成する。DB unavailable期間は有効ASSIGNED Operation・新規Session identity・DB Session Mirrorを生成しない。障害前にManifest Source Commitまで検証済みでDB Session Mirrorのみ未確定なら、Recovery AuthorityがReceipt / Manifestを再検証し同一IDでMirror再構築可能。障害開始前から存在する論理Session identity / Lifecycleは外部正本で保持し、障害中CaptureのAssignment-at-MeasurementはANONYMOUSとして後日Measurement Mirror化しない。Session membershipはMeasurementの外部Manifest初回登録時に同一Scope Sessionが存在する場合のみ固定 |
 | 7 | Measurement Envelope | UUIDv4、外部正本 + DB Mirror | DB正常利用可能時の有効ASSIGNED MeasurementのみMirror登録。DB unavailable期間のCapture / MeasurementはAssignment-at-Measurement=ANONYMOUS（InstanceID=NULL）として外部正本のみ、復旧後のBootstrap / 取込 / Mirror化 / Association禁止。Battery 5A DATAはIssue #16の範囲で原本byte / 共通Envelope / CH1・CH2独立保全まで許可し、契約未回収Payloadはopaque、意味解析・Feature Extraction不可 |
 | 8 | Measurement Profile Snapshot | UUIDv4、不変外部Snapshot | Schema不明時はopaque、解析・Aggregate入力不可 |
 | 9 | RawLog Object / Reference | Object UUIDv4 / Reference UUIDv4、別Entity | Hash・durability未検証はPENDING_RECOVERY / QUARANTINED |
