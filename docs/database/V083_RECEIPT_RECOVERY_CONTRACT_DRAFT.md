@@ -592,3 +592,59 @@ NOT_ATTEMPTEDの場合のみ同じ次Ordinalで作成を開始できる。COMMIT
 
 ### 19.5 結論
 初回Previous Event Hashの符号化、初期Ordinal、Event append開始・消費境界、Event Writer / Type Authority、partial tail後のRecovery権限が未定義である。Operation Ordinalの欠番許容規則をReceipt Event Ordinalへ適用しない。DB-RV-03 OPENを維持し、Main本文・Canonical Schema・実装は変更しない。
+
+
+## 20. Manifest Head競合・Commit結果不明・後続Commit監査（2026-11-21）
+
+### 20.1 現行規則の確認
+Main §2.1 step 6〜7は、変更対象の外部正本を不変Revisionとして書き込み、Current Manifest / Head Pointerを同一Operationのcommit markerとして更新し、その後Revision / Manifest Hashを読み戻す順序を定める。§2.3はSource Commit後にABORTEDへ戻さず、同一OperationでDB Mirrorを再開する。
+
+本契約§15.2はExpected predecessorと現Headの一致をCommit条件とし、更新結果不明時にHeadを再読込する方針を記録した。しかし「現在Headが当該OperationのExpected Head / Commit Hashと一致する場合のみSource Commit済みと認定」という表現は、後続Operationが既にHeadを進めた場合を十分に扱えない。
+
+### 20.2 競合シナリオ
+例:
+1. Operation A / Bが同じManifest Head H0を読み取る。
+2. AとBがそれぞれH0をExpected predecessorとして不変Revisionを準備する。
+3. AがH0→HAをCommitする。
+4. Bが古いH0を基準にHBへCommitしようとする。
+
+この場合、BはExpected predecessor不一致で拒否されなければならない。BがHBを上書き採用するとAのCommitを失わせる。
+
+別シナリオ:
+1. AがH0→HAをCommitする。
+2. Aの応答前にプロセスが停止し、AはCommit結果を確認できない。
+3. その後、別の正当なOperation CがHA→HCをCommitする。
+4. AのRecovery時点ではCurrent Head=HCであり、HAではない。
+
+このときHCだけを見てAのCommit不存在と判定してはならない。AのCommitがManifest履歴に含まれ、その後Cに継承されている可能性がある。反対に、AのCommitが履歴に存在しないまま別OperationがHeadを進めたなら、AのSource Commitは未成立または競合として扱う必要がある。
+
+### 20.3 論理的に必要な証拠候補
+ManifestのCommit成否を判定するには、少なくとも以下の関係を一意に検証できる必要がある。
+- Operation ID / Operation Ordinal / Receipt ID
+- Expected predecessor identity / hash
+- 当該OperationのCommit identity / payload hash
+- Commit後Head identity / hash
+- predecessorからCommit後Headへの連鎖関係
+- Manifest履歴上で当該Commitが存在するか、後続Commitに継承されているか
+- 同じOperation IDが異なるCommit Payload / predecessorで重複していないこと
+
+これはManifestがどのような物理形式で履歴を持つべきかを決めるものではない。現行資料で「Manifest Head Pointer」以外にCommit履歴を検証する不変証拠が定義されているか、追加の一次根拠が必要である。
+
+### 20.4 競合・不確実時の判定候補
+| 状況 | 判定候補 | 禁止事項 |
+|---|---|---|
+| 現Head=Expected predecessor、Commit未開始 | Commit候補として進行 | 同じManifestに複数Writerを許す |
+| Expected predecessor≠現Head、当該Operation Commitが履歴にない | stale OperationとしてCommit拒否。証拠関係により保留または隔離 | 古いHeadを基準に上書き |
+| 当該Operation Commitが完全証拠で履歴に存在し、Headの祖先である | Source Commit成立として認定可能 | 現Headが当該Commit Hashでないことだけを理由に不成立扱い |
+| 当該Operation Commitが存在せず、別OperationのCommitがHeadを進めた | AのCommit未成立候補。Operation再計画・再実行を推測せず、同一Receipt / Recovery条件を検証 | AのExpected predecessorを書き換えて再利用 |
+| 同じOperation IDに複数Commit Payload / predecessorが存在 | 競合・証拠矛盾としてQUARANTINED候補 | 最終更新勝ち、時刻による採用 |
+| Head / Manifest履歴が欠落・破損・部分書込み | Source Commit結果不明。後続Source更新停止・隔離 | Headを推測再構築、破損Tailの黙示切捨て |
+
+### 20.5 Main / 補助契約間の同期課題
+- Main §2.1の「Current Manifest / Head Pointerをcommit markerとして更新」は、後続Commit後に先行Operationを検証する履歴証拠を明記していない。
+- Main §2.3の「Source Commit後は同一OperationでDB Mirrorを再開」は、Source Commit済みか否かの判定に必要な履歴証拠を明記していない。
+- §15.2の「現Headが当該OperationのExpected Head / Commit Hashと一致する場合のみ認定」は、後続Commitがある場合に不十分な表現であるため、本節で限定・訂正する。
+- Expected predecessor / Commit identity / Commit payload hash / Manifest ancestryのCanonical FieldとHash生成順は未確定。
+
+### 20.6 結論
+Manifest Head Pointerだけでは、後続Commit後の先行OperationのCommit成否を安全に判定できるとは証明できない。Operation単位の不変Commit証拠とManifest履歴上の祖先関係を検証できる論理契約が必要か、統括判断対象として残す。特定のMerkle DAG / append-only log / CAS方式等は採用しない。DB-RV-03 OPEN。Main本文未変更。
