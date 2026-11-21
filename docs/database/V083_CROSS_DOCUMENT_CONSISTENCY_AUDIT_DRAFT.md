@@ -837,3 +837,5 @@ Main §14をDecision Authorityとして、従来のOPEN / TBD / candidateを以�
 
 ### 35.2 Battery Issue #16の限定的な保存許可
 Battery Issue #16に列挙された5A DATAの取込み、共通Measurement Envelope、CH1 / CH2独立Session / Measurementの保存は対象に含める。RawLog Schemaが未回収のPayloadは原本byteとHashを保全するopaque保存に限定する。Feature Extraction / Benchmark Resultの再計算、mAh / Wh / voltage dropの数値妥当性判定、スコア、内部抵抗、CH1 / CH2合算は、単位・式・Capture End・RawLog Schemaの正式契約が揃うまで実施しない。
+### 35.3 Aggregate Request / Attempt終端の追加決定
+Request StateをOPEN / SUCCEEDED / FAILED / CANCELLED / INDETERMINATEに固定。Retry ClosedはFAILED Attemptが1件以上、RUNNING Attemptがない場合のみ許可。Attempt CANCELLEDだけではFAILEDにせず、明示Request CancelledまたはRetry Closedを要する。Attempt結果不明のcrashではWorker停止 / fencing proof前にAggregate OwnerをQUARANTINEDとして全更新停止し、proof後にのみINDETERMINATEへ終端。
