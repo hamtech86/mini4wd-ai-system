@@ -388,7 +388,7 @@ Main §8は、RawLog保存完了に対し、temporary write完了、File Handle 
 | 4 | Assignment Snapshot | UUIDv4 + Scope/Revision unique、不変外部正本 | Snapshot欠落・Hash不一致はAssignment更新拒否 |
 | 5 | Assignment History / Event | Scope + EventOrdinal、append-only | 部分TailはScope隔離 |
 | 6 | Session | UUIDv4、Scopeごと最大1 | 初回ASSIGNED前は生成しない |
-| 7 | Measurement Envelope | UUIDv4、外部正本 + DB Mirror | DB unavailable中はMirror作成せず、復旧後はASSIGNED時測定で完全検証できるもののみ明示Bootstrap対象。NONE outage / ANONYMOUSは取込不可。機器固有契約のないPayloadはopaque、意味解析不可 |
+| 7 | Measurement Envelope | UUIDv4、外部正本 + DB Mirror | DB unavailable中はMirror作成せず、復旧後はASSIGNED時測定で完全検証できるもののみ明示Bootstrap対象。NONE outage / ANONYMOUSは取込不可。Battery 5A DATAは原本byte / 共通Envelope / CH1・CH2独立保存まで許可し、契約未回収のPayloadはopaque、意味解析・Feature Extraction不可 |
 | 8 | Measurement Profile Snapshot | UUIDv4、不変外部Snapshot | Schema不明時はopaque、解析・Aggregate入力不可 |
 | 9 | RawLog Object / Reference | Object UUIDv4 / Reference UUIDv4、別Entity | Hash・durability未検証はPENDING_RECOVERY / QUARANTINED |
 | 10 | Sample Reference | UUIDv4、RawLog Referenceに従属 | Locator不明はopaque、時刻/Channel推定禁止 |
