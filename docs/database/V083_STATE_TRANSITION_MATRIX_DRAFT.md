@@ -155,21 +155,23 @@ Input Set HashのみでRequest同一性を判定しない。
 
 Requestは不変。Attemptは実行ごとに新規作成。FAILEDを確定するには、Retryable / Retry Closedの区別と、再試行受付を閉じる明示Eventまたは状態が必要。単に現時点で失敗Attemptしかないことを理由にFAILEDへ確定しない。
 
-## 6. 未確定・未完了のまま残す事項
+## 6. 決定済み処置・受入ゲート
 
-- Run管理側PHYSICAL_RUN_CLOSED Close OperationのActor / UI / Operation受入条件の詳細。
-- Measurement Outcomeの各機器固有Capture終端根拠と、INCOMPLETE / UNKNOWN判定の正式契約。
-- DB Run / Session生成時のOperation境界と、既存DB利用不可時の外部正本のみの扱いの詳細。
-- Receipt Eventの実際のEvent Type / Payload / Hash Chain Canonical Schema。
-- RawLog種別ごとのdurability / loss tolerance。Issue #35との照合が必要。
-- Canonical Binary Name v2の全Entity Field Schemaと完全なbyte vectors。
-- 全Entityの属性・型・NULL・キー・複合FK・多態参照・削除/更新規則。
-- DB-001〜124の個別原文・V082 crosswalk。
-- Motor正式DB要件の照合。
-- Battery最終測定/RawLog契約の統括経由照合。
+本マトリクスの旧TBD項目はMain §14により設計処置を確定した。下記は設計未決定ではなく、対象外・fail-closed・実証待ちとして扱う。
 
-**結論:** 本マトリクスは状態組合せの検査台帳であり、v0.8.3の修正完了・統括承認・実装許可を意味しない。
+| 項目 | v0.8.3確定処置 |
+|---|---|
+| Run Close Actor / UI / Operation | Run ManagerのみがPHYSICAL_RUN_CLOSED Operationを発行。UI・Actor identityはRun Manager契約の値を必須とし、未提供ならClose拒否 |
+| Measurement Outcome | Main §14.2の6値。機器固有終端契約がない値はCOMPLETEにせずUNKNOWN / INCOMPLETE |
+| DB Run / Session生成 | 初回ASSIGNEDで生成。初回ASSIGNED前のNONE / ANONYMOUSは外部正本のみ |
+| Receipt Event Schema | Main §14.4のOrdinal=1 / PreviousHash=NULL、連続Ordinal、JCS-1 / SHA-256。未知EventType拒否 |
+| RawLog durability | Main §14.6の全工程を対象OS/filesystemで実証するまでDurable / VERIFIED禁止 |
+| UUIDv5 Canonical Name | v0.8.3では不採用。UUIDv4 + M4W-JCS-1を採用 |
+| Entity complete fields | 外部正式契約がないFieldは作らない。共通Envelope + opaque payload referenceのみ |
+| Legacy IDs / crosswalk | 未回収IDはREFERENCE_ONLY_NOT_EXECUTABLE、根拠のないcrosswalkはNO_MAPPING |
+| Motor / Battery | 正式契約外のfield / meaning / durabilityを推測しない。未契約データは意味解析・Aggregate対象外 |
 
+**受入ゲート:** 論理選択は確定。実装・試験実行・OS/filesystem/SQLite実証・他部門契約受領・統括最終審査は別工程であり、未実施をPASSとしない。
 
 ## 7. Receipt Event初回・部分Tailの状態組合せ追加
 
