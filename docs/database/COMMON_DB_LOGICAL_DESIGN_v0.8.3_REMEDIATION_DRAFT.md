@@ -214,7 +214,7 @@ Journal Intent、Receipt Envelope、Receipt Event、Source Commit Record、DB Ma
 | Receipt / Receipt Event | Receipt Envelope / Event Log | あり（Mirrorのみ） | 依存証拠の二段階検証後に再生成 |
 | Aggregate Request / Attempt / Result | Aggregate Envelope / Result Payload | Pointer / 検索Mirror | Request/Attempt/ResultのHash検証後に再生成 |
 
-全ScopeがNONE / ANONYMOUSで一度もASSIGNEDになっていない場合、Physical Run / RUN_SCOPE / Assignment Snapshot / Measurement Envelope / RawLog / Artifact等は外部正本だけで保全し、DB Run / Session / DB Mirrorを作らない。DB正常利用可能時に初回ASSIGNEDとなったScopeのみDB Run / Sessionを生成する。DB unavailable期間はIssue #201 Anonymous Modeであり、ASSIGNED状態であってもDB Run / Session / Measurement Mirrorを生成しない。当該期間のCaptureは外部正本に保全するが、復旧後のBootstrap / DB取込 / Mirror化を禁止する。DB unavailable前から存在するDB Run / Sessionは削除せず、既存履歴として保持する。NONEの後日Associationは、DB正常利用可能時に既にDB管理Measurementとして登録済みのものに限り、Instance関連付け履歴として明示Operationで許可する。AssociationはSession membershipを変更せず、Assignment-at-Measurement=NONEを保持し、Actor / UTC時刻 / before-after / Reason / OperationIDを監査履歴に残す。Session生成前のNONE Measurementは後からSessionへ遡及所属させない。ANONYMOUS / DB unavailable期間のMeasurement / RawLogは後日取込・Mirror化・Instance再紐付けを禁止する。
+全ScopeがNONE / ANONYMOUSで一度もASSIGNEDになっていない場合、Physical Run / RUN_SCOPE / Assignment Snapshot / Measurement Envelope / RawLog / Artifact等は外部正本だけで保全し、DB Run / DB Session Mirror / DB Mirrorを作らない。DB正常利用可能時に初回ASSIGNEDとなったScopeのみDB Run / DB Session Mirrorを生成する。DB unavailable期間はIssue #201 Anonymous Modeであり、ASSIGNED状態であってもDB Run / DB Session Mirror / Measurement Mirrorを生成しない。当該期間のCaptureは外部正本に保全するが、復旧後のBootstrap / DB取込 / Mirror化を禁止する。DB unavailable前から存在するDB Run / DB Session Mirrorは削除せず、既存履歴として保持する。NONEの後日Associationは、DB正常利用可能時に既にDB管理Measurementとして登録済みのものに限り、Instance関連付け履歴として明示Operationで許可する。AssociationはSession membershipを変更せず、Assignment-at-Measurement=NONEを保持し、Actor / UTC時刻 / before-after / Reason / OperationIDを監査履歴に残す。Session生成前のNONE Measurementは後からSessionへ遡及所属させない。ANONYMOUS / DB unavailable期間のMeasurement / RawLogは後日取込・Mirror化・Instance再紐付けを禁止する。
 
 外部正本の欠落・Hash不一致・ID競合はQUARANTINED。DB Mirrorから外部正本を逆生成して事実を補完してはならない。DB Mirrorが欠落・破損した場合は外部正本から再生成する。
 
@@ -278,7 +278,7 @@ RestoreはReceiptを最初に最終判定しない。以下の二段階とする
 2. DB Markerが存在する場合はOperation ID / Ordinal / Intent Hash / Receipt IDを照合。
 3. Envelope / RawLog / Snapshot / Artifact等のPhase A検証結果を使ってReceiptの依存Hashを照合。
 4. ReceiptをVERIFIED / ABORTED / QUARANTINEDのいずれかへ確定する。証拠不足はQUARANTINED。
-5. DB Run / Session / Measurement Mirrorの生成条件を1章・6章に従って判定。
+5. DB Run / DB Session Mirror / Measurement Mirrorの生成条件を1章・6章に従って判定。
 6. 検証済み外部正本からDB Mirrorを再構築し、外部正本との一致を再検証。
 7. Aggregate Pointerを再構築。Current Validは最新RequestのInput Set Hashと一致する成功Revisionがある場合だけ設定。
 8. Integrity Checkを実施。成功後にのみ通常接続を許可。
