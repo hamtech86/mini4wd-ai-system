@@ -36,7 +36,7 @@
 - 一つのPhysical Run内で全ScopeがNONE / ANONYMOUSになっても、既に生成済みDB Run / Sessionを削除しない。
 - Sessionが存在することは現在ASSIGNEDであることを意味しない。
 - Assignmentの変更は既存Measurement / RawLog / Artifactの削除・書換えを行わない。
-- Session membershipはMeasurement Mirror初回登録時に同一Scope Sessionが存在する場合に固定し、後からSessionへ遡及所属させない。NONEの後日Associationは既存DB管理Measurementに対する明示操作に限定し、Instance関連付け履歴のみを作成する。Session membershipは変更しない。実行主体・時刻・変更前後・理由・OperationIDを監査履歴へ残し、Assignment-at-MeasurementはNONEのまま不変。
+- Session membershipはMeasurementを外部Run Manifestへ初回確定記録した時点で同一Scopeの論理Session identityが存在する場合に固定し、後からSessionへ遡及所属させない。DB Mirrorの有無はmembershipの事実を変えない。outage中Captureは外部membershipへ記録できるが、DB Session Mirror membershipへは追加・後日遡及追加しない。NONEの後日Associationは既存DB管理Measurementに対する明示操作に限定し、Instance関連付け履歴のみを作成する。Session membershipは変更しない。実行主体・時刻・変更前後・理由・OperationIDを監査履歴へ残し、Assignment-at-MeasurementはNONEのまま不変。
 - ANONYMOUSは現行設計範囲で後日DB取込・Mirror化・Instance再紐付けを禁止する。将来拡張には別設計と統括承認を要する。
 - Anonymous化・消去要求はAssignment遷移とは別の明示的プライバシー処理。通常のAssignment Operationで履歴を消去しない。
 
