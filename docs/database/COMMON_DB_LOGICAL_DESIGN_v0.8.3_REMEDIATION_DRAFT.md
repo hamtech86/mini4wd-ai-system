@@ -117,9 +117,9 @@ Journal Intent、Receipt Envelope、Receipt Event、Source Commit Record、DB Ma
 
 ### 3.2 Attempt / Retry / Result
 - Requestは不変。Attemptは試行ごとに新規作成。Attempt StatusはRUNNING / SUCCEEDED / FAILED / CANCELLED / INDETERMINATEとする。同一Request内で同時にRUNNINGとなるAttemptは最大1件。
-- Request StateはOPEN / SUCCEEDED / FAILED / CANCELLED / INDETERMINATE。RetryableはOPENの既定状態とし、Retry ClosedはAttempt終了後の明示Request Eventで記録する。Retry Closed EventはActor / UTC timestamp / Reason / PolicyVersionを必須とする。
+- Request StateはOPEN / SUCCEEDED / FAILED / CANCELLED / INDETERMINATE。RetryableはOPENの既定状態とし、Retry Closedは少なくとも1件の完了Attemptがあり、RUNNING Attemptがない場合のみ明示Request Eventで記録する。Request / Attempt / Request Eventは不変追記記録とし、Request StateはEventから導出する。Retry Closed EventはActor / UTC timestamp / Reason / PolicyVersionを必須とする。
 - Retry Closed後の新規Attemptは禁止。RequestがRetry Closedとなり、成功Attemptが一つもない場合だけFAILEDと確定する。成功Attemptが一つ存在した時点でRequestはSUCCEEDED終端となり、追加Attemptを禁止する。Attempt CANCELLEDはRequestを終端させず、明示Retry ClosedまたはRequest CancelledまでOPENを維持する。Attempt結果が証明不能なクラッシュはAttempt / RequestをINDETERMINATE終端とし、同じRequestの再試行を禁止する。再計算が必要なら新Requestを発行する。
-- Request Cancelledは認証済みOperatorの明示Eventでのみ成立し、RUNNING Attemptがない場合に限る。Result Revisionは成功Attemptのみが生成できる。Request内で成功Resultは最大1件（ResultOrdinal=1）。失敗 / CANCELLED / INDETERMINATE AttemptからResult Revisionを生成しない。
+- Request Cancelledは認証済みOperatorの明示Eventでのみ成立し、RUNNING Attemptがない場合に限る。Attempt StateはRUNNINGからSUCCEEDED / FAILED / CANCELLED / INDETERMINATEのいずれか一度だけ遷移し、終端後の更新を禁止する。Result Revisionは成功Attemptのみが生成できる。Request内で成功Resultは最大1件（ResultOrdinal=1）。失敗 / CANCELLED / INDETERMINATE AttemptからResult Revisionを生成しない。
 - 同じ計算条件で再要求した場合も新Request ID / RequestOrdinalを発行する。Fingerprintが同じでもRequest identityは別である。
 
 ### 3.3 PointerとCurrent Valid
