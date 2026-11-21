@@ -716,3 +716,36 @@ Evidence Ledger / Crosswalkの現行状態:
 - DB-RV-08: Measurement Envelope / Assignment Snapshot / Capture終端完全Schemaが未完了。
 
 本監査は現行文書間の差分を示す。Issue #209の正式な再審査・統括判断を代替せず、v0.8.3承認や実装移行を意味しない。
+
+
+## 31. Motor / Battery / Anonymous正式契約の一次Issue照合（2026-11-21）
+
+### 31.1 Motor — Issue #35（現行仕様唯一の正本）
+Issue #35本文は、担当側が過去Issue・過去コメント・旧仕様・旧Commitから未記載仕様を復元せず、未記載事項を未確定として司令塔へ戻す権限境界を明示する。またRawLog v1 / v2を別形式とし、v1の自動変換・推測変換を禁止、v2を新規測定の正規形式とする。A0 / A1の独立性、A2 / A3の参考値限定、受信RawLog原文保持も明記する。
+
+DB側の適用:
+- RawLog v1の列・意味を新DB schemaへ推測転記しない。
+- RawLog v2の完全Field Schema・保存表現・必須/任意属性はIssue #35 / Issue #170の正式決定を受領するまで補完しない。
+- 受信原文とDerived / 推定値を分離し、DB側でraw dataを補正・再構成しない。
+- Issue #35に明記されないRawLog durability / retention / loss toleranceを、DB部門の一般的な設計慣行で確定しない。
+- Motorの制御・センサー・Capture終端条件をDB部門で変更しない。
+
+### 31.2 Battery — Issue #16（E2E検証タスク）
+Issue #16が明示するのは、Battery 5A DATAの取り込み、CH1 / CH2独立Session、Measurement保存、Feature Extraction、Benchmark Result保存、mAh / Wh / 電圧降下の妥当性、Measurement不変性のE2E検証である。境界としてArduino FW変更なし、内部抵抗算出なし、評価スコア基準確定なし、STARTALLのCH1 / CH2合算なしを定める。
+
+Issue #16は完全なBattery DB / RawLog Data Contractではない。したがって以下は未受領として扱う。
+- Battery Model / Instance / Profileの完全属性とIdentity。
+- CH1 / CH2 Scope / Measurement / Session / Benchmarkの完全CardinalityとLifecycle。
+- RawLog v2 / Sample Locator / Channel metadata / Capture終端Schema。
+- Benchmark Feature / Resultの完全Schema・Algorithm / Configuration provenance。
+- Battery独自のdurability / retention / loss tolerance。
+
+CH1 / CH2独立性は現行要件として保持し、平均化・合算を導入しない。ただしDB部門はBattery実装を変更せず、未受領仕様を推測で補わない。
+
+### 31.3 Anonymous — Issue #201とIssue #210 CC-02
+Issue #201はDB不存在時のMainUI起動と匿名運用の境界を定め、DB file / schema / empty DB / migration / initialization / test data / legacy data migrationを禁止する。Issue #210 CC-02はANONYMOUS期間のMeasurement / RawLogを現行設計範囲で後日DB取込・Mirror化・Instance再紐付けしないことを明示した。NONEは既存DB管理Measurementに限る明示Associationを設計対象として許容する。
+
+よってDB設計上、Anonymous RawLogの後日取込経路を追加しない。NONE AssociationのSession membershipはIssue #210が決定していないため、統括判断待ちのまま残す。
+
+### 31.4 判定
+Motor / Batteryの不足契約はDB部門の裁量で補完しない。Issue #35 / #16 / #201 / #210の範囲を維持し、正式契約の受領・統括判断後にのみ関連DB条項を同期する。
