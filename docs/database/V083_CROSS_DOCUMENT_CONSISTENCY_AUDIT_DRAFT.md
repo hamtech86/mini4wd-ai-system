@@ -620,3 +620,99 @@ Main §2.1はPhysical Run単位の排他ロックを要求するが、Lock Owner
 
 ### 29.5 判定
 Writer / Ordinal / Recovery / Event Type / Shared DBのAuthorityを分離して定義する必要がある。単一WriterとRecovery Operationの存在だけではAuthority設計は完了しない。DB-RV-03 OPENを維持する。
+
+
+## 30. DB-RV-01 / 02 / 04 / 05 / 06 / 07 / 08 横断整合監査（2026-11-21）
+
+本節はMain v0.8.3、Entity Inventory、State Transition Matrix、Canonical Binary Name Audit、DB Evidence Ledger、V082 Crosswalkを照合した差分記録である。Main本文の修正・統括判断・実装許可ではない。
+
+### 30.1 DB-RV-01 / 02 / 08 — Run / Scope / Session / Assignment / Measurement
+
+**一致を確認した骨格**
+- Physical Run IDとDB Run IDを分離し、DB RunはPhysical Runにつき最大1件。
+- RUN_SCOPEはPhysical Run初期化時にScope単位で存在する。
+- SessionはScopeの初回確定ASSIGNEDで一度だけ生成し、以後Assignment変更で削除・再採番しない。
+- Assignment-at-MeasurementはMeasurement開始時のSnapshotを保持し、Current Assignmentで過去測定の帰属を変更しない。
+- ANONYMOUS期間のMeasurement / RawLogは後日DB取込・Mirror化・Instance再紐付けを禁止。NONEは既存DB管理Measurementに限る明示Association候補。
+
+**未解決・同期不足**
+1. NONEの既存DB管理Measurementを明示Associationする場合、既存Session membershipをどう扱うか未定義。Session生成前のNONE Measurementと、既存Session生成後のNONE Measurementを分ける必要がある。
+2. Main §1.2(6)のSession membership定義は「Session生成後にDB登録されたMeasurement集合」と記述する一方、NONE Associationは測定時Assignment=NONEを維持して許容される。membershipへ追加するのか、監査関連だけを持たせるのか決まっていない。
+3. SessionのCanonical SchemaはPhysicalRunID + ScopeKeyであり、Session独立IDを持つか、別途決定的IDを発行するか未確定。
+4. Assignment SnapshotのIdentity（独立UUID / Scope + Revision / Content Hash）とRevision開始値・欠番・前Revision Hash・Actor / Time / Reasonが未確定。
+5. Measurement Envelopeの全属性・型・NULL・Capture終端・StatusとIntegrityの分離、Profile Snapshotの完全属性が未確定。
+6. PHYSICAL_RUN_CLOSEDのClose Actor / UI / Operation / Capture終端・取消不可条件、全ScopeのClose順序は正式機器契約と照合が必要。
+
+**判定:** 基本ライフサイクルは一貫するが、NONE AssociationとSession membership、Snapshot / Measurement完全Schemaが閉じていない。DB-RV-01 / 02 / 08は全体PASSにできない。
+
+### 30.2 DB-RV-04 — Aggregate Request / Attempt / Result / Pointer
+
+Main §3.2 / §3.3とState Matrix §5を照合した。
+
+| 論点 | Main | State Matrix / 補助案 | 差分 |
+|---|---|---|---|
+| Current Valid | Latest Requested RequestのInput Set Hash一致 | Request Fingerprint全体一致を要求 | MainはAssignment Snapshot Set Hash / Algorithm / Configuration / Policy等の一致条件を明示していない |
+| 遅延旧Request成功 | 最新要求・入力とのInput Set Hash一致時のみPointer更新 | Latest Requested Request IDとFingerprint一致が必要 | 同一Input Hashで異なるRequest / Algorithm / Assignmentの誤昇格を防ぐ境界がMainに不足 |
+| Latest Successful順序 | 「最も新しい成功Result Revision」 | Request Ordinal優先、Attempt Ordinal等の明示順序 | 完了時刻・Request順・Attempt順の優先関係をMainで確定していない |
+| FAILED | 全Attempt失敗・再試行終了 | Retryable / Retry Closedの明示状態/Eventが必要 | 「再試行終了」を誰がどの証拠で閉じるかMainで未定義 |
+| Pointer再構築 | DB Mirrorの派生Pointer | Request / Attempt / Result履歴から再構築 | stale pointer・同時更新・遅延成功の復旧境界が未完了 |
+
+**判定:** Request / Attempt / Resultの分離は一致するが、Current Validの判定基準とRetry終端・Pointer順序は同期が必要。State Matrixの候補をMainの規範とみなさない。
+
+### 30.3 DB-RV-05 — Artifact Input DAG
+
+Main §4の不変性・循環禁止・Input Set Hash順序は示されている。一方、Entity Inventory §6 / §8では次が未定義。
+- Analysis Artifact / Simulation Artifactが共通Entityか別Entityか。
+- Artifact IDとResult Payload Content Hashの区別・発行Authority。
+- Artifact InputのInputType許容集合、全Polymorphic Reference対象Entity、Role / Ordinal domain、NULL / uniqueness。
+- Source Revision / Input Hash / Requiredの完全Field schemaとCanonicalization。
+- ArtifactのStatusとIntegrity、失敗・隔離・SupersededのLifecycle。
+- Input Entityの削除禁止とRetention / Restore境界。
+
+**判定:** DAG非循環・入力Hash一致・再解析時新Artifactという骨格はあるが、Entity完全Schemaと多態参照が未完成。DB-RV-05は全体PASSにできない。
+
+### 30.4 DB-RV-06 — Canonical Binary Name v2
+
+現行資料で確認できる範囲:
+- Main §5.3: 11 Schema rows。
+- Entity Inventory: 23 Logical Entity。直接対応Schema 10種、未定義13種。OPERATION_EVENTはInventoryへの対応自体が未確定。TEST_VALUEは汎用vector用でInventory外。
+- Canonical Audit: §5.3の11 Entity正常Name byte vectorを用意。独立計算の初期7 vector一致、Expected Hex 29件の構造解析29/29通過。
+- ただし全Field境界 / NULL / empty / domain / overflow / invalid-input vector、Unicode data version、Version更新規則、Entity uniqueness、Namespace全履歴調査、UUIDv5 RFC vector、独立2実装照合は未完了。
+
+**判定:** byte grammarの一部・既存vectorの構造は確認済みだが、Entity全体のIdentity分類・完全Schema・実装相互検証・Namespace承認は未完了。DB-RV-06は未承認。
+
+### 30.5 DB-RV-07 — External Source / DB Mirror / Restore
+
+Main §6 / §9とEntity Inventory / Restore補助案の間で、外部正本からMirror再生成可能という基本方針は一致する。ただし、以下はEntityごとの完全性証拠が不足。
+- RawLog ObjectとRawLog Referenceのidentity・Hash対象・所有権・Retention。
+- Manifest / Snapshot / Assignment History / Receipt / Event / Artifact / Aggregate各外部正本の完全な列挙・依存閉包。
+- Restore Phase A / Bの各検査結果とReceipt state確定のauthority。
+- DB Mirrorの欠落・破損時に再生成可能なEntity / 再生成禁止Entity / 参照のみEntityの完全分類。
+- RawLog durabilityはIssue #35の欠損許容契約と種別ごとに照合が必要。全RawLogへ同じfsync保証を適用する前提は未承認。
+
+**判定:** External Source優先・DB Mirror再生成の方向は一貫するが、全Entity単位のAuthority / Restore条件・RawLog耐久性は未完成。
+
+### 30.6 DB-001〜124 / V082 Crosswalk
+
+Evidence Ledger / Crosswalkの現行状態:
+- DB-001〜056: 会話記録由来の短縮定義を回収。原本文書・正式承認・番号付きテスト実物は未照合。
+- DB-057〜078: 追加範囲の履歴のみ確認。個別本文未回収。
+- DB-079〜109: 維持・保全指示の範囲履歴のみ。個別試験実物未確認。
+- DB-110〜124: 追加指示の範囲履歴のみ。個別本文・試験実物未回収。
+- DB-125〜154: 正式体系対象外として撤回。DB-155〜176: 提案番号撤回、再利用禁止。
+- V082-001〜053: 53件すべてDB-001〜124との確定対応 / 部分対応 / 重複は0件。未対応付け53件。未カバー確定も0件（証拠不足で判定不能）。
+- DB-032のANONYMOUS後日関連付け期待はCC-02と競合する旧記録として現行範囲から隔離。
+- DB-007「NONE Session」は初期NONEのSession新規生成を意味するか、既存SessionのNONE状態を指すか未確定。V082-023と統合しない。
+
+**運用処理:** 原文未回収IDは削除・推測補完せず、参照専用・実行不可として凍結する。これは不存在・未作成の断定ではない。新しい一次資料が得られた場合のみ再評価する。
+
+### 30.7 横断判定
+- DB-RV-01 / 02 / 08: Session membership・完全属性・Close証拠が未完了。
+- DB-RV-03: Manifest履歴・Writer / Ordinal / Recovery Authority・Hash / ID依存が未完了。
+- DB-RV-04: Current Valid / Latest Successful / Retry終端がMainと補助案で未同期。
+- DB-RV-05: Artifact Type / Input polymorphism / identity・lifecycleが未完了。
+- DB-RV-06: 23 Entity全体のCanonical identity coverage未完了。
+- DB-RV-07: 全EntityのSource / Mirror / Restore / durability境界が未完了。
+- DB-RV-08: Measurement Envelope / Assignment Snapshot / Capture終端完全Schemaが未完了。
+
+本監査は現行文書間の差分を示す。Issue #209の正式な再審査・統括判断を代替せず、v0.8.3承認や実装移行を意味しない。
