@@ -552,3 +552,24 @@ Operation Ordinalは欠番許容・再利用禁止、Receipt Event Ordinalは連
 
 ### 26.4 判定
 Main §2.2のState名・大枠はReceipt Contractと一致するが、各Stateを成立させる証拠境界の明示度が異なる。Main本文へ状態名だけを転記しても受入条件は閉じない。§2.1 Hash / Event定義、§2.2 State定義、§2.3 Crash Recoveryを一括同期する必要がある。DB-RV-03 OPENを維持する。
+
+
+## 27. Receipt Event初回表現・Ordinal・partial tailの追加照合（2026-11-21）
+
+### 27.1 確認事項
+Receipt Contract §3.2は初回Event以外にPrevious Event Hashを要求するが、初回Eventの表現（Field省略 / NULL / 空値 / Genesis Hash）とEvent Ordinal開始値を定義していない。またEvent Ordinal gapを検証失敗とする一方、Event append中のクラッシュ・部分Tail・append結果不明時のOrdinal消費点が規定されていない。
+
+### 27.2 重要な区別
+- Operation Ordinal: 欠番許容・再利用禁止。
+- Receipt Event Ordinal: gapは検証失敗、連続必須。
+- Operation OrdinalのUNUSED / CONSUMED / INDETERMINATE_QUARANTINED案をEvent Ordinalへそのまま転用しない。Event Chainでは部分Tailがある時点で後続Eventの連続性を検証できないため、同一Chainの追記を停止する必要がある。
+
+### 27.3 補助契約・Matrixへの追加候補
+- 初回Previous Event Hashの符号化、初回Ordinal、初回Event Typeを明示定義する。
+- Event append未開始を証明できる場合のみ次Ordinalのappendを開始する。
+- 完全Eventが読み戻せHash Chainを検証できる場合は既存Eventとして受理し、重複追記しない。
+- append結果不明・部分Tail・Hash不一致・Writer競合はReceipt Event Chainを隔離し、後続Event・Ordinal飛越し・黙示Tail切捨てを禁止する。
+- Event Chainの単一有効Writer、Event Type別発行Authority、Recovery Operationの追記権限を定義する。
+
+### 27.4 判定
+これはSchema / Authorityの欠落であり、特定実装で部分Eventが必ず発生するという不具合断定ではない。fsync / atomic append / Tail修復は物理設計で別途検証する。Main §2.1〜§2.3未変更、DB-RV-03 OPEN、v0.8.3未承認を維持する。
