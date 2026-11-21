@@ -354,4 +354,6 @@ Main §14を追加し、UUIDv4 / M4W-JCS-1、Run/Session/Assignment、NONE/ANONY
 
 特にUUIDv5 / Canonical Binary Name v2、Receipt ID deterministic derivation、Expected Receipt Hash、Expected DB Marker Hashをv0.8.3から除外した。未知のField / Schema / Device contractはopaque保全のみとし、意味解析・Aggregate入力を禁止する。
 
+**Recovery Authority:** Bootstrap登録済みPROJECT_RECOVERY_ADMINのみ。v0.8.3では元証拠不変・QUARANTINED解除禁止。
+
 **残存Gate:** Motor/Battery正式契約の回収、Run Manager Close契約、対象OS/filesystem durability実証、SQLite transaction / crash recovery実証、論理受入試験実行、統括最終審査。これらを設計未決定と呼ばず、未実証 / 未承認として明示する。
