@@ -132,3 +132,30 @@ DB-001〜056は過去会話記録から個別の短縮定義・期待結果を�
 - DB-017 / DB-046: Analysis再実行時の過去結果保持が重なる。Algorithm Version / 入力条件の違いを含む可能性があり、重複確定しない。
 
 この候補表は調査優先順位を示すだけで、正式な対応・部分・重複判定ではない。原文取得後に更新する。
+
+
+## DB-001〜056追加候補のスクリーニング（2026-11-21・未確定）
+
+§4で再回収した短縮定義をV082-001〜053の試験要約と再照合し、既存の候補表にない近似候補を追加する。以下は調査対象を見落とさないための候補であり、対応・部分対応・重複を確定するものではない。
+
+| DB ID | V082候補 | 近似点 | 同一性を確定できない差異 / 注意 |
+|---|---|---|---|
+| DB-007 | V082-023 | NONE状態とDB Session不生成に関係 | DB-007は「NONE Session成功」。V082-023は全Scope NONEでDB Run/Sessionなし。期待結果が反対となる可能性があり、旧要件の意味確認が必要 |
+| DB-011 | V082-022 / V082-033 | CH1/CH2のAssignment状態混在とAnonymous Scope | DB-011はCH1 Anonymous / CH2 Instance。V082-022は全Scope Anonymous、V082-033はASSIGNED→ANONYMOUS→ASSIGNEDの履歴遷移。Channel組合せと遷移試験で異なる |
+| DB-032 | V082-025 / V082-033 | ANONYMOUSからASSIGNEDへの遷移 | DB-032は旧記録上、AnonymousからInstance割当・新Run/Session生成・RawLog関連付けを期待。V082-025もAnonymous→ASSIGNEDでDB Run/Session生成を期待する旧案だが、Issue #210 CC-02でANONYMOUS後日取込・再紐付けは禁止。V082-025の該当期待値も現行規範として採用不可。単なる対応試験ではなく、旧仕様競合として追跡 |
+| DB-038 | V082-019 | Profile欠落時のModel有効化 / Model Profile欠落 | DB-038は有効化操作の拒否、V082-019はProfile状態MISSING。操作・期待結果・対象Entityが異なる可能性 |
+| DB-045 | V082-043 | Analysis Artifactを複数保持する | DB-045は別Algorithm Version解析を複数保存、V082-043は同一入力/Algorithm再解析で新Artifact IDを作る。Algorithm Versionが異なる条件と同一条件の再実行で異なる |
+| DB-047 | V082-044 | Analysis入力の欠落検証 | DB-047は入力RawLog参照欠落、V082-044はArtifact Input欠落またはHash不一致。RawLog存在性とArtifact DAG参照検証の差がある |
+| DB-033 | V082-036 / V082-051 / V082-053 | 処理中断・途中失敗時の不完全更新を防ぐ | DB-033は一般的な再紐付け途中エラー時の全体ROLLBACK。V082はReceipt / Source Commitの特定Crash PointとOrdinal・Operation状態を検査するため、同一条件ではない |
+| DB-026 | V082-013 | 複数の参照対象を保持する | DB-026は同一Sessionに複数RawLogを許す、V082-013はArtifactの複数Measurement入力Hash保持。親Entityと参照の意味が異なる |
+| DB-055 | V082-030 / V082-049 / V082-050 | Backup / Restore / 再構築後の整合性 | DB-055はBackupからの復元。V082-030はDB消失後の外部正本再構築、V082-049はReceipt/RawLog検証順序、V082-050はAnonymous/NONE外部正本のみのRestore。復旧経路・検証対象が異なる |
+| DB-053 / DB-054 | V082-018 / V082-028 / V082-029 | Integrity / Hash / FK等の整合性検査 | DB-053/054はSQLite integrity_check / foreign_key_checkの実行結果、V082はSnapshot / RawLog / ReceiptのHash不一致時隔離。検査対象と結果が異なる |
+| DB-014 / DB-027 / DB-028 | V082-028 | RawLogの不変性・Hash・参照保持 | DB-014は本文変更検出、DB-027はRawLog ID変更拒否、DB-028は原本Path変更制限。V082-028はHash不一致時QUARANTINED。検出・拒否・隔離の期待結果が異なる |
+| DB-009 / DB-010 / DB-040 / DB-041 / DB-050 | V082-012 | Battery CH / Channel境界 | DB-009はCH1/CH2登録、DB-010はRun/CH重複、DB-040/041はMotor/Battery Channel NULL・指定制約、DB-050はRawLog/Session Channel一致。V082-012は同一InstanceのCH1/CH2同時割当拒否。対象制約が異なる |
+
+### 追加スクリーニングの結論
+- 上記候補を含めても、DB↔V082の確定対応・部分対応・重複は **0件** のまま。
+- DB-032 / V082-025はCC-02と競合する旧期待値として、現行仕様から明確に隔離する。
+- DB-007 / V082-023も、NONE Session成功とNONE時Session不生成が反対の期待結果になり得るため、旧DB-007の正確な前提条件を確認するまで統合しない。
+- DB-038 / V082-019、DB-045 / V082-043、DB-047 / V082-044等は概念的近似に留まり、テスト同一性の根拠ではない。
+- V082-001〜053の旧説明・CC-01/CC-02 overlayは変更していない。新規候補は試験PASS・現行承認・実装対応を意味しない。
