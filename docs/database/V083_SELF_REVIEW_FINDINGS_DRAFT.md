@@ -362,3 +362,34 @@ Main §14を追加し、UUIDv4 / M4W-JCS-1、Run/Session/Assignment、NONE/ANONY
 Battery Issue #16に基づき、5A DATA原本byte・共通Measurement Envelope・CH1 / CH2独立保存は許可。未知RawLog Payloadはopaque保全のみとし、Feature Extraction / Benchmark再計算 / mAh・Wh・電圧降下の妥当性判定は正式契約受領まで禁止。
 ### SR-22 補足 — Aggregate Attemptの終端
 Request StateとAttempt StateをMain §3.2で固定。Retry ClosedはFAILED Attemptあり・RUNNINGなしの場合のみ。Attempt CANCELLEDとRequest Cancelledを分離。結果不明crashはWorker fencing proof前にAggregate OwnerをQUARANTINEDとし、更新を停止。
+
+## 36. Supersession Register — 旧OPEN / TBD記述の最終処置（2026-11-21）
+
+**規範優先順位:** COMMON_DB_LOGICAL_DESIGN_v0.8.3_REMEDIATION_DRAFT.md §14（DB-RV-04は§3、DB-RV-05は§4、DB-RV-06は§5、RawLog durabilityの論理条件は§8）が現行Decision Authority。本書の§1〜§34にあるOPEN / TBD / candidate / decision pendingは調査時点の履歴であり、現行設計判断としては適用しない。矛盾時はMainの該当条項を優先する。
+
+| 論点 / DB-RV | 最終状態 | 決定根拠 | 残るもの（設計未決定ではない） |
+|---|---|---|---|
+| DB-RV-01 Entity / identity | 決定済み | Main §§5.1, 5.3, 14.3 | 23概念の完全SQL列定義は本論理版対象外。契約未受領Payloadはopaque |
+| DB-RV-02 Run / Session / Assignment / NONE | 決定済み | Main §14.1–14.3 | Run Manager / Session Managerの実装・権限試験 |
+| DB-RV-03 Journal / Receipt / Recovery | 決定済み | Main §14.4、Receipt Contract §22 | filesystem append/fsync、Epoch fencing、SQLite crash/recoveryの実証 |
+| DB-RV-04 Aggregate | 決定済み | Main §§3.1–3.3, 14.5 | Aggregate Manager/Worker実装と競合・crash受入試験 |
+| DB-RV-05 Artifact DAG | 決定済み | Main §§4, 14.3, 14.5 | Kind別Payload契約受領と検証器試験。未知Kindはopaque / reject |
+| DB-RV-06 ID / Hash / Canonicalization | 決定済み | Main §§5.1–5.3, 14.3 | UUIDv4 / JCS conformance試験。UUIDv5 / CBN v2は不採用 |
+| DB-RV-07 RawLog / Restore | 論理境界決定済み | Main §§8, 14.6–14.8 | 機器別RawLog契約、OS/filesystem durability、Restore実証 |
+| DB-RV-08 Cross-evidence / durability | fail-closed決定済み | Main §§8–9, 14.4, 14.7–14.8 | 対象環境でのSQLite / filesystem / crash試験 |
+
+### 36.1 過去の未決定記述の置換規則
+1. NONE Session membershipのA/B/C案は不採用。Main §14.1(4)–(7)のScope単位・Session存在条件・DB availability・ANONYMOUS禁止境界を採用。
+2. UUIDv5 / Canonical Binary Name v2 / Namespace案は不採用。UUIDv4とM4W-JCS-1を採用。
+3. Receipt ID deterministic derivation / Expected Receipt Hash / Expected DB Marker Hashは不採用。Main §14.4およびReceipt Contract §22の順序を採用。
+4. Writer / Recovery / Event Type AuthorityはMain §14.4のAuthority Registry / EventType別発行権限に固定。物理fencing方式は指定せず、証明不能な実装を受入不可とする。
+5. Aggregate Fingerprint / Retry / Result / PointerはMain §§3.1–3.3および§14.5に固定。旧選択肢は採用しない。
+6. Artifact InputType / Link Role / Ordinal / RequiredはMain §14.5に固定。発行元ContractにないRoleや未知InputTypeは拒否。
+7. RawLog完全Field Schema、機器固有Capture終端、Retention / loss toleranceはDB部門が創作しない。v0.8.3ではopaque保存とfail-closedのみを許可し、正式契約受領後の改訂事項とする。
+8. 未回収DB-001〜124 / V082番号はREFERENCE_ONLY_NOT_EXECUTABLE。推測MappingはNO_MAPPING。存在しないと断定せず、根拠が届いた場合だけ再審査。
+
+### 36.2 完了判定の分離
+- **設計選択:** 本表によりOPEN / TBDを閉じた。
+- **契約証拠:** Motor / Battery / Run Managerからの正式Schema・Lifecycle・Capture終端・Close authorityは未受領のものがある。未受領項目は本版の適用対象外またはopaque/fail-closedであり、他部門仕様を推測しない。
+- **実証:** UUID/JCS、filesystem、SQLite、crash recovery、Restore、Concurrencyの受入試験は未実施。
+- **承認:** v0.8.3はDraft。統括最終承認・実装許可・DDL/DB生成/Migration/Restore実行/PR/main反映を意味しない。
