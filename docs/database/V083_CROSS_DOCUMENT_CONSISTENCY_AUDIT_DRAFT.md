@@ -834,3 +834,6 @@ Main §14をDecision Authorityとして、従来のOPEN / TBD / candidateを以�
 - ANONYMOUS期間のMeasurement / RawLogは、DB unavailableとは別のCC-02禁止境界であり、後日取込・Mirror化・再紐付け禁止。
 - DB利用可能かつ当該Scope Session存在中に取得されたNONE Measurementのみ、既存DB管理Measurementとして明示Association対象になり得る。
 - PHYSICAL_RUN_CLOSEDのActorIDは認証済みOperator principal。UI画面・ボタン名はAuthorityではなく、Client/UI versionは任意監査Metadata。
+
+### 35.2 Battery Issue #16の限定的な保存許可
+Battery Issue #16に列挙された5A DATAの取込み、共通Measurement Envelope、CH1 / CH2独立Session / Measurementの保存は対象に含める。RawLog Schemaが未回収のPayloadは原本byteとHashを保全するopaque保存に限定する。Feature Extraction / Benchmark Resultの再計算、mAh / Wh / voltage dropの数値妥当性判定、スコア、内部抵抗、CH1 / CH2合算は、単位・式・Capture End・RawLog Schemaの正式契約が揃うまで実施しない。
