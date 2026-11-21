@@ -515,3 +515,38 @@ Receipt IDはOperation IDから決定的導出すると記載されるが、導�
 
 ### 17.6 結論
 現行仕様のHash DAGは未完成。特にExpected Receipt HashとExpected DB Marker Hashは生成順に矛盾・未証明依存がある。§17.3〜§17.4は非循環化の候補であり、規範決定ではない。DB-RV-03 OPENを維持し、統括判断前にMain本文を改訂しない。
+
+
+## 18. Operation Ordinalの部分Intent・消費境界監査（2026-11-21）
+
+### 18.1 現行規則
+- Main §2.1 step 1: Journalと直近Ordinalを検証。
+- Main §2.1 step 2: Operation ID / Ordinal / Intent Payload / Intent Hashを確定。
+- Main §2.1 step 3: Journal Intentを追記・永続化し、Intent永続化完了時にOrdinalを消費済みとする。
+- Main §2.3: Intent前はOrdinal未消費。Hash / ID / Ordinal競合はQUARANTINED、欠番許容・再利用禁止。
+- Receipt Contract §2 / §6: Intentの部分書込み・不正Journal・Hash不一致・Ordinal競合はQUARANTINED、Ordinal再利用なし。
+
+### 18.2 不足している境界
+Mainの「永続化完了時に消費」と、補助契約の「部分Intentでも再利用しない」の間に、書込み結果が不明なケースのOrdinal状態が明示されていない。
+
+- Intent append前に失敗: Main上は未消費。
+- Intent完全永続化が検証可能: 消費済み。
+- Intent書込み途中で停止し、完全Intentか部分Tailか確定できない: 消費完了を証明できないが、Ordinal再利用も禁止され、Physical Runを隔離する。
+- IntentのHash不一致・同一Ordinal競合: 再利用せず隔離。
+
+この第三ケースは「未消費」と「消費済み」の二値では表現できない。Ordinalの状態は少なくとも UNUSED / CONSUMED / INDETERMINATE_QUARANTINED を区別する必要がある候補を示す。ただしこれは論理状態案であり、永続化方法・新Ordinal発行再開条件は未決定。
+
+### 18.3 必要な同期規則案
+1. Intent append開始前の失敗は、Intentが一切存在しないことを検証できた場合のみOrdinal未消費とする。
+2. 完全IntentがHash一致で検証できる場合はOrdinal消費済み。
+3. append結果が不明、部分Tail、Hash不一致、競合の場合はOrdinalを再利用せずPhysical RunをQUARANTINEDにする。
+4. QUARANTINEDのPhysical Runに対し、単純に次Ordinalを推測して新Operationを発行しない。Recovery Operationの発行権限・Ordinal Authority・再開条件は別途定義する。
+5. Operation Ordinalの欠番許容は維持する。Receipt Event Ordinalの連続必須規則と混同しない。
+
+### 18.4 未決定事項
+- Ordinalの発行authority（Physical Run Journal単位か、別の連番Authorityか）。
+- append開始・予約・消費を区別する永続証拠。
+- INDETERMINATE_QUARANTINEDからRecovery Operationを発行する条件と新Ordinalの取得元。
+- 同時Writer / stale lock / fencingを論理要件と物理方式に分離する境界。
+
+**結論:** 部分Intent時のOrdinalは未消費とも消費済みとも断定しない。再利用禁止・Physical Run隔離を維持し、Authority / Recovery条件が閉じるまで追加Operationを発行しない。DB-RV-03 OPEN。
