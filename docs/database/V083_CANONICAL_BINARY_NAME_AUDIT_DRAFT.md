@@ -303,3 +303,50 @@ The fixed sample inputs for all 11 §5.3 Schema rows were independently re-encod
 The recalculation confirms the byte strings for the documented sample inputs. It does not validate the appropriateness or completeness of each Entity Field Schema, field-domain restrictions, UUIDv5 output, Namespace, uniqueness, or full Entity Inventory coverage.
 
 The Inventory coverage matrix is now in `V083_ENTITY_INVENTORY_GAP_REGISTER_DRAFT.md` §6. It identifies 10 direct mappings, 13 Inventory entities without a defined Schema, and one `OPERATION_EVENT` Schema whose Inventory mapping remains unresolved. This reconciles the apparent difference between 11 schema rows and 23 logical entities without inventing UUIDv5 identities.
+
+## 16. CBN-02〜04 closure proposal — version freeze and strict field handling (DRAFT ONLY)
+
+The following is a proposed acceptance contract to close the current blockers. It is not yet normative and must be reviewed before it is copied into the main logical design.
+
+### 16.1 Canonicalization Version freeze
+
+A Canonicalization Version MUST freeze all byte-affecting behavior:
+- Header bytes and version identifier encoding.
+- Entity Type registry, spelling, and case rules.
+- Field count, fixed field order, field names, field type tags, and payload encoding.
+- NULL allowance per field.
+- String encoding and Unicode normalization algorithm/data version.
+- Integer domain/decimal encoding and timestamp epoch/precision/range.
+- UUID byte order and accepted UUID variant/version policy.
+- Maximum lengths/counts and overflow/rejection behavior.
+
+Any change to a frozen item that can change a Name byte sequence, accepted identity domain, or interpretation of an existing identity requires a new Canonicalization Version. A version MUST NOT be silently redefined in place. An implementation MUST reject unknown versions and unknown Entity Type / Field Schema rather than guessing.
+
+A schema-only extension that adds a field, changes field order/type, changes normalization data version, or changes a previously accepted value's canonical representation is a new version. Existing IDs are never silently regenerated; compatibility or migration requires separate approval and evidence.
+
+### 16.2 Proposed strict input rules
+
+| Type | Proposed acceptance / rejection |
+|---|---|
+| UTF-8 string | Strict Unicode scalar input and strict UTF-8 encoding. Reject malformed UTF-8, overlong encodings, surrogate code points, and values above U+10FFFF. Never replace invalid input with U+FFFD. |
+| BOM | Do not strip a leading U+FEFF as an encoding signature. Treat it as a scalar value subject to the field's domain rule. |
+| NFC | Normalize with one pinned Unicode data version. Record the exact version in the Canonicalization profile. Reject code points unassigned in that pinned version unless a future version explicitly defines another rule. |
+| ASCII string | Reject every non-ASCII scalar. Field-specific grammar (allowed characters, case, length) remains separately defined. |
+| Integer | Accept an integer value only (not bool, float, or permissively parsed text). Encode canonical decimal ASCII: `0`, positive digits without leading zero, negative sign plus nonzero magnitude. Reject `+`, leading zero, and `-0`. Numeric min/max is field-specific and remains to be declared. |
+| Timestamp | Accept timezone-aware input only; convert to UTC Unix epoch nanoseconds exactly. Reject naive timestamps, float-based lossy conversion, sub-nanosecond precision, and signed-64-bit overflow. Leap-second handling must be explicitly fixed before approval. |
+| Boolean | Exactly one payload byte: `00` or `01`; reject all other lengths/values. |
+| Byte String | Preserve bytes exactly; empty is valid and distinct from NULL. Reject payloads above the u32 length limit before allocation/encoding. |
+| NULL | Only accepted on fields explicitly marked nullable in the Entity Schema; encode only as tag `00` / length 0. |
+| Lengths / counts | Entity Type length and Field Count must fit u16; Payload Length must fit u32. Reject overflow before serialization; never truncate or wrap. |
+
+### 16.3 Remaining decisions before adoption
+
+- Pin the Unicode data version and publish test vectors for newly assigned / unassigned / normalization-sensitive code points.
+- Set exact per-Field integer ranges, string grammars, nullability, and maximum payload lengths.
+- Define Timestamp leap-second behavior and exact supported input representation.
+- Confirm the Entity Type registry and complete Inventory-to-Schema mapping.
+- Define Entity-level uniqueness separately from byte-level collision distinction.
+- Obtain Namespace full-history clearance and explicit central approval.
+- Verify RFC UUIDv5 known-answer vectors and two independent implementations after Namespace approval.
+
+**Status:** candidate remediation text only. CBN-02 / CBN-03 / CBN-04 remain OPEN until central review and all Entity domain schemas are complete.
