@@ -63,49 +63,48 @@ ANONYMOUSは「その期間の測定をInstanceに帰属させない」状態で
 
 ## 2. DB-RV-03 — Operation / Journal / Receiptの厳密な順序
 
-### 2.1 正規順序
+### 2.1 正規順序（Main §14.4準拠）
+1. Run Manager Authority RegistryからPhysical Run単位のWriter Grant / Epochを取得し、Manifest Commit ChainとJournal Tailを検証する。Epochの一意性・旧Epoch fencingを証明できなければ更新を開始しない。
+2. Operation ID / Receipt IDをUUIDv4で発行し、Operation Ordinal、Plan Payload、Plan Hash、Expected Source Payload Hashes、Writer Epochを確定する。Receipt IDはIntentに先行固定する。
+3. Journal Intentを追記し、file fsync相当とread-back Hash一致を確認する。この時点でOperation Ordinalを消費済みとする。部分書込み・結果不明はRunをQUARANTINEDとし、Ordinalを再利用しない。
+4. Intentから再構成可能なReceipt Envelopeを作成し、M4W-JCS-1 / SHA-256でEnvelope Hashを算出する。Envelope本体と親Directoryを永続化し、read-back一致を確認する。
+5. Receipt Event PREPAREDをEventOrdinal=1 / PreviousEventHash=NULLで追記し、永続化する。
+6. 変更対象の外部正本Revisionと不変Source Commit Recordを追記する。Commit RecordはOperationID / ExpectedPredecessorHash / PayloadHash / CommitHashを持ち、単一Hash Chainを形成する。HeadはChainから導出し、mutable Head Pointer単独をCommit証拠にしない。
+7. Source Commit Recordと全依存正本を読み戻して検証し、SOURCE_COMMITTED Eventを追記する。
+8. DB transaction内で対象DB MirrorとDB Operation Markerを同時Commitする。MarkerはOperationID / Ordinal / IntentHash / ReceiptID / SourceCommitHash / MirrorChangeHashを保持し、Marker Payload HashはSource Commit後に実Payloadから算出する。Expected DB Marker Hashを事前に固定しない。
+9. Commit結果を読み戻し、Marker / Mirror / Intent / Receipt / Source CommitのID・Hashを照合する。Commit結果不明で完全な読戻し証拠を得られなければQUARANTINED。
+10. Receipt Event DB_COMMITTEDを追記・永続化する。
+11. Journal / Marker / Receipt / 全依存外部正本を再検証する。
+12. 全検証成功後にReceipt Event VERIFIEDを追記・永続化する。
+13. すべての永続化・照合が成功した後にWriter Grantを解放し、Authority Registryへ解放Eventを記録する。
 
-1. Physical Run単位の排他ロックを取得し、Journalと直近Ordinalを検証。
-2. Operation ID / Ordinal / Intent Payload / Intent Hashを確定。
-3. Journal Intentを追記し、ファイル本体・親Directoryを永続化する。Intent永続化完了時にOrdinalを消費済みとする。
-4. Receipt本体を`PREPARED`として外部正本へ作成する。Receipt IDはUUIDv4を発行し、Journal Intentへ永続化する。ReceiptにはOperation ID / Ordinal / Intent Hash / Expected Source Payload Hashes / Expected DB Marker Hash / 対象Entity ID / Canonicalization Versionを含める。
-5. Receipt本体・親Directoryを永続化し、Receipt PREPARED Eventを追記・永続化する。
-6. 変更対象の外部正本（Assignment Snapshot / History / Envelope / Artifact / Aggregate Request等）を不変Revisionとして書き込み、File fsync・Hash再読込検証を行う。Current Manifest / Head Pointerは同一Operationのcommit markerとして原子的に更新し、親Directoryを永続化する。
-7. 外部正本の新Revision / Manifest Hashを読み戻し、Journal Intent / Receipt PREPAREDのExpected Source Payload Hashesと照合する。成功したらReceipt Event `SOURCE_COMMITTED`を追記・永続化する。
-8. DB transactionを開始し、対象DB Mirror変更とOperation Markerを同一transactionでCommitする。MarkerにはOperation ID / Ordinal / Intent Hash / Receipt ID / Source Commit Hash / DB Commit Payload Hashを含める。
-9. Commit結果を読み戻し、MarkerとJournal Intent / Receipt / Source Commit Hashを照合する。
-10. Receipt Event `DB_COMMITTED`を外部正本へ追記・永続化する。
-11. Journal / Marker / Receipt / 関連外部正本を再検証する。
-12. Receipt Event `VERIFIED`を追記・永続化する。
-13. すべての永続化・照合が成功した後に排他ロックを解放する。
-
-Journal IntentとReceipt PREPAREDは別の証拠であり、同一視しない。PREPAREDはSource CommitおよびDB Commitより前に外部正本として永続化される。外部正本のcommit markerが先に確定し、DBはその外部正本から再生成可能なMirrorとして後続Commitする。
+Journal Intent、Receipt Envelope、Receipt Event、Source Commit Record、DB Markerは別Artifactである。後段Hashを前段Payloadへ逆参照させない。DBは外部正本から再生成可能なMirrorとする。
 
 ### 2.2 Receipt State
+- PREPARED: Intent / Receipt Envelopeが永続化され、PREPARED Event Chainが検証済み。
+- SOURCE_COMMITTED: 外部正本Revisionと不変Source Commit Recordが単一Chainへ永続化され、Expected predecessor / Payload Hash / ancestryが検証済み。
+- DB_COMMITTED: DB MirrorとOperation Markerが同一TransactionでCommitされ、Marker / Mirrorが読み戻し一致。
+- VERIFIED: Journal / Receipt / Source Commit / DB Marker / 全依存正本の整合性が検証済み。
+- ABORTED: PREPARED後、Source Commit不存在を完全検証し、明示Cancel Intentを記録した場合のみ。
+- QUARANTINED: 欠落・競合・Hash不一致・部分Tail・Authority不明・DB Commit結果不明等で自動判定不能。元証拠上の終端隔離状態とし、自動解除しない。
 
-- PREPARED: Intentが永続化され、DB Commit前の証拠が存在する。
-- SOURCE_COMMITTED: 変更対象の外部正本RevisionとManifest Headが永続化され、Hash照合済み。
-- DB_COMMITTED: DB MirrorのMarkerが同一TransactionでCommitされ、読み戻し照合済み。
-- VERIFIED: 関連Hash・外部正本・Markerの整合性が確認済み。
-- ABORTED: DB Commitが存在しないことを確認し、明示的中止Eventを永続化済み。
-- QUARANTINED: 証拠欠落・競合・Hash不一致等で自動判定不能。自動復帰禁止。
-
-Stateは単調遷移とし、PREPAREDからABORTEDへ進めるのは外部正本のSource Commit前に限る。SOURCE_COMMITTED後はOperationを中止・巻戻しせず、同じOperationでDB Mirrorを再構築するかQUARANTINEDへ隔離する。DB_COMMITTED後にABORTEDへ戻してはならない。VERIFIEDは終端状態。QUARANTINEDは隔離状態であり、元Receiptを編集しない。解決操作は新しいRecovery Operationとして記録する。
+正常遷移はPREPARED → SOURCE_COMMITTED → DB_COMMITTED → VERIFIED。PREPAREDからのABORTEDはSource Commit前に限る。SOURCE_COMMITTED以降はABORTED禁止。QUARANTINED元Receiptは編集しない。解決は別Recovery Operationの監査結果として記録する。
 
 ### 2.3 クラッシュ復旧表
-
-| 停止点 | 再起動後の根拠 | 許可される処理 |
+| 停止点 | 再起動後の根拠 | 固定処置 |
 |---|---|---|
-| Journal Intent前 | 永続証拠なし | 未実行として扱う。Ordinal未消費 |
-| Intent後、Receipt PREPARED前 | Journal Intent | 同一Operation ID / OrdinalでReceipt PREPAREDを作成、またはABORTEDを記録 |
-| PREPARED後、Source Commit前 | Journal + PREPARED | 同一Operationを再開、またはSource Commit未実施を確認してABORTED |
-| Source Commit後、DB transaction前 | Journal + PREPARED + Source Manifest Head | ABORTED禁止。同一OperationでDB Mirrorを再開 |
-| DB transaction中 | Journal + PREPARED + DB Marker有無 | MarkerのCommit有無を読み戻し、同一Operationで再開 |
-| DB Commit後、DB_COMMITTED Event前 | DB Marker + SOURCE_COMMITTED | Hash一致を確認してDB_COMMITTED Eventを補完 |
-| DB_COMMITTED後、VERIFIED前 | Marker + Journal + Receipt | 全依存正本を検証しVERIFIED、またはQUARANTINED |
-| Hash / ID / Ordinal競合 | 不一致証拠 | QUARANTINED。推測修復・別Operationへの付替え禁止 |
+| Writer Grant / Intent前 | 永続証拠なし | 未実行。Ordinal未消費 |
+| Intent append中・結果不明 | Journal tail / partial bytes | Run QUARANTINED。Ordinal再利用・後続Operation禁止 |
+| Intent永続化後・Envelope前 | 完全Intent / Intent Hash | 同一Operation / Receipt IDでEnvelope再構成 |
+| Envelope後・PREPARED Event前 | Intent / Envelope Hash | 同一ReceiptのPREPARED Eventのみ補完 |
+| PREPARED後・Source Commit前 | Intent / Envelope / Event Chain | 同一Operation再開、またはSource Commit不存在 + Cancel Intent証明時のみABORTED |
+| Source Commit後・Event前 | Commit Record / ancestry | 同一ReceiptのSOURCE_COMMITTED Event補完 |
+| SOURCE_COMMITTED後・DB transaction前 | Source Commit Chain / Intent | 同一OperationでDB Mirror再開 |
+| DB transaction結果不明 | DB Marker / DB integrity / consistent read | Marker完全一致ならCommit済み。MarkerなしでもDB原子性・整合読戻しを証明できなければQUARANTINED |
+| DB Commit後・DB_COMMITTED Event前 | Marker / Source Commit | Marker一致を検証してEvent補完 |
+| DB_COMMITTED後・VERIFIED前 | 全依存正本 / Marker / Journal | 全検証成功時のみVERIFIED |
+| Hash / ID / Ordinal / Epoch競合 | 不一致証拠 | QUARANTINED。推測修復・last-write-wins禁止 |
 
-同一Operation IDでIntent Hashが異なる再実行は即時QUARANTINED。Ordinalは欠番を許容し再利用しない。Receipt EventはEvent Ordinal単調増加・Hash Chainで保全する。
 
 
 ## 3. DB-RV-04 — Aggregate Request / Attempt / Result Revision（v0.8.3決定）
@@ -338,7 +337,7 @@ V082-001〜030は既存のまま保持する。V082-031〜053は追加案であ�
 - [ ] Journal / Receipt / DB Markerの永続化順と全クラッシュ点を確認
 - [ ] Request / Attempt / Result Revision / Pointerの全状態遷移を確認
 - [ ] Artifact DAG循環禁止と不変再解析を確認
-- [ ] Canonical Binary Name v2の文法・byte vector・Namespace承認状況を確認
+- [ ] UUIDv4発行条件とM4W-JCS-1 / SHA-256のCanonicalization testを確認
 - [ ] 外部正本 / DB Mirrorの全Entityを復元条件付きで確認
 - [ ] Measurement EnvelopeにAssignment-at-Measurement必須参照を追加
 - [ ] RawLogのFile fsync / Directory fsync / collision / recovery条件を確認
