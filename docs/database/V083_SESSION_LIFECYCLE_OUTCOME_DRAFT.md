@@ -16,7 +16,7 @@ v0.8.3 §1.4の「Session StatusはHistorical SessionのMeasurement集合から�
 - Measurement Outcomeの混在からSession Lifecycleを算出しない。
 - Session LifecycleはNOT_CREATED / OPEN / CLOSED / QUARANTINEDとする。NOT_CREATEDはSessionレコードではなく未生成状態。
 - Sessionの存在・状態はCurrent Assignmentを意味しない。
-- DB unavailable時はIssue #201に従いAnonymous Modeとして扱い、新規DB Run / Session Mirror / Measurement Mirrorを作らない。ただしCC-01に従い、初回ASSIGNED時の論理Session identityはDB availabilityにかかわらず外部Run Manifestへ生成・保持する。障害期間中のCapture / Measurement / RawLogは復旧後もDBへ取込・Mirror化・再紐付けしない。障害前から存在するDB Run / Session Mirrorは削除せず履歴として保持する。
+- DB unavailable時はIssue #201に従いAnonymous Modeとして扱い、新規DB Run / Session Mirror / Measurement Mirrorを作らない。ただしCC-01に従い、初回ASSIGNED時の論理Session identityはDB availabilityにかかわらず外部Run Manifestへ生成・保持する。障害期間中のCapture / Measurement / RawLogは復旧後もDBへ取込・Mirror化・再紐付けしない。障害前から存在するDB Run / Session Mirrorは削除せず履歴として保持する。 論理Session identityが存在するScopeの障害期間中Captureは外部Manifest上のSession membershipとして保全できるが、DB Session Mirror membershipには追加せず、復旧後の遡及追加もしない。
 
 ## 2. Session Lifecycle
 
