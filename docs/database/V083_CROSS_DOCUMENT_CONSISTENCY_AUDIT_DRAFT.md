@@ -212,3 +212,19 @@ Issue #210 permits design of explicit late association only when the NONE-period
 No automatic Session creation, DB Run creation, RawLog import, Mirror generation, or Current Aggregate inclusion is inferred from NONE. ANONYMOUS remains prohibited from later DB import / Mirror / Instance re-association under CC-02.
 
 **Status: OPEN — return to central command for a narrow boundary decision before finalizing Session membership and the CC-02 association contract.**
+
+
+## 14. Canonicalization strict-input / version-freeze proposal (2026-11-21)
+
+The Canonicalization audit now contains a draft-only proposal for:
+- Freezing every byte-affecting rule under a Canonicalization Version and requiring a new version for schema / normalization / encoding changes.
+- Strict UTF-8 and Unicode scalar handling, pinned NFC data version, no BOM stripping.
+- Type-safe Integer encoding and canonical decimal rejection cases.
+- Timezone-aware exact UTC nanosecond conversion, sub-nanosecond / overflow rejection.
+- Strict Boolean, Byte String, NULL, u16/u32 length/count overflow handling.
+
+This is a candidate remediation, not an adopted rule. Per-Field domain ranges, Unicode version pin, Timestamp leap-second policy, Entity Type registry, all Entity schemas, Namespace clearance and central approval remain open.
+
+CBN-07 NUL notation ambiguity is resolved in Main draft §5.5 by replacing the ambiguous escape spelling with explicit Unicode scalar sequence and UTF-8 bytes. Expected Hex did not change.
+
+**Gate:** CBN-01 coverage and sample vectors have improved, but CBN-02 / 03 / 04 / 05 / 06 / 08 remain open or partial. No UUIDv5 implementation or Namespace approval is claimed.
