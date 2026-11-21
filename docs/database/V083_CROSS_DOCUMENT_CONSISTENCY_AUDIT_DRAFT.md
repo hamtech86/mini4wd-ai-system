@@ -829,7 +829,7 @@ Main §14をDecision Authorityとして、従来のOPEN / TBD / candidateを以�
 したがって論理設計の選択肢は残さない。残件は実装・試験・他部門正式契約・統括最終審査という証拠Gateであり、設計未決定とは区別する。
 
 ### 35.1 DB unavailable / ANONYMOUS / NONEの取扱い差分
-- DB unavailable中はIssue #201のAnonymous Modeとして扱う。有効なASSIGNED Assignment Operation・DB Run・Logical Session identityの新規生成を行わず、障害期間CaptureのAssignment-at-MeasurementはANONYMOUS（InstanceID=NULL）とする。復旧後のBootstrap / 取込 / Mirror化は禁止。障害前から存在するRun / Session identityは履歴として保持する。
+- DB unavailable中はIssue #201のAnonymous Modeとして扱う。有効なASSIGNED Assignment Operation・新規DB Run・新規Logical Session identityを生成せず、障害期間CaptureのAssignment-at-MeasurementはANONYMOUS（InstanceID=NULL）とする。障害期間Capture / Measurementの復旧後Bootstrap / 取込 / Measurement Mirror化は禁止。障害前に有効AssignmentのManifest Source Commitまで検証済みでRun / Session Mirrorのみ未確定の場合は、Recovery Authorityが同じIDでMirrorを再構築できる。障害前から存在するRun / Session identityは履歴として保持する。
 - DB unavailable中のNONE MeasurementはDB管理下に存在しないため、後日取込・Association禁止。
 - ANONYMOUS期間のMeasurement / RawLogは、DB unavailableとは別のCC-02禁止境界であり、後日取込・Mirror化・再紐付け禁止。
 - DB利用可能かつ当該Scope Session存在中に取得されたNONE Measurementのみ、既存DB管理Measurementとして明示Association対象になり得る。
@@ -938,14 +938,14 @@ Request StateをOPEN / SUCCEEDED / FAILED / CANCELLED / INDETERMINATEに固定�
 ### 38.2 V083-RV-02 — Logical Session IDとDB Session Mirrorの生成時点
 - Logical Session identityは、DB正常利用可能時にScopeで初めて有効なASSIGNED Assignment Operationが確定した時点でRun ManagerがUUIDv4を発行し、同じ外部Run Manifest Commitへ記録する。
 - DB Session Mirrorは別IDを発行せず、同じLogical Session IDを用いる。
-- DB unavailable期間は有効なASSIGNED Assignment Operationを成立させず、初回ASSIGNED・Logical Session identity・DB Session Mirrorを新規生成しない。Bootstrap時にSession IDを初めて発行する経路も設けない。障害前に有効AssignmentのManifest Source Commitまで検証済みでDB Session Mirrorのみ未確定の場合は、Recovery AuthorityがReceipt / Manifestを再検証し同一IDのMirrorを再構築できる。
+- DB unavailable期間は有効なASSIGNED Assignment Operationを成立させず、初回ASSIGNED・Logical Session identity・DB Session Mirrorを新規生成しない。Bootstrap時にSession IDを初めて発行する経路も設けない。障害前に有効AssignmentのManifest Source Commitまで検証済みでDB Session Mirrorのみ未確定の場合は、Recovery AuthorityがReceipt / Manifestを再検証し同一IDのMirrorを再構築できる。これは事前確定済みSession identityのMirror再構築であり、障害期間のCapture / MeasurementをDBへ取り込むものではない。
 - 障害開始前から存在するLogical Session identity / Lifecycleは履歴として保持する。障害期間中のCaptureは外部正本のみであり、DB Session Mirror membershipへ遡及追加しない。事前Source Commit済みの未確定Mirrorの再構築はSession recordのみを対象とし、障害期間Measurementの取込とは分離する。
 - 判定: Main §1.2 / §1.4 / §6 / §14.1を同期。Session Lifecycle / State Transition / Entity Inventoryも同じAuthority・生成条件へ同期した。
 
 ### 38.3 V083-RV-03 — DB unavailableとAnonymous Modeの境界
 - Issue #201の範囲に従い、DB unavailableは既存Anonymous Modeとして扱う。障害期間中に有効なASSIGNED Assignment Operationを発行しない。
 - 障害期間Capture / MeasurementのAssignment-at-MeasurementはANONYMOUS、InstanceID=NULLとする。オフラインのInstance選択・申告を有効なASSIGNED Assignment Snapshotとみなさない。
-- 障害期間中に初回ASSIGNEDを試みてもDB Run / Logical Session identity / DB Session Mirror / Measurement Mirrorは生成しない。復旧後のBootstrap / DB取込 / Mirror化 / Associationは禁止する。DB管理を開始する場合は新しいPhysical Runを要求する。
+- 障害期間中に初回ASSIGNEDを試みてもDB Run / Logical Session identity / DB Session Mirror / Measurement Mirrorは生成しない。障害期間Capture / Measurementの復旧後Bootstrap / DB取込 / Measurement Mirror化 / Associationは禁止する。DB管理を開始する場合は新しいPhysical Runを要求する。これは障害前Source Commit済みのRun / Session Mirror再構築を妨げない。
 - 障害開始前からDB Run / Logical Session identity / DB Session Mirrorが存在する場合は削除せず履歴として保持する。ただし障害期間CaptureはANONYMOUSとして保全し、後日DBへ取込まない。
 - 判定: Issue #201 / #210 CC-01 / CC-02とMain §1・§6・§14.1を同期した。匿名Captureの後日取込を許す例外は設けない。
 
