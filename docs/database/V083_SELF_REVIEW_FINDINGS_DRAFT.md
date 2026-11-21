@@ -429,3 +429,11 @@ Request StateとAttempt StateをMain §3.2で固定。Retry ClosedはFAILED Atte
 8. Storage read-back / fsync成功はCapture正常完了やMeasurement COMPLETEの証拠ではない。Capture境界未受領時はopaque fragmentとして保全し、完全RawLog / Aggregate入力を主張しない。
 
 本追補は設計全体の承認・実装移行許可ではない。
+
+## 38. V083-RV-01〜03 自己審査更新（2026-11-21）
+
+- **V083-RV-01:** Issue #209のDB-RV-01〜08の元意味を4つの補助資料へ復元し、Entity / identityを独立DB-RV番号として扱う誤りを除去。文書上は修正済み、統括再審査待ち。
+- **V083-RV-02:** Logical Session IDはDB正常利用可能時の初回有効ASSIGNED Operationで一度だけ発行し、外部Manifestへ先行記録。DB Session Mirrorは同じIDを使う。DB unavailable期間に新規Sessionを生成せず、Bootstrap時発行もしない。Main / Session Lifecycle / State Transition / Entity Inventoryを同期。
+- **V083-RV-03:** DB unavailableはIssue #201のAnonymous Mode。障害期間CaptureのAssignment-at-MeasurementはANONYMOUS（InstanceID=NULL）。障害中の初回ASSIGNED試行は有効Operationではなく、DB Run / Logical Session identity / Mirrorを生成しない。障害期間データは復旧後も取込・Mirror化・Associationしない。
+- 障害前から存在するDB Run / Session identity / Mirrorは履歴として保持する。障害期間Captureは既存Logical Sessionがある場合でも外部正本のみで保全し、DB Mirror membershipへ遡及追加しない。
+- 検証は文書間の読み戻し・文字列照合に限定。DB unavailable実機試験、Run Manager実装、Manifest/Assignment authorityの実証は未実施。統括承認・実装許可を意味しない。
