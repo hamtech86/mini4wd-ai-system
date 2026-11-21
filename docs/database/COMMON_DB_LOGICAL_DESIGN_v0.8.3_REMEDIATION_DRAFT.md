@@ -149,7 +149,7 @@ Journal Intent、Receipt Envelope、Receipt Event、Source Commit Record、DB Ma
 - Physical Run IDはRun Managerが発行する。DB Run / Session / Assignment Snapshot / Measurement / Profile Snapshot / RawLog Object / RawLog Reference / Sample Reference / Operation / Receipt / Artifact / Aggregate Request / Attempt / Result Revision / Recovery Operation / Integrity Reportは、それぞれの作成AuthorityがUUIDv4を発行する。
 - Receipt IDはOperation IDから導出しない。Receipt作成前にUUIDv4を発行し、Intent内に固定する。再起動時はIntentに記録された同じIDを使用する。
 - RUN_SCOPEは独立UUIDを持たず、(PhysicalRunID, ScopeKey)を複合識別子とする。Measurement-Sample LinkとArtifact Inputも親ID + Ordinal等の複合識別子を用いる。Aggregate Pointerは派生値でありIDを持たない。
-- UUID文字列表現は小文字・ハイフン付きCanonical形式のみを受け入れる。大文字、波括弧、短縮形、非Canonical表現は拒否する。全Entity ID間で重複を禁止し、参照時はEntity Typeも一致させる。
+- UUID文字列表現は小文字・ハイフン付きCanonical形式のみを受け入れる。大文字、波括弧、短縮形、非Canonical表現は拒否する。全Entity ID間で重複を禁止し、参照時はEntity Typeも一致させる。UUID collisionを外部正本へ永続化する前に検出した場合のみ新しいUUIDv4を発行できる。永続化後にcollisionが検出された場合は再採番せずQUARANTINED。
 - UUIDv5 / Canonical Binary Name v2 / Namespaceはv0.8.3のID発行方式として採用しない。過去に生成済みのIDは変更・再採番しない。
 
 ### 5.2 Structured Hash Profile M4W-JCS-1
@@ -366,7 +366,7 @@ V082-001〜030は既存のまま保持する。V082-031〜053は追加案であ�
 5. NONE Measurementの後日Associationは、既存DB管理Measurementに対する明示Operationのみ許可する。1つのMeasurementに同時に有効なAssociationは最大1件。再関連付けは新Operationで旧Associationを閉じ、新Associationを追加する。Actor / UTC time / Reason / before-after / OperationIDを記録する。Assignment-at-Measurementは変更しない。
 6. 初回ASSIGNED前のNONE期間のMeasurement、ANONYMOUS期間のMeasurement / RawLogは外部正本のみ。後日DB取込・Mirror化・Associationは禁止。DB unavailable期間はANONYMOUSと区別し、その期間中はDB Run / Session / Measurement Mirrorを作らない。復旧後の明示Bootstrapでは、当該ScopeのAssignment-at-MeasurementがASSIGNEDで、外部Envelope / RawLog / Profile / Hashが完全検証できるMeasurementに限りDB Mirrorを再構築できる。IDはBootstrap時にUUIDv4で発行して外部Manifestへ先行記録する。DB unavailable中のNONE Measurementは対象外。ANONYMOUSの将来拡張は別設計・明示承認が必要。
 7. NONE MeasurementはCurrent Aggregateから常に除外する。Historical Analysisでの利用は、明示的に指定された場合のみ許可し、ArtifactにRETROSPECTIVE_NONEを記録する。ANONYMOUSは分析入力としても現行範囲外。
-8. Assignment SnapshotはScope単位の不変Revision。Revisionは1から単調増加、欠番不可、再利用不可。Current Assignmentは最新の検証済みSnapshotから導出する。履歴は追記のみ。
+8. Assignment SnapshotはScope単位の不変Revision。初期SnapshotはRevision=0（StateはNONEまたはANONYMOUS）。以降、実際のState / Instance変更ごとにRevisionを1ずつ増やし、欠番・再利用を禁止する。同じState / Instanceへの重複Assignmentはidempotent no-opとし、新Revisionを作らない。Current Assignmentは最新の検証済みSnapshotから導出する。履歴は追記のみ。
 
 ### 14.2 Measurement Outcome / Session Close
 1. Measurement OutcomeはCOMPLETE / STOP / ERROR / CANCEL / INCOMPLETE / UNKNOWN。OutcomeはMeasurement単位でありSession Lifecycleへ伝播しない。
@@ -400,7 +400,7 @@ V082-001〜030は既存のまま保持する。V082-031〜053は追加案であ�
 13. Receipt EventType RegistryはPREPARED / SOURCE_COMMITTED / DB_COMMITTED / VERIFIED / ABORTED / QUARANTINEDに固定する。未知EventTypeは拒否する。QUARANTINED Eventを元Chainへ追記できない破損時は別Integrity Reportへ記録し、元Chainを変更しない。
 14. Operation Journal EventType RegistryはINTENT_PERSISTED / CANCEL_REQUESTED / SOURCE_COMMIT_RECORDED / DB_MARKER_COMMITTED / PHYSICAL_RUN_CLOSED / NONE_ASSOCIATION_CREATED / RETRY_CLOSED / RECOVERY_OPERATION_CREATED / INTEGRITY_REPORT_CREATEDに固定する。EventにはEventType / EventOrdinal / OperationID / ActorID（system principalを含む）/ OccurredAtUTC / PayloadSchemaVersion / Payload / PreviousEventHash / EventHashを持たせる。Operation単位でOrdinal=1から連続し、最初のPreviousEventHashはNULL。Authority不明のEvent、未知EventType、partial tailは拒否・QUARANTINED。
 15. Writer Grant EventはOperation Journal Eventと分離したAuthority Registry Chainとし、(PhysicalRunID, Epoch)で識別する。Epochは1から単調増加、欠番可・再利用不可。Grant Chainのpartial tail / Hash mismatch / ForkはWriter交代を禁止しRunをQUARANTINEDとする。
-16. Assignment History EventはScope単位のappend-only chainとし、Revision / EventOrdinalを1から連続増加させる。EventにはBeforeState / AfterState / AssignmentSnapshotID / Revision / ActorID / Reason / OccurredAtUTC / PreviousEventHash / EventHashを保持する。許容StateはASSIGNED / NONE / ANONYMOUS。未知State・Revision gap・Hash不一致はAssignment更新拒否・Scope隔離。
+16. Assignment History EventはScope単位のappend-only chainとし、初期EventOrdinal=1、以降連続増加させる。Snapshot Revisionは初期0、以降の実変更ごとに連続増加させる。初期EventのBeforeStateはNULL、AfterStateはNONEまたはANONYMOUS。以降EventにはBeforeState / AfterState / AssignmentSnapshotID / Revision / ActorID / Reason / OccurredAtUTC / PreviousEventHash / EventHashを保持する。許容StateはASSIGNED / NONE / ANONYMOUS。未知State・Revision gap・Hash不一致はAssignment更新拒否・Scope隔離。
 17. Event AuthorityはEventTypeごとに固定する。PHYSICAL_RUN_CLOSEDはRun Manager、WRITER_GRANTED / WRITER_RELEASEDはRun Manager Authority RegistryのAuthority Chain専用Event（Operation Journal Eventではない）、NONE_ASSOCIATION_CREATEDは当該ScopeのSessionが存在する場合の認証済みDB Session Manager、RETRY_CLOSEDはAggregate Managerまたは権限を持つOperator、RECOVERY_OPERATION_CREATEDはRecovery Authorityのみが発行できる。ActorIDまたは権限証拠がない場合はEventを作成しない。
 
 ### 14.5 Aggregate / Artifact
