@@ -31,7 +31,7 @@
 ### 1.2 RUN_SCOPE / Session
 
 1. RUN_SCOPEはPhysical Run初期化時に全Scopeについて外部正本として作成する。Scope Keyごとに一意。
-2. SessionはRUN_SCOPEにつき最大1件。**当該Scopeが初めてASSIGNEDとなった確定Operationで、DB availabilityにかかわらず論理Session identityを一度だけ生成し、Session IDを外部Run Manifestへ先行記録する。** DBが正常利用可能な場合に限り、同一Session IDを持つDB Session Mirrorを作成する。DB unavailable期間はIssue #201のAnonymous ModeとしてDB Session Mirrorを生成しないが、論理Session identity / Lifecycleは外部正本で保持する。障害期間中のCapture / Measurementは外部正本に保全し、復旧後にDB Session / Measurement Mirrorを生成するためのBootstrap対象にしない。
+2. SessionはRUN_SCOPEにつき最大1件。**Run Managerが、当該Scopeで初めてASSIGNEDとなるAssignment Operationの確定時にUUIDv4の論理Session IDを一度だけ発行し、同じ外部Run Manifest Commitへ先行記録する。** Assignment Operation / Manifest Commitが検証済みになるまでSession生成を確定しない。DBが正常利用可能な場合に限り、DB Session Mirror Managerが別IDを発行せず同一Session IDのMirrorを作成する。DB unavailable期間はIssue #201のAnonymous ModeとしてDB Session Mirrorを生成しないが、論理Session identity / Lifecycleは外部正本で保持する。障害期間中のCapture / Measurementは外部正本に保全し、復旧後にDB Session / Measurement Mirrorを生成するためのBootstrap対象にしない。
 3. 初期ANONYMOUS / NONEで一度もASSIGNEDになっていないScopeにはSessionを生成しない。
 4. ASSIGNED→NONE→ASSIGNED、ASSIGNED→ANONYMOUS→ASSIGNED、ASSIGNED→別InstanceのいずれでもSession IDは変更しない。
 5. Sessionの存在は「現在ASSIGNED」を意味しない。現在の割当状態はCurrent Assignment Snapshotのみで判定する。
@@ -146,7 +146,7 @@ Journal Intent、Receipt Envelope、Receipt Event、Source Commit Record、DB Ma
 
 ### 5.1 ID発行方式
 - v0.8.3で新規発行する独立Entity IDはUUIDv4とし、暗号学的に安全な乱数源で発行元Authorityが一度だけ生成して外部正本へ先行記録する。乱数品質を確認できない環境では発行を拒否する。
-- Physical Run IDはRun Managerが発行する。DB Run / Session / Assignment Snapshot / Measurement / Profile Snapshot / RawLog Object / RawLog Reference / Sample Reference / Operation / Receipt / Artifact / Aggregate Request / Attempt / Result Revision / Recovery Operation / Integrity Reportは、それぞれの作成AuthorityがUUIDv4を発行する。
+- Physical Run IDおよびLogical Session IDはRun Managerが発行する。DB Run / Assignment Snapshot / Measurement / Profile Snapshot / RawLog Object / RawLog Reference / Sample Reference / Operation / Receipt / Artifact / Aggregate Request / Attempt / Result Revision / Recovery Operation / Integrity Reportは、それぞれの作成AuthorityがUUIDv4を発行する。DB Session MirrorはLogical Session IDを再利用し、別IDを発行しない。
 - Receipt IDはOperation IDから導出しない。Receipt作成前にUUIDv4を発行し、Intent内に固定する。再起動時はIntentに記録された同じIDを使用する。
 - RUN_SCOPEは独立UUIDを持たず、(PhysicalRunID, ScopeKey)を複合識別子とする。Measurement-Sample LinkとArtifact Inputも親ID + Ordinal等の複合識別子を用いる。Aggregate Pointerは派生値でありIDを持たない。
 - UUID文字列表現は小文字・ハイフン付きCanonical形式のみを受け入れる。大文字、波括弧、短縮形、非Canonical表現は拒否する。全Entity ID間で重複を禁止し、参照時はEntity Typeも一致させる。UUID collisionを外部正本へ永続化する前に検出した場合のみ新しいUUIDv4を発行できる。永続化後にcollisionが検出された場合は再採番せずQUARANTINED。
@@ -378,7 +378,7 @@ V082-001〜030は既存のまま保持する。V082-031〜053は追加案であ�
 ### 14.1 Run / Scope / Session / Assignment
 1. Physical RunはRun Manager発行UUIDv4。DB Runは独立UUIDv4で、DB正常利用可能時にPhysical Run内の最初のASSIGNED Assignment Operationが確定した場合に一度だけ生成する。DB RunはPhysical Runにつき最大1件。DB unavailable期間の初回ASSIGNEDはAnonymous Mode扱いとし、DB Runを生成しない。論理Session identityはDB availabilityにかかわらず初回ASSIGNED時に外部Run Manifestへ生成する。
 2. RUN_SCOPEは(PhysicalRunID, ScopeKey)複合識別子。v0.8.3のScopeKey許容値はMOTOR / BATTERY_CH1 / BATTERY_CH2の3値に固定し、未知値は拒否する。Motor / Battery CH1 / Battery CH2を別Scopeとして扱う。CH1 / CH2の同一化・平均化は禁止。
-3. SessionはScopeごと最大1件。初回ASSIGNED確定時にUUIDv4の論理Session identityを外部Run Manifestへ生成し、以後Assignment Stateにかかわらず保持する。NONE / ANONYMOUSだけで一度もASSIGNEDにならないScopeには生成しない。DB正常利用可能時のみ同一IDのDB Session Mirrorを作成する。DB unavailable期間の初回ASSIGNEDでも論理Session identityは生成するがDB Session Mirrorは作成せず、復旧後に同一Physical Runへ遡及してMirrorを生成しない。
+3. SessionはScopeごと最大1件。Run Managerが初回ASSIGNED Assignment Operationの確定時にUUIDv4の論理Session identityを発行し、同じ外部Run Manifest Commitへ記録する。以後Assignment Stateにかかわらず保持する。NONE / ANONYMOUSだけで一度もASSIGNEDにならないScopeには生成しない。DB正常利用可能時のみ同一IDのDB Session Mirrorを作成する。DB unavailable期間の初回ASSIGNEDでも論理Session identityは生成するがDB Session Mirrorは作成せず、復旧後に同一Physical Runへ遡及してMirrorを生成しない。
 4. Session membershipはMeasurementを外部Run Manifestへ初回確定記録した時点で同一Scopeの論理Session identityが存在する場合のみ成立し、後からSessionへ遡及所属させない。DB Run生成済みの別Scopeがあっても、未ASSIGNED ScopeのNONE Measurementを自動Mirror化しない。NONE MeasurementのAssignment-at-MeasurementはNONE・InstanceID NULLのまま不変。DB unavailable期間の測定はAnonymous Mode扱いであり、復旧後も取込・Association対象外。
 5. NONE Measurementの後日Associationは、DB正常利用可能時に既にDB管理Measurementとして登録済みのMeasurementに対する認証済みOperatorの明示Operationのみ許可する。ANONYMOUS / DB unavailable期間のMeasurement、外部正本にしか存在しないMeasurementは対象外。AssociationはSession membershipと独立したInstance関連付け履歴であり、Sessionへの追加・移動を行わない。
    - Association Historyは独立UUID Entityではなく、Operation Journalの型付きEventで表す。各Measurement内のAssociationOrdinalは1から連続増加し、再利用しない。Event自体のIdentityは(OperationID, EventOrdinal)、Association History Recordの論理Identityは(MeasurementID, AssociationOrdinal)。
