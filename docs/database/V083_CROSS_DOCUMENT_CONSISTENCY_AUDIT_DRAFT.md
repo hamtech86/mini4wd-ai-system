@@ -413,3 +413,28 @@ Receipt Recovery Contract §15に、Main §2.1（正規順序）/ §2.2（Receip
 
 ### 承認境界
 v0.8.2 ORANGE / v0.8.3未承認、UUIDv5 Namespace未承認・未採用を維持。DDL / DB生成 / Migration / Restore実行 / 実装 / PR / main反映 / mergeなし。
+
+
+## 21. Receipt Hash / ID依存関係監査（2026-11-21）
+
+Receipt Recovery Contract §16で、Intent Plan / Receipt Envelope / Receipt Event / DB MarkerのHash・ID依存関係を項目単位で監査した。
+
+### 新たに確認した問題
+- Receipt再構成手順はIntentにExpected Receipt Hashを固定するとするが、Intent Plan最低Field一覧にExpected Receipt Hashがない。
+- Operation Plan Hash / Intent Hashの包含関係・生成順が定義されていない。
+- Envelope Hash / Event Hashの自己参照Field除外とCanonical serializationが未定義。
+- Expected DB Marker Hash / Expected DB Marker Payload Hash / DB Commit Payload Hashの同一性・包含関係が未定義。
+- Marker Payloadが自身のExpected Hashを含む場合、自己参照となる可能性がある。
+- Source Manifest Head / Source Commit HashとReceipt Hashの相互包含範囲が未定義。
+
+### 判定
+Hash依存グラフが循環しないことを現行資料から証明できない。ただし循環が実装上発生していると断定するものではなく、Hash入力・除外・生成順の仕様不足として扱う。Expected Receipt HashのField欠落も確認事項として残す。
+
+### 次の作業
+- 各HashのCanonical Payload Field一覧を抽出。
+- Hash生成順を依存グラフ化し、自己参照・後段値参照・相互依存を分類。
+- Hash依存関係を閉じるために必要な統括判断と、文書内で根拠を持って定義可能な事項を分離。
+- Main §2.1〜§2.3および補助契約への同期差分を更新する。
+
+### 承認境界
+Hash algorithm、Canonicalization、UUIDv5 Namespace、Receipt ID方式は未承認・未採用。DB-RV-03 OPEN。Main本文は未変更。DDL / DB生成 / Migration / Restore実行 / 実装 / PR / main反映なし。
