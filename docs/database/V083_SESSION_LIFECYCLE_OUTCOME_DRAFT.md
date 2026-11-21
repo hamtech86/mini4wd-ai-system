@@ -110,7 +110,7 @@ Sessionの表示用サマリーを設ける場合も、Measurement Outcome別件
 - Anonymous ModeではDB Session Mirrorを作らない。初回ASSIGNEDをAnonymous Mode期間中に試みても有効なAssignment Operationは成立せず、論理Session identity / DB Runを生成しない。
 - Motorのin-memory SessionはDB Sessionとは別物。
 - 匿名RawLogはローカル保全し、COMPLETE / STOP / ERROR / CANCEL等を区別する。
-- ANONYMOUS期間およびDB unavailable期間のRawLog / Measurementは現行範囲で後日DB取込・Mirror化・Instance再紐付けを禁止する。DB unavailableはIssue #201によりAnonymous Modeとして扱い、Assignment-at-MeasurementがASSIGNEDであっても例外にしない。将来変更は別設計と統括の明示承認を要する。
+- ANONYMOUS期間およびDB unavailable期間のRawLog / Measurementは現行範囲で後日DB取込・Mirror化・Instance再紐付けを禁止する。DB unavailableはIssue #201によりAnonymous Modeとして扱い、障害期間CaptureのAssignment-at-MeasurementはANONYMOUS（InstanceID=NULL）とする。将来変更は別設計と統括の明示承認を要する。
 - CH1 / CH2はそれぞれ独立した匿名RawLogとして扱う既承認方針を維持する。
 
 ### Issue #35
