@@ -404,8 +404,8 @@ Request StateとAttempt StateをMain §3.2で固定。Retry ClosedはFAILED Atte
 
 ### Issue #201との矛盾修正
 4. DB unavailableはIssue #201のAnonymous Modeとして扱う。障害期間中に取得されたCapture / Measurement / RawLogはAssignment-at-MeasurementがASSIGNEDであっても外部正本のみとし、復旧後のBootstrap / DB取込 / Mirror化 / Associationを禁止する。ただしCC-01に従い初回ASSIGNED時の論理Session identityは外部Run Manifestへ生成・保持し、DB Session Mirrorだけを作成しない。
-5. 障害前から存在するDB Run / Session Mirrorは削除しない。障害期間中のCaptureは既存Session membershipへ追加しない。
-6. 同一Physical Run内で障害中に初回ASSIGNEDとなった場合、論理Session identityは外部Run Manifestへ生成・保持するが、復旧後にそのRunを遡及してDB管理へ変換しない。同一Run内のDB管理再開契約は本版で定義せず、新しいPhysical RunからDB管理を開始する。障害前にDB Run / Session Mirrorが存在した場合はIdentityを保持するが、障害中Captureを既存Session membershipへ追加しない。
+5. 障害前から存在するDB Run / Session Mirrorは削除しない。障害期間中のCaptureは外部Logical Session identityが存在すれば外部Manifest membershipへ記録するが、DB Session Mirror membershipへ追加せず、復旧後も遡及追加しない。
+6. 同一Physical Run内で障害中に初回ASSIGNEDとなった場合、論理Session identityは外部Run Manifestへ生成・保持する。障害期間中のCaptureは外部Logical Session membershipへ記録するが、復旧後にそのRunを遡及してDB管理へ変換しない。同一Run内のDB管理再開契約は本版で定義せず、新しいPhysical RunからDB管理を開始する。障害前にDB Run / Session Mirrorが存在した場合はIdentityを保持するが、障害中CaptureをDB Session Mirror membershipへ追加・遡及追加しない。
 
 ### 文書同期
 - Main v0.8.3 §1.1–1.4 / §6 / §14.1 / §14.4.17
