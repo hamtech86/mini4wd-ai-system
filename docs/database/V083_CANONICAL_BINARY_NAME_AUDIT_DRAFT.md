@@ -249,3 +249,42 @@ The pairs above demonstrate byte-level distinction. They do not define semantic 
 | Entity domain uniqueness | 未完了 |
 | Namespace既存利用の全履歴調査・統括承認 | 未完了 |
 | UUIDv5 RFC vector / 2実装相互照合 | 未実施 |
+
+
+## 13. Entity Inventory 23種とのCanonical Identity照合（2026-11-21）
+
+Entity Inventory 23種とMain draft §5.3を個別照合した結果:
+
+- Inventory: 23 logical entities.
+- §5.3: 11 Entity Schema rows（うち `OPERATION_EVENT` はInventoryへの対応が未確定。TEST_VALUEは汎用vector用でEntity Inventory外）。
+- Inventoryと直接対応するSchema: 10種。
+- Schema未定義: 13種。
+- Inventoryへの対応が未確定のSchema: `OPERATION_EVENT` 1種。
+
+「Schema未定義」はUUIDv5を追加すべきという意味ではない。Entityごとに、Identity UUID / Composite identity / Content Hash / Derived Pointer / External event identityのいずれで識別するかを決める必要がある。
+
+特に以下を混同しない:
+- Physical Run ManifestとPhysicalRunID（UUIDv4候補）。
+- RawLog ObjectのContent HashとRawLog Reference ID。
+- Measurement Envelope IDとEnvelope Hash。
+- Artifact IDとResult Payload Content Hash。
+- Operation Journal IntentとOperation Event（`OPERATION_EVENT` schemaの候補だが未確定）。
+- Aggregate Pointer（派生参照であり、独立IDを持たない可能性）。
+- Recovery Operation IDとIntegrity Report ID / report Content Hash。
+
+Entityごとの照合結果・未決事項は `V083_ENTITY_INVENTORY_GAP_REGISTER_DRAFT.md` §6を参照する。Main draft §5.3の11 SchemaをInventory全体へ一般化してはならない。
+
+## 14. CBN-01 / CBN-02 coverage status update
+
+| 項目 | 状態 |
+|---|---|
+| §5.3 11 Schema rowの正常値byte vector | 既存の作成記録あり（OPERATION_EVENTのInventory対応は未確定） |
+| Inventory 23 Entityとの対応表 | 今回作成 |
+| 23 Entity全体のIdentity方式分類 | 未完了 |
+| UUIDv5対象Entityの確定 | 未完了 |
+| UUIDv5対象Field Schema / domain uniqueness | 未完了 |
+| Content Hash / Composite identity / Derived Pointerとの境界 | 未完了 |
+| Namespace既存利用全履歴調査・統括承認 | 未完了 |
+| UUIDv5 RFC vector / 2実装相互照合 | 未実施 |
+
+**監査結論:** Canonical Nameの正常値vector作成済み範囲と、Entity Inventory全体のIdentity設計完成は別工程である。v0.8.3は引き続き未完成・未承認。
