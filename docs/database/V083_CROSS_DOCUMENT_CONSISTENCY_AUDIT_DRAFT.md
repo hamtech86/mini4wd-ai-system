@@ -149,3 +149,25 @@ The V082 crosswalk now includes a separate candidate-overlap table for DB-008 / 
 Potential duplicates within DB-001〜056 are recorded for DB-019/035 (missing DB normal startup), DB-020/036 (explicit Bootstrap success), and DB-017/046 (analysis rerun preserves prior results). No duplicate is confirmed because exact preconditions, actions, and expected results are not yet available from original source documents.
 
 **Current traceability result:** DB-001〜056 short definitions recovered from prior conversation records; 0 DB↔V082 one-to-one mappings confirmed; 0 partial mappings confirmed; duplicate candidates listed but 0 confirmed. DB-057〜124 individual definitions remain unrecovered. This is a conservative evidence status, not proof that no overlap exists.
+
+
+## 11. Entity Inventory / Canonicalization coverage audit (2026-11-21)
+
+### Entity inventory
+- Counted 23 logical entities in `V083_ENTITY_INVENTORY_GAP_REGISTER_DRAFT.md` §2.
+- Added §6 coverage matrix mapping each inventory entry to Main draft §5.3 Canonical Field Schema.
+- Result: 10 direct Schema mappings; 13 Inventory entities have no defined Schema; `OPERATION_EVENT` is a Schema row without a confirmed Inventory mapping.
+- The 13 missing schemas are not automatically UUIDv5 requirements. Identity UUID, Composite identity, Content Hash, Derived Pointer, and External event identity must be distinguished entity by entity.
+
+### Canonical vectors
+- Independently recalculated all 11 §5.3 Schema sample vectors from the documented fixed inputs and binary grammar: 11/11 exact byte match (DB_RUN/RUN_SCOPE 2/2; remaining nine rows 9/9).
+- Existing structural parser check remains 29/29 expected hex strings parsed without structural errors.
+- Neither result validates the missing 13 schemas, semantic uniqueness, per-field domain, UUIDv5 output, Namespace, or two-independent-implementation agreement.
+
+### Motor / Battery contract boundary
+- Motor: Issue #35 is the sole current specification source and explicitly prohibits a department from reconstructing missing specifications from other Issues/comments/old commits. It defines important raw-log and channel meaning boundaries but does not, in its current text, provide a complete DB entity mapping / Measurement Envelope field contract / UUID identity contract. DB must not infer those missing details from subordinate task Issues.
+- Battery: Issue #16 is an E2E Benchmark verification task, not a complete formal Battery Measurement / RawLog / Session data contract. It names CH1/CH2 independent sessions and benchmark checks but does not define the full canonical field schema, Capture terminal outcomes, or persistence identity. DB must not invent them.
+- Required next input is formal Motor and Battery data contracts from their responsible authority/central command. DB work may define adapter placeholders and explicit unresolved fields only; it may not change either device contract.
+
+### Current gate
+Canonicalization remains a proposal and unapproved. Namespace remains unapproved. Entity Inventory remains incomplete. Physical design / DDL / DB generation / Migration / Restore execution / implementation remain prohibited.
