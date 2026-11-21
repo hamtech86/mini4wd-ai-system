@@ -75,7 +75,11 @@ Session LifecycleにNOT_STARTED / IN_PROGRESS / COMPLETE / PARTIAL / FAILEDを�
 | SES-027 | DB正常利用可能時、Session生成前のNONE Measurementを登録し、その後初回ASSIGNED | Session membershipへ遡及追加しない |
 | SES-028 | 既存SessionのあるScopeでDB正常利用可能時にNONE Measurementを登録 | 登録時点で同一Scope Session membershipを固定。後日Associationでmembership変更なし |
 | SES-029 | DB unavailable中、Assignment=ASSIGNEDのCaptureを取得しDB復旧 | Anonymous Modeとして外部正本のみ。Bootstrap / DB取込 / Mirror化 / Associationを拒否 |
-| SES-030 | NONE Measurementへ2回の明示Associationを実施 | 各NONE_ASSOCIATION_CREATED Eventを不変追記。最新の検証済みEventのみCurrent Association。過去Event保持、Session membership / Assignment-at-Measurement不変 |
+| SES-030 | NONE Measurementへ初回Associationを作成 | NONE_ASSOCIATION_CREATEDを記録。AssociationOrdinal=1、Active最大1件、Assignment-at-Measurement / Session membership不変 |
+| SES-031 | Active Associationを解除 | 対応するNONE_ASSOCIATION_CLOSEDを記録。CloseReason必須。過去Event不変 |
+| SES-032 | Active Associationを別Instanceへ再関連付け | 同一Operation内で旧AssociationをCloseし、次AssociationOrdinalをCreate。Source Commitは必要Event集合を束ね、DB Mirror / Markerは同一Transaction |
+| SES-033 | Reassignment中にClose / Createの片方欠落、partial tail、順序違反、Hash mismatch | Operation / Scope QUARANTINED。元Event修復・後続Association更新禁止 |
+| SES-034 | 既にClosedのAssociationを再度Close、またはActiveがある状態で別Create | 拒否。Ordinal再利用・二重Active禁止 |
 
 これらはIssue #210決定の受入ケース案であり、実装・実行・PASSを意味しない。
 
