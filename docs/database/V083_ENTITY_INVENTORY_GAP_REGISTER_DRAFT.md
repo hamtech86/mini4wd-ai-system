@@ -340,3 +340,38 @@ Entity Inventory 23種をDB-RVの審査項目へ対応付ける。これは責�
 ### 11.4 決定待ち
 
 Fingerprintの完全Field Schema / Request IDを含むか、Latest Successfulの順序キー、Attempt Ordinal、Retry Closed Event schema / authority、Pointer更新のconcurrency保証は未承認。Main §3は変更していない。統括判断なしにState Matrix候補を規範へ昇格させない。
+
+
+## 12. RawLog durability / identity / recoveryの未閉鎖条件（DB-RV-07 / 08）
+
+### 12.1 Main §8で明記されている論理受入条件
+
+Main §8は、RawLog保存完了に対し、temporary write完了、File Handle fsync相当、temporary file read-back SHA-256、最終Path衝突確認、同一Filesystem Atomic Rename、親Directory fsync相当、final Path read-back hash、Journal completion Eventを要求する。失敗・電源断はPENDING_RECOVERYとし、部分ファイルを削除・上書きせず隔離可能に残す。同じRawLog ID / Expected Hashの再試行は冪等、同一IDの異Hash再保存は禁止。
+
+### 12.2 この条件を実行可能な契約にするため未定義の属性
+
+| 論点 | 現在の根拠 | 未定義・決定待ち |
+|---|---|---|
+| RawLog ID | Main §8のRawLog ID、Motor #35 / #170のlog_id概念 | IDの発行Authority、Scope、Entity UUIDか外部Log IDか、再利用禁止範囲 |
+| Expected Hash | Main §8のSHA-256 / Expected Hash | Hashの対象byte範囲、format/headerを含むか、canonical file representation、Hash algorithm version |
+| Final Path | Main §8のPath衝突・Atomic Rename | Path grammar、Run/Scope/Channelの包含、case sensitivity、PathからIDを導出するか |
+| Temporary File | Main §8の一時ファイル | Temp ID、作成場所、同一Filesystem判定、孤児Tempの識別、再起動時の所有者 |
+| Completion Event | Main §8のJournal完了Event | EventType / payload / expected hash / final path / Actor / timestamp / OperationIDとの関係 |
+| PENDING_RECOVERY | Main §8の失敗・電源断状態 | どの証拠でpendingと判定するか、誰が回復を開始できるか、再試行・quarantine境界 |
+| Duplicate Path / ID | Main §8–9 | 同一ID・同一Hashの別Path、別ID・同一Hashの同一Object、同一Pathの複数Manifest参照の扱い |
+| Retention / Loss | Main §§6, 8–9 | RawLog種別ごとの保持期間、複製要件、許容損失、外部保管先、削除承認主体 |
+
+### 12.3 正式契約との照合
+
+- Motor Issue #35はRawLog v1原本の保全・非変換、RawLog v2の独立Schema、保存表現等のIssue #170定義・統括承認を要求する。Issue #35 / #170の現行本文から、Main §8のすべてのfsync / rename / read-back / recovery項目がMotor v2の正式な実装契約として承認済みとは確認できない。
+- Battery Issue #16は5A E2E検証であり、Battery RawLogの完全Schema、RawLog ID / Expected Hash、durability / retention / loss toleranceを定義していない。
+- したがってMain §8はDB論理案の要求として保持するが、機器別実装が成立している・各OS/filesystemで保証される・Batteryにも同一方式を適用できるとは扱わない。
+
+### 12.4 受入試験の分離
+
+1. **論理契約試験**: ID / Hash / Path collision / same-ID-same-hash retry / same-ID-different-hash reject / completion event linkage / PENDING_RECOVERY分類。
+2. **Filesystem実証**: file fsync、directory fsync、rename atomicity、read-after-rename、電源断・process crashの各OS/filesystem組合せ。
+3. **機器別契約試験**: Motor RawLog v2とBattery RawLogの各正式Schema、Capture end、保存完了、loss toleranceに対する適合性。
+4. **Restore試験**: partial temp、final path only、completion event missing、hash mismatch、duplicate ID/path、manifest reference missingをPhase A/Bで分類し、未検証をVERIFIED扱いしない。
+
+試験条件・OS/filesystem・機器別仕様が未確定のため、上記は受入試験案であり実行済みPASSではない。
