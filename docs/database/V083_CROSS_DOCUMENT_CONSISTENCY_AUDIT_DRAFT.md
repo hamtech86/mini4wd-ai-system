@@ -595,3 +595,28 @@ Receipt Contract §3.2は初回Event以外にPrevious Event Hashを要求する�
 
 ### 28.4 訂正・状態
 本監査により、§15.2のHead一致条件は単独では不十分と判明。§20で履歴上のCommit存在・祖先関係を含む候補に限定した。Main §2.1 / §2.3は未変更。DB-RV-03 OPEN。v0.8.3未承認。
+
+
+## 29. Writer Authority / stale owner / Recovery Authorityの境界監査（2026-11-21）
+
+### 29.1 Writer競合の追加不足
+Main §2.1はPhysical Run単位の排他ロックを要求するが、Lock Owner identity、authority issuer、stale lock判定、Writer交代後の旧Writer拒否条件を定義していない。Receipt Contract §15.2の単一Writer案だけではsplit-brain防止の受入条件が閉じない。
+
+### 29.2 Authority scopeを分離
+- Physical Run外部正本のWriter Authority
+- Operation Ordinal発行Authority
+- Receipt Event Ordinal発行Authority
+- Recovery Operation発行Authority
+- Receipt Event Type（ABORTED / VERIFIED / QUARANTINED等）発行Authority
+- Shared DB transactionの競合制御
+
+これらは関連するが同一権限ではない。特にPhysical Run単位のlockを保持するだけで、Ordinal発行やRecovery / 終端Eventの権限が自動的に与えられるとは扱わない。
+
+### 29.3 論理受入候補
+同一Physical Runの外部正本に同時に有効なWriterは一つのみとし、Authorityの取得・更新・失効・交代は検証可能な証拠を残す。Writer交代後の旧Ownerが古い権限だけで更新できないことを証明する。Authority不明・複数Writer・世代矛盾は更新停止・隔離候補とする。lease / fencing token / OS lock / CAS等の具体方式は選択しない。
+
+### 29.4 Recovery Authorityの未定義
+現行資料はQUARANTINED元Receiptを編集せず新Recovery Operationで解決するとするが、誰がRecoveryを開始できるか、何を検証・変更できるか、元ReceiptのEvent Chain / Manifest Headを継続できるか、結果をどのArtifactに記録するかが閉じていない。Recovery権限が定義されるまで、Recovery Operationが元Receiptや元Manifestを修復・上書きできると推測しない。
+
+### 29.5 判定
+Writer / Ordinal / Recovery / Event Type / Shared DBのAuthorityを分離して定義する必要がある。単一WriterとRecovery Operationの存在だけではAuthority設計は完了しない。DB-RV-03 OPENを維持する。
