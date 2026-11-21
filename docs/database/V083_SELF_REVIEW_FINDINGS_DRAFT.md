@@ -406,8 +406,8 @@ Request StateとAttempt StateをMain §3.2で固定。Retry ClosedはFAILED Atte
 
 ### Issue #201との矛盾修正
 4. DB unavailableはIssue #201のAnonymous Modeとして扱う。障害期間中に有効なASSIGNED Assignment Operationは成立せず、Capture / Measurement / RawLogのAssignment-at-MeasurementはANONYMOUS（InstanceID=NULL）とする。障害期間中にLogical Session identity / DB Run / DB Session Mirrorを新規生成せず、復旧後のBootstrap / DB取込 / Mirror化 / Associationを禁止する。障害開始前から存在するLogical Session identity / Lifecycleは外部正本上の履歴として保持する。
-5. 障害前から存在するDB Run / Session identity / Session Mirrorは削除しない。障害期間中のCaptureは既存Logical Session identityが存在する場合に限り外部Manifest membershipへ記録できるが、Assignment-at-MeasurementはANONYMOUSであり、DB Session Mirror membershipへ追加せず、復旧後も遡及追加しない。
-6. 同一Physical Run内で障害中に初回ASSIGNEDを試みても、有効なAssignment Operationは成立せず、Logical Session identity / DB Runは生成しない。CaptureはAssignment-at-Measurement=ANONYMOUSとして外部正本のみで保持し、復旧後にそのRunを遡及DB管理へ変換しない。DB管理を開始する場合は新しいPhysical Runから開始する。障害前にDB Run / Session Mirrorが存在した場合はIdentityを保持するが、障害中CaptureをDB Session Mirror membershipへ追加・遡及追加しない。
+5. 障害前から存在するDB Run / Session identity / Session Mirrorは削除しない。障害前に有効AssignmentのManifest Source Commitまで検証済みでSession Mirrorのみ未確定の場合は、Recovery Authorityが同一IDでMirrorを再構築できる。障害期間中のCaptureは既存Logical Session identityが存在する場合に限り外部Manifest membershipへ記録できるが、Assignment-at-MeasurementはANONYMOUSであり、DB Session Mirror membershipへ追加せず、復旧後も遡及追加しない。
+6. 同一Physical Run内で障害中に初回ASSIGNEDを試みても、有効なAssignment Operationは成立せず、Logical Session identity / DB Runは生成しない。CaptureはAssignment-at-Measurement=ANONYMOUSとして外部正本のみで保持し、復旧後にそのRunを遡及DB管理へ変換しない。DB管理を開始する場合は新しいPhysical Runから開始する。障害前に有効AssignmentのManifest Source Commitまで検証済みでDB Run / Session Mirrorのみ未確定の場合は、Recovery Authorityが同一IDでMirrorを再構築できる。ただし障害中CaptureをDB Session Mirror membershipへ追加・遡及追加しない。
 
 ### 文書同期
 - Main v0.8.3 §1.1–1.4 / §6 / §14.1 / §14.4.17
