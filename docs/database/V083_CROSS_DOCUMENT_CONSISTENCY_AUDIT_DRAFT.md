@@ -140,3 +140,12 @@ Prior conversation records were re-queried. DB-001〜056 individual short test d
 - DB-110〜124 have range-level additional-instruction history only; individual definitions remain unrecovered.
 
 A Library search for the named 新DB設計書 v0.2 and DB requirement ranges did not surface the source document. Do not infer nonexistence from that search. Continue retrieval from prior conversation records and GitHub historical artifacts; do not ask the user to resubmit known materials.
+
+
+## 10. DB-001〜056 crosswalk candidate triage (2026-11-21)
+
+The V082 crosswalk now includes a separate candidate-overlap table for DB-008 / 012 / 014 / 017 / 031 / 034 / 046 / 051 / 055. These are semantic similarities only, not confirmed mappings. In particular, a Session-not-created outcome is not automatically identical to rejecting an explicit Session-create request; RawLog mismatch detection is not automatically identical to quarantine; and Run PARTIAL is not automatically Aggregate PARTIAL.
+
+Potential duplicates within DB-001〜056 are recorded for DB-019/035 (missing DB normal startup), DB-020/036 (explicit Bootstrap success), and DB-017/046 (analysis rerun preserves prior results). No duplicate is confirmed because exact preconditions, actions, and expected results are not yet available from original source documents.
+
+**Current traceability result:** DB-001〜056 short definitions recovered from prior conversation records; 0 DB↔V082 one-to-one mappings confirmed; 0 partial mappings confirmed; duplicate candidates listed but 0 confirmed. DB-057〜124 individual definitions remain unrecovered. This is a conservative evidence status, not proof that no overlap exists.
