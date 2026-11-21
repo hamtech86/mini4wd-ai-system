@@ -443,3 +443,14 @@ Request StateとAttempt StateをMain §3.2で固定。Retry ClosedはFAILED Atte
 - **V083-RV-04:** Main §1.4.5 / §14.1.5 / §14.4.14でNONE_ASSOCIATION_CREATED / NONE_ASSOCIATION_CLOSED、Record / Event identity、CREATED / CLOSED Payload、Active / Closed、CloseReason、REASSIGNの同一Operation内Close→Create、Source Commit、DB Marker同一Transaction、fail-closed条件、Event Authorityを定義。State Transition Matrix SES-030〜032と照合済み。仕様文書上は補完済み案、実装・権限・crash実証は未実施。
 - **V083-RV-05:** Main §8.1はDB側External Evidence Storageによる引渡し済みbyte objectの永続化に限定。Motor / Battery担当がCapture / RawLog / Schema / Outcome / Channel / Retention / Loss契約を所有する。fsync / read-back / Atomic Rename等は共通ストレージ受入条件であり、機器固有契約ではない。契約未受領byteはopaque保存のみ。Issue #35 / #170 / #16をDB側で拡張しない。
 - OS / filesystem別のdurability、SQLite crash / restore、Association Eventの実装・権限・atomicity試験は未実施。統括承認・実装許可を意味しない。
+
+## 40. MAJOR項目の自己審査状態（2026-11-21）
+
+- **NONE Session membership:** Main §1.2.6 / §14.1.4にDB部門選択案、採用理由、不採用案を明記した。統括の明示確認は未受領であり、承認済み扱いにしない。
+- **Aggregate Outcome:** Current AggregateをOutcome=COMPLETEに限定する理由をMain §14.2.3へ追記。COMPLETEは正式Capture契約が正常終端と必須Sample完了を証明した場合のみ。契約未受領時は推定せず除外。
+- **UUIDv4 / M4W-JCS-1:** Decimal negative-zero記述の矛盾を解消し、JCS期待Canonical bytes / SHA-256 vector 13件と拒否ケース10件をCanonical Audit §19に追加。二つの独立JCS実装の照合・CSPRNG実証は未実施。Entity TypeごとのIssuer Authority mappingも未完成であり、未登録EntityのID発行経路は未実装・未許可。
+- **DB-001〜124:** Evidence Ledgerで全IDの範囲履歴と個別根拠の強さを分離。REFERENCE_ONLY_NOT_EXECUTABLEは過去要求の撤回・無効化を意味しない。DB-001〜056は会話由来短縮定義、DB-057〜124は個別原文未回収。
+- **V082:** 001〜030はv0.8.2定義、031〜053はv0.8.3追加案。実装 / fixture / 実行ログは未回収。NO_MAPPINGと網羅未証明を維持。
+- **Entity Inventory:** 未受領Fieldは創作せず、Envelope / OwnerReference / PayloadReference / PayloadHash等の既知部分のみ検証。未知Payloadはopaque / reject。完全Field Schemaは未完成。
+- **Receipt Recovery:** §§1〜21を旧調査時点の履歴と明示し、Main §14.4 / 本書§22を現行規範とした。物理耐久性・Crash / Restore / fencingは未実証。
+- これらはDB部門自己審査であり、統括の承認・BLOCKER解除・実装許可を意味しない。
