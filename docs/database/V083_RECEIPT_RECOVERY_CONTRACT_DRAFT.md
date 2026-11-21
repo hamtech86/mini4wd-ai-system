@@ -722,3 +722,6 @@ Physical Run Writer Authorityを持つことと、Operation Ordinal / Receipt Ev
 - Operation Journal EventOrdinalはOperation単位で1から連続。Assignment History EventOrdinalはScope単位で1から連続。Receipt EventOrdinalはReceipt単位で1から連続。Ordinalを相互流用しない。
 - Writer Grant / ReleaseはOperation Journal EventではなくAuthority Registry Chainに記録し、(PhysicalRunID, Epoch)で識別する。
 - Event発行ActorはEventTypeごとのAuthorityを満たす必要がある。Actor / Authority proof欠落は作成拒否。
+
+- Recovery AuthorityはBootstrapで登録されたPROJECT_RECOVERY_ADMIN principalに限定。Recovery Operationは元証拠を変更せず、v0.8.3ではQUARANTINED解除を行わない。
+- Writer Grant / ReleaseはOperation Journal EventではなくAuthority Registry Chainに属する。
