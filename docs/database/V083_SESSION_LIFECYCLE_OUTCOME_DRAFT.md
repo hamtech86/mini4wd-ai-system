@@ -154,23 +154,18 @@ Sessionの表示用サマリーを設ける場合も、Measurement Outcome別件
 
 これらは提案テストIDであり、既存V082-001〜053との対応・採番統合は未実施。合格実行済みを意味しない。
 
-## 7. 未解決事項
+## 7. 決定済み処置
 
-1. Run管理側Close Operationの実行主体・起動UI・取消不可条件・監査Actorの定義。
-2. Measurement単位の正式な開始・終端EventとCOMPLETE / STOP / ERROR / CANCELの判定根拠。
-3. INCOMPLETEを確定するRecovery規則とUNKNOWN / QUARANTINEDの境界。
-4. Motor / Batteryで共通化可能なOutcome語彙と、機器固有Termination Reason。
-5. DB Run / Sessionの終端Operationと、Physical Run終端の順序、および全ScopeのCaptureが終端または明示放棄・保留となる受入条件。
-6. DB unavailable中にPhysical Run終端をどの外部正本へ記録するか。匿名RawLogの後日DB取込を意味しない。
-7. v0.8.3 §1 / §6 / §7 / §12 / V082受入表への反映時に、既存Motor/Battery正式契約を上書きしないこと。
+Issue #210 CC-01 / CC-02およびMain §14により、以下をv0.8.3の確定処置とする。
 
-## 8. 結論
+1. Session LifecycleはNOT_CREATED / OPEN / CLOSED / QUARANTINED。初回ASSIGNED時に生成し、Measurement Outcomeから独立する。
+2. Measurement OutcomeはCOMPLETE / STOP / ERROR / CANCEL / INCOMPLETE / UNKNOWN。COMPLETEは機器固有Capture契約が正常終端を証明した場合のみ。終端欠落はINCOMPLETE、開始・終端の存在や順序が不明または矛盾する場合はUNKNOWN。
+3. Run CloseはRun Manager発行のPHYSICAL_RUN_CLOSED Operationだけで成立。Actor / UI / Operation evidenceが未提供ならCloseを拒否し、SessionをOPEN維持。終端矛盾・Hash不一致はQUARANTINED。
+4. Close時は全ScopeをTERMINAL / ABANDONED / HELDのいずれかに分類。ABANDONED / HELDにはActor・Reason・時刻を必須とし、未確定MeasurementをCOMPLETEに読み替えない。
+5. 初回ASSIGNED前のNONEとANONYMOUSは外部正本のみ。初回ASSIGNED後のNONE Measurementは既存DB管理下にある場合のみSessionに所属し、明示Associationの対象になり得る。ANONYMOUSは後日取込禁止。
+6. Current AggregateはAssignment-at-MeasurementがASSIGNEDかつ現在Instanceと一致し、Outcome=COMPLETEのMeasurementだけを対象とする。NONEはHistorical Analysisに明示指定された場合のみRETROSPECTIVE_NONEとして扱い、Current Aggregateへ入れない。
+7. 機器固有Termination Reasonは原形保存。正式Mappingがない値をDB側で推測分類しない。
 
-Issue #210のCC-01統括判断に従い、Session Lifecycle（NOT_CREATED / OPEN / CLOSED / QUARANTINED）とMeasurement Outcome（COMPLETE / STOP / ERROR / CANCEL / INCOMPLETE / UNKNOWN）を完全に分離する。Measurement Outcomeの混在からSession Lifecycleを導出しない。
+## 8. Decision Baseline
 
-CLOSEDはRun管理側の明示的Close Operationが外部正本に記録され、その記録と依存参照を検証できた場合に限る。これは論理Run管理イベントであり、機器プロトコル・STOP ACK・最終Telemetry・アプリ終了等を変更・代用する指示ではない。Close Operationの詳細とMeasurement Capture終端契約は引き続き照合対象である。
-
-本資料はCC-01の判断反映案であり、v0.8.3全体の承認、物理設計、DDL、DB生成、Migration、実装を許可しない。
-
-
-補足: V082-001〜005 / 007にあるNOT_STARTED / COMPLETED / PARTIAL / IN_PROGRESS / FAILED等のSession集約期待値は、Issue #210 CC-01で現行Lifecycleとして廃止された旧案である。これらの語彙をSession Lifecycleへ再導入しない。現行受入ケースはSES-017〜024を含む本書のCC-01契約を優先する。
+この文書の旧「未解決」表現はMain §14の決定により置換された。残っているのはRun Manager / Motor / Batteryの正式契約受領と実証試験だけであり、設計判断は未決定として扱わない。未契約・未実証時の固定動作はClose拒否、UNKNOWN / INCOMPLETE、OPEN維持、QUARANTINED、Current Aggregate除外のいずれかとする。
