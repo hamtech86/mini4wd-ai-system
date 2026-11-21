@@ -288,3 +288,64 @@ IntentがReceiptを決定的に再構成できる完全なOperation Planを保�
 6. 上記を統括審査へ提出。承認後にのみ物理設計の検討を開始する。
 
 **現時点の判定:** DB-RV-03は未解決。論理条件の不足と物理実証の不足を分離できたが、いずれも合格・完了とはしない。
+
+
+## 14. Main §2.1 項目単位照合と同期差分案（2026-11-21）
+
+### 14.1 照合範囲・判定方法
+
+Main draft §2.1「正規順序」および同節直後の補足文を、Receipt Recovery Contract §§2〜4、§6、§7と項目単位で照合した。ここでの「一致」は両文書に同じ論理要件が明記されていることを指し、実装・耐久性の実証を意味しない。「部分」は関連要素があるが再構成・検証に必要な定義が欠ける状態、「未記載」はMain §2.1に規定がない状態である。
+
+### 14.2 Traceability Matrix
+
+| Main §2.1の現行記述 | Receipt補助契約の対応箇所 | 判定 | 差分・扱い |
+|---|---|---|---|
+| 1. Physical Run単位の排他ロック、Journalと直近Ordinal検証 | §2 Operation Plan / §6 lock・Ordinal論点 | 部分 | Receipt補助契約はPhysical Run排他を前提にするが、lockのauthority、stale lock、fencing、Ordinal発行主体・消費点は未確定。物理方式は保留し、論理上の単一writer要件を別途閉じる必要がある。 |
+| 2. Operation ID / Ordinal / Intent Payload / Intent Hashを確定 | §2 最低限Intent Plan、§3.1 Envelope | 部分 | Mainの4項目に加え、Receipt再構成に必要なOperation Type、Target Entity Type/ID、Actor/Initiator、Explicit Intent Reference、Canonicalization / Payload Schema Version、Expected source object/revision、Manifest predecessor/head等が補助案に列挙される。Plan完全性と各fieldのauthorityは未確定。 |
+| 3. Journal Intentを追記・永続化し、完了時にOrdinal消費 | §2 Operation Plan確定・Intent immutable、§6 crash matrix | 部分 | MainはOrdinal消費点をIntent永続化完了時とする。補助案はIntent書込み中の部分状態・検証不能時の隔離を追加するが、Ordinalの発行主体・予約・消費の一意な規則は未確定。 |
+| 4. Receipt PREPARED作成。Receipt IDをOperation IDから決定的導出。Operation ID / Ordinal / Intent Hash / Expected Source Payload Hashes / Expected DB Marker Hash / Target Entity ID / Canonicalization Version | §§2, 3.1 | 部分 | 共通項目はある。補助案はPhysical Run ID、Plan Hash、Expected Source Manifest Head、Envelope Schema Version、Created At、Envelope Hash等を追加。Receipt IDの導出アルゴリズム・入力・version・衝突/再発行規則は両文書とも未定義。UUIDv5を採用済みと解釈しない。 |
+| 5. Receipt本体・親Directory永続化、PREPARED Event追記・永続化 | §§3.1, 3.2, 4, 6 | 部分 | 補助案はEnvelopeとEventを分離しStateをEvent Chainから導出する。Mainの「Receipt本体」がEnvelopeのみか、Eventを含む格納単位かは明示されていない。PREPARED Eventの部分書込み、Ordinal消費、同一Event補完条件は未確定。 |
+| 6. Sourceの不変Revision書込み、File fsync/Hash検証、Manifest/Head原子的更新 | §§3.1, 4, 5, 6 | 部分 | 補助案はExpected Source Manifest Head / predecessorとSource Commit検証を要求する。Expected predecessorとHeadの競合拒否・CAS相当条件は未定義。fsync・atomic updateのOS/filesystem保証は物理設計へ留保。 |
+| 7. Source Revision / Manifest Hashを読戻し、Expected Source Payload Hashesと照合しSOURCE_COMMITTED Event | §§3.1, 3.2, 4, 6 | 部分 | Event Chainの完全性・部分Tail・Ordinal・Hash Chainの補完条件が不足。SOURCE_COMMITTED Event欠落の補完方針はあるが、破損Tailを含む場合の受入条件は未確定。 |
+| 8. DB Mirror変更とOperation Markerを同一TransactionでCommit。MarkerにOperation ID / Ordinal / Intent Hash / Receipt ID / Source Commit Hash / DB Commit Payload Hash | §7 | 部分 | 補助案のMarker項目はPhysical Run ID、Source Manifest Head、Expected DB Marker Payload Hash、Target Entity Type/ID、DB Mirror Schema Version等を含む。MainのDB Commit Payload Hashと補助案のExpected DB Marker Payload Hashの意味・Hash対象が同一か未定義。 |
+| 9. Commit結果を読戻し、MarkerとJournal / Receipt / Source Commit Hashを照合 | §§6, 7 | 部分 | Marker一致/不一致/不存在時の方向性はあるが、「不存在かつrollback確認」のDB読戻し一貫性・Isolation前提は未定義。読戻し確定不能時はSOURCE_COMMITTEDのまま保留する扱いを維持。 |
+| 10. DB_COMMITTED Event追記・永続化 | §§3.2, 4, 6, 7 | 部分 | Marker照合後に同一ReceiptへEvent補完する方針は一致。Event部分書込み・Ordinal消費・有効Tail判定は未確定。 |
+| 11. Journal / Marker / Receipt / 関連外部正本再検証 | §§4, 6, 7 | 部分 | 補助案は全依存Hash検証を要求するが、依存集合の閉包・列挙authority・Hash自己参照除外が未定義。 |
+| 12. VERIFIED Event追記・永続化 | §§3.2, 4, 6 | 部分 | VERIFIEDを終端不変とする点は一致。VERIFIED Event自体の部分書込み時にVERIFIEDを認定しない原則はあるが、同一Ordinalでの補完可否・Event Tail確定規則は未確定。 |
+| 13. 全永続化・照合成功後に排他ロック解放 | §6 lock / Recovery論点 | 部分 | ロック解放の前提は一致するが、クラッシュ後のstale lock、fencing、同一Operation/Receiptへの二重Recovery writer防止は未定義。 |
+| Main §2.1に明示なし | §3.1 Envelope Schema / §3.2 Event Schema | 未記載 | Envelope Schema Version、Envelope Hash、Event Ordinal、Previous Event Hash、Event Payload、Event At、Actor / Recovery Operation IDの条件、Event HashがMain §2.1に現れない。補助契約だけでMainの規範的欠落が解消したとは扱わない。 |
+| Main §2.1に明示なし | §5 Source Commit不存在の証明 | 未記載 | ABORTEDを許可する積極的証拠条件、Operator中止Intent、保留とQUARANTINEDの境界がMain §2.1には記載されていない。Main §2.2/§2.3との同期も要確認。 |
+
+### 14.3 同期差分の分類
+
+**文書間で方向性が一致している項目**
+- Journal IntentをReceiptより先に永続化する。
+- Receipt PREPAREDはSource Commit / DB Commitより前に存在する。
+- Source Commit後はABORTEDへ戻さず、同一OperationでDB Mirrorを再開する。
+- DB MarkerとDB Mirror変更は同一Transactionとする。
+- VERIFIED / ABORTEDは終端不変、QUARANTINEDの解決は新Recovery Operationとする。
+
+**Main §2.1へ追記候補だが、内容確定前に決定が必要な項目**
+- Operation Planの完全field listと、Intent永続化前の検証条件。
+- Receipt EnvelopeとReceipt Eventの別個の証拠境界、およびMainの「Receipt本体」の意味。
+- Receipt ID導出規則（UUIDv5を前提にしない）。
+- Envelope / Event / MarkerのHash対象、自己Hash除外、相互参照Hash生成順。
+- Event Ordinalの発行authority・消費点・gap・partial append・補完条件。
+- Manifest predecessor / Headの競合条件。
+- DB Marker不存在を確定できない場合の保留規則。
+- ABORTEDの積極的不存在証明と明示中止Intent。
+
+**この段階でMain §2.1へ転記してはならない項目**
+- 未承認のReceipt IDアルゴリズムやNamespace。
+- 未定義のHash計算範囲・自己参照除外。
+- 未確定のEvent Ordinal予約/補完方式。
+- 未確定のManifest競合時の自動回復方式。
+- fsync / atomic rename / SQLite Isolation等の物理保証。
+
+### 14.4 変更提案の結論
+
+現時点ではMain §2.1を編集しない。理由は、補助契約がMainより詳細な項目を提案している一方、その一部はauthority・Hash範囲・Ordinal・競合条件が未決定であり、Mainへそのまま転記すると未承認事項を規範化するためである。
+
+次の論理設計作業は、14.3の未決定項目を個別に閉じ、Main §2.1・§2.2・§2.3と補助契約を同時に改訂できる変更表を作成すること。物理耐久性・filesystem / SQLiteの実証は論理受入条件の確定後に別工程とする。
+
+**状態:** Main §2.1との項目照合は完了。同期差分は可視化したが、DB-RV-03は未解決。Main本文への反映・承認・実装許可を意味しない。
