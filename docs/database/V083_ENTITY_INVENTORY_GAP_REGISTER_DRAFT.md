@@ -22,7 +22,7 @@
 | RUN_SCOPE | 外部正本 + DB Mirror | PhysicalRunID、ScopeKey | Physical Run内ScopeKey一意 | ScopeKey語彙/長さ/正規化、初期Snapshot参照、Scope lifecycle |
 | Assignment Snapshot | 外部正本 + DB Mirror | Revision、State、InstanceID、Scope参照 | ASSIGNEDならInstanceID必須、NONE/ANONYMOUSならNULL。Snapshot不変 | Snapshot ID、Operation ID、時刻、Actor、前Revision Hash、理由、複合一意制約 |
 | Assignment History / Event | 外部正本 + DB Mirror | Assignment遷移履歴、Operationとの関係 | 追記のみ、Current Assignmentは最新Snapshotから導出 | Event/Historyを別Entityにするか、Snapshot内に統合するか、Event ordinal/hash schema |
-| Session | DB Mirror（外部正本のScope/Run履歴に基づく） | SessionID(UUIDv5)、PhysicalRunID、ScopeKey、Lifecycle案 | Scopeにつき最大1件。初回ASSIGNEDで生成し以後保持 | Session statusはMeasurement集合から単純導出しない案。Run Close Event根拠、終了理由、作成/閉鎖Operation |
+| Session | DB Mirror（外部正本のScope/Run履歴に基づく） | SessionID(UUID候補・Namespace未承認)、PhysicalRunID、ScopeKey、Lifecycle | Scopeにつき最大1件。初回確定ASSIGNEDで生成し以後保持。LifecycleはNOT_CREATED（未生成状態）/ OPEN / CLOSED / QUARANTINED。Measurement Outcomeから導出しない | 明示Close Operation / 外部正本Close記録・依存参照検証、Close受入条件、作成/閉鎖Operation参照、NONE既存DB管理MeasurementのSession membership規則 |
 | Measurement Envelope | 外部正本 + DB Mirror | MeasurementID、PhysicalRunID、ScopeKey、MeasurementType、BenchmarkType、Purpose、StartedAt、EndedAt、Status、TerminationReason、Assignment Snapshot Ref/Revision/State/InstanceID、Profile Snapshot refs、RawLog/Sample refs、Canonicalization Version、Envelope Hash | 測定時Assignment必須・不変。ASSIGNEDならInstanceID必須、他状態ならNULL | 正式Outcome語彙、開始/終了Event、時刻精度/clock source、StatusとIntegrity分離、必須/任意属性全体 |
 | Measurement Profile Snapshot | 外部正本 + DB Mirror | Measurementが参照する不変Profile Snapshot、Snapshot Hash | Hash検証後にMirror再生成 | Snapshot種別、ID、Profile schema/version、値/単位/校正、FKと保持規則 |
 | RawLog Object / RawLog Reference | RawLog本文は外部正本、ReferenceはDB Mirror | PhysicalRunID、ScopeKey、LogID、RawLog本体/Reference Manifest | 本文Hash一致後に参照Mirror生成。原本変更禁止 | RawLog種別ごとの必須耐久性、schema/version、path/URI、capture state、欠損/retention/owner |
@@ -45,7 +45,7 @@
 
 1. Physical Run IDとDB Run IDは別UUID。
 2. DB RunはPhysical Runにつき最大1件。
-3. SessionはRUN_SCOPEにつき最大1件。最初のASSIGNEDで生成し、NONE / ANONYMOUS遷移で削除しない。
+3. SessionはRUN_SCOPEにつき最大1件。初回確定ASSIGNEDで生成し、NONE / ANONYMOUS遷移で削除しない。LifecycleはNOT_CREATED（未生成状態）/ OPEN / CLOSED / QUARANTINED。Measurement Outcomeから導出しない。CLOSEDはRun管理側の明示Close Operationと外部正本・依存参照の検証が必要。
 4. Assignment Snapshotは不変。ASSIGNED / NONE / ANONYMOUSとInstanceIDのNULL条件を相互排他にする。
 5. Measurement EnvelopeはAssignment-at-Measurementを必須保持する。
 6. Current Aggregateは現在ASSIGNED、測定時ASSIGNED、測定時Instanceと現在Instanceの一致を要求する。
@@ -66,8 +66,9 @@
 - ON DELETE / ON UPDATEの物理設定、および論理的削除禁止の例外。
 - 多態参照（Artifact Input等）の全参照型・存在検証方法。
 - RawLog ObjectとRawLog Referenceの所有・複数Measurement共有・保持期間。
-- Measurement OutcomeとSession Lifecycleの正式契約。
-- PHYSICAL_RUN_CLOSED Eventの既存一次根拠。
+- Run管理側の明示Close OperationのActor / UI / 取消・受入条件と外部正本契約。
+- NONEの後日明示Association対象Measurementが既存Sessionへ所属する条件・監査参照（新規Mirror生成なし）。
+- Measurement固有Capture終端契約とOutcome確定根拠。PHYSICAL_RUN_CLOSEDは既存機器EventではなくRun管理側の論理Event。
 - Aggregate Pointerの並行更新と再構築順序。
 - EntityごとのCanonical Name Field Schema完全版とgolden vectors。
 - Namespace候補の既存利用有無・統括承認。
