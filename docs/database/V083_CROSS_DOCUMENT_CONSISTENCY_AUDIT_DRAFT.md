@@ -387,3 +387,29 @@ Main §2.1本文は変更していない。補助契約の追加項目をその�
 次の論理作業は、Receipt Contract §14.3に列挙した未決定事項を個別に閉じ、Main §2.1 / §2.2 / §2.3と補助契約を同期改訂するための変更表を作成すること。未承認アルゴリズム・Namespace・Hash規則・物理保証を先行採用しない。
 
 **監査結論:** 項目照合は完了したが、同期完了ではない。DB-RV-03はOPENのまま。v0.8.3承認、Main反映、物理設計、DDL、DB生成、Migration、Restore、実装、PR、main反映を許可しない。
+
+
+## 20. Receipt Recovery / Main §2.1〜§2.3 同期決定台帳の追加（2026-11-21）
+
+Receipt Recovery Contract §15に、Main §2.1（正規順序）/ §2.2（Receipt State）/ §2.3（Crash Recovery）を同時改訂するための同期変更表と論理決定台帳を追加した。
+
+### 追加した整理
+- Operation / Event Ordinal Authority、単一Writer、部分Tailの扱い
+- Intent Plan完全性とReceipt Envelope再構成条件
+- PREPARED Event欠落・部分書込み時の補完境界
+- Manifest predecessor / Head競合の拒否・隔離条件
+- DB MarkerとMirrorのPayload Hash同一性、Commit結果不明時の保留
+- VERIFIED判定における依存参照閉包
+- Intent / Plan / Envelope / Event / Marker Hashの自己参照除外範囲
+- Receipt ID決定的導出とUUIDv5 Namespace未承認の境界
+- 論理決定と物理方式・耐久試験の責任分離
+
+### 判定
+- Main §2.1〜§2.3本文は変更していない。
+- 現行資料から導ける安全側規則を候補として記録したが、未承認事項を規範化していない。
+- Receipt ID、Hash範囲、Ordinal Authority、Manifest競合、DB Marker不存在の確定条件は未決定。
+- DB-RV-03はOPEN。文書上の変更表作成は進捗であり、Blocker解消ではない。
+- fsync / atomic rename / SQLite durability / crash injectionは物理・実装段階へ保留し、未実施をPASS扱いしない。
+
+### 承認境界
+v0.8.2 ORANGE / v0.8.3未承認、UUIDv5 Namespace未承認・未採用を維持。DDL / DB生成 / Migration / Restore実行 / 実装 / PR / main反映 / mergeなし。
