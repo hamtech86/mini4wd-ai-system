@@ -953,3 +953,30 @@ Request StateをOPEN / SUCCEEDED / FAILED / CANCELLED / INDETERMINATEに固定�
 - この修正は論理文書の同期である。DB Manager実装、Assignment発行Authorityの実装試験、Manifest Commit実証、DB unavailable実機試験は未実施。
 - Issue #201 / #210の承認範囲を拡張しない。物理設計 / DDL / DB生成 / Migration / Restore実行 / 実装 / PR / main反映は禁止継続。
 - V083-RV-01〜03はDB部門の自己評価であり、統括のBLOCKER解除判断ではない。
+
+## 39. V083-RV-04 / 05 Association・External Storage境界の照合（2026-11-21）
+
+### 39.1 V083-RV-04 — NONE Association再関連付け履歴
+Main §1.4.5 / §14.1.5 / §14.4.14を照合した。
+- Event RegistryにはNONE_ASSOCIATION_CREATEDとNONE_ASSOCIATION_CLOSEDの両方が明示登録されている。
+- Record identityは(MeasurementID, AssociationOrdinal)。Event identityは(OperationID, EventOrdinal)。AssociationOrdinalはMeasurement単位で1から連続し、再利用しない。
+- CREATED / CLOSED Payloadの必須項目をそれぞれ定義。CLOSEDはPreviousCreatedEventRef、ActorID、ClosedAtUTC、CloseReasonを含む。
+- Active / Closed状態、Measurement単位Active最大1件、Close対象の現Active ordinal、CloseReason必須を定義。
+- REASSIGNは同一Operation内でCLOSED→次Ordinal CREATEDの順。Operation PlanはCREATE / REASSIGN / CLOSEと必要Event集合を事前固定する。
+- Source Commitは必要Event集合全体を束ね、DB MirrorのActive AssociationとOperation Markerは同一DB Transactionで反映する。欠落・順序違反・partial tail・Hash不一致・Commit結果不明はQUARANTINEDとし、元Eventを補修しない。
+- Event Authorityは当該Physical Run / Scopeの認証済みDB Session Managerに限定し、権限証拠なしのEventを拒否する。
+- State Transition MatrixのSES-030〜032も初回作成・Close・再関連付けを同じ期待結果で定義する。
+- **判定:** 仕様上の不足はMain / Matrixで補完済み。V083-RV-04はDB部門修正済み案・統括再審査待ち。実装・権限・Transaction atomicity / crash試験は未実施。
+
+### 39.2 V083-RV-05 — RawLog durabilityの責務境界
+Main §8.1を照合した。
+- 適用範囲はDB側External Evidence StorageがProducerから引き渡された確定byte objectを外部正本として永続化する段階に限定。
+- Device / Capture Owner（Motor / Battery担当）がCapture開始・終了、RawLog framing / Field Schema / Version、Sample境界、Outcome、Channel分離、Retention / Loss契約を定義する。DB部門は補完・代替しない。
+- External Evidence Storage Authority（DB側）は引渡し済みbyte objectの不変保存、Object ID / Content Hash / Path collision / 永続化検証を担当する。保存成功からCapture正常完了・Measurement COMPLETEを推定しない。
+- fsync / read-back Hash / Atomic Rename / directory fsync / final read-backは、引渡し済みobjectに対する共通ストレージ受入条件。Motor / Battery固有Capture・RawLog契約ではない。
+- 完全なObject境界またはDevice Capture契約が未提示ならopaque fragmentとして保全し、完全RawLog / COMPLETE / Feature Extraction / Aggregate入力を宣言しない。
+- Issue #35をMotor仕様正本、Issue #170をRawLog v2作業範囲として維持。Issue #35 / #170にない機器固有durability / retention保証を追加しない。Battery Issue #16は5A E2E検証範囲であり、完全なCapture / RawLog durability契約とは扱わない。
+- **判定:** Main §8.1 / §14.6.5および本書§37.5の責務境界で論理的な適用範囲を分離。V083-RV-05はDB部門修正済み案・統括再審査待ち。OS / filesystem別のdurability実証は未実施。
+
+### 39.3 承認・実証境界
+本節は仕様文書の照合結果であり、Motor / Batteryの機器契約を変更しない。fsync相当操作の実効性、Crash / Restore、Event atomicity、権限実装のPASSは宣言しない。DDL / DB生成 / Migration / Restore実行 / 実装 / PR / main反映は禁止継続。
