@@ -232,7 +232,22 @@ Assignment Snapshot Referenceは測定開始確定時点で有効な不変Snapsh
 
 ## 8. RawLog耐障害完了条件の補足
 
-RawLogの保存完了は、同一ファイルシステム内のAtomic Renameだけでは成立しない。論理受入条件として以下を要求する。
+### 8.1 適用範囲・責務境界
+
+本節は**DB側のExternal Evidence Storageが、Producerから引き渡された確定byte objectを外部正本として永続化する段階**にのみ適用する。以下の機器固有仕様を定義・代替しない。
+
+- Motor / BatteryのCapture開始・終了条件、Serial protocol、RawLog framing / Field Schema / Version、Sample境界、正常完了・中断・異常の判定。
+- CH1 / CH2の取得境界・Channel判定・RawLog生成規則。
+- Device固有のRetention、許容損失、再取得可否。
+
+責務Authorityを次のように分離する。
+1. **Device / Capture Owner（Motor / Battery担当）**: Capture範囲、RawLog byte列の生成・終端、Schema、Measurement Outcome、Channel分離、機器固有Retention / Loss契約を定義する。DB部門はこれらを補完しない。
+2. **External Evidence Storage Authority（DB側論理責務）**: 引渡し済みbyte objectを変換せず保存し、Object ID / Content Hash / Path collision / 永続化検証を管理する。保存成功はCapture正常完了やMeasurement COMPLETEの証明ではない。
+3. **Run Manager**: Storage Authorityの永続化証拠を確認し、Manifest / JournalへのSource Commitを記録する。Storage側のread-back成功だけでCapture Outcomeを決めない。
+
+Producerが完全なObject境界を正式に提示しない場合、受領byteはopaque evidence fragmentとしてのみ保全できる。完全なRawLog / Measurementとしての終端、Outcome=COMPLETE、Feature Extraction、Aggregate入力を宣言しない。未知Schema / 未受領Capture契約のbyteは解析・再構成・補完しない。
+
+以下のfsync / read-back / rename条件は、External Evidence Storageが受領済みobjectを永続化するための**共通ストレージ受入条件**であり、Motor / Battery固有のCapture・RawLog契約ではない。
 1. 一時ファイルの全内容を書き終え、File Handleに対してfsync相当の永続化要求を行う。
 2. 一時ファイルを読み戻してSHA-256を再計算し、期待Hashと一致させる。
 3. 最終Pathが未使用であることを確認する。同一Pathが存在しHash一致なら既存正本として参照可能、Hash不一致なら上書きせずQUARANTINED。
