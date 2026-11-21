@@ -400,7 +400,7 @@ Request StateとAttempt StateをMain §3.2で固定。Retry ClosedはFAILED Atte
 ### SR-12 / SR-16 / SR-18の閉鎖
 1. Issue #210 CC-02が許可したNONE後日Associationを、既存DB管理Measurementに対する明示的なInstance関連付け履歴として定義した。AssociationはAssignment-at-Measurementを変更せず、Current Aggregateへ算入せず、Session membershipも変更しない。
 2. Session membershipはMeasurement Mirror初回登録時点で同一Physical Run / ScopeのSessionが存在する場合に固定する。Session生成前のNONE Measurementは後日の初回ASSIGNED後もSessionへ遡及所属しない。Session生成後のNONE Measurementは登録時点でmembershipを固定する。
-3. NONE AssociationのEvent Authorityは、Session Entityの存在有無で発行権限を失わないよう、当該Physical Run / Scopeの認証済みDB Session Managerとした。これはEvent発行Authorityの論理定義であり、実装・権限実証済みを意味しない。
+3. NONE AssociationのEvent Authorityは、Session Entityの存在有無で発行権限を失わないよう、当該Physical Run / Scopeの認証済みDB Session Managerとした。Event RegistryにはNONE_ASSOCIATION_CREATED / NONE_ASSOCIATION_CLOSEDを登録。AssociationOrdinal・Active / Closed・CloseReason・再関連付け順序・Source CommitのEvent集合・DB Marker同一TransactionをMain §14.1.5で定義した。これは論理Authority / 原子性契約であり、実装・権限・crash実証済みを意味しない。
 
 ### Issue #201との矛盾修正
 4. DB unavailableはIssue #201のAnonymous Modeとして扱う。障害期間中に取得されたCapture / Measurement / RawLogはAssignment-at-MeasurementがASSIGNEDであっても外部正本のみとし、復旧後のBootstrap / DB取込 / Mirror化 / Associationを禁止する。
