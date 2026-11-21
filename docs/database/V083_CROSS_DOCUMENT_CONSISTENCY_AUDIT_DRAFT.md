@@ -878,7 +878,7 @@ Request StateをOPEN / SUCCEEDED / FAILED / CANCELLED / INDETERMINATEに固定�
 
 ### 37.1 DB unavailableはAnonymous Mode
 - Issue #201はDB unavailable動作を既存Anonymous Modeへ統合し、障害期間中のRawLog / Captureをローカル外部正本へ保全する一方、後日DB取込・Instance再紐付けは将来の別設計範囲としている。
-- よってDB unavailable期間はAssignment-at-MeasurementがASSIGNEDであってもAnonymous Modeとして扱う。DB Run / Session Mirror / Measurement Mirrorを作成せず、障害期間中のCapture / Measurement / RawLogを復旧後にBootstrap・取込・Mirror化・Associationしない。ただしCC-01に従い、初回ASSIGNED時の論理Session identityは外部Run ManifestへUUIDv4で生成し、Logical Session Lifecycleを外部正本で保持する。DB Session Mirrorは障害中に生成せず、復旧後も同一Runへ遡及生成しない。
+- よってDB unavailable期間はAssignment-at-MeasurementがASSIGNEDであってもAnonymous Modeとして扱う。DB Run / Session Mirror / Measurement Mirrorを作成せず、障害期間中のCapture / Measurement / RawLogを復旧後にBootstrap・取込・Mirror化・Associationしない。ただしCC-01に従い、Run Managerが初回ASSIGNED Assignment Operation確定時にUUIDv4の論理Session identityを発行して同じ外部Run Manifest Commitへ記録し、Logical Session Lifecycleを外部正本で保持する。DB Session Mirrorは別IDを発行せず同一IDを使う。DB Session Mirrorは障害中に生成せず、復旧後も同一Runへ遡及生成しない。
 - 障害前にDB Run / Session Mirrorが存在した場合、そのIdentityと履歴は保持する。障害期間のCaptureは外部Logical Session identityが存在すれば外部Manifest上のmembershipへ記録できるが、DB Session Mirror membershipへは追加せず、復旧後の遡及追加もしない。
 - 同一Physical Run内で障害期間に初回ASSIGNEDとなった場合、論理Session identityは外部Run Manifestへ生成するが、復旧後に同一RunをDB管理へ遡及変換しない。同一Run内のDB管理再開契約は本版対象外とし、新しいPhysical RunからDB管理を開始する。
 
