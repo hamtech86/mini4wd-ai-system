@@ -246,3 +246,45 @@ IntentがReceiptを決定的に再構成できる完全なOperation Planを保�
 - したがってReceipt Recovery Contractは完成扱いにせず、DB-RV-03解消済みとも判定しない。
 
 次の作業は、上記の未カバー点を論理要件・物理耐久契約・未受領の外部仕様に分け、Main draftと補助資料の同期差分を作成することである。実装・DDL・DB生成・Migration・Restore実行は禁止境界を維持する。
+
+
+## 13. 未解決事項の責任境界と閉鎖順序（2026-11-21追加）
+
+本節は§10 / §12の未解決事項を、論理設計で決める事項と、物理方式・実装証拠がなければ決められない事項に分ける。未決事項を推測で埋めず、論理承認前に必要な判断と、物理設計ゲートへ送る判断を混同しない。
+
+### 13.1 論理設計段階で閉じる必要がある事項
+
+| 項目 | 現在の根拠 | 論理段階の完了条件 | 現在の扱い |
+|---|---|---|---|
+| Intent完全性 | §2に最低Plan項目、Main §2.1はIntent Payload/Hashのみ | Receipt再構成に必要な全入力・参照・期待Hashを列挙し、Main §2.1と同一契約にする | 未完了。Main同期が必要 |
+| Receipt ID導出 | Main / 本書にOperation IDから決定的導出とある | 方式・入力・versioning・衝突/再発行規則を定義し、Namespace未承認のUUIDv5を前提にしない | 未承認 |
+| Event identity / Ordinal | Receipt内Ordinal単調増加、gap拒否、再利用禁止の記述あり | Ordinalの権威ある発行主体、消費点、欠番・部分Eventの状態規則を決める | 未完了 |
+| Event partial append | §12.2で部分Tailを未定義と確認 | 完全性検証に失敗したEventをStateへ採用しないこと、同一Eventを補完できる条件、補完不能時の隔離条件を論理的に定義 | 未完了 |
+| 同一Operation並行実行 | Physical Run lockの記述あり。Receipt単位fencing未定義 | 同一Operation / Receiptの二重writerを禁止し、競合時に先行/後続をどう判定するかを定義 | 未完了 |
+| Manifest Head競合 | predecessor検証は記述あり | Expected predecessorから異なるHeadが観測された場合、上書きせず競合として扱う判定規則を定義 | 未完了 |
+| DB Commit結果不明 | Marker読戻しの記述あり | Marker不存在を確定できない場合は保留し、確定可能な場合のみ同一Operation再試行とする抽象条件を定義 | 部分。読戻し前提が未定義 |
+| Envelope / Event Hash範囲 | Canonical serialization / Hash記述あり | 自己参照除外、相互Hash依存、version、必須/禁止fieldを確定しGolden Vectorを提示 | 未完了 |
+| Receipt / Journal Entity境界 | Envelope/Event/Intentの概念分離あり | ID・属性・Authority・Cardinality・Retention・Recovery責務をEntity Inventoryと一致させる | 部分 |
+
+### 13.2 物理設計・実装段階まで保留する事項
+
+以下は論理的な受入条件を先に定める必要があるが、具体的な方式や実証は物理設計・実装・耐久試験なしに確定しない。
+
+- File fsync、親Directory fsync、atomic rename / head switchの具体的保証と対象OS / filesystem。
+- 部分書込みTailの検出・切り分け・保存・修復方法。原本の切捨てや上書きは論理許可なしに行わない。
+- SQLite transaction isolation / synchronous設定 / WAL運用 / power-loss durabilityと、別接続からのread-after-commit実証。
+- Lock lease / stale lock回復 / fencing tokenの実装機構とプロセス・電源断時の競合試験。
+- 実際の電源断・プロセスkill・I/O error・DB unavailableを用いたcrash injection試験。
+
+本段階では実装・DDL・DB生成・Migration・Restore実行を行わない。これらの物理方式を仮定して論理要件を合格扱いにしない。
+
+### 13.3 閉鎖順序
+
+1. Main §2.1と本書§2 / §3 / §4 / §6のOperation Plan・Envelope・Event属性を項目単位で同期する。
+2. IntentからEnvelopeを再構成する決定性、Receipt ID導出、Hash対象・自己参照除外を論理契約として確定する。
+3. Event Ordinal / partial append / same-operation writer / Manifest Head競合の抽象受入条件を確定する。
+4. DB read-after-commitが成立しない/証明できない場合の保留条件を明文化する。
+5. Entity Inventory 23種のうちJournal / Receipt / Marker / Recovery関連Entity境界と整合させる。
+6. 上記を統括審査へ提出。承認後にのみ物理設計の検討を開始する。
+
+**現時点の判定:** DB-RV-03は未解決。論理条件の不足と物理実証の不足を分離できたが、いずれも合格・完了とはしない。
