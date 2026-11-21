@@ -899,7 +899,14 @@ Request StateをOPEN / SUCCEEDED / FAILED / CANCELLED / INDETERMINATEに固定�
 - outage前からDB Run / Sessionが存在する場合はIdentityを保持するが、outage中Captureの後日取込は禁止する。
 - outage中の初回ASSIGNED後に同一Run内でDB管理へ移行する手順は現行契約に存在しないため、本版では許可せず、新しいPhysical Runを要求する。
 
-### 37.5 受入ケース（未実行）
+### 37.5 External Evidence StorageとDevice Captureの責務境界
+- Main §8.1は、DB側External Evidence StorageがProducerから引き渡された確定byte objectを永続化する段階に限る共通受入条件として位置付ける。
+- Device / Capture Owner（Motor / Battery担当）はCapture開始・終端、RawLog framing / Schema / Version、Sample境界、Outcome、Channel分離、機器固有Retention / Loss契約を所有する。DB部門は補完しない。
+- External Evidence Storage Authorityは引渡し済みbyteの不変保存、Object ID / Hash / Path / durability検証を担当し、保存成功からCapture正常完了・Measurement COMPLETEを推定しない。
+- Run ManagerはStorage証拠を検証してManifest / Journal Source Commitを記録する。
+- Capture境界が未契約の場合、受領byteはopaque fragmentとしてのみ保全し、完全RawLog / COMPLETE / Feature Extraction / Aggregate入力を主張しない。
+
+### 37.6 受入ケース（未実行）
 | ID | 条件 | 期待結果 |
 |---|---|---|
 | XDC-001 | DB outage中にASSIGNED Measurementを取得 | 外部正本のみ。DB Mirrorなし |
