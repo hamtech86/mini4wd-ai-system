@@ -334,3 +334,15 @@ Main §3とState Matrix §5の読み合わせで、Current Valid判定がInput S
 **対応:** Entity Inventory §11とCross-document Audit §33へ、Fingerprint identityとRequest identityの分離、未決定の代替案、最低限維持できる不変条件を記録した。
 
 **決定待ち:** Request IDをFingerprintに含めるか、Full fingerprint fieldsを保存するか、Attempt / Result順序キー、Retry Closed Event / authority、Pointer concurrency。Main §3は未変更。State Matrix候補を承認仕様に昇格させていない。
+
+
+## 13. SR-21 — RawLog durability要求のEntity別実行契約が不足
+**重大度: HIGH / DB-RV-07・08 / 統括再審査条件**
+
+Main §8にRawLogのfsync / read-back hash / Atomic Rename / Journal completion / PENDING_RECOVERY条件がある一方、RawLog ID authority、Expected Hash byte scope、Path grammar、Temp ownership、completion Event schema、Recovery authority、retention / loss toleranceは未定義。
+
+Motor Issue #35 / #170はv1/v2形式境界とv2契約の作業範囲を定めるが、Main §8の全Filesystem durability保証が確定した証拠はない。Battery Issue #16もBattery RawLog durability契約ではない。
+
+**対応:** Entity Inventory §12とCross-document Audit §34に論理・物理・機器別・Restoreの4受入ゲートを分離して記録。FS durabilityを実証済みと扱わず、Batteryへ同一方式を推測適用しない。
+
+**残件:** RawLog Object / Referenceの完全Identity・Hash・Path・Retention、機器別契約、OS/filesystem実証、Recovery authority。Main §8は未変更。
