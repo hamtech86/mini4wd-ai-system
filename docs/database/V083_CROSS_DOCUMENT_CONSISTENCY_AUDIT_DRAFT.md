@@ -330,3 +330,38 @@ DB-001〜124はEvidence Ledgerに履歴を残す。個別原文・正式承認�
 同じ保存先を無期限に検索することを完了条件にしない。既知の保存先・会話記録・Issue/PR・Libraryを探索しても個別証拠が回収できなければ、参照専用・実行不可として凍結し、証拠調査を終了する。新しい保存先情報・具体的な出典・一次資料が提示された場合のみ再開する。
 
 本処理は証拠管理と暫定運用であり、旧IDの正式承認・廃止や新規受入試験の承認を意味しない。v0.8.2 ORANGE / v0.8.3未承認、物理設計・DDL・DB生成・Migration・Restore・実装禁止の境界は維持する。
+
+
+## 18. Receipt Recovery未解決事項の論理 / 物理責任境界（2026-11-21）
+
+Receipt Recovery Contract §13で、未解決事項を論理設計段階で閉じる事項と、物理設計・実装・耐久試験まで保留する事項に分離した。
+
+### 18.1 論理段階で閉じる事項
+- Main §2.1と補助契約間のIntent Plan / Envelope属性同期。
+- Receipt ID決定的導出の入力・versioning・再発行規則（UUIDv5 Namespaceは未承認のまま）。
+- Event Ordinal発行主体・消費点・gap / partial appendの状態規則。
+- 同一Operation / Receiptの二重writer防止と競合時の判定。
+- Manifest Head predecessor競合時の拒否規則。
+- DB Marker不存在を確定できない場合の保留規則。
+- Envelope / Event Hashの自己参照除外、相互依存、version、Golden Vector。
+- Journal / Receipt / Marker / RecoveryのEntity境界・Authority・Cardinality整合。
+
+### 18.2 物理設計・実装段階まで保留
+- fsync / Directory fsync / atomic renameのOS・filesystem別保証。
+- Partial Tailの具体的修復・保全方式。
+- SQLite Isolation / synchronous / WAL / read-after-commit実証。
+- Lock lease / stale lock / fencing tokenの具体的実装方式。
+- 電源断・プロセスkill・I/O error・DB unavailableを使ったcrash injection試験。
+
+論理的な受入条件を定めず物理方式を仮定することも、物理実証なしに耐久性を合格扱いすることもしない。DB-RV-03は未解決を維持する。
+
+### 18.3 次の閉鎖順序
+1. Main §2.1とReceipt補助契約の項目単位同期。
+2. Intent→Envelope再構成、Receipt ID、Hash範囲の論理契約確定。
+3. Event Ordinal / partial append / writer競合 / Manifest Head競合の抽象条件確定。
+4. DB read-after-commit不確実時の保留規則。
+5. Entity InventoryとのJournal / Receipt / Marker / Recovery境界照合。
+6. 統括審査へ提出。承認後に限り物理設計へ進む。
+
+### 18.4 承認境界
+今回の分類は未解決事項の責任境界と作業順序を明確にしたもので、DB-RV-03解消、v0.8.3承認、物理設計・DDL・DB生成・Migration・Restore実行・実装許可を意味しない。
