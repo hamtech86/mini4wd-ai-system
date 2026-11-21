@@ -886,7 +886,7 @@ Request StateをOPEN / SUCCEEDED / FAILED / CANCELLED / INDETERMINATEに固定�
 - Session membershipはMeasurement Mirror初回登録時点で同一Physical Run / ScopeのSessionが存在する場合に限り固定する。membershipは後日変更・遡及追加しない。
 - Session生成前に登録されたNONE Measurementは、後に初回ASSIGNEDでSessionが生成されてもSessionへ遡及所属しない。
 - Session生成後、DB正常利用可能時に取得・登録されたNONE Measurementは、登録時点で同一Scope Sessionへ所属する。後日のNONE AssociationはInstanceへの関連付け履歴のみを追加し、Session membershipを変更しない。
-- NONE Associationは明示操作のみ。Actor / UTC timestamp / Reason / before-after / OperationIDを記録し、Assignment-at-Measurement=NONEを不変とする。Current Aggregateへ算入しない。
+- NONE Associationは明示操作のみ。Association History Recordの論理Identityは(MeasurementID, AssociationOrdinal)、AssociationOrdinalはMeasurementごとに1から連続増加。Event Identityは(OperationID, EventOrdinal)。NONE_ASSOCIATION_CREATED / NONE_ASSOCIATION_CLOSEDをEvent Registryへ登録し、CreatedはTargetInstanceID / AssignmentSnapshotID・Revision / Actor / UTC / Reason、ClosedはPreviousCreatedEventRef / Actor / ClosedAtUTC / CloseReasonを保持する。ActiveはCreate後未Close、Closedは対応Close Eventありとし、MeasurementごとActive最大1件。Reassignmentは同一Operation内でClose→次Ordinal Createの順に記録し、必要Event集合をSource Commitで一括確定、DB MirrorとMarkerは同一Transactionで更新する。部分Tail・欠落・順序違反・Hash不一致・Commit不明はQUARANTINED、元Eventを修復しない。Assignment-at-Measurement=NONE / Session membership不変、Current Aggregate対象外。
 - ANONYMOUS / DB unavailable期間のデータはAssociation対象外。
 
 ### 37.3 旧記述の処置
