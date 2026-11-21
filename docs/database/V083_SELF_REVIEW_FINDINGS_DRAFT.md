@@ -357,3 +357,6 @@ Main §14を追加し、UUIDv4 / M4W-JCS-1、Run/Session/Assignment、NONE/ANONY
 **Recovery Authority:** Bootstrap登録済みPROJECT_RECOVERY_ADMINのみ。v0.8.3では元証拠不変・QUARANTINED解除禁止。
 
 **残存Gate:** Motor/Battery正式契約の回収、Run Manager Close契約、対象OS/filesystem durability実証、SQLite transaction / crash recovery実証、論理受入試験実行、統括最終審査。これらを設計未決定と呼ばず、未実証 / 未承認として明示する。
+
+### SR-22 補足 — Battery 5A DATAの保存範囲
+Battery Issue #16に基づき、5A DATA原本byte・共通Measurement Envelope・CH1 / CH2独立保存は許可。未知RawLog Payloadはopaque保全のみとし、Feature Extraction / Benchmark再計算 / mAh・Wh・電圧降下の妥当性判定は正式契約受領まで禁止。
