@@ -473,3 +473,48 @@ DB-001〜124は、全IDをEvidence Ledgerに残す。ただし、原文を回収
 - DB-155〜176: 撤回番号。再利用禁止。
 - V082 crosswalk: 根拠のない対応はNO_MAPPING。全件対応を推測で埋めない。
 - 一次資料が新たに提示された場合だけ、その資料に限定して再審査する。探索件数ゼロを「未作成」の証拠としない。
+
+
+## 14. V082試験実装・実行証拠の追加照合（2026-11-21）
+
+### 14.1 照合対象と取得物
+
+- 対象Repository: `hamtech86/mini4wd-ai-system`
+- 照合対象Branch: `db/v0.8.3-followup-remediation-20261121`
+- 照合時HEAD: `000f5ee3655b1e2633b138ba6e009daceb1ef14a`
+- v0.8.2試験定義の取得元: `docs/db-logical-design-v0.8.2-20261120` の `docs/database/COMMON_DB_LOGICAL_DESIGN_v0.8.2.md`
+- 取得したv0.8.2 Blob: `613d619a62e08749352eb218db1f891d53e56512`
+- v0.8.3側の追加案取得元: 本Branchの `docs/database/COMMON_DB_LOGICAL_DESIGN_v0.8.3_REMEDIATION_DRAFT.md`
+- Repository tree: main 297 entries、作業Branch 309 entries。いずれも取得時点のtree全体を対象に確認。
+
+### 14.2 試験定義の存在確認
+
+1. **V082-001〜030:** v0.8.2原文§16に30行の試験定義と期待結果が存在する。行番号は617〜646。これは試験定義の実物を確認したという意味であり、テストコード・fixture・実行ログの存在を意味しない。
+2. **V082-031〜053:** v0.8.3草案に23行の追加受入試験案が存在する。旧v0.8.2試験の実績ではなく、差戻し対応に伴う追加提案として分離する。統括承認・テスト実装・実行の証拠は別途必要。
+3. Crosswalkの候補説明は候補に留め、確定対応・部分対応・重複・未カバーを証拠なしに確定しない。53項目のNO_MAPPING / 未対応付けは「試験定義がない」ことを意味しない。
+
+### 14.3 テスト実装・fixture・CI証拠の確認結果
+
+作業Branchのrecursive treeで `tests/` と `.github/workflows/` を確認した。
+
+- `tests/database/` には旧SQLiteのConnection / Schema / Database / Manager / Motor Instance / Workflow等のテスト群が存在する。
+- その他にBattery Session、Battery Benchmark、RawLog、Anonymous Mode等のテストファイルが存在する。
+- しかし、取得したtree上に `V082-001` 等の番号を名前に持つテストファイル、V082専用fixture directory、V082専用workflowは確認できなかった。
+- 既存テスト名・機能がV082の一部ケースと意味的に近い可能性はあるが、テスト本文・assertion・fixture・実行結果の同一条件照合をしていないため、番号付き試験との対応を認定しない。
+- 既存の旧SQLiteテスト群はDB-001〜124またはV082-001〜053の番号付き体系と同一視しない。
+- tree上の名称不在は、別名テスト・過去commit・削除済みbranch・外部保存先における実装の不存在証明ではない。
+
+### 14.4 回収可能性・処置
+
+| 対象 | 今回の判定 | 次の処置 |
+|---|---|---|
+| V082-001〜030 定義 | EXISTS_CONFIRMED（v0.8.2文書内の定義に限定） | 原文定義を保持。番号・期待結果を変更しない |
+| V082-001〜030 実装 | NOT_RECOVERED / NO_DIRECT_TRACEABILITY | 既存テストの内容照合で直接対応が証明できたものだけ対応付ける |
+| V082-001〜030 fixture | NOT_RECOVERED | 実物のPath / commit / artifactが確認できるまで未確認 |
+| V082-001〜030 実行ログ | NOT_RECOVERED | 実行日時・commit SHA・test command・結果を含む実行証拠を要求。未実行をPASSにしない |
+| V082-031〜053 定義 | EXISTS_CONFIRMED（v0.8.3草案の追加案に限定） | 旧試験実績と分離し、承認・実装・実行前は提案状態を維持 |
+| V082-031〜053 実装 / fixture / 実行ログ | NOT_RECOVERED | 新規追加案として承認後に別途準備・検証。旧IDの実績に混ぜない |
+
+**結論:** V082-001〜030は定義文書の根拠を回収済み。V082-031〜053は追加提案の文書根拠を回収済み。一方、53項目の実装・fixture・実行ログを示す直接証拠は今回確認できていない。よって「定義回収」と「実行済みPASS」を明確に分離し、V082試験体系の実行完了・網羅完了は宣言しない。
+
+本節は取得したRepository treeと設計文書に基づく証拠状態の追記であり、試験の新規採番・承認・実行、DB実装、DDL、DB生成、Migration、Restore実行を許可しない。
