@@ -169,3 +169,17 @@ Requestは不変。Attemptは実行ごとに新規作成。FAILEDを確定する
 - Battery最終測定/RawLog契約の統括経由照合。
 
 **結論:** 本マトリクスは状態組合せの検査台帳であり、v0.8.3の修正完了・統括承認・実装許可を意味しない。
+
+
+## 7. Receipt Event初回・部分Tailの状態組合せ追加
+
+| 現在状態 / Event追記結果 | 必須証拠 | 許される扱い | 禁止事項 |
+|---|---|---|---|
+| 初回Event未作成 | Envelope / Intent、Event Chainが空であることの完全検証 | 初回Eventの初期Ordinal・Previous Hash表現が正式定義された後に限り作成 | 初期Ordinal・Genesis/NULL表現を推測 |
+| Event append未開始 | 対象Ordinalのappend未開始を証明する証拠 | 同じ次Ordinalでappend開始可能 | append開始有無が不明なまま未消費扱い |
+| Event append後、完全Eventを読み戻せる | Event Schema / Ordinal / Previous Hash / Event Hash一致 | 既存Eventとして受理し、同じEventを重複追記しない | 重複Event追記 |
+| Event append結果不明・部分Tail・Hash不一致 | 完全なEventとして検証できないTail | Receipt Event Chainを隔離。後続Eventを停止 | gapを空けて後続追記、Tail黙示切捨て、Ordinal再利用 |
+| Event ChainのWriter競合 | 同じReceiptに対する複数Writerの証拠 | 追加追記停止・隔離 | 最終更新勝ち、時刻順での採用 |
+| 元Receiptが隔離済み | 元Receipt / Event Chainの証拠 | Authority定義済みの新Recovery Operationで別Artifactとして検証結果を記録する候補 | 元ReceiptのEvent Chainを無断修復・書換え |
+
+この追加行は論理受入条件の候補であり、Event初期値・Hash Canonicalization・Recovery Authorityを確定しない。
