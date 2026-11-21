@@ -438,3 +438,80 @@ Main draft §2.1「正規順序」および同節直後の補足文を、Receipt
 
 ### 16.4 結論
 現行資料だけではHash依存グラフが非循環であることを証明できない。これは実装不具合の確定ではなく、仕様のHash入力・除外・生成順が未定義であることを示す。Hash関数・Namespace・Field順を推測で補完しない。DB-RV-03はOPENを維持する。
+
+
+## 17. Hash依存グラフ候補と生成順の検証（2026-11-21）
+
+### 17.1 現行記述から確定できる入力・参照関係
+
+| Artifact / Hash | 現行記述上の入力・参照 | 生成時点 | 未確定点 |
+|---|---|---|---|
+| Operation Plan Hash | Operation Plan全体 | Intent永続化前 | 自身のHash Field除外、Planの正確なField集合・Canonicalization |
+| Intent Hash | Intent Payload / Plan Hash | Intent永続化時 | Intent Payloadの範囲、Plan Hashを含めるか、Intent Hash自己除外 |
+| Receipt ID | Operation IDから決定的導出 | Receipt作成時 | 導出方式・Namespace・version・collision handling |
+| Expected Source Payload Hashes | 対象Source Revisionの予定内容 | Plan確定時 | 予定Revisionの全内容をIntent前に確定可能か、Manifestとの関係 |
+| Expected Source Manifest Head | planned Head / predecessor | Plan / Envelope作成時 | Expected predecessorと新Head Hashの関係、ManifestがReceiptを参照するか |
+| Expected Receipt Hash | Intentに固定すると記載 | Intent確定時 | Intent PlanのField一覧に存在しない。EnvelopeにIntent Hashを含むため、Envelope Hashを固定するなら循環候補 |
+| Envelope Hash | Receipt Envelope Canonical serialization | Envelope作成時 | Hash対象Field・自己Hash除外・Schema Version |
+| Event Hash | Event Payload + Previous Event Hash候補 | Event追記時 | Event Hash自己除外、初回Previous Hash、Event Schema Version |
+| Expected DB Marker Hash | Receipt側の期待値 | Intent / Envelope作成時 | MarkerにSource Commit Hashが含まれるため、Source Commit確定前に値を固定できる根拠がない |
+| DB Commit Payload Hash | Main §2.1のMarker Field | DB transaction時 | Marker自身のHash Fieldを除くCanonical Payload範囲、Expected DB Marker Hashとの関係 |
+| Expected DB Marker Payload Hash | Receipt補助案ではMarker Canonical PayloadのField | Marker作成時 | Marker自身のPayload内に自分のExpected Hashを含めるなら直接自己参照 |
+
+### 17.2 現行順序をそのまま採用した場合の依存問題
+
+1. Intentを先に永続化するため、Intent HashはReceipt Envelopeより先に確定する。
+2. EnvelopeはIntent Hash / Plan Hashを保持するため、Envelope HashはIntent Hash確定後に計算できる。
+3. しかしExpected Receipt HashをIntentに固定し、そのExpected Receipt HashがEnvelope Hashを意味するなら、Intent HashがEnvelope Hashに依存し、Envelope HashがIntent Hashに依存する循環となる。
+4. Expected Receipt HashがEnvelope Hash以外を意味する場合、その対象Artifact・Canonical Payload・役割を定義しなければならない。現行資料にはその定義がない。
+5. DB MarkerはSource Commit Hashを含む。Source Commit Hashが確定する前にMarker HashをIntent / PREPARED Envelopeへ固定するには、planned Source Commit Hashを事前に完全決定できる契約が必要だが、現行資料では証明されていない。
+6. Marker Canonical PayloadにExpected DB Marker Payload Hash自身を含めるなら自己参照となる。Hashを外部Receiptに置くのか、Markerの自己Hash Fieldを計算対象から除くのかが未決定。
+
+### 17.3 非循環にできる構成候補（採用決定ではない）
+
+以下は依存関係を非循環にするための候補構成である。現行規範との適合性・統括承認が未確認のため、仕様採用・実装指示ではない。
+
+| 順序 | 候補Artifact | 候補Hash入力 | 後段Hashの包含 |
+|---|---|---|---|
+| 1 | Plan Payload | Hash Fieldを含まない固定Plan Field集合 | Plan Hash / Intent Hash / Envelope Hash / Source Commit Hash / Marker Hashを含めない |
+| 2 | Plan Hash | Canonical Plan Payload | 自身を含めない |
+| 3 | Intent Payload | Physical Run ID / Operation ID / Operation Ordinal / Plan Hash / Intentの意味情報 | Intent Hash自身を含めない。Receipt / Source / Marker Hashを含めない |
+| 4 | Intent Hash | Canonical Intent Payload | 自身を含めない |
+| 5 | Receipt Envelope Payload | Receipt ID / Operation ID / Ordinal / Plan Hash / Intent Hash / Source期待値 / Schema Versions等 | Envelope Hash自身を含めない。将来のEvent Hash / Marker Hashを含めない |
+| 6 | Envelope Hash | Canonical Envelope Payload | 自身を含めない |
+| 7 | Source Revision / Manifest Commit Payload | Intentで固定した予定内容・Expected predecessor等 | Receipt Event Hash / DB Marker Hashを含めない |
+| 8 | Source Commit Hash | Canonical Source Commit Payload | 自身を含めない |
+| 9 | Receipt Event Payload | Event Type / Receipt ID / Source Commit Hash等、Eventごとの確定証拠 | Event Hash自身を含めない |
+| 10 | Event Hash | Canonical Event Payload + Previous Event Hash | 自身を含めない |
+| 11 | DB Marker Payload | Operation / Receipt / Source Commit / Mirror Schema等の確定値 | Marker Hash自身・Expected Marker Hashを含めない |
+| 12 | DB Commit Payload Hash | Canonical DB Marker Payload | 自身を含めない |
+| 13 | DB_COMMITTED Event Payload | Marker Payload Hash / Source Commit Hash等 | Event Hash自身を含めない |
+| 14 | DB_COMMITTED Event Hash | Canonical Event Payload + Previous Event Hash | 自身を含めない |
+
+この候補は、Hash生成順をPlan → Intent → Envelope → Source Commit → Event / Markerの有向順序にする。Source CommitとDB Markerの関係、Expected DB Marker Hashの置き場所、Receipt ID導出は別途決定が必要であり、この表だけで全仕様が閉じるわけではない。
+
+### 17.4 統括判断が必要な選択肢
+
+**A. Expected Receipt Hash**
+- A1: Expected Receipt HashをIntentから削除し、Intentに固定された全Envelope入力からEnvelopeを再構成し、Envelope Hashを再計算して検証する。
+- A2: Expected Receipt HashはEnvelope Hashではなく別の非循環なReceipt Identity Payload Hashを意味すると定義し、対象Fieldを明記する。
+- A3: IntentにExpected Receipt Hashを残す場合、Envelope Hashとは異なる非循環の生成順・入力範囲を証明する。
+- 現状: 未選択。A1が最も単純な候補だが、Main §2.1 / Receipt Contractとの整合を統括判断前に確定しない。
+
+**B. Expected DB Marker Hash**
+- B1: PREPARED時点のReceiptに固定する要件を維持し、Source Commit Hashを事前決定可能とする証拠・Canonical payload・生成順を定義する。
+- B2: PREPARED時点ではMarker Schema / Expected Marker Fieldsだけを固定し、Source Commit後にMarker Payload Hashを算出し、DB_COMMITTED Eventで参照する。
+- B3: Expected DB Marker HashをMarker Payload Hashとは別の概念として定義し、意味・入力・照合規則を分ける。
+- 現状: 未選択。B2は順序上自然な候補だが、Main §2.1の「Expected DB Marker Hash」を変更するため統括判断が必要。
+
+**C. Marker Hash**
+- C1: Marker Payload HashはMarker Canonical Payloadから自己Hash Fieldを除外して計算し、Hash値はReceipt / Event等の外側に置く。
+- C2: Marker内のDB Commit Payload Hashを自己Hash Fieldとして明示除外し、他のMarker Fieldを入力にする。
+- 現状: C1/C2のデータ配置・Canonical範囲を決める必要がある。自己参照を許容する設計は採用不可。
+
+### 17.5 Receipt IDはHash DAGと別の未解決事項
+
+Receipt IDはOperation IDから決定的導出すると記載されるが、導出方式・Namespace・versionが未承認である。IDの決定規則はHashの計算順とは別に固定し、UUIDv5 Namespaceを推測採用しない。決定的導出の仕様が確定するまで、ID期待値・テストベクトルを作らない。
+
+### 17.6 結論
+現行仕様のHash DAGは未完成。特にExpected Receipt HashとExpected DB Marker Hashは生成順に矛盾・未証明依存がある。§17.3〜§17.4は非循環化の候補であり、規範決定ではない。DB-RV-03 OPENを維持し、統括判断前にMain本文を改訂しない。
