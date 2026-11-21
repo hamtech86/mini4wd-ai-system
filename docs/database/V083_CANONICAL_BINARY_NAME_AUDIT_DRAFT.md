@@ -385,3 +385,67 @@ This is byte-level reproduction of published sample inputs only. It does not pro
 - Namespace既存利用調査とUUIDv5 RFC vectorsはv0.8.3の承認条件から除外。M4W-JCS-1のJCS conformance testとPayload schema testは実装前の受入試験として残す。
 
 CBN-01〜08の未解決表現は、UUIDv5を採用しないことでv0.8.3のIdentity設計判断から切り離す。
+
+## 19. M4W-JCS-1 / UUIDv4受入ベクトル（2026-11-21）
+
+本節はMain §5.2のM4W-JCS-1を対象とする。§1〜§18のCBN / UUIDv5 vectorsは旧候補方式の監査履歴であり、M4W-JCS-1の合格根拠にはしない。
+
+### 19.1 Canonical UTF-8 / SHA-256 vectors
+
+前提: JSON object keyはASCII、文字列値はUnicode scalar列、数値は整数safe rangeのみ。JSONをRFC 8785 JCSでcanonicalizeしたUTF-8 byte列にSHA-256を適用する。以下は規範期待値案であり、独立したJCS実装2系統での照合は未実施。
+
+| ID | Typed input / condition | Canonical JSON | UTF-8 Hex | SHA-256 |
+|---|---|---|---|---|
+| JCS-01 | key order: {z:1,a:2} | `{"a":2,"z":1}` | `7b2261223a322c227a223a317d` | `c2985c5ba6f7d2a55e768f92490ca09388e95bc4cccb9fdf11b15f4d42f93e73` |
+| JCS-02 | explicit NULL | `{"v":null}` | `7b2276223a6e756c6c7d` | `aae9e223dcdc02dfd8149da8c25b9536533a7232b0c9137ee6b2cd5c2a2629eb` |
+| JCS-03 | missing field / empty object | `{}` | `7b7d` | `44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a` |
+| JCS-04 | max safe integer | `{"n":9007199254740991}` | `7b226e223a393030373139393235343734303939317d` | `e1da48c6a6089f06ecb4e0a2259e658e3786b2420f52baccdf929ec6460d7b41` |
+| JCS-05 | normalized Decimal string | `{"d":"1.23"}` | `7b2264223a22312e3233227d` | `7cd8f3851e0663b48bb1dde182f7b870a9e39aad4739d5ccdca57e70c7cf9051` |
+| JCS-06 | canonical UTC timestamp | `{"t":"2026-11-21T12:00:00.123456Z"}` | `7b2274223a22323032362d31312d32315431323a30303a30302e3132333435365a227d` | `7de1178323b0e667bb8c790d7ff86a465923c3ae353c105ca2668deed4965ba9` |
+| JCS-07 | Unicode NFC codepoint sequence | `{"s":"é"}` | `7b2273223a22c3a9227d` | `86028b41ba792eaf82aa26a45b218f6734f7f1096a86f1746c8296e088a0ccb4` |
+| JCS-08 | Unicode NFD codepoint sequence | `{"s":"é"}` | `7b2273223a2265cc81227d` | `1fc0bd7cc93fca8092a2041d7d01842876422aa7e2838acf42c14578e9f2be05` |
+| JCS-09 | Boolean true | `{"b":true}` | `7b2262223a747275657d` | `fc0f22db8e47986f86d54c2b86fd77d7c92813b0d7f9bdab47ac855a2fd3e6ad` |
+| JCS-10 | Base64url byte string | `{"b":"AAECAw"}` | `7b2262223a22414145434177227d` | `df4724b5b644859831dbc068a9bf12076241ddbf6602e90e0f34c45ec6a86dcd` |
+| JCS-11 | quote / backslash / LF escaping | `{"s":"a\"\\\n"}` | `7b2273223a22615c225c5c5c6e227d` | `c276e20bbd05c97db37ad5c1861395f4b1866b56306de6684a63fee4c71bebb5` |
+| JCS-12 | min safe integer | `{"n":-9007199254740991}` | `7b226e223a2d393030373139393235343734303939317d` | `d49d713821fc149f81ef6ca8054beeba696f5da052f0ab3e2d773808c5a9d625` |
+| JCS-13 | array order preserved | `{"a":[2,1]}` | `7b2261223a5b322c315d7d` | `439e3fbf35fa867d156db2626f94efbd435852a97bbe16660ee529d9bda0e502` |
+
+JCS-07 and JCS-08 intentionally produce different bytes / hashes: Main §5.2 specifies no Unicode normalization or case-fold. NULL and missing field are also distinct (JCS-02 vs JCS-03).
+
+### 19.2 Schema / parser rejection vectors
+
+| ID | Input / condition | Expected result |
+|---|---|---|
+| JCS-R01 | Duplicate JSON object key | Reject before canonicalization |
+| JCS-R02 | NaN / +Infinity / -Infinity | Reject |
+| JCS-R03 | JSON floating-point number (including exponent form) | Reject; exact measurements use normalized Decimal string |
+| JCS-R04 | Integer outside ±(2^53−1) | Reject; do not round |
+| JCS-R05 | Decimal string with exponent, leading +, unnecessary leading/trailing zero, or `-0` | Reject |
+| JCS-R06 | Timestamp without timezone, >6 fractional digits, out of range, or leap second :60 | Reject; do not round |
+| JCS-R07 | Lone surrogate / invalid Unicode scalar / malformed UTF-8 | Reject; never replace with U+FFFD |
+| JCS-R08 | Unknown Schema Version / Entity Type / Field | Reject; do not ignore unknown fields |
+| JCS-R09 | NULL on a non-nullable Entity Field | Reject |
+| JCS-R10 | Byte String Base64url with padding or invalid alphabet | Reject |
+
+### 19.3 UUIDv4 issuer authority status
+
+Main §5.1 specifies CSPRNG-backed UUIDv4, one-time issuance, pre-persistence collision retry only, and post-persistence collision quarantine. This defines UUID value format and collision handling, but not yet a complete issuer map for every Entity Type.
+
+| Entity / Event | Authority evidence | Status |
+|---|---|---|
+| Physical Run / Logical Session identity | Run Manager | Explicit in Main §1 / §5 |
+| PHYSICAL_RUN_CLOSED | Run Manager | Explicit in Main §14.4 |
+| NONE_ASSOCIATION_CREATED / CLOSED | Authenticated DB Session Manager for the Physical Run / Scope | Explicit in Main §14.1.5 / §14.4 |
+| Aggregate Attempt Events | Aggregate Manager Worker principal | Explicit in Main §14.4 |
+| RECOVERY_OPERATION_CREATED | Recovery Authority | Explicit in Main §14.4 |
+| DB Run ID, Assignment Snapshot ID / History, Measurement / Profile Snapshot, RawLog Object / Reference, Sample Reference, Operation / Receipt, Artifact, Aggregate Request / Attempt / Result Revision, Integrity Report IDs | Per-Entity issuing Authority is not uniquely mapped in one authoritative registry | **OPEN — do not infer an issuer from a generic “creating Authority” phrase** |
+
+Required next step: define exactly one active issuer Authority per UUID-bearing Entity Type, its scope, activation / revocation, and collision / duplicate issuance handling. Where the owner contract is external (Motor / Battery), receive that contract rather than inventing an issuer. Until the mapping is complete, UUIDv4 format choice does not mean every Entity ID issuance path is implementation-ready.
+
+### 19.4 Execution status
+
+- Vectors JCS-01〜13 are documented expected byte / digest values; this is not proof of RFC 8785 conformance.
+- No two-independent-implementation comparison has been executed.
+- No UUIDv4 CSPRNG quality / uniqueness / issuer authority integration test has been executed.
+- No Entity-specific nullable / required / unknown-field schema test suite is complete.
+- JCS vectors are design test inputs only; no PASS is declared.
