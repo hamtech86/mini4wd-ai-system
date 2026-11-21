@@ -146,7 +146,7 @@ Journal Intent、Receipt Envelope、Receipt Event、Source Commit Record、DB Ma
 
 ### 5.1 ID発行方式
 - v0.8.3で新規発行する独立Entity IDはUUIDv4とし、暗号学的に安全な乱数源で発行元Authorityが一度だけ生成して外部正本へ先行記録する。乱数品質を確認できない環境では発行を拒否する。
-- Physical Run IDおよびLogical Session IDはRun Managerが発行する。DB Run / Assignment Snapshot / Measurement / Profile Snapshot / RawLog Object / RawLog Reference / Sample Reference / Operation / Receipt / Artifact / Aggregate Request / Attempt / Result Revision / Recovery Operation / Integrity Reportは、それぞれの作成AuthorityがUUIDv4を発行する。DB Session MirrorはLogical Session IDを再利用し、別IDを発行しない。
+- Physical Run IDおよびLogical Session IDはRun Managerが発行する。DB Run / Assignment Snapshot / Measurement / Profile Snapshot / RawLog Object / RawLog Reference / Sample Reference / Operation / Receipt / Artifact / Aggregate Request / Attempt / Result Revision / Recovery Operation / Integrity Reportは、それぞれの作成AuthorityがUUIDv4を発行する。DB Session MirrorはLogical Session IDを再利用し、別IDを発行しない。**ただし「それぞれの作成Authority」という一般記述だけではIssuer Authority登録済みとみなさない。UUID-bearing Entity Typeごとに単一のIssuer AuthorityをAuthority Registryへ登録し、未登録または複数候補のEntity ID発行は拒否する。現時点でIssuer mappingが未確定のEntityは、Owner契約 / Authority登録が完了するまで発行経路を実装・運用しない。**
 - Receipt IDはOperation IDから導出しない。Receipt作成前にUUIDv4を発行し、Intent内に固定する。再起動時はIntentに記録された同じIDを使用する。
 - RUN_SCOPEは独立UUIDを持たず、(PhysicalRunID, ScopeKey)を複合識別子とする。Measurement-Sample LinkとArtifact Inputも親ID + Ordinal等の複合識別子を用いる。Aggregate Pointerは派生値でありIDを持たない。
 - UUID文字列表現は小文字・ハイフン付きCanonical形式のみを受け入れる。大文字、波括弧、短縮形、非Canonical表現は拒否する。全Entity ID間で重複を禁止し、参照時はEntity Typeも一致させる。UUID collisionを外部正本へ永続化する前に検出した場合のみ新しいUUIDv4を発行できる。永続化後にcollisionが検出された場合は再採番せずQUARANTINED。
@@ -166,7 +166,7 @@ Journal Intent、Receipt Envelope、Receipt Event、Source Commit Record、DB Ma
 | Entity / Concept | Identity |
 |---|---|
 | Physical Run | Run Manager発行UUIDv4 |
-| DB Run | 独立UUIDv4。最初のASSIGNED Operation時に発行 |
+| DB Run | 独立UUIDv4。DB正常利用可能時の最初の有効ASSIGNED Operation時に発行 |
 | RUN_SCOPE | (PhysicalRunID, ScopeKey) |
 | Assignment Snapshot | UUIDv4 + (PhysicalRunID, ScopeKey, Revision) unique |
 | Assignment History Event | (PhysicalRunID, ScopeKey, EventOrdinal) |
