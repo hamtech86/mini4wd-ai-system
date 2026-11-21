@@ -407,7 +407,7 @@ Main §8は、RawLog保存完了に対し、temporary write完了、File Handle 
 | 23 | Recovery Operation / Integrity Report | 別UUIDv4 Entity | Recoveryは元証拠不変。Reportは監査用 |
 
 ### 13.1 共通Entity Envelopeの扱い
-外部正式契約がないEntityの未知Fieldは創作しない。既知の共通EnvelopeとPayloadReference / PayloadHashのみをMirror化し、完全な外部正本byteを保全する。opaque保全できない場合は受入拒否。未知Payloadを解析・Aggregate・再関連付けに使用しない。
+外部正式契約がないEntityの未知Fieldは創作しない。opaque objectで検証可能なのは、既知の共通Envelope（EntityType / SchemaVersion / EntityID / CreatedAtUTC / OwnerReference）とPayloadReference / PayloadHash、ならびに受領byte全体のContent Hash・Path collision等のストレージ整合性に限る。未知Payload内部のField / 単位 / Cardinality / Capture完了 / Outcome / business semanticsは検証済みとみなさない。完全な外部正本byteを不変保全し、opaque保全できない場合は受入拒否。未知Payloadを意味解析・Feature Extraction・Aggregate・再関連付けに使用しない。
 
 ### 13.2 決定状態
 Identity、Storage class、Unknown schemaの扱い、削除/更新方針はMain §14で確定。物理DDL・列型・index・trigger・複合FKの実装形は本論理設計の対象外であり、実装Gateで別途確定する。
