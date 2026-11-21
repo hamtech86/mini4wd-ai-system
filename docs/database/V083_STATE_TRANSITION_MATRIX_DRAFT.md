@@ -29,6 +29,7 @@
 | ASSIGNED(A) → ANONYMOUS | 保持 | 保持・非アクティブ | ANONYMOUS期間は外部正本のみ。後日DB取込・Mirror化・Instance再紐付け禁止 | 対象外 |
 | 過去ASSIGNEDあり NONE → ASSIGNED(A) | 同一IDを保持 | 同一IDを保持 | 新規A測定をMirror登録。NONE期間の既存DB管理Measurementは明示Associationのみ可。測定時Assignment=NONEを維持 | A測定のみ候補。NONE由来は対象外 |
 | 過去ASSIGNEDあり ANONYMOUS → ASSIGNED(A) | 同一IDを保持 | 同一IDを保持 | 新規A測定のみMirror登録。過去ANONYMOUSデータは後日取込・Mirror化・再紐付け禁止 | A測定のみ候補 |
+| DB unavailable中に初回ASSIGNED → DB復旧（同一Physical Run） | 生成しない | 生成しない | 障害期間のCaptureは外部正本のみ。復旧後のBootstrap / DB化 / 取込を禁止。同一Run内のDB管理再開は本版で許可せず、新Physical Runから開始 | 対象外 |
 
 補足:
 - Physical Run内で別Scopeが後日初めてASSIGNEDになった場合、DB Runは既存IDを使い、そのScopeだけSessionを新規生成する。
