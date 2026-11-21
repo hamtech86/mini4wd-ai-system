@@ -827,3 +827,10 @@ Main §14をDecision Authorityとして、従来のOPEN / TBD / candidateを以�
 - **Session / NONE / ANONYMOUS:** Issue #210 CC-01 / CC-02を維持し、Main §14.1–14.2で具体的なSession membership / Association / Outcome動作を固定。
 
 したがって論理設計の選択肢は残さない。残件は実装・試験・他部門正式契約・統括最終審査という証拠Gateであり、設計未決定とは区別する。
+
+### 35.1 DB unavailable / ANONYMOUS / NONEの取扱い差分
+- DB unavailable中はDB Run / Session / Measurement Mirrorを作成しない。復旧後は明示Bootstrapで外部ASSIGNED履歴を検証し、ASSIGNED時に取得された完全なMeasurementだけをMirror化できる。UUIDv4 IDはManifestへ先行記録する。
+- DB unavailable中のNONE MeasurementはDB管理下に存在しないため、後日取込・Association禁止。
+- ANONYMOUS期間のMeasurement / RawLogは、DB unavailableとは別のCC-02禁止境界であり、後日取込・Mirror化・再紐付け禁止。
+- DB利用可能かつ当該Scope Session存在中に取得されたNONE Measurementのみ、既存DB管理Measurementとして明示Association対象になり得る。
+- PHYSICAL_RUN_CLOSEDのActorIDは認証済みOperator principal。UI画面・ボタン名はAuthorityではなく、Client/UI versionは任意監査Metadata。
