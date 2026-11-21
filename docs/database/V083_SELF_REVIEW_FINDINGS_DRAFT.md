@@ -399,13 +399,13 @@ Request StateとAttempt StateをMain §3.2で固定。Retry ClosedはFAILED Atte
 
 ### SR-12 / SR-16 / SR-18の閉鎖
 1. Issue #210 CC-02が許可したNONE後日Associationを、既存DB管理Measurementに対する明示的なInstance関連付け履歴として定義した。AssociationはAssignment-at-Measurementを変更せず、Current Aggregateへ算入せず、Session membershipも変更しない。
-2. Session membershipはMeasurement Mirror初回登録時点で同一Physical Run / ScopeのSessionが存在する場合に固定する。Session生成前のNONE Measurementは後日の初回ASSIGNED後もSessionへ遡及所属しない。Session生成後のNONE Measurementは登録時点でmembershipを固定する。 採用理由は既存の「Session生成後に登録されたMeasurement集合」という規則の維持と、存在しないSessionへの遡及接続防止。不採用案は、(A)初回ASSIGNED時の過去NONE自動一括追加、(B)Association時のSession membership追加・移動、(C)Session存在中のNONE MeasurementをSession外にする案。A/Bは履歴の遡及変更、Cは既存membership定義との矛盾を理由に不採用。
+2. Session membershipはMeasurementを外部Run Manifestへ初回確定記録した時点で同一Physical Run / Scopeの論理Session identityが存在する場合に固定する。DB Mirrorの有無はmembershipの事実を変えない。Session生成前のNONE Measurementは後日の初回ASSIGNED後もSessionへ遡及所属しない。Session生成後のNONE Measurementは登録時点でmembershipを固定する。 採用理由は既存の「Session生成後に登録されたMeasurement集合」という規則の維持と、存在しないSessionへの遡及接続防止。不採用案は、(A)初回ASSIGNED時の過去NONE自動一括追加、(B)Association時のSession membership追加・移動、(C)Session存在中のNONE MeasurementをSession外にする案。A/Bは履歴の遡及変更、Cは既存membership定義との矛盾を理由に不採用。
 3. NONE AssociationのEvent Authorityは、Session Entityの存在有無で発行権限を失わないよう、当該Physical Run / Scopeの認証済みDB Session Managerとした。Event RegistryにはNONE_ASSOCIATION_CREATED / NONE_ASSOCIATION_CLOSEDを登録。AssociationOrdinal・Active / Closed・CloseReason・再関連付け順序・Source CommitのEvent集合・DB Marker同一TransactionをMain §14.1.5で定義した。これは論理Authority / 原子性契約であり、実装・権限・crash実証済みを意味しない。
 
 ### Issue #201との矛盾修正
-4. DB unavailableはIssue #201のAnonymous Modeとして扱う。障害期間中に取得されたCapture / Measurement / RawLogはAssignment-at-MeasurementがASSIGNEDであっても外部正本のみとし、復旧後のBootstrap / DB取込 / Mirror化 / Associationを禁止する。
-5. 障害前から存在するDB Run / Sessionは削除しない。障害期間中のCaptureは既存Sessionへ追加しない。
-6. 同一Physical Run内で障害中に初回ASSIGNEDとなった場合、復旧後にそのRunを遡及してDB管理へ変換しない。同一Run内のDB管理再開契約は本版で定義せず、新しいPhysical RunからDB管理を開始する。障害前にDB Run / Sessionが存在した場合はIdentityを保持するが、障害中Captureを既存Sessionへ追加しない。
+4. DB unavailableはIssue #201のAnonymous Modeとして扱う。障害期間中に取得されたCapture / Measurement / RawLogはAssignment-at-MeasurementがASSIGNEDであっても外部正本のみとし、復旧後のBootstrap / DB取込 / Mirror化 / Associationを禁止する。ただしCC-01に従い初回ASSIGNED時の論理Session identityは外部Run Manifestへ生成・保持し、DB Session Mirrorだけを作成しない。
+5. 障害前から存在するDB Run / Session Mirrorは削除しない。障害期間中のCaptureは既存Session membershipへ追加しない。
+6. 同一Physical Run内で障害中に初回ASSIGNEDとなった場合、論理Session identityは外部Run Manifestへ生成・保持するが、復旧後にそのRunを遡及してDB管理へ変換しない。同一Run内のDB管理再開契約は本版で定義せず、新しいPhysical RunからDB管理を開始する。障害前にDB Run / Session Mirrorが存在した場合はIdentityを保持するが、障害中Captureを既存Session membershipへ追加しない。
 
 ### 文書同期
 - Main v0.8.3 §1.1–1.4 / §6 / §14.1 / §14.4.17
