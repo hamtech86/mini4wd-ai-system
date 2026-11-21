@@ -11,7 +11,7 @@
 1. Physical Run IDは外部正本上の識別子。DB Run IDとは別ID。
 2. DB Runは、利用承認済みで既に存在するDBが正常利用可能な場合に限り、Physical Run内で最初の確定ASSIGNED Operationに伴うMirror recordとして作成する。
 3. この作成規則はDB file / schema / empty DB / migration / Bootstrapの生成許可ではない。
-4. SessionはScopeごとに最大1件。初回確定ASSIGNED Operationで論理Session identityを外部Run Manifestへ生成し、以後NONE / ANONYMOUS / 別Instanceへの遷移でも保持する。DB正常利用可能時のみ同一IDのDB Session Mirrorを生成する。DB unavailable期間はAnonymous ModeとしてDB Session Mirrorを生成しない。
+4. SessionはScopeごとに最大1件。Run Managerが初回確定ASSIGNED Assignment Operation時にUUIDv4の論理Session identityを発行し、同じ外部Run Manifest Commitへ記録する。以後NONE / ANONYMOUS / 別Instanceへの遷移でも保持する。DB正常利用可能時のみ同一IDのDB Session Mirrorを生成する。DB unavailable期間はAnonymous ModeとしてDB Session Mirrorを生成しない。
 5. ANONYMOUS期間およびDB unavailable期間のMeasurement / RawLogは外部正本に保全し、後日DB取込・Mirror化・Instance再紐付けを禁止する。DB unavailableはAssignment StateにかかわらずAnonymous Mode扱いとする。NONE期間は別扱いとし、DB正常利用可能時に取得され既にDB管理Measurementとして登録済みのものに限り、後日の明示Association Operationを許容する。AssociationはInstance関連付け履歴のみでSession membershipを変更せず、Assignment-at-Measurement=NONEを保持し、Current Aggregateへ自動算入しない。
 6. MeasurementのAssignment-at-Measurementは開始確定時の不変Snapshotであり、Current Assignmentの変更で更新しない。
 
@@ -21,7 +21,7 @@
 |---|---|---|---|---|
 | 初期 → NONE | なし | なし | 外部正本のみ | 対象外 |
 | 初期 → ANONYMOUS | なし | なし | 外部正本のみ | 対象外 |
-| NONE → ASSIGNED(A) | DB正常利用可能時になければ作成 | 論理Session identityを外部Manifestへ生成。DB正常利用可能時のみDB Session Mirror作成 | DB正常利用可能時の以後のASSIGNED測定をMirror登録 | A測定のみ候補 |
+| NONE → ASSIGNED(A) | DB正常利用可能時になければ作成 | Run Managerが論理Session UUIDv4を外部Manifestへ生成。DB正常利用可能時のみ同一IDのDB Session Mirror作成 | DB正常利用可能時の以後のASSIGNED測定をMirror登録 | A測定のみ候補 |
 | ANONYMOUS → ASSIGNED(A) | DB正常利用可能時になければ作成 | 論理Session identityを外部Manifestへ生成。DB正常利用可能時のみDB Session Mirror作成 | DB正常利用可能時の以後のASSIGNED測定をMirror登録。過去ANONYMOUSデータは取込禁止 | A測定のみ候補 |
 | ASSIGNED(A) → ASSIGNED(A) | 保持 | 保持 | 測定時Revisionを固定 | A測定のみ候補 |
 | ASSIGNED(A) → ASSIGNED(B) | 保持 | 保持 | 新規測定はB。A測定の帰属は不変 | B測定のみ候補 |
