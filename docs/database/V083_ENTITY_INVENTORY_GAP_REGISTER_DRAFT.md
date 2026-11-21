@@ -383,12 +383,12 @@ Main §8は、RawLog保存完了に対し、temporary write完了、File Handle 
 | # | Entity | Identity / Storage決定 | 未契約時の固定動作 |
 |---:|---|---|---|
 | 1 | Physical Run / Run Manifest | Run Manager UUIDv4、外部正本 | Manifest欠落・forkはQUARANTINED |
-| 2 | DB Run | UUIDv4、DB Mirror | 初回ASSIGNEDまで生成しない |
+| 2 | DB Run | UUIDv4、DB Mirror | 初回ASSIGNEDまで生成しない。DB unavailable中は生成せず、復旧後の明示Bootstrapで外部ASSIGNED履歴からUUIDv4を発行・Manifest先行記録して生成可能 |
 | 3 | RUN_SCOPE | (PhysicalRunID, ScopeKey)複合キー | MOTOR / BATTERY_CH1 / BATTERY_CH2以外は拒否 |
 | 4 | Assignment Snapshot | UUIDv4 + Scope/Revision unique、不変外部正本 | Snapshot欠落・Hash不一致はAssignment更新拒否 |
 | 5 | Assignment History / Event | Scope + EventOrdinal、append-only | 部分TailはScope隔離 |
 | 6 | Session | UUIDv4、Scopeごと最大1 | 初回ASSIGNED前は生成しない |
-| 7 | Measurement Envelope | UUIDv4、外部正本 + DB Mirror | 機器固有契約のないPayloadはopaque、意味解析不可 |
+| 7 | Measurement Envelope | UUIDv4、外部正本 + DB Mirror | DB unavailable中はMirror作成せず、復旧後はASSIGNED時測定で完全検証できるもののみ明示Bootstrap対象。NONE outage / ANONYMOUSは取込不可。機器固有契約のないPayloadはopaque、意味解析不可 |
 | 8 | Measurement Profile Snapshot | UUIDv4、不変外部Snapshot | Schema不明時はopaque、解析・Aggregate入力不可 |
 | 9 | RawLog Object / Reference | Object UUIDv4 / Reference UUIDv4、別Entity | Hash・durability未検証はPENDING_RECOVERY / QUARANTINED |
 | 10 | Sample Reference | UUIDv4、RawLog Referenceに従属 | Locator不明はopaque、時刻/Channel推定禁止 |
