@@ -11,7 +11,7 @@
 1. Physical Run IDは外部正本上の識別子。DB Run IDとは別ID。
 2. DB Runは、利用承認済みで既に存在するDBが正常利用可能な場合に限り、Physical Run内で最初の確定ASSIGNED Operationに伴うMirror recordとして作成する。
 3. この作成規則はDB file / schema / empty DB / migration / Bootstrapの生成許可ではない。
-4. SessionはScopeごとに最大1件。Run Managerが初回確定ASSIGNED Assignment Operation時にUUIDv4の論理Session identityを発行し、同じ外部Run Manifest Commitへ記録する。以後NONE / ANONYMOUS / 別Instanceへの遷移でも保持する。DB正常利用可能時のみ同一IDのDB Session Mirrorを生成する。DB unavailable期間はAnonymous ModeとしてDB Session Mirrorを生成しない。
+4. SessionはScopeごとに最大1件。DB正常利用可能時の初回有効ASSIGNED Assignment Operation確定時にRun ManagerがUUIDv4の論理Session identityを発行し、同じ外部Run Manifest Commitへ記録する。以後NONE / ANONYMOUS / 別Instanceへの遷移でも保持する。DB Session Mirrorは同一IDで生成する。DB unavailable期間はAnonymous Modeとして有効ASSIGNED Operation・新規Session identity・DB Session Mirrorを生成しない。
 5. ANONYMOUS期間およびDB unavailable期間のMeasurement / RawLogは外部正本に保全し、後日DB取込・Mirror化・Instance再紐付けを禁止する。DB unavailableはAssignment StateにかかわらずAnonymous Mode扱いとする。NONE期間は別扱いとし、DB正常利用可能時に取得され既にDB管理Measurementとして登録済みのものに限り、後日の明示Association Operationを許容する。AssociationはInstance関連付け履歴のみでSession membershipを変更せず、Assignment-at-Measurement=NONEを保持し、Current Aggregateへ自動算入しない。
 6. MeasurementのAssignment-at-Measurementは開始確定時の不変Snapshotであり、Current Assignmentの変更で更新しない。
 
@@ -22,21 +22,21 @@
 | 初期 → NONE | なし | なし | 外部正本のみ | 対象外 |
 | 初期 → ANONYMOUS | なし | なし | 外部正本のみ | 対象外 |
 | NONE → ASSIGNED(A) | DB正常利用可能時になければ作成 | Run Managerが論理Session UUIDv4を外部Manifestへ生成。DB正常利用可能時のみ同一IDのDB Session Mirror作成 | DB正常利用可能時の以後のASSIGNED測定をMirror登録 | A測定のみ候補 |
-| ANONYMOUS → ASSIGNED(A) | DB正常利用可能時になければ作成 | 論理Session identityを外部Manifestへ生成。DB正常利用可能時のみDB Session Mirror作成 | DB正常利用可能時の以後のASSIGNED測定をMirror登録。過去ANONYMOUSデータは取込禁止 | A測定のみ候補 |
+| ANONYMOUS → ASSIGNED(A) | DB正常利用可能時の有効Assignment Operation確定時に作成 | 論理Session identityとDB Session Mirrorを同一IDで生成 | 以後の有効ASSIGNED測定をMirror登録。過去ANONYMOUSデータは取込禁止 | A測定のみ候補 |
 | ASSIGNED(A) → ASSIGNED(A) | 保持 | 保持 | 測定時Revisionを固定 | A測定のみ候補 |
 | ASSIGNED(A) → ASSIGNED(B) | 保持 | 保持 | 新規測定はB。A測定の帰属は不変 | B測定のみ候補 |
 | ASSIGNED(A) → NONE | 保持 | 保持・非アクティブ | DB正常利用可能時に登録されたNONE MeasurementはSession membershipを登録時点で固定。後日のAssociationはInstance関連付けのみ。障害期間のCaptureはAnonymous Mode扱いで後日取込禁止 | 対象外 |
 | ASSIGNED(A) → ANONYMOUS | 保持 | 保持・非アクティブ | ANONYMOUS期間は外部正本のみ。後日DB取込・Mirror化・Instance再紐付け禁止 | 対象外 |
 | 過去ASSIGNEDあり NONE → ASSIGNED(A) | 同一IDを保持 | 同一IDを保持 | 新規A測定をMirror登録。NONE期間の既存DB管理Measurementは明示Associationのみ可。測定時Assignment=NONEを維持 | A測定のみ候補。NONE由来は対象外 |
 | 過去ASSIGNEDあり ANONYMOUS → ASSIGNED(A) | 同一IDを保持 | 同一IDを保持 | 新規A測定のみMirror登録。過去ANONYMOUSデータは後日取込・Mirror化・再紐付け禁止 | A測定のみ候補 |
-| DB unavailable中に初回ASSIGNED → DB復旧（同一Physical Run） | DB Runなし | 論理Session identityは外部Manifestに生成。DB Session Mirrorなし | 障害期間のCaptureは外部正本のみ。復旧後のBootstrap / DB化 / 取込を禁止。同一Run内のDB管理再開は本版で許可せず、新Physical Runから開始 | 対象外 |
+| DB unavailable中に初回ASSIGNEDを試行 → DB復旧（同一Physical Run） | 有効Assignment / DB Runなし | Logical Session identityも生成しない。CaptureのAssignment-at-Measurement=ANONYMOUS（InstanceID=NULL） | 障害期間のCaptureは外部正本のみ。復旧後のBootstrap / DB化 / 取込を禁止。DB管理は新Physical Runから開始 | 対象外 |
 
 補足:
 - Physical Run内で別Scopeが後日初めてASSIGNEDになった場合、DB Runは既存IDを使い、そのScopeだけSessionを新規生成する。
 - 一つのPhysical Run内で全ScopeがNONE / ANONYMOUSになっても、既に生成済みDB Run / Sessionを削除しない。
 - Sessionが存在することは現在ASSIGNEDであることを意味しない。
 - Assignmentの変更は既存Measurement / RawLog / Artifactの削除・書換えを行わない。
-- Session membershipはMeasurementを外部Run Manifestへ初回確定記録した時点で同一Scopeの論理Session identityが存在する場合に固定し、後からSessionへ遡及所属させない。DB Mirrorの有無はmembershipの事実を変えない。outage中Captureは外部membershipへ記録できるが、DB Session Mirror membershipへは追加・後日遡及追加しない。NONEの後日Associationは既存DB管理Measurementに対する明示操作に限定し、Instance関連付け履歴のみを作成する。Session membershipは変更しない。実行主体・時刻・変更前後・理由・OperationIDを監査履歴へ残し、Assignment-at-MeasurementはNONEのまま不変。
+- Session membershipはMeasurementを外部Run Manifestへ初回確定記録した時点で同一Scopeの論理Session identityが存在する場合に固定し、後からSessionへ遡及所属させない。DB Mirrorの有無はmembershipの事実を変えない。outage前から既存identityがある場合、outage中Captureは外部membershipへ記録できるが、Assignment-at-Measurement=ANONYMOUSであり、DB Session Mirror membershipへは追加・後日遡及追加しない。outage中に初回ASSIGNEDを試みたScopeはSession identityなし。NONEの後日Associationは既存DB管理Measurementに対する明示操作に限定し、Instance関連付け履歴のみを作成する。Session membershipは変更しない。実行主体・時刻・変更前後・理由・OperationIDを監査履歴へ残し、Assignment-at-MeasurementはNONEのまま不変。
 - ANONYMOUSは現行設計範囲で後日DB取込・Mirror化・Instance再紐付けを禁止する。将来拡張には別設計と統括承認を要する。
 - Anonymous化・消去要求はAssignment遷移とは別の明示的プライバシー処理。通常のAssignment Operationで履歴を消去しない。
 
@@ -47,7 +47,7 @@ Session LifecycleはSession Entityの独立状態であり、Measurement Outcome
 | 状況 | Measurement Outcome | Session Lifecycleの期待 |
 |---|---|---|
 | 初期NONE / ANONYMOUSのみ | Measurementなし、または外部正本上のOutcome | NOT_CREATED（Session rowなし） |
-| 初回ASSIGNED確定 | Measurement 0件 | 外部Manifestに論理Session identity生成、OPEN。DB正常利用可能時のみDB Session Mirror生成 |
+| DB正常利用可能時の初回有効ASSIGNED確定 | Measurement 0件 | 外部Manifestに論理Session identity生成、OPEN。同一IDのDB Session Mirror生成 |
 | Session OPEN、Measurement 0件 | 該当なし | OPEN維持 |
 | Session OPEN、全Measurement COMPLETE | 各Measurement=COMPLETE | OPEN維持 |
 | Session OPEN、全Measurement STOP / ERROR / CANCEL | 各Measurement固有Outcome | OPEN維持 |
@@ -74,13 +74,13 @@ Session LifecycleにNOT_STARTED / IN_PROGRESS / COMPLETE / PARTIAL / FAILEDを�
 | SES-026 | ANONYMOUS期間のMeasurement / RawLogを後日関連付け要求 | 取込・Mirror化・Instance再紐付けを拒否 |
 | SES-027 | DB正常利用可能時、Session生成前のNONE Measurementを登録し、その後初回ASSIGNED | Session membershipへ遡及追加しない |
 | SES-028 | 既存SessionのあるScopeでDB正常利用可能時にNONE Measurementを登録 | 登録時点で同一Scope Session membershipを固定。後日Associationでmembership変更なし |
-| SES-029 | DB unavailable中、Assignment=ASSIGNEDのCaptureを取得しDB復旧 | 論理Session identityは外部Manifestに生成するが、DB Session / Measurement Mirrorなし。障害期間データのBootstrap / DB取込 / Mirror化 / Associationを拒否 |
+| SES-029 | DB unavailable中にASSIGNEDを試みCaptureを取得しDB復旧 | 有効Assignment / Logical Session identity / DB Session / Measurement Mirrorなし。Assignment-at-Measurement=ANONYMOUS。障害期間データのBootstrap / DB取込 / Mirror化 / Associationを拒否 |
 | SES-030 | NONE Measurementへ初回Associationを作成 | NONE_ASSOCIATION_CREATEDを記録。AssociationOrdinal=1、Active最大1件、Assignment-at-Measurement / Session membership不変 |
 | SES-031 | Active Associationを解除 | 対応するNONE_ASSOCIATION_CLOSEDを記録。CloseReason必須。過去Event不変 |
 | SES-032 | Active Associationを別Instanceへ再関連付け | 同一Operation内で旧AssociationをCloseし、次AssociationOrdinalをCreate。Source Commitは必要Event集合を束ね、DB Mirror / Markerは同一Transaction |
 | SES-033 | Reassignment中にClose / Createの片方欠落、partial tail、順序違反、Hash mismatch | Operation / Scope QUARANTINED。元Event修復・後続Association更新禁止 |
 | SES-034 | 既にClosedのAssociationを再度Close、またはActiveがある状態で別Create | 拒否。Ordinal再利用・二重Active禁止 |
-| SES-035 | DB unavailable中に初回ASSIGNED | 論理Session identityを外部Manifestへ一度だけ生成しOPEN。DB Session Mirrorは作らず、復旧後も同一Runへの遡及Mirror化なし |
+| SES-035 | DB unavailable中に初回ASSIGNEDを試みる | 有効Assignment / Logical Session identity / DB Run / DB Session Mirrorを生成しない。Anonymous Modeの外部Captureのみ |
 
 これらはIssue #210決定の受入ケース案であり、実装・実行・PASSを意味しない。
 
