@@ -86,9 +86,9 @@ Headerの`M4ID\0 2`がCanonicalization Versionを識別することは読み取�
 - UUIDのnetwork-orderとlittle-endian表現
 - Field順を入れ替えた入力
 
-### CBN-07 — NUL表記の明確化（MINOR）
+### CBN-07 — NUL表記の明確化（RESOLVED IN DOCUMENTATION）
 
-§5.5の`A|B%\\0C`は、読者・言語によって文字列のバックスラッシュと数字0の2文字なのか、U+0000なのか解釈が揺れる。入力を「Unicode scalar sequence U+0041 U+007C U+0042 U+0025 U+0000 U+0043」またはbyte列`41 7C 42 25 00 43`と表記する。現行Expected HexはU+0000を含む6-byte payloadと一致している。
+Main draft §5.5 now expresses the input as the Unicode scalar sequence U+0041 U+007C U+0042 U+0025 U+0000 U+0043 and the UTF-8 bytes `41 7C 42 25 00 43`. This removes ambiguity between a literal backslash + digit and an actual U+0000 scalar. Expected Hex remains unchanged and encodes a 6-byte payload.
 
 ### CBN-08 — UUIDv5手順の実装境界（MAJOR）
 
@@ -350,3 +350,8 @@ A schema-only extension that adds a field, changes field order/type, changes nor
 - Verify RFC UUIDv5 known-answer vectors and two independent implementations after Namespace approval.
 
 **Status:** candidate remediation text only. CBN-02 / CBN-03 / CBN-04 remain OPEN until central review and all Entity domain schemas are complete.
+
+
+## 17. CBN-07 notation correction verification
+
+Read-back check confirms Main draft §5.5 uses the explicit Unicode scalar sequence and six UTF-8 bytes. CBN-07 is resolved as a documentation ambiguity only; no encoding rule or Expected Hex changed.
