@@ -1,4 +1,4 @@
-# v0.8.3 Session Lifecycle / Measurement Outcome分離案
+# v0.8.3 Session Lifecycle / Measurement Outcome — 決定版
 
 - 基準日: 2026-11-21
 - 状態: CC-01統括判断反映対象の論理設計補助資料・全体設計は未承認
@@ -162,7 +162,7 @@ Issue #210 CC-01 / CC-02およびMain §14により、以下をv0.8.3の確定�
 2. Measurement OutcomeはCOMPLETE / STOP / ERROR / CANCEL / INCOMPLETE / UNKNOWN。COMPLETEは機器固有Capture契約が正常終端を証明した場合のみ。終端欠落はINCOMPLETE、開始・終端の存在や順序が不明または矛盾する場合はUNKNOWN。
 3. Run CloseはRun Manager発行のPHYSICAL_RUN_CLOSED Operationだけで成立。Actor / UI / Operation evidenceが未提供ならCloseを拒否し、SessionをOPEN維持。終端矛盾・Hash不一致はQUARANTINED。
 4. Close時は全ScopeをTERMINAL / ABANDONED / HELDのいずれかに分類。ABANDONED / HELDにはActor・Reason・時刻を必須とし、未確定MeasurementをCOMPLETEに読み替えない。
-5. 初回ASSIGNED前のNONEとANONYMOUSは外部正本のみ。初回ASSIGNED後のNONE Measurementは既存DB管理下にある場合のみSessionに所属し、明示Associationの対象になり得る。ANONYMOUSは後日取込禁止。
+5. 初回ASSIGNED前のNONEとANONYMOUSは外部正本のみ。当該Scopeの初回ASSIGNED後に取得され、当該ScopeのSessionが既に存在し、DB管理下のMeasurement記録が確定したNONE MeasurementのみSessionに所属し、明示Associationの対象になり得る。他ScopeのASSIGNEDによるDB Run生成は、未ASSIGNED ScopeのNONE MeasurementをDB管理対象へ昇格させない。ANONYMOUSは後日取込禁止。
 6. Current AggregateはAssignment-at-MeasurementがASSIGNEDかつ現在Instanceと一致し、Outcome=COMPLETEのMeasurementだけを対象とする。NONEはHistorical Analysisに明示指定された場合のみRETROSPECTIVE_NONEとして扱い、Current Aggregateへ入れない。
 7. 機器固有Termination Reasonは原形保存。正式Mappingがない値をDB側で推測分類しない。
 
