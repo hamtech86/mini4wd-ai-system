@@ -403,7 +403,7 @@ Request StateとAttempt StateをMain §3.2で固定。Retry ClosedはFAILED Atte
 3. NONE AssociationのEvent Authorityは、Session Entityの存在有無で発行権限を失わないよう、当該Physical Run / Scopeの認証済みDB Session Managerとした。Event RegistryにはNONE_ASSOCIATION_CREATED / NONE_ASSOCIATION_CLOSEDを登録。AssociationOrdinal・Active / Closed・CloseReason・再関連付け順序・Source CommitのEvent集合・DB Marker同一TransactionをMain §14.1.5で定義した。これは論理Authority / 原子性契約であり、実装・権限・crash実証済みを意味しない。
 
 ### Issue #201との矛盾修正
-4. DB unavailableはIssue #201のAnonymous Modeとして扱う。障害期間中に取得されたCapture / Measurement / RawLogはAssignment-at-MeasurementがASSIGNEDであっても外部正本のみとし、復旧後のBootstrap / DB取込 / Mirror化 / Associationを禁止する。ただしCC-01に従い初回ASSIGNED時の論理Session identityは外部Run Manifestへ生成・保持し、DB Session Mirrorだけを作成しない。
+4. DB unavailableはIssue #201のAnonymous Modeとして扱う。障害期間中に取得されたCapture / Measurement / RawLogはAssignment-at-MeasurementがASSIGNEDであっても外部正本のみとし、復旧後のBootstrap / DB取込 / Mirror化 / Associationを禁止する。ただしCC-01に従い、Run Managerが初回ASSIGNED Assignment Operation確定時にUUIDv4の論理Session identityを発行して外部Run Manifestへ記録・保持し、DB Session Mirrorだけを作成しない。DB Session Mirrorは同一Session IDを再利用する。
 5. 障害前から存在するDB Run / Session Mirrorは削除しない。障害期間中のCaptureは外部Logical Session identityが存在すれば外部Manifest membershipへ記録するが、DB Session Mirror membershipへ追加せず、復旧後も遡及追加しない。
 6. 同一Physical Run内で障害中に初回ASSIGNEDとなった場合、論理Session identityは外部Run Manifestへ生成・保持する。障害期間中のCaptureは外部Logical Session membershipへ記録するが、復旧後にそのRunを遡及してDB管理へ変換しない。同一Run内のDB管理再開契約は本版で定義せず、新しいPhysical RunからDB管理を開始する。障害前にDB Run / Session Mirrorが存在した場合はIdentityを保持するが、障害中CaptureをDB Session Mirror membershipへ追加・遡及追加しない。
 
