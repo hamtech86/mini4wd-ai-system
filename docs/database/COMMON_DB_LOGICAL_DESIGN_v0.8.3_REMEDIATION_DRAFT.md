@@ -381,6 +381,7 @@ V082-001〜030は既存のまま保持する。V082-031〜053は追加案であ�
 3. Analysis Artifact / Simulation Artifactは共通Artifact Envelopeを使い、ArtifactKindで区別する。Payload Schemaと検証器はKindごとに分離する。Recovery OperationとIntegrity Reportは別Entity。Aggregate PointerはDerived Viewであり独立ID・正本・独立Tableを持たない。
 4. RawLog ObjectとRawLog Reference、Measurement EnvelopeとMeasurement Content Hash、Artifact IDとPayload Hash、Operation IntentとOperation Eventは別概念として保持する。
 5. 完全なField Schemaが外部契約で定義されていないEntityは、既知の共通Envelope（EntityType、SchemaVersion、EntityID、OwnerReference、CreatedAtUTC、PayloadReference、PayloadHash）と既知の関係だけを扱う。未知のPayloadは不透明データとして保存し、意味解析・Aggregate入力・フィールド補完を禁止する。Payloadの不透明保全も外部正本の保存検証ができない場合は受け入れない。
+6. 共通Envelopeの必須条件はEntityType（既知の大文字Registry値）、SchemaVersion（発行元Version文字列）、EntityID（§5.3の独立UUIDまたは指定複合Identity）、CreatedAtUTC（UTC RFC3339固定精度）とする。OwnerReferenceはRoot Entity以外必須で、参照先EntityType + Identityを保持する。外部正本ObjectはPayloadReferenceとPayloadHash（小文字64桁SHA-256 hex）を必須とする。DB Mirrorだけの派生値はPayloadReferenceを持たない場合があるが、外部正本の代替にはならない。
 6. 全Entityの独立Identityは§5.3に従う。関係Entityは指定複合キーを使用する。全IDはGlobal unique、型付き参照を必須とする。
 7. DELETE / UPDATEによる正本・履歴の書換えは禁止。FKの論理動作はRESTRICT。CASCADE DELETE / CASCADE UPDATEは禁止。訂正・再関連付け・再解析は新Operation / Event / Revisionで表現する。
 
