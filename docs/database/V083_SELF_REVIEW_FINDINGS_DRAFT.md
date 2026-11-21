@@ -360,3 +360,5 @@ Main §14を追加し、UUIDv4 / M4W-JCS-1、Run/Session/Assignment、NONE/ANONY
 
 ### SR-22 補足 — Battery 5A DATAの保存範囲
 Battery Issue #16に基づき、5A DATA原本byte・共通Measurement Envelope・CH1 / CH2独立保存は許可。未知RawLog Payloadはopaque保全のみとし、Feature Extraction / Benchmark再計算 / mAh・Wh・電圧降下の妥当性判定は正式契約受領まで禁止。
+### SR-22 補足 — Aggregate Attemptの終端
+Request StateとAttempt StateをMain §3.2で固定。Retry ClosedはFAILED Attemptあり・RUNNINGなしの場合のみ。Attempt CANCELLEDとRequest Cancelledを分離。結果不明crashはWorker fencing proof前にAggregate OwnerをQUARANTINEDとし、更新を停止。
