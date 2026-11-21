@@ -501,3 +501,20 @@ State Transition Matrix Draftは次の2行へ修正した。
 
 ### 24.5 状態
 State Transition Matrix Draftは修正済み。Main §2.3は未変更。Receipt Contract §4の許可遷移と整合した候補修正であり、DB-RV-03全体の解決・承認を意味しない。DB-RV-03 OPEN、v0.8.3未承認を維持する。
+
+
+## 25. Operation Ordinalの部分Intent時における消費境界（2026-11-21）
+
+### 25.1 照合結果
+Main §2.1はOrdinal消費点をIntent永続化完了時とする一方、Receipt Contract §2 / §6は部分Intent・不正JournalでもOrdinalを再利用せずQUARANTINEDとする。Intent append中にクラッシュし、完全永続化か部分Tailかを確定できない場合のOrdinal状態は、現行Mainの「未消費 / 消費済み」だけでは表現されない。
+
+### 25.2 安全側の修正案
+- Intentが一切存在しないことを検証できる場合のみ未消費。
+- 完全IntentがHash一致で検証できる場合は消費済み。
+- append結果不明・部分Tail・Hash不一致・競合の場合は消費状態を推測せず、Ordinal再利用禁止・Physical Run QUARANTINED。
+- 隔離中Physical Runで次Ordinalを推測発行しない。Recovery Operationの発行条件・Authorityは別途確定する。
+
+State Transition Matrix Draftへ「Intent書込み中・結果不明」の隔離行を追加した。Receipt Contract §18に状態区分候補とAuthority未決定事項を記録した。
+
+### 25.3 判定
+Operation Ordinalは欠番許容・再利用禁止、Receipt Event Ordinalは連続必須。両規則を混同しない。Ordinal Authority / Recovery発行条件は未決定。Main §2.1〜§2.3は未変更。DB-RV-03 OPEN。
