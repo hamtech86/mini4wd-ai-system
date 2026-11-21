@@ -63,7 +63,7 @@
 
 該当: §1.1〜1.3、§6、§9。
 
-「最初のASSIGNED OperationでDB Run/Sessionを生成」という記述は、既存の承認済みDB内にMirrorレコードを作る意味であることを明確にする必要がある。DBファイル、schema、空DB、migration、Bootstrapを自動生成する意味に読めてはならない。
+「DB正常利用可能時の最初の有効ASSIGNED OperationでDB Run / Logical Session identity / DB Session Mirrorを生成する」という記述は、既存の承認済みDB内にMirrorレコードを作る意味である。DB unavailable期間はAnonymous Modeであり、有効ASSIGNED Operation・新規Session生成を行わず、DBファイル、schema、空DB、migration、Bootstrapを自動生成しない。
 
 また§9の「新規DBへの明示管理操作」は、Issue #201の現行禁止境界に対して、実行可能な許可と誤認される余地がある。
 
@@ -152,8 +152,8 @@ Current Valid判定がInput Set Hash中心だが、RequestにはAssignment Snaps
 
 | 対象 | 確認結果 | 次に必要な作業 |
 |---|---|---|
-| DB Run | 初回ASSIGNEDで生成、生成後保持、再ASSIGNEDで同一IDを使う方針は一貫 | DB record生成とDB file/schema/bootstrapを明確に分離 |
-| Session | 初回ASSIGNEDで生成し、Assignment変更後も保持 | CC-01に従いLifecycle/Outcome分離。NONE Association時の既存Session membership条件を別途定義 |
+| DB Run | DB正常利用可能時の初回有効ASSIGNEDで生成、生成後保持、再ASSIGNEDで同一IDを使う方針は一貫 | DB record生成とDB file/schema/bootstrapを明確に分離。outage中の初回ASSIGNEDは無効 |
+| Session | DB正常利用可能時の初回有効ASSIGNEDで生成し、Assignment変更後も保持 | CC-01に従いLifecycle/Outcome分離。DB unavailable中の新規Session生成は禁止。NONE Association時の既存Session membership条件を別途定義 |
 | Assignment | Current AssignmentとAssignment-at-Measurementの分離は妥当 | NONE/ANONYMOUSの既存履歴・プライバシー処理境界を明文化 |
 | Current Aggregate | 現在ASSIGNED、測定時ASSIGNED、Instance ID一致という基準は一貫 | Request ID/Algorithm/Configuration/Assignment Snapshotを含む完全Fingerprintで有効性判定 |
 | Receipt | Source Commit後ABORTED禁止、同一Operation再開は一貫 | Event遷移・Restore時の未完了状態・ABORTED証拠条件を表形式で完成 |
@@ -405,9 +405,9 @@ Request StateとAttempt StateをMain §3.2で固定。Retry ClosedはFAILED Atte
 3. NONE AssociationのEvent Authorityは、Session Entityの存在有無で発行権限を失わないよう、当該Physical Run / Scopeの認証済みDB Session Managerとした。Event RegistryにはNONE_ASSOCIATION_CREATED / NONE_ASSOCIATION_CLOSEDを登録。AssociationOrdinal・Active / Closed・CloseReason・再関連付け順序・Source CommitのEvent集合・DB Marker同一TransactionをMain §14.1.5で定義した。これは論理Authority / 原子性契約であり、実装・権限・crash実証済みを意味しない。
 
 ### Issue #201との矛盾修正
-4. DB unavailableはIssue #201のAnonymous Modeとして扱う。障害期間中に取得されたCapture / Measurement / RawLogはAssignment-at-MeasurementがASSIGNEDであっても外部正本のみとし、復旧後のBootstrap / DB取込 / Mirror化 / Associationを禁止する。ただしCC-01に従い、Run Managerが初回ASSIGNED Assignment Operation確定時にUUIDv4の論理Session identityを発行して外部Run Manifestへ記録・保持し、DB Session Mirrorだけを作成しない。DB Session Mirrorは同一Session IDを再利用する。
-5. 障害前から存在するDB Run / Session Mirrorは削除しない。障害期間中のCaptureは外部Logical Session identityが存在すれば外部Manifest membershipへ記録するが、DB Session Mirror membershipへ追加せず、復旧後も遡及追加しない。
-6. 同一Physical Run内で障害中に初回ASSIGNEDとなった場合、論理Session identityは外部Run Manifestへ生成・保持する。障害期間中のCaptureは外部Logical Session membershipへ記録するが、復旧後にそのRunを遡及してDB管理へ変換しない。同一Run内のDB管理再開契約は本版で定義せず、新しいPhysical RunからDB管理を開始する。障害前にDB Run / Session Mirrorが存在した場合はIdentityを保持するが、障害中CaptureをDB Session Mirror membershipへ追加・遡及追加しない。
+4. DB unavailableはIssue #201のAnonymous Modeとして扱う。障害期間中に有効なASSIGNED Assignment Operationは成立せず、Capture / Measurement / RawLogのAssignment-at-MeasurementはANONYMOUS（InstanceID=NULL）とする。障害期間中にLogical Session identity / DB Run / DB Session Mirrorを新規生成せず、復旧後のBootstrap / DB取込 / Mirror化 / Associationを禁止する。障害開始前から存在するLogical Session identity / Lifecycleは外部正本上の履歴として保持する。
+5. 障害前から存在するDB Run / Session identity / Session Mirrorは削除しない。障害期間中のCaptureは既存Logical Session identityが存在する場合に限り外部Manifest membershipへ記録できるが、Assignment-at-MeasurementはANONYMOUSであり、DB Session Mirror membershipへ追加せず、復旧後も遡及追加しない。
+6. 同一Physical Run内で障害中に初回ASSIGNEDを試みても、有効なAssignment Operationは成立せず、Logical Session identity / DB Runは生成しない。CaptureはAssignment-at-Measurement=ANONYMOUSとして外部正本のみで保持し、復旧後にそのRunを遡及DB管理へ変換しない。DB管理を開始する場合は新しいPhysical Runから開始する。障害前にDB Run / Session Mirrorが存在した場合はIdentityを保持するが、障害中CaptureをDB Session Mirror membershipへ追加・遡及追加しない。
 
 ### 文書同期
 - Main v0.8.3 §1.1–1.4 / §6 / §14.1 / §14.4.17
