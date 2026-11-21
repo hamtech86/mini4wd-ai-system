@@ -232,6 +232,6 @@ Requestは不変。Attemptは実行ごとに新規作成。FAILEDを確定する
 
 | RCP-023 | Retry ClosedをAttempt未完了 / RUNNING中 / 完了Attemptなしで要求 | Request Event / Attempt一覧 | Retry Closed拒否。RequestはOPEN維持 |
 | RCP-024 | FAILED Attempt後にRetry Closedを明示 | Actor / UTC / Reason / PolicyVersion / 全Attempt終端証拠 | Request State=FAILED。以後Attempt拒否 |
-| RCP-025 | RUNNING Attemptの結果がクラッシュ後も不明 | Worker / Attempt / Result証拠 | Attempt / Request=INDETERMINATE。Same Request retry禁止。再計算は新Request |
+| RCP-025 | RUNNING Attemptの結果がクラッシュ後も不明 | Worker / Attempt / Result証拠 + Worker停止 / fencing proof | proof取得前はAggregate Owner QUARANTINED・全更新停止。proof後はAttempt / Request=INDETERMINATE。Same Request retry禁止。再計算は新Request |
 | RCP-026 | RUNNING Attemptがある状態でRequest Cancelled | Request Event / Active Attempt | Cancel拒否。Attemptを先に終端 |
 | RCP-027 | 全Attempt終端後にOperatorがRequest Cancelled | 認証Actor / Reason / UTC | Request State=CANCELLED。以後Attempt / Result生成禁止 |
