@@ -128,3 +128,15 @@ Issue #210の判断を受け、Main draft・Session Lifecycle supplemental・Sta
 - 変更対象はdocs/database配下の論理設計・監査資料のみ。
 - DDL、DB生成、Migration、Restore実行、実装、main変更・mergeは行っていない。
 - 追加受入ケースは提案であり、実装・実行・PASSを意味しない。
+
+
+## 9. DB-001〜124 prior-record recovery (2026-11-21)
+
+Prior conversation records were re-queried. DB-001〜056 individual short test descriptions and expected outcomes were recovered as conversation-record summaries and added to `DB_001_124_EVIDENCE_LEDGER_DRAFT.md`. This is not recovery of the original formal requirement document or proof of approval / implementation. In particular:
+- DB-032 (ANONYMOUS→Instance later association) is a historical requirement and is superseded for current scope by Issue #210 CC-02.
+- DB-020 / DB-036 (explicit Bootstrap success) are historical expectations and do not authorize DB creation / Bootstrap under current Issue #201 restrictions.
+- DB-057〜078 individual definitions remain unrecovered despite the range history for additions in 新DB設計書 v0.2.
+- DB-079〜109 have a user instruction to preserve the existing acceptance-test range, but individual definitions remain unrecovered.
+- DB-110〜124 have range-level additional-instruction history only; individual definitions remain unrecovered.
+
+A Library search for the named 新DB設計書 v0.2 and DB requirement ranges did not surface the source document. Do not infer nonexistence from that search. Continue retrieval from prior conversation records and GitHub historical artifacts; do not ask the user to resubmit known materials.
