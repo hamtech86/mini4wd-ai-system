@@ -39,6 +39,41 @@
 - ANONYMOUSは現行設計範囲で後日DB取込・Mirror化・Instance再紐付けを禁止する。将来拡張には別設計と統括承認を要する。
 - Anonymous化・消去要求はAssignment遷移とは別の明示的プライバシー処理。通常のAssignment Operationで履歴を消去しない。
 
+### 2.1 Session Lifecycle独立性（Issue #210 CC-01）
+
+Session LifecycleはSession Entityの独立状態であり、Measurement Outcome / 件数 / 混在パターンから導出しない。
+
+| 状況 | Measurement Outcome | Session Lifecycleの期待 |
+|---|---|---|
+| 初期NONE / ANONYMOUSのみ | Measurementなし、または外部正本上のOutcome | NOT_CREATED（Session rowなし） |
+| 初回ASSIGNED確定 | Measurement 0件 | Session生成、OPEN |
+| Session OPEN、Measurement 0件 | 該当なし | OPEN維持 |
+| Session OPEN、全Measurement COMPLETE | 各Measurement=COMPLETE | OPEN維持 |
+| Session OPEN、全Measurement STOP / ERROR / CANCEL | 各Measurement固有Outcome | OPEN維持 |
+| Session OPEN、Outcome混在 | 各Measurement固有Outcome | OPEN維持 |
+| Run管理側の明示Close Operationを受理・外部正本と依存参照検証済み | 対象Captureが終端または明示放棄/保留 | CLOSED |
+| Close Operationなし、STOP ACK / 最終Telemetry / app exit / inactivityのみ | 任意 | CLOSED禁止 |
+| Close対象Capture未終端または参照不整合 | UNKNOWN等を含み得る | OPEN維持またはQUARANTINED |
+
+Session LifecycleにNOT_STARTED / IN_PROGRESS / COMPLETE / PARTIAL / FAILEDを割り当てない。これらは旧V082 Session集約案の語彙であり、現行CC-01 Lifecycleではない。MeasurementのOutcomeとCaptureの終端確定条件は機器固有契約に従い、DB側で推測しない。
+
+### 2.2 CC-01 / CC-02追加受入ケース（提案・未実行）
+
+| Test ID | 条件 | 期待結果 |
+|---|---|---|
+| SES-017 | 初回ASSIGNED後、Measurement 0件 | SessionはOPEN。Measurement件数からNOT_STARTED等へ変化しない |
+| SES-018 | Session OPEN、全Measurement COMPLETE | SessionはOPEN。Outcomeを理由にCLOSEDにしない |
+| SES-019 | Session OPEN、全Measurement ERROR / STOP | SessionはOPEN。Outcomeを理由にCLOSEDにしない |
+| SES-020 | COMPLETE / STOP / ERROR / CANCEL混在 | Measurement Outcomeを個別保持。Session LifecycleはOPEN |
+| SES-021 | STOP ACKのみ / 最終Telemetryのみ / app exitのみ | Close OperationがないためCLOSEDにしない |
+| SES-022 | 明示Close Operationあり、Capture全件終端または明示放棄/保留、依存参照検証成功 | SessionをCLOSEDにできる |
+| SES-023 | 明示Close Operation時に未終端Captureまたは参照不整合 | CLOSED拒否。OPEN維持またはQUARANTINED |
+| SES-024 | Close Operationの外部正本が欠落・Hash不一致 | CLOSED拒否。OPEN維持またはQUARANTINED |
+| SES-025 | NONE期間の既存DB管理Measurementを明示Association | Assignment-at-Measurement=NONEを保持し監査記録。自動Aggregate算入なし |
+| SES-026 | ANONYMOUS期間のMeasurement / RawLogを後日関連付け要求 | 取込・Mirror化・Instance再紐付けを拒否 |
+
+これらはIssue #210決定の受入ケース案であり、実装・実行・PASSを意味しない。
+
 ## 3. MeasurementのDB登録・Current Aggregate判定
 
 | Measurement開始時 | Measurement時Instance | 現在Assignment | 現在Instance | DB Mirror | Current Aggregate |
