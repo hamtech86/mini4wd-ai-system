@@ -2,7 +2,7 @@
 
 - 基準日: 2026-11-21
 - 対象ブランチ: `docs/db-logical-design-v0.8.3-remediation-20261120`
-- 状態: **CC-01 / CC-02統括判断反映済み・全体設計未承認**
+- 状態: **CC-01 / CC-02統括判断反映済み・旧資料の同期監査を継続・全体設計未承認**
 - 目的: v0.8.3本文、補助論理設計、統括Issueおよび既存契約を相互照合する。
 - 制約: Issue #210の決定範囲を超えて仕様を拡張しない。物理設計・DDL・DB生成・Migration・実装を許可しない。
 
@@ -38,7 +38,10 @@ Issue #209のv0.8.2判定はORANGE — 条件付き差戻し・最終承認保�
 ### 反映対象
 - Main draft §1.4.1
 - Session Lifecycle supplemental §§1 / 2 / 8
-- State Transition MatrixのSession状態・受入ケース
+- State Transition MatrixのSession状態・受入ケース（SES-017〜024を含む）
+- Self Review: SR-09をCC-01で解決・旧案廃止として明示。SR-01 / SR-02はCC-02後の残課題を再定義
+- Entity Inventory: Session Lifecycle語彙・Close根拠を更新
+- V082 Crosswalk: V082-007を旧案として隔離し、CC-01 / CC-02補助受入ケースを追加
 - 本文の関連参照§1 / §6 / §7 / §12（同期確認を継続）
 
 PHYSICAL_RUN_CLOSEDは既存機器Eventとして扱わない。Run管理側の明示Close Operationが外部正本へ記録する論理Eventとして定義する。Event名・Schema・永続化形式の論理案は許容されるが、機器プロトコル変更を意味しない。
@@ -107,3 +110,21 @@ Issue #210の判断を受け、Main draft・Session Lifecycle supplemental・Sta
 - No Battery implementation changes or direct Battery department instructions from DB department.
 
 **Conclusion:** CC-01 / CC-02 are now decided and their primary text changes have been applied on the documentation branch. The full v0.8.3 design remains unapproved; continue cross-document synchronization and all outstanding DB-RV / evidence work before requesting overall re-review.
+
+
+## 8. 2026-11-21 cross-document remediation batch
+
+### Updated documents
+- `V083_SELF_REVIEW_FINDINGS_DRAFT.md`: Issue #201の旧一括表現をNONE / ANONYMOUSに分離。SR-01 / SR-02の残課題を更新し、SR-09をCC-01により解決・旧案廃止と記録。
+- `V083_ENTITY_INVENTORY_GAP_REGISTER_DRAFT.md`: Session Lifecycleの確定語彙、Outcome非導出、Close Operation条件をEntity最低契約に反映。
+- `V082_DB_001_124_CROSSWALK_DRAFT.md`: V082-007のSession Status導出を旧仕様として隔離し、CC-01 / CC-02の未実行補助受入ケースを追加。
+
+### Remaining checks
+- Main draft §1 / §6 / §7 / §12と補助資料の語彙・条件を再走査する。
+- NONE明示Association対象のSession membership条件を定義する（CC-02は許容範囲のみ決定し、membershipの詳細までは決めていない）。
+- DB-001〜124個別原文・正式出典の回収は未完了。
+
+### Verification boundary
+- 変更対象はdocs/database配下の論理設計・監査資料のみ。
+- DDL、DB生成、Migration、Restore実行、実装、main変更・mergeは行っていない。
+- 追加受入ケースは提案であり、実装・実行・PASSを意味しない。
