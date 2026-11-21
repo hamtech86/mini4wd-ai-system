@@ -894,7 +894,12 @@ Request StateをOPEN / SUCCEEDED / FAILED / CANCELLED / INDETERMINATEに固定�
 - NONE MeasurementのSession membershipを統括判断待ちとした旧記述は、本節37.2で閉鎖する。
 - 本節は論理設計文書の同期であり、DB作成・Bootstrap実行・Restore実行・Migration・実装許可を意味しない。
 
-### 37.4 受入ケース（未実行）
+### 37.4 同一Physical Run内のモード再開境界
+- outage中に当該Runの初回ASSIGNEDが発生した場合、DB復旧後に同一Physical Runを遡及DB化しない。
+- outage前からDB Run / Sessionが存在する場合はIdentityを保持するが、outage中Captureの後日取込は禁止する。
+- outage中の初回ASSIGNED後に同一Run内でDB管理へ移行する手順は現行契約に存在しないため、本版では許可せず、新しいPhysical Runを要求する。
+
+### 37.5 受入ケース（未実行）
 | ID | 条件 | 期待結果 |
 |---|---|---|
 | XDC-001 | DB outage中にASSIGNED Measurementを取得 | 外部正本のみ。DB Mirrorなし |
