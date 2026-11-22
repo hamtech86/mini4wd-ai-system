@@ -209,7 +209,6 @@ class BatteryDatabaseDialog(QDialog):
             self._channel_identity=channel
             voltage_index=1 if channel=="CH1" else 2
             current_index=3 if channel=="CH1" else 4
-            iid_row=db_iid=None
             with self._db() as db:
                 instance_rows=db.execute(
                     "SELECT DISTINCT instance_id FROM measurement WHERE session_id=? AND instance_id IS NOT NULL",
