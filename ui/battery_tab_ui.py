@@ -445,7 +445,7 @@ class BatteryTab(QWidget):
                     start = self.session_started[ch] or datetime.now().isoformat(timespec="seconds")
                     end = datetime.now().isoformat(timespec="seconds")
                     self._insert_available(db, "measurement_session", {
-                        "session_id": sid, "instance_id": iid, "device_type": "EVALUATION",
+                        "session_id": sid, "instance_id": iid, "scope_key": f"BATTERY:CH{ch}", "device_type": "EVALUATION",
                         "device_model": "BATTERY_5A", "firmware_version": "UNKNOWN",
                         "start_datetime": start, "end_datetime": end, "operator": "USER",
                         "result": "COMPLETE", "notes": "Integrated Battery UI; manual result registration"
@@ -453,7 +453,7 @@ class BatteryTab(QWidget):
                     for s in self.samples[ch]:
                         self._insert_available(db, "measurement", {
                             "session_id": sid, "record_type": "BATTERY_5A", "device_model": "BATTERY_5A",
-                            "instance_id": iid, "elapsed_time": s.elapsed_sec, f"voltage{ch}": s.voltage,
+                            "instance_id": iid, "scope_key": f"BATTERY:CH{ch}", "elapsed_time": s.elapsed_sec, f"voltage{ch}": s.voltage,
                             f"current{ch}": s.current, "pwm": s.pwm, "state": "COMPLETE", "power": s.voltage * s.current
                         })
                     self._insert_available(db, "battery_benchmark_result", {
