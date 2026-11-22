@@ -20,9 +20,13 @@ def test_benchmark_extracts_features_without_scoring():
     assert result["overall_score"] is None
 
 
-def test_benchmark_never_combines_channels():
-    with pytest.raises(ValueError):
-        extract_battery_benchmark([row(0, 5, 1.4, "CH1"), row(1000, 5, 1.3, "CH2")], channel="CH1")
+def test_benchmark_uses_only_the_explicit_channel_when_other_channel_is_present():
+    result = extract_battery_benchmark(
+        [row(0, 5, 1.4, "CH1"), row(1000, 5, 1.3, "CH2")], channel="CH1"
+    )
+    assert result["measurement_count"] == 1
+    assert result["avg_voltage"] == pytest.approx(1.4)
+    assert result["avg_current"] == pytest.approx(5.0)
 
 
 def test_benchmark_requires_explicit_channel_and_never_falls_back():
