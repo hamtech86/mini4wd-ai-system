@@ -22,7 +22,7 @@ def extract_battery_benchmark(measurements, *, channel):
             value = float(value)
         except (TypeError, ValueError):
             return None
-        return value if isfinite(value) else None
+        return value if isfinite(value) and value != 0.0 else None
 
     samples = []
     for row in rows:
