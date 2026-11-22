@@ -1229,3 +1229,14 @@ Issue #35の2026-11-09司令塔決定およびPR #193の反映により、旧8,0
 ### 物理証拠の境界
 
 MCU marking/signature、実fuse/BOD、電源過渡/hold-up、EEPROM power interruption、ADC reference capture、実機STOP/current cessationは未確認または未実施である。これらは実装・実機・外部設備の条件付き証拠であり、文書の再確認だけでPASSにはできない。HARDWARE_CURRENT_LIMIT_CONFIRMED=falseを維持する。
+
+### 2026-11-22 Evidence durability / batching clarification
+
+The earlier sentence in §13 requiring a flush after every complete received frame is superseded for ADC telemetry by the 2026-11-09 Issue #35 risk-based decision and the PR #193 implementation:
+
+- ADC telemetry Evidence may be buffered in bounded groups of at most 10 ADC batches.
+- Before a normal control/error/command-intent event is durably appended, preceding buffered telemetry is flushed. A nonzero command is not transmitted until its own durable FRAME_TX_INTENT is committed.
+- STOP transmission must not wait for telemetry Evidence flush or RawLog work. STOP attempt evidence is queued off the STOP critical path and finalized during normal bundle finalization.
+- RawLog record durability, hash-chain integrity, incomplete/UNKNOWN handling, fail-closed behavior, and no-auto-replay remain required. This clarification does not create a timing-based pass/fail ceiling.
+
+Accordingly, "per received frame fsync" is not a current blanket requirement for telemetry. Do not reintroduce it as a blocker; assess the bounded-batching and control-boundary semantics above.
