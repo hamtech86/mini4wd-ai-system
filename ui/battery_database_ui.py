@@ -183,6 +183,7 @@ class BatteryDatabaseDialog(QDialog):
         else: self.session_info.setText("Session information: no completed sessions")
 
     def _load_selected_session_result(self):
+        self._channel_identity=None
         sid=self.session.currentData()
         if not sid: return
         try:
@@ -200,7 +201,8 @@ class BatteryDatabaseDialog(QDialog):
             session_iid,start,end,result=srow
             channel=infer_battery_session_channel(mrows)
             if channel is None:
-                self._channel_identity=None
+                for widget in (self.count,self.avg_v,self.avg_i,self.avg_p,self.max_i,self.max_p,self.duration,self.drop,self.cap,self.energy):
+                    widget.setValue(0)
                 self.session_info.setText(
                     f"Session {sid} | Channel UNKNOWN | CH別データの識別が一意でないため解析・登録できません"
                 )
