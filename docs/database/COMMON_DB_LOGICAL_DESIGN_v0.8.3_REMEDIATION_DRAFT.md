@@ -146,7 +146,20 @@ Journal Intent、Receipt Envelope、Receipt Event、Source Commit Record、DB Ma
 
 ### 5.1 ID発行方式
 - v0.8.3で新規発行する独立Entity IDはUUIDv4とし、暗号学的に安全な乱数源で発行元Authorityが一度だけ生成して外部正本へ先行記録する。乱数品質を確認できない環境では発行を拒否する。
-- Physical Run IDおよびLogical Session IDはRun Managerが発行する。DB Run / Assignment Snapshot / Measurement / Profile Snapshot / RawLog Object / RawLog Reference / Sample Reference / Operation / Receipt / Artifact / Aggregate Request / Attempt / Result Revision / Recovery Operation / Integrity Reportは、それぞれの作成AuthorityがUUIDv4を発行する。DB Session MirrorはLogical Session IDを再利用し、別IDを発行しない。**ただし「それぞれの作成Authority」という一般記述だけではIssuer Authority登録済みとみなさない。UUID-bearing Entity Typeごとに単一のIssuer AuthorityをAuthority Registryへ登録し、未登録または複数候補のEntity ID発行は拒否する。現時点でIssuer mappingが未確定のEntityは、Owner契約 / Authority登録が完了するまで発行経路を実装・運用しない。**
+- **GL-01 / Issuer Authority Registry（統括決定・DECIDED）:** UUIDv4を独立Entity identity方式として維持し、各UUID-bearing Entity Typeに次の単一Issuer Roleを割り当てる。実Principal / Serviceの登録とRegistry登録が完了していないRoleからの発行は禁止する。Capture OwnerはPayload・Capture意味を所有するが、共通Identity発行権限と混同しない。
+  | Entity ID | 単一Issuer Role |
+  |---|---|
+  | PhysicalRunID / LogicalSessionID / DBRunID | RUN_MANAGER |
+  | AssignmentSnapshotID | ASSIGNMENT_MANAGER（Run Manager配下の単一Role） |
+  | MeasurementID / RawLogObjectID / SampleReferenceID | CAPTURE_IDENTITY_AUTHORITY |
+  | MeasurementProfileSnapshotID | PROFILE_AUTHORITY |
+  | RawLogReferenceID | EVIDENCE_STORAGE_AUTHORITY |
+  | OperationID | OPERATION_AUTHORITY |
+  | ReceiptID | RECEIPT_AUTHORITY |
+  | AnalysisArtifactID / SimulationArtifactID | ARTIFACT_AUTHORITY |
+  | AggregateRequestID / AttemptID / ResultRevisionID | AGGREGATE_AUTHORITY |
+  | RecoveryOperationID / IntegrityReportID | RECOVERY_AUTHORITY |
+  DB Session MirrorはLogicalSessionIDを再利用し、別IDを発行しない。ReceiptIDはOperationIDから導出せず、Intent永続化前に独立UUIDv4を発行・固定する。未登録Entity Type、未登録Principal / Service、Authority競合時はfail-closedとし、発行経路を実装・運用しない。Authority RegistryにはPrincipal / Service、Scope、発行・失効、監査証拠を記録する。
 - Receipt IDはOperation IDから導出しない。Receipt作成前にUUIDv4を発行し、Intent内に固定する。再起動時はIntentに記録された同じIDを使用する。
 - RUN_SCOPEは独立UUIDを持たず、(PhysicalRunID, ScopeKey)を複合識別子とする。Measurement-Sample LinkとArtifact Inputも親ID + Ordinal等の複合識別子を用いる。Aggregate Pointerは派生値でありIDを持たない。
 - UUID文字列表現は小文字・ハイフン付きCanonical形式のみを受け入れる。大文字、波括弧、短縮形、非Canonical表現は拒否する。全Entity ID間で重複を禁止し、参照時はEntity Typeも一致させる。UUID collisionを外部正本へ永続化する前に検出した場合のみ新しいUUIDv4を発行できる。永続化後にcollisionが検出された場合は再採番せずQUARANTINED。
@@ -395,7 +408,7 @@ V082-001〜030は既存のまま保持する。V082-031〜053は追加案であ�
 ### 14.2 Measurement Outcome / Session Close
 1. Measurement OutcomeはCOMPLETE / STOP / ERROR / CANCEL / INCOMPLETE / UNKNOWN。OutcomeはMeasurement単位でありSession Lifecycleへ伝播しない。
 2. COMPLETEは機器固有Capture契約が正常終端と必須Sample完了を明示した場合のみ。STOP / ERROR / CANCELは明示された終端Eventのみ。開始が確認でき、Capture終端または必須Sampleの欠落が確認された場合INCOMPLETE。開始・終端の存在や順序を確定できない、または証拠が矛盾する場合UNKNOWN。時間経過・無通信・アプリ終了・最終値の有無から推定しない。
-3. 各機器の詳細Termination Reasonは発行元の文字列・コードを原形保存し、DB側で意味を再解釈しない。正式MappingがないReasonはUNKNOWN扱い。Current Aggregateへ入るのはOutcome=COMPLETEのMeasurementのみ。 **理由:** Current Aggregateは現行Instanceに帰属する完全な測定結果を表すため、STOP / ERROR / CANCEL / INCOMPLETE / UNKNOWNを成功した測定値として混在させない。COMPLETEは機器固有Capture契約が正常終端と必須Sample完了を証明した場合に限り成立し、Motor / Battery契約が未受領または終端証拠が不足するMeasurementはCOMPLETEへ推定せずAggregateから除外する。この規則はSession Lifecycle分離とは別のAggregate受入条件であり、実装・試験PASSを意味しない。
+3. 各機器の詳細Termination Reasonは発行元の文字列・コードを原形保存し、DB側で意味を再解釈しない。正式MappingがないReasonはUNKNOWN扱い。**GL-03 / Current Aggregate（統括決定・DECIDED）:** Current Aggregateへ算入できるMeasurementは、(a) Outcome=COMPLETE、(b) Device / Capture Ownerの正式契約が正常終端証拠と必須Sample / Record完全性を明示、(c) Measurement Envelope・Assignment-at-Measurement・Scope・RawLog / Sample Reference・Hash / Integrityが検証済み、(d) 測定時Assignment=ASSIGNEDかつ現在Assignmentが同一InstanceでScope / Owner条件を満たす、の全条件を満たすものに限る。ANONYMOUS / NONE、STOP / ERROR / CANCEL / INCOMPLETE / UNKNOWN、契約未受領、終端証拠不足、必須Sample欠落、矛盾・Hash不一致は除外する。Session Lifecycleとは独立し、OutcomeからSessionをCLOSEDにしない。Battery CH1 / CH2は独立Scope / Measurement / Aggregateとし、平均・合算は禁止。Pair Analysisは別Artifactに限る。**契約未受領のデータをCOMPLETEと推定してはならず、UNKNOWN / opaqueとして除外する。**この論理決定は実装・試験PASS・v0.8.3全体承認を意味しない。
 4. Session LifecycleはNOT_CREATED / OPEN / CLOSED / QUARANTINED。CLOSEDはRun Managerが発行するPHYSICAL_RUN_CLOSED Operationが外部正本に永続化され、全ScopeのDispositionがTERMINAL / ABANDONED / HELDのいずれかで、依存証拠が検証済みの場合のみ。未終端をCOMPLETEに読み替えない。
 5. Close OperationにはPhysicalRunID、OperationID、ActorID、UTC timestamp、Reason、各ScopeのDisposition、各Capture / Measurementの参照とHash、未解決事項一覧を含める。ActorIDは認証済みOperator principalとし、UI画面・ボタン名はAuthorityではない（Client / UI versionは任意監査Metadata）。HELD / ABANDONEDは理由必須。未解決の矛盾・欠落・Hash不一致・Authority不明はOPEN維持またはQUARANTINED。機器プロトコルの既存Eventを新設・変更しない。
 
@@ -408,6 +421,7 @@ V082-001〜030は既存のまま保持する。V082-031〜053は追加案であ�
 6. 共通Envelopeの必須条件はEntityType（既知の大文字Registry値）、SchemaVersion（発行元Version文字列）、EntityID（§5.3の独立UUIDまたは指定複合Identity）、CreatedAtUTC（UTC RFC3339固定精度）とする。OwnerReferenceはRoot Entity以外必須で、参照先EntityType + Identityを保持する。外部正本ObjectはPayloadReferenceとPayloadHash（小文字64桁SHA-256 hex）を必須とする。DB Mirrorだけの派生値はPayloadReferenceを持たない場合があるが、外部正本の代替にはならない。
 6. 全Entityの独立Identityは§5.3に従う。関係Entityは指定複合キーを使用する。全IDはGlobal unique、型付き参照を必須とする。
 7. DELETE / UPDATEによる正本・履歴の書換えは禁止。FKの論理動作はRESTRICT。CASCADE DELETE / CASCADE UPDATEは禁止。訂正・再関連付け・再解析は新Operation / Event / Revisionで表現する。
+8. **GL-02 / Minimum Entity-Envelope-Event Schema（統括決定・DECIDED）:** 23概念を23独立SQL Tableまたは23独立UUIDへ機械的に展開しない。現行運用に必要な共通Identity・Authority・Reference・Lifecycle・Integrity境界を最小Schema対象とする。外部正本Objectの共通EnvelopeはEntityType / SchemaVersion / EntityID / CreatedAtUTCを必須とし、Root以外はOwnerReference、外部正本ObjectはPayloadReferenceとPayloadHash（SHA-256）を必須とする。DB Mirror派生値はPayloadReferenceを持たない場合があるが、外部正本の代替にはならない。外部Ownerの完全Field Schema未受領Payloadはopaque保存のみとし、意味解析・Field補完・Aggregate入力を禁止する。EventはEvent Registry / Owner Authorityに従い、Event identity・Ordinal・EventType・Actor/Authority・UTC時刻・Payload Schema Version・Payload・Previous Hash・Event Hash・連続/欠番規則を個別に固定する。Operation Journal Event、Receipt Event、Assignment History EventはそれぞれのAuthorityとEvent Registryに従う。Writer GrantはOperation Journalと別のAuthority Chainとする。
 
 ### 14.4 Operation / Intent / Receipt / Event
 1. Operation IDとReceipt IDは別々のUUIDv4。Receipt IDはIntent永続化前に発行し、Intentに固定する。OperationにつきReceiptは最大1件。
