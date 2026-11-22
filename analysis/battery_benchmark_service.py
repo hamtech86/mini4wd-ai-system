@@ -17,7 +17,8 @@ class BatteryBenchmarkService:
         rows = self._load_measurements(session_id)
         result = analyze_5a_measurements(rows, channel=channel)
         result.update({"session_id": session_id, "instance_id": instance_id})
-        self.results.save(result)
+        persisted = {key: value for key, value in result.items() if key != "channel"}
+        self.results.save(persisted)
         return result
 
     def _load_measurements(self, session_id: str):
