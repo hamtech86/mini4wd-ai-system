@@ -205,3 +205,29 @@ This entry records the existing command-authority amendment in `docs/310/310-4-d
 - The word "proposal" previously left in the §8.2 heading and final paragraph was stale status wording. It is corrected in the design document to reflect the recorded adoption. This does not convert a logical persistence contract into proof of electrical behavior.
 - Actual MCU/package/fuse, supervisor/hold-up, VCC/reset behavior, EEPROM write conditions, brownout and physical power-interruption behavior remain unverified hardware qualification gates. T13 and all physical EEPROM/fuse tests remain NOT RUN/BLOCKED until separately authorized and evidenced. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains in force.
 - PR #183 remains Draft/Open/Unmerged as workflow state. This clarification does not merge the PR, declare implementation complete, or authorize physical operations.
+
+## 2026-11-22 統括回収判定 — 既存根拠・残存ゲート・回収見込み
+
+本表は旧行の状態を更新する。未確認項目を一括して「設計未決定」と扱わず、証拠の種類と回収先を明示する。
+
+| 項目 | 2026-11-22分類 | 回収できた根拠 / 現在の状態 | 残る作業・回収見込み |
+|---|---|---|---|
+| loss window幅・粒度 | **解決済み（既存実装根拠）** | PR #198 HEADの measurement_310/device_loss_accounting.py に WINDOW_US=1,000,000、channel別device-epoch内1秒半開windowを確認。 | 旧「window幅未定」は削除対象。設計未決定として再掲しない。 |
+| SRAM静的領域 | **回収済み（compile artifact）** | run 43026233493 / artifact 13856624486。ATmega328PB / MiniCore 3.1.3 / 16MHz external。 .data=146B + .bss=747B = 893B、上限900B以内。PR #198 HEADのfirmware関連6 blobとcompile sourceが一致。 | 静的領域サイズの再測定は不要。 |
+| SRAM stack / reserve | **条件付き回収可能** | compilerの関数単位stack usage reportとMAPは回収済み。 | worst nested call path / interrupt nestingのboundまたは実機high-waterが未取得。stack<=700B / reserve>=448Bは未証明。 |
+| MCU identity | **条件付き回収可能** | build targetはATmega328PB、16MHz externalと特定済み。 | 物理搭載chipのmarking/signatureはcompile manifestでは証明できない。no-power inspectionまたは明示許可されたread-only identificationが必要。 |
+| BOD / fuse / 電源 / EEPROM power interruption | **条件付き回収可能・物理ゲート** | #215でEEPROM byte assignment補足はmainへcanonical化。#35 2026-11-09方針はHW02/HW03をINVESTIGATE、HW05をRELAXに再分類。 | 実chip、fuse readback、電源波形、supervisor/hold-up、限定した電源断試験は現物・設備が必要。ソフトウェア/host受入の一律ブロッカーにしない。 |
+| ADC acquisition status | **設計定義済み** | OK / PRECONDITION_INVALID / CONVERSION_TIMEOUT / NOT_ACQUIRED を設計本文とnative testで確認。 | analogReadだけによる断線/短絡診断は保証しない。診断回路が必要かは別のHardware判断。 |
+| ADC reference / accuracy / 20Hz | **条件付き回収可能・Benchmark側へ分離** | 20Hzは未採用。A0/A1/A2/A3/A4/A5の役割と非等間隔25/75ms候補は設計に明記。 | 実センサー型番、filter、VREF、settling、許容誤差Uallow、参照器が必要。Issue #172等で実測する課題で、20Hzを採用済みと扱わない。 |
+| TX backpressure / STOP | **ソフトウェア証拠回収済み、物理は未確認** | #198 native testsは未完了ADC_BATCH中のSTOP_ACK優先とSTOP時出力ゼロ/ラッチを検証。#193 host testsはsame-UART priority STOPを検証。 | 実機pin/current cutoff、driver故障・通信断時の物理停止は別ゲート。FAIL/NOT RUNをPASSに変えない。 |
+| fsync failure semantics | **ソフトウェア設計・host証拠あり** | durable intent / fail-closed / UNKNOWN保持の契約とPR #193のhost regression/T18 evidenceあり。 | 具体的な失敗注入の受入は該当テストのexact-head結果を参照。latency値そのものは合否条件ではない。 |
+| fsync latency budget / 8秒上限 | **上位決定により合否ゲートから除外** | Issue #35 2026-11-09決定およびPR #193は8,000ms ceilingをREMOVE、target-host profileを診断扱い。 | 数値を埋めるための再測定・承認待ちを310-4 blockerとして再掲しない。診断を実施した場合は値を加工せず報告。 |
+| RawLog Evidence companion package | **既存実装あり・fixture不足（回収見込み高）** | #198 evidence_bundle.py はRawLog 2 filesとEvidence sidecarを別 bundle-manifest.json でsession/hash/chain/count結合。RawLog schema自体は変更していない。 | 現行manifestはEvidence byte lengthとcompleteness stateが不足。package fixture/validator testで補完・確認する。RawLog v2 field/type/version変更はしない。 |
+| EEPROM byte assignment | **canonical化済み** | PR #215 merged to main、companion documentをread-back確認。 | #188固有文書の未移管を再掲しない。物理EEPROM適合は別。 |
+
+### 回収見込みの総括
+
+- **既存repo/CI/artifactから回収可能だったもの:** 1秒loss window、SRAM静的領域893B、compile target ATmega328PB、STOP priorityのsoftware/native test、Evidence bundleの現行構造、fsyncリスク方針。
+- **条件付き回収可能なもの:** worst-case stack bound、物理MCU/fuse/BOD/電源/EEPROM、ADC reference/accuracy。必要な入力・設備・許可を明記した。
+- **根拠なし／回収見込みなしと断定できる項目:** 現時点ではなし。証拠がない物理項目は「不可能」ではなく「現物・設備・明示許可待ち」と分類する。
+- 本表により、上位決定で除外された時間ゲート、既に実装証拠がある1秒window/STOP/SRAM静的領域を未決定事項として再浮上させない。
