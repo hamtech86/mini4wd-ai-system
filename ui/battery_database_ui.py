@@ -9,6 +9,14 @@ from battery_system.manual_result_registration import validate_manual_registrati
 from database.path_resolver import connect_database, resolve_database_path
 
 
+def is_legacy_channel_ambiguous(session_notes):
+    """Identify records written by the legacy UI that did not persist CH identity.
+
+    Notes are used only to quarantine known legacy rows, never to infer CH1/CH2.
+    """
+    return bool(session_notes and str(session_notes).startswith("Integrated Battery UI CH"))
+
+
 def infer_battery_session_channel(rows):
     """Return CH identity only when every populated sample belongs to one channel.
 
@@ -190,15 +198,25 @@ class BatteryDatabaseDialog(QDialog):
             with self._db() as db:
                 scols={r[1] for r in db.execute("PRAGMA table_info(measurement_session)").fetchall()}
                 if 'start_datetime' in scols:
-                    srow=db.execute("SELECT instance_id,start_datetime,end_datetime,result FROM measurement_session WHERE session_id=?",(sid,)).fetchone()
+                    note_expr = "notes" if "notes" in scols else "NULL"
+                    srow=db.execute(f"SELECT instance_id,start_datetime,end_datetime,result,{note_expr} FROM measurement_session WHERE session_id=?",(sid,)).fetchone()
                 else:
-                    srow=db.execute("SELECT instance_id,start_time,end_time,status FROM measurement_session WHERE session_id=?",(sid,)).fetchone()
+                    note_expr = "notes" if "notes" in scols else "NULL"
+                    srow=db.execute(f"SELECT instance_id,start_time,end_time,status,{note_expr} FROM measurement_session WHERE session_id=?",(sid,)).fetchone()
                 mrows=db.execute(
                     "SELECT elapsed_time,voltage1,voltage2,current1,current2,state FROM measurement WHERE session_id=? ORDER BY elapsed_time,id",
                     (sid,),
                 ).fetchall()
             if not srow or not mrows: return
-            session_iid,start,end,result=srow
+            session_iid,start,end,result,session_notes=srow
+            if is_legacy_channel_ambiguous(session_notes):
+                for widget in (self.count,self.avg_v,self.avg_i,self.avg_p,self.max_i,self.max_p,self.duration,self.drop,self.cap,self.energy):
+                    widget.setValue(0)
+                self.session_info.setText(
+                    f"Session {sid} | Channel UNKNOWN | 旧UIがCH識別を保存していないため解析・登録できません"
+                )
+                self.status.setText("NOT REGISTERABLE: legacy channel identity missing")
+                return
             channel=infer_battery_session_channel(mrows)
             if channel is None:
                 for widget in (self.count,self.avg_v,self.avg_i,self.avg_p,self.max_i,self.max_p,self.duration,self.drop,self.cap,self.energy):
