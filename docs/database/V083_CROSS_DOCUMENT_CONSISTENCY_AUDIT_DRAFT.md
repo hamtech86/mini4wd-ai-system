@@ -189,7 +189,7 @@ All six are historical Session-level Outcome aggregation expectations and are su
 V082-006 (Anonymous Measurement with no DB Session) is not in this obsolete set; it remains compatible with the no-Session behavior for a Scope that has never been ASSIGNED, subject to CC-01/CC-02 boundaries.
 
 
-## 13. CC-02 NONE Association — Session membership boundary remains OPEN (2026-11-21)
+## 13. CC-02 NONE Association — Session membership boundary (HISTORICAL / SUPERSEDED by CC-03, 2026-11-22)
 
 Issue #210 permits design of explicit late association only when the NONE-period Measurement already has both an external authoritative record and a DB-managed Measurement record. It does not decide how that record relates to Session membership.
 
@@ -211,7 +211,7 @@ Issue #210 permits design of explicit late association only when the NONE-period
 
 No automatic Session creation, DB Run creation, RawLog import, Mirror generation, or Current Aggregate inclusion is inferred from NONE. ANONYMOUS remains prohibited from later DB import / Mirror / Instance re-association under CC-02.
 
-**Status: OPEN — return to central command for a narrow boundary decision before finalizing Session membership and the CC-02 association contract.**
+**Historical status at 2026-11-21: OPEN. SUPERSEDED on 2026-11-22 by Issue #210 CC-03.** Measurement→Session direct relationship is not adopted; Measurement belongs directly to RUN_SCOPE and Session is an independent Lifecycle Entity under the same RUN_SCOPE.
 
 
 ## 14. Canonicalization strict-input / version-freeze proposal (2026-11-21)
@@ -290,7 +290,7 @@ Receipt Recovery Contract §12に追加監査を記録した。
 
 よってDB-RV-03を解消済みとは判定しない。物理耐久性・filesystem / DB durabilityは未実証であり、Issue #35のRawLog契約を一律拡張しない。
 
-### 16.4 CC-02 Session membership
+### 16.4 CC-02 Session membership (HISTORICAL / SUPERSEDED by CC-03)
 
 NONE late associationの対象MeasurementがSessionに属する条件は引き続き未決定。Existing-Session-only / Detached-Measurement / Session-link-on-associationの3案を維持し、DB部門のExisting-Session-only推奨は未採択。統括から追加判断がないため、Main draftの確定規則として閉じない。
 
@@ -764,7 +764,7 @@ Entity Inventory §10に、Main §§1–10、Issue #210 CC-01/02、Motor Issue #
 - OPERATION_EVENTをAssignment HistoryまたはOperation Journal Eventへ自動的に割り当てない。Intent / Event / SnapshotのEntity境界は未決定。
 - Analysis ArtifactとSimulation Artifact、Recovery OperationとIntegrity Report、RawLog ObjectとRawLog Referenceはそれぞれ概念上区別するが、全Entityの独立ID・物理表分割までは決めていない。
 - Aggregate Pointerは派生値として扱う候補であり、独立IDや保存表を追加する根拠はない。
-- NONE Session membershipはIssue #210で未決定。Inventory §10.2もA/B/Cのいずれかを採用したとは扱わない。
+- NONE Session membershipのA/B/C案はCC-03によりSUPERSEDED / NOT_ADOPTED。Inventory §10.2もMeasurement→Session直接関係なしへ同期する。
 
 ### 32.2 監査結論
 
@@ -858,7 +858,7 @@ Request StateをOPEN / SUCCEEDED / FAILED / CANCELLED / INDETERMINATEに固定�
 **番号対応の拘束:** DB-RV-01〜08はIssue #209の元定義を固定して使用する。上表のIDと意味を別の論点へ転用しない。Entity / identity inventoryは横断的な設計資料であり、独立したDB-RV番号ではない。新規の統括差戻し論点はV083-RV-01等の別系列で追跡する。表中の「DB部門案あり」は統括承認・実証完了を意味しない。
 
 ### 36.1 過去の未決定記述の置換規則
-1. NONE Session membershipのA/B/C案は不採用。Main §14.1(4)–(7)のScope単位・Session存在条件・DB availability・ANONYMOUS禁止境界を採用。
+1. NONE Session membershipのA/B/C案はSUPERSEDED / NOT_ADOPTED。CC-03によりMeasurementはRUN_SCOPEへ直接属し、Sessionは同一RUN_SCOPE配下の独立Lifecycle Entityとする。
 2. UUIDv5 / Canonical Binary Name v2 / Namespace案は不採用。UUIDv4とM4W-JCS-1を採用。
 3. Receipt ID deterministic derivation / Expected Receipt Hash / Expected DB Marker Hashは不採用。Main §14.4およびReceipt Contract §22の順序を採用。
 4. Writer / Recovery / Event Type AuthorityはMain §14.4のAuthority Registry / EventType別発行権限に固定。物理fencing方式は指定せず、証明不能な実装を受入不可とする。
@@ -919,9 +919,9 @@ Request StateをOPEN / SUCCEEDED / FAILED / CANCELLED / INDETERMINATEに固定�
 | XDC-002 | XDC-001後にDB復旧 | 障害期間データのBootstrap / 取込 / Mirror化を拒否 |
 | XDC-003 | outage前にDB Run / Session identityあり、outage中にCapture | 既存Identity保持。事前Source Commit済みでMirror未確定なら復旧後に同一IDでMirror再構築可。CaptureはANONYMOUSで外部membershipのみ、Measurement Mirrorへは取込まない |
 | XDC-004 | outage中に同一Physical Runで初回ASSIGNEDを試み、後にDB復旧 | 有効ASSIGNED / DB Run / Logical Session identityは生成されず、CaptureはAssignment-at-Measurement=ANONYMOUSで外部正本のみ。遡及DB化・取込を拒否し、新Physical RunからDB管理 |
-| XDC-005 | Session生成前にNONE MeasurementをDB登録し、後にSession生成 | Session membershipへ遡及追加しない |
-| XDC-006 | Session生成後にNONE MeasurementをDB登録 | 登録時点で同一Scope Session membershipを固定 |
-| XDC-007 | XDC-006対象を後日Association | Instance関連付け履歴のみ。Session membership / Assignment-at-Measurement不変 |
+| XDC-005 | NONE MeasurementをSession生成前にDB登録し、後にSession生成 | MeasurementはRUN_SCOPEへ直接属する。Sessionとの直接関係・遡及所属なし（CC-03） |
+| XDC-006 | Session生成後にNONE MeasurementをDB登録 | MeasurementはRUN_SCOPEへ直接属する。Sessionとの直接関係なし（CC-03） |
+| XDC-007 | NONE Measurementを後日Association | Instance関連付け履歴のみ。Measurement→Session直接関係・Assignment-at-Measurement不変（CC-03） |
 
 全ケースは論理受入案であり、実行・PASS未確認。
 
@@ -985,7 +985,7 @@ Main §8.1を照合した。
 
 | 統括MAJOR | DB部門処置 | 残存Gate / 判定 |
 |---|---|---|
-| NONE Session membership | Main §1.2.6 / §14.1.4に選択案と理由・不採用案を明記。Session生成前のNONEは遡及所属なし、生成後に同一Scopeで登録されたNONEは登録時点でmembership固定。Associationはmembershipを変更しない | **統括の明示確認待ち。** Issue #210 CC-02単独ではmembership決定を含まないため、DB部門案を承認済みと扱わない |
+| Measurement→Session relation | CC-03によりMeasurement→Session直接FK / membership / session_idを不採用。MeasurementはRUN_SCOPEへ直接所属し、Sessionは同じRUN_SCOPE配下の独立Lifecycle Entity | **DECIDED。** 文書同期を実施。旧A/B/C案はSUPERSEDED / NOT_ADOPTED |
 | Current AggregateのOutcome=COMPLETE限定 | Main §14.2.3に理由を追記。機器固有Capture契約が正常終端と必須Sample完了を証明する場合のみCOMPLETE。STOP / ERROR / CANCEL / INCOMPLETE / UNKNOWNはCurrent Aggregateから除外 | 論理案あり。正式Capture契約未受領のMeasurementはCOMPLETE推定禁止。Motor / Battery契約照合・受入試験は未実施 |
 | UUIDv4 / M4W-JCS-1 | Main §5.2のDecimal負の0矛盾を修正。Canonical Audit §19にJCS-01〜13の期待Canonical bytes / SHA-256と拒否ケースを追加 | **Issuer Authority mapping未完成。** Entity Typeごとの単一Issuer登録、CSPRNG、JCS二実装相互試験、Entity schema試験は未実施。期待ベクトル追加はPASSを意味しない |
 | DB-001〜124 | Evidence Ledger全124 IDの来歴・個別本文・正式性・実装対応の分離を維持。REFERENCE_ONLY_NOT_EXECUTABLEは要求の撤回ではないことを明記 | DB-001〜056は会話由来短縮定義のみ。DB-057〜124は個別原文未回収。承認原本・番号付きテスト実物は未回収 |
@@ -993,4 +993,20 @@ Main §8.1を照合した。
 | Entity Inventory | 23概念のIdentity / Authority / Mirror / Derived分類を保持。契約未受領Payloadは既知Envelope・Reference・Hashのみ検証し、opaque保存 / reject | 完全Field Schema、NULL / domain / cardinality / FK等は未完成。未受領Entityを意味解析・Aggregate入力へ使わない |
 | Receipt / Recovery補助文書 | Receipt Contract §§1〜21に「旧調査時点・現行規範ではない」警告を各節冒頭へ追加。Main §14.4 / Receipt Contract §22を優先 | filesystem / SQLite crash / Restore / fencing実証未実施。文書同期と耐久性PASSを混同しない |
 
-**結論:** V083-RV-01〜05の文書修正案はDB部門で反映したが、NONE Session membershipの統括判断、UUID issuer map、外部正式契約、実証試験、DB-001〜124原本・V082実行証拠は未完了。v0.8.3最終承認は保留のまま。
+**結論:** CC-03によりMeasurement→Session直接関係はDECIDED / DOCUMENT REFLECTED（本Audit）。UUID issuer map、外部正式契約、実証試験等は別Gateで残る。旧DB-001〜124原文回収・V082全件クロスウォークはユーザー指示により現行設計完成条件から除外。v0.8.3最終承認は保留のまま.
+
+
+## 41. 統括決定CC-03 — Measurement / Session直接関係の不採用（2026-11-22）
+
+**DECISION_STATUS: DECIDED / DOCUMENT_STATUS: REFLECTED（本Audit）**
+
+- Measurementは常にRUN_SCOPEへ直接属する。
+- Sessionは同じRUN_SCOPE配下の独立Lifecycle Entityであり、Measurementの親・子・容器ではない。
+- Measurement→Sessionの直接FK / membership / session_id / 所属Ordinalを設けない。
+- 測定時Assignment Snapshot / Revision / State / InstanceIDはMeasurement側に保持し、Session IDで代用しない。
+- 同一Scope内でSessionとMeasurementを併記する場合はRUN_SCOPEを介した派生View / Queryに限る。
+- NONE AssociationはInstance関連付けEventのみ。Session relationを作成・変更しない。
+- ANONYMOUS / DB unavailable期間の後日取込禁止およびCC-01 Lifecycle規則は維持する。
+- 本文Main §1.2 / §1.4 / §14.1、Session Lifecycle、State Transition Matrix、Entity Inventoryと同じ意味で同期する。
+
+Issue #210 CC-03より前のA/B/C membership案、OPEN/TBD、統括判断待ちの記述は、当時の履歴としてのみ保持し、現行規範・現行Blockerとして扱わない。
