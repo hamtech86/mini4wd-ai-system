@@ -193,3 +193,7 @@ PR #183の旧decision register / §13 / §14に残っていた状態記述を、
 
 ### 受入境界
 この追補は#183の文書内状態を正確にするもので、DESIGN ACCEPTANCE、implementation acceptance、hardware qualificationを付与しない。PR #183はDraft/Open/Unmergedを維持する。HARDWARE_CURRENT_LIMIT_CONFIRMED=false を維持する。
+
+### 2026-11-22 durability-policy synchronization
+
+The former "flush every received frame" telemetry wording is superseded by Issue #35's 2026-11-09 risk decision and PR #193 bounded batching: ADC telemetry Evidence batches at most 10 ADC batches; normal control/error/command-intent boundaries flush prior telemetry; each nonzero command retains durable pre-send FRAME_TX_INTENT; STOP transmission bypasses Evidence flush and its event is finalized off the STOP critical path. No timing-only fsync ceiling remains an acceptance gate. Data integrity, fail-closed and UNKNOWN/no-auto-replay remain.
