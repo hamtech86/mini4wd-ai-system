@@ -1,6 +1,6 @@
 # 310-4 Design Specification v0.5 — Re-submission (review corrections)
 
-> **Status: Draft / command review only.** This is a design proposal. It does not authorize firmware or Python implementation, compilation, upload, serial communication, motor energization, a 310-second physical measurement, formal acceptance, or transition to 310-5.
+> **Status: Adopted design contract for implementation under command-authority decisions dated 2026-11-04 and 2026-11-05.** PR #183 remains Draft/Open/Unmerged as a GitHub workflow state; that state does not revoke the recorded adoption. Adoption does not mean implementation or acceptance tests are complete. It does not authorize firmware upload, physical serial communication, motor energization, physical EEPROM/fuse operations, a 310-second physical measurement, or transition to 310-5.
 >
 > **Safety gate:** `HARDWARE_CURRENT_LIMIT_CONFIRMED=false`. Software state, STOP acknowledgement, and PWM=0 are not proof of physical stop or independent hardware protection.
 
@@ -270,7 +270,7 @@ Python stores every received STOP_ACK byte-for-byte as protocol evidence. For a 
 - `epoch_token32`: HELLO_ACK correlation token; may collide and is never used as device_epoch_id.
 - RawLog `device_epoch_id`: full boot_id64 value encoded using the exact type/representation accepted in RawLog v2. The serial tag is only a truncated correlation field.
 
-### 8.2 EEPROM journal proposal
+### 8.2 EEPROM journal layout and boot contract (protocol v2)
 
 Use a 16-slot wear-levelled EEPROM journal occupying 256 bytes. Each 16-byte slot contains: magic/version (2 B), generation_counter64 (8 B), reserved (3 B, all zero), CRC16 (2 B), commit marker (1 B; invalid=0x00, committed=0xA5). CRC-16/CCITT-FALSE is computed over bytes 0–12, init=0xFFFF, poly=0x1021, xorout=0x0000; CRC is stored at bytes 13–14 and marker at byte 15. A slot is valid only when marker equals the exact committed value, magic/version match and CRC validates.
 
@@ -293,7 +293,7 @@ Factory-empty state is not inferred from blank journal bytes alone. Reserve EEPR
 
 **Endurance arithmetic (conditional; not a device-life guarantee):** the ATmega328P data-sheet endurance figure is 100,000 write/erase cycles **per EEPROM cell**, subject to the specified voltage/temperature/test conditions. It is not 800,000 cycles per cell. With 16 journal slots and round-robin use, each slot is selected once per 16 committed boot events. At most two marker-cell write operations occur per selected slot use (invalidate marker, then commit marker); therefore a given marker cell sees at most 2 × (36,600 / 16) = 4,576 marker writes for the 36,600-event budget (rounding the per-slot distribution upward where needed). A payload cell written once per selected slot use sees at most ceil(36,600 / 16) = 2,288 writes. These are **per-cell** counts. Summed across all 16 marker cells, the journal performs at most 73,200 marker write operations over 36,600 boots; this aggregate is not a per-cell endurance rating. The idealized marker-cell lifetime arithmetic is 100,000 × 16 / 2 = 800,000 boot events, but this is a system-level rotation estimate derived from a per-cell limit, not '800,000 marker-cell cycles'. It excludes voltage/temperature derating, interrupted/retried writes, other EEPROM users, device variation and implementation defects. No service-life guarantee is claimed.
 
-The one-byte commit marker avoids a multi-byte marker torn-write ambiguity. This still depends on valid supply voltage during EEPROM programming; brownout behavior and reset thresholds require review. CRC detects payload corruption but does not alone guarantee power-fail behavior. This journal is a proposal, not a tested persistence guarantee. A boot identity that cannot be durably established is a hard session gate, not a random-ID fallback.
+The one-byte commit marker avoids a multi-byte marker torn-write ambiguity. This still depends on valid supply voltage during EEPROM programming; brownout behavior and reset thresholds require review. CRC detects payload corruption but does not alone guarantee power-fail behavior. The logical journal layout, commit sequence, factory-empty predicate and fail-closed boot behavior in this section, together with the protocol-v2 companion byte-assignment supplement referenced below, are the adopted design contract for protocol v2. The supplement is normative for the exact slot/provisioning bytes and the associated validity/boot rules; it is not limited to filling the magic/version values. This adoption is not a tested persistence guarantee: brownout behavior, electrical write conditions, reset thresholds and physical power-fail behavior remain separate hardware qualification gates. A boot identity that cannot be durably established is a hard session gate, not a random-ID fallback.
 
 ## 9. Unified state machine and transition table
 
@@ -1157,7 +1157,7 @@ This amendment changes the design contract only. It does not assert that firmwar
 
 
 ### Protocol v2 EEPROM layout supplement
-The exact 16-byte EEPROM slot byte assignments and provisioning-record validation are specified in docs/310/310-protocol-v2-eeprom-journal-byte-assignment.md on the protocol v2 firmware implementation branch. This supplement is normative for v2 firmware; it does not authorize physical EEPROM or fuse operations.
+The exact 16-byte EEPROM slot byte assignments and provisioning-record validation are specified in `docs/310/310-protocol-v2-eeprom-journal-byte-assignment.md`. This companion supplement is normative for protocol-v2 firmware, including byte values, reserved-byte requirements, nonzero generation, valid-slot selection, duplicate-generation rejection, factory-empty detection and UINT64_MAX fail-closed behavior. It supplements rather than replaces this section's logical journal/commit contract. It does not establish EEPROM electrical behavior or authorize physical EEPROM or fuse operations.
 
 
 ## I. Per-stage direction, DISARM and terminal STOP — 2026-11-05 command-authority amendment
