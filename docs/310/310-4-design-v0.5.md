@@ -1190,3 +1190,42 @@ This section supersedes any earlier protocol-v2 wording that implies one directi
 - Device tests cover FWD stage → DISARM → REV stage in the same UUID/boot epoch; command IDs and context tokens are fresh; PWM remains zero until each ARM_ACK; DISARM clears outputs/context; STOP remains terminal and cannot be converted into normal DISARM/re-ARM.
 - Host tests cover the exact sequence HELLO → ARM(FWD) → PWM → DISARM → ARM(REV) → PWM → DISARM, matching ACK identity at every boundary.
 - This is software protocol behavior only. No hardware energization, Arduino upload, physical serial connection, or 310-second measurement is authorized by this amendment.
+
+## 2026-11-22 統括証拠回収追補 — §13 / §14の状態同期
+
+本追補は既存の論理設計契約と後続の上位決定・実装証拠を照合した状態補正である。新たな実機適合、設計受入、実装許可、物理試験許可を意味しない。本文中の「未確認」「未実施」は本追補で明示的に更新した範囲だけを読み替える。
+
+### 13.1 RawLog v2とtransport Evidenceのパッケージ境界
+
+- RawLog v2本体は manifest.json と records.jsonl の2ファイル構成を維持する。transport EvidenceはRawLogレコードへ混入させず、同じ測定に属する外部sibling artifact transport-evidence-v1.jsonl として保持する。
+- パッケージ全体の結合情報はRawLog v2 manifestを変更して埋め込むのではなく、別のpackage-level companion manifestで管理する。現行PR #198 HEAD 1903db8aa148dfea4b2727b8cbd30b0bc338fe80 の measurement_310/evidence_bundle.py は bundle-manifest.json を作成し、session ID、RawLog 2ファイルのSHA-256、Evidenceファイル名/SHA-256、hash-chain head、event countを照合する。
+- ただし現行 bundle-manifest.json はEvidence byte lengthと明示的completeness stateを保持していない。したがって現状は**論理配置の候補とhash結合は存在するが、§13のpackage inventory要件を全て満たした実装受入ではない**。schema fixture / validator testで、byte length、artifact schema/version、completeness stateを含む契約を確認する必要がある。
+- RawLog v2の既存field/type/versionおよび2ファイル構成は変更しない。追加項目はcompanion manifest側で扱う。validatorがこの構成を受け入れない場合は、RawLog recordsへ項目を追加せず、package-level companion manifestの拡張として別途レビューする。
+- §13の旧記述「package-level contractがacceptedされるまでproposed/not approved」は、2026-11-05のfield-mapping決定および本追補のpackage境界整理により、**論理配置の状態表現としては superseded**。一方、companion manifestの全必須項目・fixture・validatorの実装受入は未完了のまま残す。
+
+### 14.2 TX / STOPのソフトウェア証拠
+
+- PR #198 HEADのnative test tests/native/test_protocol_v2_tx_scheduler.cpp は、未完了ADC_BATCHのworkspace中にSTOP_ACKをenqueueした場合に未完了batchを破棄してSTOP_ACKを先に送る経路を検証する。tests/native/test_protocol_v2_device.cpp はSTOP時のPWM=0要求、方向LOW、ARM/context無効化および後続PWM拒否を検証する。
+- 同じくPR #198 HEADの measurement_310/transport.py とPR #193のhost testsは、単一UARTのpriority STOP arbitrationとUNKNOWN扱いを検証する。
+- よって「STOP優先処理のソフトウェア/native証拠なし」という状態は superseded。未証明なのは物理pin電圧、driver cutoff、電流停止、回転停止、UART/USB/MCU故障時の物理停止であり、これらをPASSへ読み替えない。
+
+### 14.3 Compiler-backed SRAM evidence
+
+- GitHub Actions run 43026233493 / artifact 13856624486 のbuild manifestは、compile targetをATmega328PB、MiniCore 3.1.3、16MHz external、source commit 4a7179675e2c45b31228f24aabc1e4d646841cf1 と記録する。BOD fuseはcompileで設定されておらず、hardware upload / fuse / EEPROM operationも未実施。
+- artifactの avr-size は .data=146 B、.bss=747 B、合計893 Bであり、設計上限 .data + .bss <= 900 B を7 B以内で満たす。PR #198 HEADのMotoreRevV2 sketchおよびProtocolV2 / BootIdentityJournal関連6ファイルのblob SHAは、このartifactのcompile sourceと一致する。従って893 Bの静的領域値はPR #198 integration candidate上の同一ソースに適用できる。
+- MotoreRevV2-stack-usage-all.txt は関数単位のcompiler stack usageを含むが、worst nested call path / interrupt nestingを含む全体stack上限または実機high-waterを証明していない。従ってstack <=700 Bとreserve >=448 Bは未証明のまま。build target ATmega328PBは物理基板上の搭載chip marking/signature確認を意味しない。
+- 旧記述「compiler-backed sizesがない」「SRAM fit is not established」は静的領域について superseded。残るのはworst-case stack bound/high-water、heap/critical-path監査、実搭載MCU同定である。
+
+### 2026-11-09上位リスク方針の適用
+
+Issue #35の2026-11-09司令塔決定およびPR #193の反映により、旧8,000ms T18 ceilingは合否ゲートから除外されている。target-hostのstage/fsync/finalization時間は診断値であり、時間値だけでFAILまたは受入停止にしない。durable intent、fail-closed、UNKNOWN-not-SUCCESS、no-auto-replayおよびデータ整合性の検証は維持する。従って本書・decision registerに残る「fsync latency budgetの数値未確定」は310-4/310-5の未決定ゲートとして扱わず、診断プロファイルとして扱う。
+
+### Loss window / ADC状態の既存証拠
+
+- PR #198 HEADの measurement_310/device_loss_accounting.py は WINDOW_US=1_000_000、device epoch内のchannel別半開区間 [n*1s,(n+1)*1s) を実装している。decision registerの「window幅・粒度は未定」は superseded。
+- 設計の acquisition_status は OK / PRECONDITION_INVALID / CONVERSION_TIMEOUT / NOT_ACQUIRED を定義する。これは取得処理の状態であり、analogRead値だけでセンサー断線・短絡を確実に診断する回路を意味しない。物理センサー故障検出を保証しない。
+- 20Hzは未採用のまま。ADC reference/accuracy qualificationはセンサー型番・filter・VREF・settling・用途許容誤差と参照器が揃った段階の測定課題であり、310-4論理設計の欠落やT18 timing gateへ読み替えない。
+
+### 物理証拠の境界
+
+MCU marking/signature、実fuse/BOD、電源過渡/hold-up、EEPROM power interruption、ADC reference capture、実機STOP/current cessationは未確認または未実施である。これらは実装・実機・外部設備の条件付き証拠であり、文書の再確認だけでPASSにはできない。HARDWARE_CURRENT_LIMIT_CONFIRMED=falseを維持する。
