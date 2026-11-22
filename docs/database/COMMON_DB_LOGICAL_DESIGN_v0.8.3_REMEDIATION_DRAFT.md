@@ -373,11 +373,11 @@ V082-001〜030は既存のまま保持する。V082-031〜053は追加案であ�
 | Entity 23種 | Identity / Storage / unsupported動作決定済み | 完全Field Schemaの機器別契約は一部未受領 |
 
 「設計決定済み」は実装PASS・受入PASS・統括承認を意味しない。未実施項目は未実施のまま記録する。
-- [ ] Measurement EnvelopeにAssignment-at-Measurement必須参照を追加
-- [ ] RawLogのFile fsync / Directory fsync / collision / recovery条件を確認
-- [ ] Restore二段階Receipt検証とMirror再生成条件を確認
-- [ ] DB-001〜124台帳とV082クロスウォークを完成
-- [ ] Motor / Battery正式契約照合を完了
+- [x] Measurement EnvelopeにAssignment-at-Measurement必須参照を論理文書へ反映済み（§7.1 / §14.3。実装・検証済みを意味しない）
+- [ ] RawLogのFile fsync / Directory fsync / collision / recovery条件を対象環境で実証
+- [ ] Restore二段階Receipt検証とMirror再生成条件を対象環境で実証
+- [x] DB-001〜124個別追跡・全件Crosswalkは現行完成条件から除外済み（再開しない）
+- [ ] Motor / Battery正式Capture契約を受領し、GL-04境界を照合
 
 **提出状態: 差戻し解消案。統括再審査・承認前。実装移行不可。**
 
@@ -469,3 +469,4 @@ V082-001〜030は既存のまま保持する。V082-031〜053は追加案であ�
 1. 物理Lock方式、Epoch fencing、Filesystem durability、SQLite WAL / synchronous / isolation、crash injectionは本論理版で製品実装を指定しない。ただし§14の論理保証を実現・実証できない方式は採用不可。
 2. 未検証OS / filesystem / SQLite設定ではSource Commit / DB_COMMITTED / VERIFIEDを宣言しない。試験済み構成だけをSupported Environmentとして登録する。
 3. DB-RV-01〜08の論理選択は本節で確定。残るのは実装・テスト・外部契約の証拠回収と統括最終審査であり、設計選択を未決定に戻さない。
+4. **GL-04 Capture Contract（統括決定・契約受領待ち）:** Motor / Batteryの正式Capture終端・必須Sample・Outcome Mapping・RawLog framing / timestamp / channel契約をDB部門が推測補完しない。MotorはIssue #35を正本、#170を実装タスクとし、BatteryはIssue #16とBattery spec v2を参照する。各Ownerから正式契約が受領されるまでは対象Measurementをopaque保存に限定し、COMPLETE / Current Aggregate算入を推定しない。提出依頼はMotor Issue #35 comment #7079482192、Battery Issue #16 comment #7079482810に限定照会として記録済み。
