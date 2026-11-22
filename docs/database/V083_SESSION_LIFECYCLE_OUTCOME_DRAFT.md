@@ -1,6 +1,7 @@
 # v0.8.3 Session Lifecycle / Measurement Outcome — 決定版
 
-- 基準日: 2026-11-21
+- 基準日: 2026-11-22
+- 統括決定CC-03（Issue #210）を適用。Measurement→Session直接FK / membership / session_idは設けない。MeasurementはRUN_SCOPEへ直接属し、Sessionは同じRUN_SCOPE配下の独立Lifecycle Entityとする。
 - 状態: CC-01統括判断反映対象の論理設計補助資料・全体設計は未承認
 - 関連: v0.8.3 §1.2 / §1.4 / §6 / §7、Issue #35、Issue #201、Issue #77
 - 目的: 統括判断CC-01に従い、Session LifecycleとMeasurement Outcomeを分離する規則を本文・状態遷移資料と同期する。
@@ -151,8 +152,8 @@ Sessionの表示用サマリーを設ける場合も、Measurement Outcome別件
 | SES-024 | Close Operationの外部正本欠落 / Hash不一致 | CLOSED拒否。OPEN維持またはQUARANTINED |
 | SES-025 | NONE期間の既存DB管理Measurementを明示Association | Assignment-at-Measurement=NONEを維持し、Actor / 時刻 / 変更前後 / 理由を監査。Current Aggregateへ自動算入しない |
 | SES-026 | ANONYMOUS期間のMeasurement / RawLogを後日関連付け要求 | 後日取込・Mirror化・Instance再紐付けを拒否 |
-| SES-027 | DB利用可能時にSession生成前のNONE Measurementを登録し、後に初回ASSIGNED | MeasurementはSessionへ遡及所属しない。既存記録を保持し、後日の明示AssociationはInstance関連付け履歴のみ |
-| SES-028 | 既存SessionがあるScopeでDB利用可能時にNONE Measurementを登録 | 初回登録時に同一Scope Sessionへmembershipを固定。後日のAssociationはInstance関連付けのみでmembershipを変更しない |
+| SES-027 | NONE MeasurementをSession生成前に登録し、後に初回ASSIGNED | MeasurementはRUN_SCOPEに直接属する。Sessionとの直接関係・遡及所属を作成しない |
+| SES-028 | 既存SessionがあるScopeでDB利用可能時にNONE Measurementを登録 | MeasurementはRUN_SCOPEに直接属する。Sessionとの直接関係を作成せず、NONE AssociationはInstance関連付け履歴のみ |
 | SES-029 | DB unavailable中にASSIGNEDを試みCapture / Measurementを取得し、DB復旧 | 有効Assignment / Logical Session identity / DB Runなし。Assignment-at-Measurement=ANONYMOUS（InstanceID=NULL）、障害期間データのBootstrap / DB取込 / Mirror化 / Associationを拒否 |
 
 これらは提案テストIDであり、既存V082-001〜053との対応・採番統合は未実施。合格実行済みを意味しない。
@@ -165,9 +166,9 @@ Issue #210 CC-01 / CC-02およびMain §14により、以下をv0.8.3の確定�
 2. Measurement OutcomeはCOMPLETE / STOP / ERROR / CANCEL / INCOMPLETE / UNKNOWN。COMPLETEは機器固有Capture契約が正常終端を証明した場合のみ。終端欠落はINCOMPLETE、開始・終端の存在や順序が不明または矛盾する場合はUNKNOWN。
 3. Run CloseはRun Manager発行のPHYSICAL_RUN_CLOSED Operationだけで成立。Actor / UI / Operation evidenceが未提供ならCloseを拒否し、SessionをOPEN維持。終端矛盾・Hash不一致はQUARANTINED。
 4. Close時は全ScopeをTERMINAL / ABANDONED / HELDのいずれかに分類。ABANDONED / HELDにはActor・Reason・時刻を必須とし、未確定MeasurementをCOMPLETEに読み替えない。
-5. DB unavailable期間はIssue #201のAnonymous Modeとして扱い、障害期間中の有効ASSIGNED Assignment Operation・新規DB Run・Logical Session identity・DB Session Mirror・Measurement Mirrorを生成しない。障害期間中のCapture / Measurement / RawLogはAssignment-at-Measurement=ANONYMOUS（InstanceID=NULL）として外部正本に保全し、復旧後のBootstrap・DB取込・Measurement Mirror化・Associationを禁止する。障害開始前から存在するLogical Session identity / Lifecycleは外部正本に保持する。障害前に有効AssignmentのManifest Source Commitまで検証済みでRun / Session Mirrorだけが未確定の場合に限り、Recovery Authorityは同じIDのMirrorを再構築できる。障害期間CaptureはMirror化しない。障害前から存在するDB Run / Session Mirrorは削除せず保持する。初回ASSIGNED前のNONE Measurementも外部正本のみであり、後日Session membershipへ遡及追加しない。Session生成後、DB正常利用可能時に登録された同一ScopeのMeasurementは、測定時AssignmentがNONEであってもSession membershipを登録時点で固定できる。NONE AssociationはInstance関連付け履歴のみであり、Session membershipを変更しない。他ScopeのASSIGNEDによるDB Run生成は未ASSIGNED ScopeのNONE MeasurementをDB管理対象へ昇格させない。ANONYMOUS / outage期間の将来取込は別設計・統括の明示承認が必要。
+5. DB unavailable期間はIssue #201のAnonymous Modeとして扱い、障害期間中の有効ASSIGNED Assignment Operation・新規DB Run・Logical Session identity・DB Session Mirror・Measurement Mirrorを生成しない。障害期間中のCapture / Measurement / RawLogはAssignment-at-Measurement=ANONYMOUS（InstanceID=NULL）として外部正本に保全し、復旧後のBootstrap・DB取込・Measurement Mirror化・Associationを禁止する。障害開始前から存在するLogical Session identity / Lifecycleは外部正本に保持する。障害前に有効AssignmentのManifest Source Commitまで検証済みでRun / Session Mirrorだけが未確定の場合に限り、Recovery Authorityは同じIDのMirrorを再構築できる。障害期間CaptureはMirror化しない。障害前から存在するDB Run / Session Mirrorは削除せず保持する。Measurementは初回ASSIGNED前後やAssignment StateにかかわらずRUN_SCOPEへ直接属し、Sessionとの直接membershipを持たない。Sessionは同じRUN_SCOPE配下の独立Lifecycle Entityである。NONE AssociationはInstance関連付け履歴のみであり、Measurement→Session関係を作成・変更しない。他ScopeのASSIGNEDによるDB Run生成は未ASSIGNED ScopeのNONE MeasurementをDB管理対象へ昇格させない。ANONYMOUS / outage期間の将来取込は別設計・統括の明示承認が必要。
 
-NONE Association Historyは独立UUID EntityではなくOperation Journal Eventで記録する。AssociationOrdinalはMeasurementごとに1から連続増加し、Event Identityは(OperationID, EventOrdinal)、History Recordの論理Identityは(MeasurementID, AssociationOrdinal)。Event RegistryにはNONE_ASSOCIATION_CREATEDとNONE_ASSOCIATION_CLOSEDを登録する。Created EventはTargetInstanceID / AssignmentSnapshotID・Revision / ActorID / OccurredAtUTC / Reasonを保持し、Closed EventはPreviousCreatedEventRef / ClosedAtUTC / CloseReason / ActorIDを保持する。ActiveはCreated後にClosedされていない状態、Closedは対応するClosed Eventが検証済みで存在する状態とし、MeasurementごとActive最大1件。Reassignmentは1 Operation内で旧AssociationをCloseしてから次OrdinalをCreateする。必要Event集合の欠落・順序違反・部分Tail・Hash不一致はOperation / ScopeをQUARANTINEDとし、元Eventを補修しない。Source Commitは必要Event全体を束ね、DB Mirror更新とMarkerは同一DB Transactionとする。Session membershipとAssignment-at-Measurementは変更しない。
+NONE Association Historyは独立UUID EntityではなくOperation Journal Eventで記録する。AssociationOrdinalはMeasurementごとに1から連続増加し、Event Identityは(OperationID, EventOrdinal)、History Recordの論理Identityは(MeasurementID, AssociationOrdinal)。Event RegistryにはNONE_ASSOCIATION_CREATEDとNONE_ASSOCIATION_CLOSEDを登録する。Created EventはTargetInstanceID / AssignmentSnapshotID・Revision / ActorID / OccurredAtUTC / Reasonを保持し、Closed EventはPreviousCreatedEventRef / ClosedAtUTC / CloseReason / ActorIDを保持する。ActiveはCreated後にClosedされていない状態、Closedは対応するClosed Eventが検証済みで存在する状態とし、MeasurementごとActive最大1件。Reassignmentは1 Operation内で旧AssociationをCloseしてから次OrdinalをCreateする。必要Event集合の欠落・順序違反・部分Tail・Hash不一致はOperation / ScopeをQUARANTINEDとし、元Eventを補修しない。Source Commitは必要Event全体を束ね、DB Mirror更新とMarkerは同一DB Transactionとする。Measurement→Session直接関係は存在せず、Assignment-at-Measurementは変更しない。
 6. Current AggregateはAssignment-at-MeasurementがASSIGNEDかつ現在Instanceと一致し、Outcome=COMPLETEのMeasurementだけを対象とする。NONEはHistorical Analysisに明示指定された場合のみRETROSPECTIVE_NONEとして扱い、Current Aggregateへ入れない。
 7. 機器固有Termination Reasonは原形保存。正式Mappingがない値をDB側で推測分類しない。
 
