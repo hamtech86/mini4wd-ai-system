@@ -484,8 +484,8 @@ Current Aggregateの対象は、Outcome=COMPLETE、Device / Capture Ownerの正�
 
 | Gate | DECISION_STATUS | DOCUMENT_STATUS | IMPLEMENTATION_STATUS | VERIFICATION_STATUS | APPROVAL_STATUS |
 |---|---|---|---|---|---|
-| GL-01 | DECIDED | PARTIAL（Authority Registry同期済み案。実Principal登録は別） | NOT_STARTED | NOT_RUN | PENDING |
-| GL-02 | DECIDED | PARTIAL（最小Schema境界同期。Owner Field Schemaはopaque待ち） | NOT_STARTED | NOT_RUN | PENDING |
-| GL-03 | DECIDED | PARTIAL（条件式同期。Capture契約の適用可能範囲は限定） | NOT_STARTED | BLOCKED for contract-missing data | PENDING |
+| GL-01 | DECIDED | REFLECTED | NOT_STARTED（実Principal / Service登録・発行経路未実装） | NOT_RUN | PENDING |
+| GL-02 | DECIDED | REFLECTED | NOT_STARTED | NOT_RUN | PENDING |
+| GL-03 | DECIDED | REFLECTED | NOT_STARTED | BLOCKED for contract-missing data | PENDING |
 
 GL-01〜03の論理決定を文書・実装・検証・承認の未完了を理由にOPENへ戻さない。GL-04の正式Capture契約受領は別の外部依存として扱う。
