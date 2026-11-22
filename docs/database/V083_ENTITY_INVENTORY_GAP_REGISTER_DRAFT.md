@@ -71,7 +71,7 @@
 - Measurement固有Capture終端契約とOutcome確定根拠。PHYSICAL_RUN_CLOSEDは既存機器EventではなくRun管理側の論理Event。
 - Aggregate Pointerの並行更新と再構築順序。
 - EntityごとのCanonical Name Field Schema完全版とgolden vectors。
-- Namespace候補の既存利用有無・統括承認。
+- 旧Namespace候補の既存利用調査・承認待ちはSUPERSEDED。UUIDv5 / Namespaceは現行方式に不採用（GL-01）。
 - DB-001〜124個別要求との一対一対応・V082テストとの対応。
 
 ## 5. Canonical Nameとの整合ギャップ
@@ -126,7 +126,7 @@
 - Main draft §5.3の `OPERATION_EVENT(OperationID, EventOrdinal)` は、Entity Inventory 23種のいずれかへ一意に対応付けられていない。
 - Assignment History / EventまたはOperation Journal Eventの候補にはなるが、Intent本体、Assignment Snapshot、Operation Eventを同一Entityと断定しない。
 - §5.3には11 schema row（うちTEST_VALUEは別の汎用vector用途）がある。Entity Inventory 23種のうち10種に直接対応するschemaがある。13種はschema未定義、OPERATION_EVENT 1種はinventoryへの対応が未確定。
-- 「schema未定義」はUUIDv5を必ず追加すべきという意味ではない。既存UUIDv4、親ID+ordinal、Content Hash、自然キー、派生Pointerのいずれが適切かをAuthorityと更新・保持規則から決める。
+- 「schema未定義」は独立UUIDを追加すべきという意味ではない。UUIDv4 / Issuer Role、親ID+ordinal、Content Hash、派生PointerをGL-01 / GL-02とMain §5.3に従って区別する。
 
 ### 6.2 次に確定すべき分類ルール
 
@@ -174,7 +174,7 @@ PK / FK欄は論理的な参照・一意性の記載状況であり、SQLite DDL
 | # | Entity | 草案に明記された属性 / 型 | NULL・UNIQUE・参照 / Cardinalityの根拠 | Identity分類（候補・未承認） | Lifecycle / 保持 | 未確定・不足 |
 |---:|---|---|---|---|---|---|
 | 1 | Physical Run / Run Manifest | PhysicalRunID: UUIDv4。Manifest内容・Hash | PhysicalRunIDはRun識別子。DB Runとは別ID。Manifest IDの有無は未定義 | Identity UUID候補。Manifest Content Hashは別概念 | 外部正本。Run事実・履歴を保持。削除・ID再発行禁止 | Manifest属性、Manifest ID、Hash対象・版、作成・終端・保持期間、Run単位UNIQUE |
-| 2 | DB Run | DBRunID: UUIDv4（RUN_MANAGER）、PhysicalRunID: UUIDv4 | Physical Runにつき最大1件。最初のASSIGNED確定時に生成。PhysicalRunIDと別ID | Identity UUID候補（Namespace未承認） | DB Mirror。生成後は全ScopeがNONE/ANONYMOUSでも保持。削除・再生成禁止 | Namespace、Field Domain、全属性、FK実装論理、NULL、DB Run status/close semantics |
+| 2 | DB Run | DBRunID: UUIDv4（RUN_MANAGER）、PhysicalRunID: UUIDv4 | Physical Runにつき最大1件。最初の有効ASSIGNED確定時にRUN_MANAGERが発行。PhysicalRunIDと別ID | Identity UUID（Issuer Role決定済み） | DB Mirror。生成後は全ScopeがNONE/ANONYMOUSでも保持。削除・再生成禁止 | 実Principal / ServiceのRegistry登録、全属性、FK実装論理、NULL、DB Run status/close semantics |
 | 3 | RUN_SCOPE | PhysicalRunID(UUID), ScopeKey(ASCII string) | PhysicalRunID + ScopeKeyの組を識別候補。Physical Run初期化時に全Scope分の外部正本を作成 | Composite identity候補 | Scope Manifestが外部正本。Run内Scopeの履歴を保持 | ScopeKey許容値・正規化・長さ、Scope一覧のAuthority、FK/Cardinality、Scope追加・廃止 |
 | 4 | Assignment Snapshot | Assignment Revision / State / Instance ID / Snapshot Reference / Hashの記述あり | Scope単位の不変Snapshot。ASSIGNEDならInstance ID必須、NONE/ANONYMOUSならNULL。Revision一意性は値域未確定 | Composite identity / Identity UUID / Content Hashの選択未決 | 外部正本の不変Revision。訂正は新Operation / Revision | Snapshot ID、Revision開始・連番・欠番、全属性、Instance FK、Profile参照、Hash範囲 |
 | 5 | Assignment History / Event | Operation ID / Ordinal / Actor / Timestamp / before-after / Reasonの一部記述 | Assignment Snapshot / HistoryはScope単位。EventとOperation Eventの同一性は未確定 | External event identity候補（OperationID + Ordinal） | 追記履歴。過去Assignmentを更新しない | Event ID、Ordinal適用範囲、Actor/Reason型、Event Type、Hash Chain、OPERATION_EVENTとの対応 |
@@ -185,7 +185,7 @@ PK / FK欄は論理的な参照・一意性の記載状況であり、SQLite DDL
 | 10 | Sample Reference | RawLogReferenceID(UUID), SampleLocator(UTF-8 string) | RawLog Referenceに従属する候補。SampleLocatorのgrammar / domain uniqueness未定義 | Composite identity候補（RawLogReferenceID + Locator） | Reference Manifestから再生成候補。個別削除規則なし | Locator grammar、sample index/time/channel/field semantics、NULL/UNIQUE、RawLog typeとの対応 |
 | 11 | Measurement Sample Link | MeasurementID(UUID), SampleReferenceID(UUID), Role(UTF-8), Ordinal(Integer) | MeasurementとSample Referenceの関連。Role / Ordinal domain未定義。Ordinal一意性は未確定 | Composite identity候補（Measurement + Sample + Role + Ordinal） | Linkは参照情報。訂正・削除の扱いは個別未定義 | PK/UK、同一Sample複数Role許否、Required/Optional、複合FK、順序規則、Retention |
 | 12 | Operation Journal / Intent | OperationID、Ordinal、Intent Payload、Intent Hash、Expected Source Payload Hashes、Expected DB Marker Hash、Target Entity ID等 | Physical Run単位のJournal。Ordinalは消費後再利用禁止。OperationとReceiptは1:1候補 | External event identity候補（OperationID + Ordinal）。Intent HashはContent Hash | 外部正本。追記・不変。Recoveryは新Operation | OperationID発行規則、Journal/Intent/Operation EventのEntity境界、全属性・型、Actor/lock fields、Retention |
-| 13 | Receipt Envelope | ReceiptID: 独立UUIDv4（RECEIPT_AUTHORITY）、OperationID: UUIDv4 | Operationにつき最大1 Receipt。Receipt ID/Operation IDの関係は1:1 | Identity UUIDまたはdeterministic identity候補（Namespace/algorithm未確定） | PREPARED→SOURCE_COMMITTED→DB_COMMITTED→VERIFIED等。VERIFIED不変。QUARANTINED解除は新Recovery Operation | ReceiptID導出規則、全Payload属性、Hash自己参照除外、NULL、Operation FK、保持期間 |
+| 13 | Receipt Envelope | ReceiptID: 独立UUIDv4（RECEIPT_AUTHORITY）、OperationID: UUIDv4 | Operationにつき最大1 Receipt。Receipt ID/Operation IDの関係は1:1 | 独立Identity UUID（Issuer Role決定済み） | PREPARED→SOURCE_COMMITTED→DB_COMMITTED→VERIFIED等。VERIFIED不変。QUARANTINED解除は新Recovery Operation | 実Principal / ServiceのRegistry登録、全Payload属性、Hash自己参照除外、NULL、Operation FK、保持期間 |
 | 14 | Receipt Event | ReceiptID(UUID), EventOrdinal(Integer)。Event Type / Timestamp / Payloadの記述 | Receipt内Ordinal一意。Receiptへの従属。Event Type domain未確定 | Composite / External event identity候補（ReceiptID + EventOrdinal） | 追記のみ。State遷移単調。VERIFIED後の追記禁止 | Event ID、Actor、Timestamp、Payload schema、Hash Chain、Ordinal開始値/欠番、Unknown Typeの扱い |
 | 15 | DB Operation Marker | OperationID / Ordinal / Intent Hash / Receipt ID / Source Commit Hash / DB Commit Payload Hash / Target Entity Type/ID / Schema Version等 | DB Mirror変更とMarkerは同一Transaction。OperationにつきMarker cardinality候補1 | Composite identity候補（OperationID + Ordinal） | DB内Mirror。Source Commit後にのみ作成。DB Mirror再生成可能 | Marker独立IDの有無、完全Payload、UNIQUE/FK、Hash算出範囲、Transaction durability / isolation |
 | 16 | Analysis Artifact | ArtifactID、Algorithm Version、Configuration Version、Input Set Hash、Result Hash、Payload Reference等 | Artifact Inputを通じて入力参照。Artifactは作成後不変。ID/Hashを区別 | Identity UUID候補 + Content Hash | 再解析は新Artifact。旧Artifact保持。DAG循環禁止 | Artifact Envelope全属性、Algorithm/Configの完全識別、Measurement/Profile relation、Status、Retention |
@@ -257,7 +257,7 @@ Entity Inventory 23種をDB-RVの審査項目へ対応付ける。これは責�
 | # | Entity | DB草案上の根拠 | Authority / Mirror | 外部正式契約・責任境界 | 判定 |
 |---:|---|---|---|---|---|
 | 1 | Physical Run / Run Manifest | Main §§1.1, 6, 9, 10。Receipt ContractのManifest / ancestry項 | Run Manifestが外部正本。DB Run生成後の検索Mirrorは任意 | Run開始・終了Event、Manifest完全Schema、Actor、revision/hashは統括Run管理契約が必要 | 部分定義。Run lifecycle契約未完 |
-| 2 | DB Run | Main §§1.1, 5.3, 6, 10 | DB Mirror。PhysicalRunIDから再生成候補 | DB Run IDのCanonical Namespace / field domainは統括承認待ち | 部分定義。ID方式未承認 |
+| 2 | DB Run | Main §§1.1, 5.3, 6, 10 | DB Mirror。PhysicalRunIDから再生成候補 | UUIDv4 / RUN_MANAGER。実Principal登録前は発行不可 | 部分定義。Authority Registryの実登録待ち |
 | 3 | RUN_SCOPE | Main §§1.2, 5.3, 6, 10 | Scope Manifest / Assignment Snapshotが外部正本。DB Mirrorは再生成可能 | ScopeKeyの正式語彙・許容値・Scope追加規則は未提示 | 部分定義。Scope domain未確定 |
 | 4 | Assignment Snapshot | Main §§1.2–1.3, 6。CC-02はIssue #210 | Scope単位の不変外部正本。DBはMirror | Assignment状態とInstanceID NULL条件は明記。Snapshot完全属性・ID/revision/hash契約は未完 | 部分定義。Snapshot schema未完 |
 | 5 | Assignment History / Event | Main §1.3, §6。Receipt/Operation資料は別系統 | 外部正本の追記履歴。DB Mirror | Assignment EventとOperation Eventの同一性・ordinal/hash境界は未決定 | 境界未確定。統合を推測しない |
@@ -268,7 +268,7 @@ Entity Inventory 23種をDB-RVの審査項目へ対応付ける。これは責�
 | 10 | Sample Reference | Main §§7, 9。Canonical SAMPLE_REFERENCE。Motor #170 | Reference Manifest由来の参照情報。DB Mirror | SampleLocator grammar、sample/time/channel意味はRawLog v2正式契約が必要。Battery固有定義は未確認 | 部分定義。Locator contract未完 |
 | 11 | Measurement Sample Link | Main §§7, 10。Canonical MEASUREMENT_SAMPLE_LINK | DB Mirror上のMeasurement-Sample関係 | Role / Ordinal / Required / uniquenessと機器別Sample cardinalityは未定義 | 部分定義。Link semantics未完 |
 | 12 | Operation Journal / Intent | Main §§2.1–2.3, 6, 9。Receipt Contract §§15–21 | Physical Run Journalが外部正本。DB Marker / Journal Mirror | Intent / Operation Event / Assignment EventのEntity境界、writer authority、ordinal消費・回復契約が未完 | 部分定義。DB-RV-03 OPEN |
-| 13 | Receipt Envelope | Main §§2.1–2.3, 9。Receipt Recovery Contract | 外部正本。DB Mirrorは再生成 | Receipt ID derivation、Expected Receipt Hash、Hash DAG、full payload schema未承認 | 部分定義。Hash / ID contract OPEN |
+| 13 | Receipt Envelope | Main §§2.1–2.3, 9。Receipt Recovery Contract | 外部正本。DB Mirrorは再生成 | ReceiptIDはRECEIPT_AUTHORITYが独立UUIDv4発行。OperationIDから導出しない。Full Payload Schemaは別途Owner契約に従う | 部分定義。Hash / ID contract OPEN |
 | 14 | Receipt Event | Main §§2.1–2.3, 9。Canonical RECEIPT_EVENT | 外部正本Event Log。DB Mirror | Event payloadごとのschema、NULL条件、Actor、EventType registry、partial append recovery未完 | 部分定義。Event contract OPEN |
 | 15 | DB Operation Marker | Main §§2.1–2.3, 6, 9。Receipt Recovery Contract | DB内Mirror。DB更新と同一Transactionという論理要求 | Marker identity/hash payload、DB transaction durability / isolationの物理実証は別工程 | 部分定義。Marker hash / durability未完 |
 | 16 | Analysis Artifact | Main §§4, 6, 9–10 | Artifact Envelope / Result Payloadが外部正本。DBは参照・検索Mirror | Motor #35はAnalysis入力の一部制約のみ。Artifact完全Schema・algorithm provenanceはDB/解析正式契約が必要 | 不変/DAG方針のみ。完全schema未完 |
@@ -294,7 +294,7 @@ Entity Inventory 23種をDB-RVの審査項目へ対応付ける。これは責�
 - RawLog v2の全Field・ファイル形式・耐久性・保持期間、およびBattery RawLogの同等契約。
 - Restore / Bootstrapが各Entityのどの証拠を使ってどこまで再生成できるかの実証。
 - UUIDv4 Issuer RoleのPrincipal / Service登録、各Ownerの完全Field Schema、Content HashとEntity identityの境界。
-- Issue #210 CC-03のMeasurement→Session直接関係不採用の文書同期。
+- Issue #210 CC-03のMeasurement→Session直接関係不採用はMain・Session資料・Matrix・Audit・Self Review・Inventoryへ反映済み（read-back確認）。
 
 このマップは証拠所在と契約所有者の整理であり、未回収契約の代替や承認済Schemaではない。
 
@@ -428,7 +428,7 @@ Request StateはOPEN / SUCCEEDED / FAILED / CANCELLED / INDETERMINATE。Attempt�
 | DB-RV-03 Receipt PREPARED永続化順序 | DB部門案あり・統括承認待ち | Main §2、Receipt Contract §22（Main優先） | filesystem / SQLite crash・durability・Recovery実証 |
 | DB-RV-04 Aggregate要求履歴 / Revision | DB部門案あり・統括承認待ち | Main §3 | Aggregate Manager / Workerの実装・競合・crash受入試験 |
 | DB-RV-05 Artifact DAG / 再解析不変性 | DB部門案あり・統括承認待ち | Main §4 | Kind別Payload契約受領と検証器試験。未知Kindはopaque / reject |
-| DB-RV-06 UUIDv5 Canonical Input（旧要求） | 旧UUIDv5案を不採用とする変更案・統括承認待ち | Main §5（UUIDv4 / M4W-JCS-1案） | JCS適合試験、Entity別入力・期待Hash vector、Namespace不採用の統括確認 |
+| DB-RV-06 UUIDv5 Canonical Input（旧要求） | SUPERSEDED / NOT_ADOPTED（GL-01によりUUIDv4採用決定） | Main §5 / Issue #207 GL-01 | UUIDv4 / M4W-JCS-1の独立適合試験は後続Verification Gate。Namespace承認待ちではない |
 | DB-RV-07 外部正本とDB Entity / Mirror境界 | DB部門案あり・統括承認待ち | Main §6、§8 | 機器別Capture / RawLog契約、OS / filesystem durability、Restore実証 |
 | DB-RV-08 AssignmentとAggregate対象範囲 | DB部門案あり・統括承認待ち | Main §1、§7 | NONE / ANONYMOUS対象条件とAggregate / Pair Analysisの正式契約照合 |
 
