@@ -287,14 +287,14 @@ Entity Inventory 23種をDB-RVの審査項目へ対応付ける。これは責�
 2. Main §6は正本 / Mirrorの分類案を提示し、§7はMeasurementの最低Envelope項目、§8はRawLog保存完了の論理要求、§9はRestore二段階検証案を提示する。
 3. MotorのRawLog v1/v2境界はIssue #35、v2通信・保存契約の作業範囲はIssue #170にある。Issue #35は未記載事項の担当側復元を禁止する。
 4. Battery Issue #16は5A E2E検証タスクであり、Batteryの完全Measurement / RawLog / durability / retention契約ではない。
-5. NONE / ANONYMOUSの方針はIssue #210 CC-02に従う。NONE Session membershipのA/B/C選択は未決定のまま。
+5. NONE / ANONYMOUSの方針はIssue #210 CC-02に従う。Measurement→Session直接関係はCC-03で不採用。旧A/B/C案はSUPERSEDED / NOT_ADOPTED。
 
 **この資料だけでは確定できないこと**
 - Entityごとの全属性、型、NULL、PK/UK/FK、CHECK、Cardinality、Retention。
 - RawLog v2の全Field・ファイル形式・耐久性・保持期間、およびBattery RawLogの同等契約。
 - Restore / Bootstrapが各Entityのどの証拠を使ってどこまで再生成できるかの実証。
 - UUIDv5適用対象、Namespace、Canonical Name field domain、Content Hashとの一意な境界。
-- Issue #210 CC-02のNONE MeasurementとSession membershipの選択。
+- Issue #210 CC-03のMeasurement→Session直接関係不採用の文書同期。
 
 このマップは証拠所在と契約所有者の整理であり、未回収契約の代替や承認済Schemaではない。
 
@@ -387,7 +387,7 @@ Main §8は、RawLog保存完了に対し、temporary write完了、File Handle 
 | 3 | RUN_SCOPE | (PhysicalRunID, ScopeKey)複合キー | MOTOR / BATTERY_CH1 / BATTERY_CH2以外は拒否 |
 | 4 | Assignment Snapshot | UUIDv4 + Scope/Revision unique、不変外部正本 | Snapshot欠落・Hash不一致はAssignment更新拒否 |
 | 5 | Assignment History / Event | Scope + EventOrdinal、append-only | 部分TailはScope隔離 |
-| 6 | Session | Run Manager発行UUIDv4、Scopeごと最大1 | Run ManagerがDB正常利用可能時の初回有効ASSIGNED Assignment Operation確定時にLogical Session IDを外部Run Manifestへ発行・記録し、同一IDのDB Session Mirrorを生成する。DB unavailable期間は有効ASSIGNED Operation・新規Session identity・DB Session Mirrorを生成しない。障害前にManifest Source Commitまで検証済みでDB Session Mirrorのみ未確定なら、Recovery AuthorityがReceipt / Manifestを再検証し同一IDでMirror再構築可能。障害開始前から存在する論理Session identity / Lifecycleは外部正本で保持し、障害中CaptureのAssignment-at-MeasurementはANONYMOUSとして後日Measurement Mirror化しない。Session membershipはMeasurementの外部Manifest初回登録時に同一Scope Sessionが存在する場合のみ固定 |
+| 6 | Session | Run Manager発行UUIDv4、Scopeごと最大1 | Run ManagerがDB正常利用可能時の初回有効ASSIGNED Assignment Operation確定時にLogical Session IDを外部Run Manifestへ発行・記録し、同一IDのDB Session Mirrorを生成する。DB unavailable期間は有効ASSIGNED Operation・新規Session identity・DB Session Mirrorを生成しない。障害前にManifest Source Commitまで検証済みでDB Session Mirrorのみ未確定なら、Recovery AuthorityがReceipt / Manifestを再検証し同一IDでMirror再構築可能。障害開始前から存在する論理Session identity / Lifecycleは外部正本で保持し、障害中CaptureのAssignment-at-MeasurementはANONYMOUSとして後日Measurement Mirror化しない。MeasurementはRUN_SCOPEへ直接属し、Sessionは同じRUN_SCOPE配下の独立Lifecycle Entity（CC-03） |
 | 7 | Measurement Envelope | UUIDv4、外部正本 + DB Mirror | DB正常利用可能時の有効ASSIGNED MeasurementのみMirror登録。DB unavailable期間のCapture / MeasurementはAssignment-at-Measurement=ANONYMOUS（InstanceID=NULL）として外部正本のみ、復旧後のBootstrap / 取込 / Mirror化 / Association禁止。Battery 5A DATAはIssue #16の範囲で原本byte / 共通Envelope / CH1・CH2独立保全まで許可し、契約未回収Payloadはopaque、意味解析・Feature Extraction不可 |
 | 8 | Measurement Profile Snapshot | UUIDv4、不変外部Snapshot | Schema不明時はopaque、解析・Aggregate入力不可 |
 | 9 | RawLog Object / Reference | Object UUIDv4 / Reference UUIDv4、別Entity | Hash・durability未検証はPENDING_RECOVERY / QUARANTINED |
@@ -412,7 +412,7 @@ Main §8は、RawLog保存完了に対し、temporary write完了、File Handle 
 ### 13.2 決定状態
 Identity、Storage class、Unknown schemaの扱い、削除/更新方針はMain §14で確定。物理DDL・列型・index・trigger・複合FKの実装形は本論理設計の対象外であり、実装Gateで別途確定する。
 
-NONE AssociationはSession membershipと別概念であり、既存DB管理Measurementへの明示的なInstance関連付け履歴のみを追加する。独立UUID Entityは追加せず、Operation Journal Eventとして記録する。Association History Recordの論理Identityは(MeasurementID, AssociationOrdinal)、Event Identityは(OperationID, EventOrdinal)。NONE_ASSOCIATION_CREATED / NONE_ASSOCIATION_CLOSEDでActive / Closedを表し、CloseReason必須。Reassignmentは同一Operation内のClose→Createとし、必要Event集合をSource Commitで束ねる。Session membershipはMeasurementを外部Run Manifestへ初回確定記録する時点で固定し、Associationで変更しない。障害開始前から論理Session identityが存在する場合に限り、DB unavailable中のCapture membershipは外部正本で保全できるが、CaptureのAssignment-at-MeasurementはANONYMOUSであり、DB Session Mirror membershipへは追加・遡及追加しない。障害中に初回ASSIGNEDを試みたScopeはSession identityを生成しない。
+NONE AssociationはSession membershipと別概念であり、既存DB管理Measurementへの明示的なInstance関連付け履歴のみを追加する。独立UUID Entityは追加せず、Operation Journal Eventとして記録する。Association History Recordの論理Identityは(MeasurementID, AssociationOrdinal)、Event Identityは(OperationID, EventOrdinal)。NONE_ASSOCIATION_CREATED / NONE_ASSOCIATION_CLOSEDでActive / Closedを表し、CloseReason必須。Reassignmentは同一Operation内のClose→Createとし、必要Event集合をSource Commitで束ねる。Measurement→Session直接関係は設けず、MeasurementはRUN_SCOPEへ直接属する。AssociationはInstance関連付けEventのみ。障害開始前から論理Session identityが存在する場合に限り、DB unavailable中のCapture membershipは外部正本で保全できるが、CaptureのAssignment-at-MeasurementはANONYMOUSであり、DB Session Mirror membershipへは追加・遡及追加しない。障害中に初回ASSIGNEDを試みたScopeはSession identityを生成しない。
 
 ### 13.3 Aggregate Request / Attemptの終端決定
 Request StateはOPEN / SUCCEEDED / FAILED / CANCELLED / INDETERMINATE。AttemptはRUNNING / SUCCEEDED / FAILED / CANCELLED / INDETERMINATE。Retry ClosedはFAILED Attemptあり・RUNNINGなしの場合のみ。Request Cancelledは認証済みOperatorの明示EventかつRUNNINGなし。Attempt結果不明のcrashはWorker fencing proof前にAggregate OwnerをQUARANTINEDとし、proof後にのみINDETERMINATEへ終端。
@@ -423,7 +423,7 @@ Request StateはOPEN / SUCCEEDED / FAILED / CANCELLED / INDETERMINATE。Attempt�
 
 | 論点 / DB-RV | 最終状態 | 決定根拠 | 残るもの（設計未決定ではない） |
 |---|---|---|---|
-| DB-RV-01 Session存在条件とAssignment State | DB部門案あり・統括承認待ち | Main §1（Session生成・保持・membership境界） | Session Manager実装・権限試験、NONE Session membershipの統括確認 |
+| DB-RV-01 Session存在条件とAssignment State | 統括決定CC-03済み・文書同期待ち | Main §1 / §14.1（Measurement→RUN_SCOPE、Session独立Lifecycle） | Session Manager実装・権限試験 |
 | DB-RV-02 DB Run生成後ライフサイクル | DB部門案あり・統括承認待ち | Main §1（DB Run生成・保持・再割当条件） | Run Manager実装・権限試験 |
 | DB-RV-03 Receipt PREPARED永続化順序 | DB部門案あり・統括承認待ち | Main §2、Receipt Contract §22（Main優先） | filesystem / SQLite crash・durability・Recovery実証 |
 | DB-RV-04 Aggregate要求履歴 / Revision | DB部門案あり・統括承認待ち | Main §3 | Aggregate Manager / Workerの実装・競合・crash受入試験 |
@@ -435,7 +435,7 @@ Request StateはOPEN / SUCCEEDED / FAILED / CANCELLED / INDETERMINATE。Attempt�
 **番号対応の拘束:** DB-RV-01〜08はIssue #209の元定義を固定して使用する。上表のIDと意味を別の論点へ転用しない。Entity / identity inventoryは横断的な設計資料であり、独立したDB-RV番号ではない。新規の統括差戻し論点はV083-RV-01等の別系列で追跡する。表中の「DB部門案あり」は統括承認・実証完了を意味しない。
 
 ### 36.1 過去の未決定記述の置換規則
-1. NONE Session membershipのA/B/C案は不採用。Main §14.1(4)–(7)のScope単位・Session存在条件・DB availability・ANONYMOUS禁止境界を採用。
+1. NONE Session membershipのA/B/C案はSUPERSEDED / NOT_ADOPTED。CC-03に従いMeasurement→Session直接関係を設けず、MeasurementはRUN_SCOPEへ直接属する。
 2. UUIDv5 / Canonical Binary Name v2 / Namespace案は不採用。UUIDv4とM4W-JCS-1を採用。
 3. Receipt ID deterministic derivation / Expected Receipt Hash / Expected DB Marker Hashは不採用。Main §14.4およびReceipt Contract §22の順序を採用。
 4. Writer / Recovery / Event Type AuthorityはMain §14.4のAuthority Registry / EventType別発行権限に固定。物理fencing方式は指定せず、証明不能な実装を受入不可とする。
