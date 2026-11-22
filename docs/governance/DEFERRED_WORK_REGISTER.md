@@ -187,3 +187,42 @@ RECOVERABLEの場合は具体的なファイル/Issue/PR/commit等を記す。CO
 - 設計阻害事項は該当する設計Issue/PRに残り、後続検証事項のみ台帳IDで相互参照された。
 - 既存Issueを重複管理せず、正本Issueの更新が必要な場合は担当部門が正本側を更新した。
 - 未回答・未確認の部門を明示し、全部門完了と誤表示しない。
+
+
+## 12. 2026-11-22 DB部門報告の回収・残件再分類（統括追補 / 提案）
+
+参照: [Issue #207](https://github.com/hamtech86/mini4wd-ai-system/issues/207) のDB部門コメント、[Issue #211](https://github.com/hamtech86/mini4wd-ai-system/issues/211) のORANGE再審査、DB作業ブランチ `db/v0.8.3-followup-remediation-20261121`。本節はIssue #217への提出を待たず既存のDB報告から証拠を回収した暫定整理であり、統括承認・BLOCKER解除ではない。
+
+### 12.1 既存報告で回収できた修正案
+
+| 対象 | 報告された処置 | 根拠回収可能性 | 現在の扱い |
+|---|---|---|---|
+| V083-RV-01 DB-RV番号 | Issue #209の元定義へ復元し、監査資料等を同期 | RECOVERABLE | 文書修正案あり。新HEADで統括再審査が必要 |
+| V083-RV-02 Session identity / DB Mirror | Logical Session IDとDB Mirrorを区別し、障害前Source Commit済みidentityのみ同一IDでMirror再構築する境界を追補 | RECOVERABLE | 文書修正案あり。Recovery実証は未実施 |
+| V083-RV-03 DB unavailable / Anonymous | 障害中の初回ASSIGNEDを不成立とし、障害期間Measurementの後日取込を禁止。障害前Source Commit済みidentityのMirror Recoveryとは分離 | RECOVERABLE | Issue #201との文書整合案あり。統括再審査が必要 |
+| V083-RV-04 NONE Association履歴 | CREATED/CLOSED Event、Record/Event identity、Close→Create順序、Quarantine条件を定義 | RECOVERABLE | 論理案あり。実装・Transaction atomicity・crash試験は未実施 |
+| V083-RV-05 RawLog durability責務 | DB側の不変byte保存と、Motor/Battery側Capture/RawLog契約の責務を分離 | RECOVERABLE | 論理案あり。OS/filesystem durability実証と機器正式契約は別途 |
+ 
+報告された最終修正HEADは `29df60c462e93bd106c54f9a448eec14231c6f05`（base: `f093fcf7a64e8951b5b86fe1c4837ed656355df1`、93 commits ahead / 0 behind）。PR作成・main反映は報告されていない。したがって「修正済み案の存在」は確認できるが、「統括BLOCKER解消」「設計承認」「main正本反映」とは扱わない。
+
+### 12.2 DB部門報告で明示された残件
+
+| 残件 | 分類 | 根拠回収可能性 | 次の具体的行動 / 完了条件 |
+|---|---|---|---|
+| NONE MeasurementのSession membership | A — DESIGN_BLOCKER（DB設計範囲に限定） | RECOVERABLE（代替案・Issue #210の境界は文書化済み。ただし決定そのものの根拠は未存在） | DB部門案はExisting-Session-onlyを推奨するが未選択。統括が選択肢・影響を確認し、明示決定をIssue #210または新規決定Issueへ記録。Main/Matrix/Auditを同じ決定へ同期 |
+| UUIDv4 issuer authority mapping | A — DESIGN_BLOCKER（Identity/Authority契約） | CONDITIONALLY_RECOVERABLE | Entityごとの責任Owner/Issuer authorityの正式提示が必要。23 Entity Inventoryと照合し、未割当Entityの発行可否を明記 |
+| Entity 23概念中13件の完全Schema欠落 | A — DESIGN_BLOCKER（完全Field Schemaを必須とするEntityに限る） | CONDITIONALLY_RECOVERABLE | Motor/Battery正式契約・各Entity OwnerのField Schemaを受領。Opaque扱いで設計を進めるEntityは検証可能範囲と禁止処理を明記 |
+| DB-001〜056 | E — EVIDENCE_RECOVERY | RECOVERABLE（会話記録由来の短縮定義） | 元の正式要求文書と混同せず、短縮定義・期待結果・出典確度を維持。V082との対応は未確定 |
+| DB-057〜124 | E — EVIDENCE_RECOVERY | CONDITIONALLY_RECOVERABLE（元文書未回収。Git履歴/過去会話の追加探索が必要） | 新DB設計書 v0.2、旧Branch/Commit/Blob、過去会話を対象に探索。原文が回収できないIDは検索範囲を記録し統括へ扱い判断を求める |
+| V082 crosswalk | E — EVIDENCE_RECOVERY | RECOVERABLE（Crosswalk文書は存在。元定義との対応根拠は不足） | 旧IDの意味を変えず、DB-001〜124原文が回収できた項目から個別照合。現状のconfirmed mapping 0を維持し、網羅済みとしない |
+| UUID/JCS conformanceの独立実装照合 | B — IMPLEMENTATION_VERIFICATION | RECOVERABLE（vector/期待値はrepo内に存在） | 2つの独立実装で一致確認し、未実行はNOT RUNのまま記録 |
+| Backup/Restore/Filesystem/SQLite crash試験 | B — IMPLEMENTATION_VERIFICATION | CONDITIONALLY_RECOVERABLE | 実装段階で対象OS/filesystem/SQLite条件とfixtureを確定して実行。現時点で実施許可・PASS扱いしない |
+| Motor/Battery正式Capture・RawLog契約 | D — EXTERNAL_DEPENDENCY | CONDITIONALLY_RECOVERABLE | Motor/Battery責任者から正式契約を受領。Issue #35はMotor領域の契約正本、Issue #16はBattery E2E検証Issueであり、いずれも不足契約をDBが推定補完しない |
+
+**重要な区別:** DB部門報告によりV083-RV-01〜05の「文書修正案」は回収できた。一方、NONE Session membership、UUID Issuer authority、完全Entity Schema、Motor/Battery正式契約は残る。設計案の修正を統括判断・正式契約・実証試験の完了に読み替えない。
+
+### 12.3 初回全部門棚卸しの回答状況
+
+2026-11-22時点で、Issue #217への部門別直接回答は未確認。DB部門についてはIssue #207の既存報告を回収したため、未回答ではなく「既存報告から暫定回収・#217形式への再提出待ち」とする。Battery、Motor/計測、RawLog/通信、共通診断UIの各担当から、今回の棚卸し要求に対する新しい構造化回答は未確認。既存Issueコメントは履歴証拠として利用できるが、今回の棚卸し完了回答とは扱わない。
+
+本追補はPR #216の提案文書に対する監査追記であり、PR #216の承認・マージ、DB設計承認、実装、物理試験を意味しない。
