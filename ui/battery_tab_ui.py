@@ -439,6 +439,14 @@ class BatteryTab(QWidget):
             return
         try:
             with self._db() as db:
+                session_columns = self._table_columns(db, "measurement_session")
+                measurement_columns = self._table_columns(db, "measurement")
+                if "scope_key" not in session_columns or "scope_key" not in measurement_columns:
+                    QMessageBox.warning(
+                        self, "Battery Result",
+                        "DBに明示的なScope Key保存欄がありません。CH1/CH2 identityを保持できないためDB登録を中止しました。"
+                    )
+                    return
                 for ch, iid, stats in completed:
                     n, av, ai, ap, mi, mp, dur, cap, energy = stats
                     sid = int(uuid.uuid4().int % 2147483647)
