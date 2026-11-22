@@ -1,0 +1,83 @@
+# 310-5 Host-side execution classification — 2026-11-02
+
+## Purpose and authority
+
+This note classifies software-only checks by whether they can be run without hardware, whether current code supports them, and what remains needed. It is an interim execution record, not a 310-5 completion application or a stage transition request.
+
+No firmware or RawLog v2 schema change is authorized here. No PR merge or hardware operation is authorized.
+
+## Host-side test classes
+
+| Class | Presently runnable without hardware | Current status / evidence | Remaining need |
+|---|---|---|---|
+| Python sequence / protocol regressions | Yes, in CI using pytest and MockTransport | Draft PR #186; corrected HEAD `bfd673e9e5f89327aa3c6d06d324d482789aeb69`; Actions run `41536899145`: all four jobs success; full suite 324 passed | Extend cases only where behavior is supported by current API; late/stale ACK and reconnect/session binding still require explicit review |
+| ACK timeout/mismatch, fragmented/coalesced frames, timestamp ordering | Yes, existing Python tests | Existing test source covers representative paths | A delayed duplicate prior-stage ACK regression was added in PR #186 and passed CI; late ACK after timeout, reconnect/session binding, and epoch binding remain unproven |
+| Transport write/flush error and STOP send failure | Mock-based tests can run | New STOP send-failure test added in PR #186 | pySerial physical behavior and timeout bounds remain unproven; configured write_timeout absent in reviewed source |
+| Durable pre-send TX intent | Not as a passing test with current implementation | FAIL retained: no durable intent is written/fsynced before nonzero PWM send | Implementation and acceptance criteria decision needed; do not alter RawLog v2 schema by assumption |
+| fsync failure/crash/latency distribution | Failure injection is host-testable, but not all paths currently present | NOT RUN in this execution; no measured latency distribution | Add controlled writer/fsync injection tests and repeatable timing harness; production filesystem latency evidence remains environment-specific |
+| RawLog v2 artifact validation / recovery | Host-side tests possible | Existing package/recovery tests present; cross-artifact Evidence manifest consistency unresolved | Define the companion Evidence/package relationship with design authority; no schema invention |
+| SRAM, stack, RX/TX ownership, ADC acquisition quality | Not established by Python tests | BLOCKED / NOT RUN | Exact MCU and board revision, firmware build setup, map/stack evidence, ownership contract, ADC reference/front-end and error contract; separate approval for hardware |
+| Hardware STOP / energization / 310-second measurement | No | BLOCKED; not run | Explicit upper-command approval plus complete HW01–HW08 safety inputs and current-limit confirmation |
+
+## New host-side regressions
+
+Draft PR: https://github.com/hamtech86/mini4wd-ai-system/pull/186
+
+Target test commit: `aba9b5a93110e0a5e6ae7ea172476f6c731f5c6e`
+
+The added tests cover malformed ACK domain values, invalid codec consumed-byte counts, receive transport failure, STOP-send failure, and clearing buffered/pending protocol state on disconnect. They use in-memory transport and do not claim physical behavior.
+
+## Execution record
+
+- GitHub Actions workflow run `41536899145` on HEAD `bfd673e9e5f89327aa3c6d06d324d482789aeb69`: all four jobs completed successfully.
+- `test-full-suite`: `python -m pytest -vv --timeout=60 --timeout-method=thread --durations=30 --ignore=serial_command_test.py --ignore=serial_test.py` — **324 passed in 9.45s**.
+- `test-raw-log-and-sequence`: `python -m pytest -q tests/test_raw_log_library.py tests/test_raw_log_v2.py tests/test_local_raw_log_breakin_controller.py tests/test_sequence_executor.py` — **38 passed in 0.34s**.
+- `test-breakin`: `python -m pytest -q --ignore=serial_command_test.py --ignore=serial_test.py tests/test_breakin_controller.py tests/test_anomaly_skip.py tests/test_recipe_engine.py` — **19 passed in 0.67s**.
+- `test-battery`: `python -m pytest -q tests/test_battery_measurement_parser.py tests/test_battery_benchmark.py tests/test_battery_benchmark_service.py tests/test_battery_repository.py` — **9 passed in 0.07s**.
+- Note: the full-suite command is the workflow's configured command; it includes the new `tests/test_measurement_310_safety_regressions.py` via repository-wide discovery. The focused workflow jobs use explicit subsets.
+- The initial run `41536236339` failed only because a new test expected the wrong MockTransport exception text; test assertion was corrected without product-code changes, then run `41536899145` passed.
+- Local pytest/native firmware harness: NOT RUN in this record.
+- Local pytest/native firmware harness: NOT RUN in this record.
+- Hardware tests: BLOCKED / NOT RUN; no energization, Fuse operation, EEPROM interruption, ADC injection, or 310-second measurement.
+
+## Preserved independent findings
+
+- STOP request/attempt through the shared synchronous pySerial write/flush path is not an independent TX route; bounded latency remains unproven.
+- Durable pre-send TX intent remains FAIL.
+- fsync fault injection and latency distribution remain outstanding.
+- RawLog / transport Evidence artifact and manifest alignment remains unresolved.
+- SRAM/buffer ownership and firmware ADC acquisition quality remain unsupported by current Python-only evidence.
+
+
+## 310-5 host regression follow-up — 2026-11-02 22:27Z
+
+- PR #186 head: `937d00cf3ec8e1cdaeb3a2cff6553362ac6e4333`
+- CI run: `41537284114` — all four jobs completed successfully.
+- Full suite: `325 passed in 10.51s`.
+- RawLog/sequence focused suite: `38 passed in 2.29s`.
+- Break-in: `19 passed in 0.54s`.
+- Battery: `9 passed in 0.09s`.
+- New regression specifically feeds a delayed duplicate ACK for the previous PWM stage after the next PWM has been sent; expected result is FAULT and STOP attempt. The test passed in the full suite and focused RawLog/sequence suite.
+- This is a host-side behavior check with a fake clock and in-memory ACK callback. It does not establish real transport timing, MCU session/epoch identity, or physical STOP.
+- Local pytest remains NOT RUN. Firmware compile, serial hardware, and HW01–HW08 remain NOT RUN / BLOCKED pending explicit approval and missing board/electrical evidence.
+
+## 310-5 host regression follow-up — 2026-11-02 22:38Z
+
+PR #186 latest host-regression commit:
+- HEAD: `a7491c8fd7d214e23a6f649d262f978710474d6e`
+- Workflow run: `41538695288`
+- All four jobs completed successfully:
+  - RawLog / sequence: 38 passed
+  - Break-in: 19 passed
+  - Full suite: 326 passed in 9.20s
+  - Battery: 9 passed
+- Added regression: `test_late_ack_after_timeout_cannot_recover_faulted_sequence`.
+  It uses a fake monotonic clock and in-memory callbacks. It verifies that an ACK delivered after timeout does not recover FAULT, does not send another PWM, and does not cause a second STOP.
+- Existing delayed duplicate previous-stage ACK regression remains included and is covered by the same full-suite run.
+
+Limitations remain unchanged:
+- These are host-side tests; they do not establish real UART delivery, bounded TX/STOP latency, MCU session/boot-epoch binding, or physical stopping.
+- No local pytest run was performed.
+- No firmware compile or hardware action was performed.
+- HW01–HW08 remain blocked/not authorized; `HARDWARE_CURRENT_LIMIT_CONFIRMED=false`.
+- Pre-PWM durable intent/fsync remains an independent FAIL. STOP still shares the synchronous UART transport path. No RawLog v2 schema change is made by this follow-up.
