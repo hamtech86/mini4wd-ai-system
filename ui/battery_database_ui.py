@@ -9,6 +9,27 @@ from battery_system.manual_result_registration import validate_manual_registrati
 from database.path_resolver import connect_database, resolve_database_path
 
 
+def infer_battery_session_channel(rows):
+    """Return CH identity only when every populated sample belongs to one channel.
+
+    Rows use (elapsed_time, voltage1, voltage2, current1, current2, ...).
+    Mixed, dual-populated, or unidentifiable sessions fail closed.
+    """
+    observed=set()
+    for row in rows:
+        ch1 = row[1] is not None or row[3] is not None
+        ch2 = row[2] is not None or row[4] is not None
+        if ch1 and ch2:
+            return None
+        if ch1:
+            observed.add("CH1")
+        if ch2:
+            observed.add("CH2")
+        if len(observed)>1:
+            return None
+    return next(iter(observed)) if len(observed)==1 else None
+
+
 class BatteryDatabaseDialog(QDialog):
     def __init__(self, db_path: str | Path, parent=None):
         super().__init__(parent)
@@ -49,8 +70,8 @@ class BatteryDatabaseDialog(QDialog):
         layout.addWidget(QLabel("Registered Battery Instances")); layout.addWidget(self.instance_list); tabs.addTab(page,"2. BATTERY INSTANCE")
 
         page=QWidget(); layout=QVBoxLayout(page); form=QFormLayout()
-        self.session=QComboBox(); self.session.currentIndexChanged.connect(self._load_selected_session_result)
-        self.result_instance=QComboBox(); self.version=QLineEdit("battery-benchmark-v1")
+        self.session=QComboBox(); self._channel_identity=None; self.session.currentIndexChanged.connect(self._load_selected_session_result)
+        self.result_instance=QComboBox(); self.version=QLineEdit("battery-benchmark-v2")
         self.count=QSpinBox(); self.count.setRange(0,100000000)
         self.avg_v=self._num(0,10,4); self.avg_i=self._num(0,100,4); self.avg_p=self._num(0,1000,4)
         self.max_i=self._num(0,100,4); self.max_p=self._num(0,1000,4); self.duration=self._num(0,1000000,2)
@@ -171,42 +192,80 @@ class BatteryDatabaseDialog(QDialog):
                     srow=db.execute("SELECT instance_id,start_datetime,end_datetime,result FROM measurement_session WHERE session_id=?",(sid,)).fetchone()
                 else:
                     srow=db.execute("SELECT instance_id,start_time,end_time,status FROM measurement_session WHERE session_id=?",(sid,)).fetchone()
-                mrows=db.execute("SELECT elapsed_time,voltage1,voltage2,current1,current2,power,peak_current,peak_power,state FROM measurement WHERE session_id=? ORDER BY elapsed_time,id",(sid,)).fetchall()
+                mrows=db.execute(
+                    "SELECT elapsed_time,voltage1,voltage2,current1,current2,state FROM measurement WHERE session_id=? ORDER BY elapsed_time,id",
+                    (sid,),
+                ).fetchall()
             if not srow or not mrows: return
             session_iid,start,end,result=srow
-            instance_ids={r[0] for r in mrows if r[0]}
-            iid=next(iter(instance_ids),session_iid)
+            channel=infer_battery_session_channel(mrows)
+            if channel is None:
+                self._channel_identity=None
+                self.session_info.setText(
+                    f"Session {sid} | Channel UNKNOWN | CH別データの識別が一意でないため解析・登録できません"
+                )
+                self.status.setText("NOT REGISTERABLE: channel identity unknown")
+                return
+            self._channel_identity=channel
+            voltage_index=1 if channel=="CH1" else 2
+            current_index=3 if channel=="CH1" else 4
+            iid_row=db_iid=None
+            with self._db() as db:
+                instance_rows=db.execute(
+                    "SELECT DISTINCT instance_id FROM measurement WHERE session_id=? AND instance_id IS NOT NULL",
+                    (sid,),
+                ).fetchall()
+            iid=next((row[0] for row in instance_rows),session_iid)
             idx=self.result_instance.findData(iid)
             if idx>=0: self.result_instance.setCurrentIndex(idx)
-            volt=[]; curr=[]; power=[]; times=[]; peaks_i=[]; peaks_p=[]
-            for elapsed,v1,v2,i1,i2,p,pi,pp,state in mrows:
-                vs=[v for v in (v1,v2) if v is not None]; cs=[v for v in (i1,i2) if v is not None]
-                if vs: volt.append(sum(vs)/len(vs))
-                if cs: curr.append(sum(cs)/len(cs))
-                if p is not None: power.append(p)
-                if elapsed is not None: times.append(float(elapsed))
-                if pi is not None: peaks_i.append(float(pi))
-                if pp is not None: peaks_p.append(float(pp))
+
+            paired=[]; times=[]
+            for row in mrows:
+                elapsed=row[0]
+                voltage=row[voltage_index]
+                current=row[current_index]
+                if voltage is None or current is None:
+                    continue
+                try:
+                    voltage=float(voltage); current=float(current)
+                    if not (math.isfinite(voltage) and math.isfinite(current)):
+                        continue
+                    elapsed=float(elapsed)
+                    if not math.isfinite(elapsed):
+                        continue
+                except (TypeError,ValueError):
+                    continue
+                paired.append((elapsed,voltage,current))
+            if not paired:
+                self._channel_identity=None
+                self.session_info.setText(f"Session {sid} | Channel {channel} | 有効なV/Iペアなし")
+                self.status.setText("NOT REGISTERABLE: no valid channel samples")
+                return
+            paired.sort(key=lambda item:item[0])
+            times=[item[0] for item in paired]
+            volt=[item[1] for item in paired]
+            curr=[item[2] for item in paired]
+            power=[v*i for v,i in zip(volt,curr)]
             self.count.setValue(len(mrows))
-            self.avg_v.setValue(sum(volt)/len(volt) if volt else 0)
-            self.avg_i.setValue(sum(curr)/len(curr) if curr else 0)
-            self.avg_p.setValue(sum(power)/len(power) if power else 0)
-            self.max_i.setValue(max(peaks_i or curr or [0]))
-            self.max_p.setValue(max(peaks_p or power or [0]))
-            duration=max(times) if times else 0; self.duration.setValue(duration)
-            self.drop.setValue((max(volt)-min(volt)) if volt else 0)
+            self.avg_v.setValue(sum(volt)/len(volt))
+            self.avg_i.setValue(sum(curr)/len(curr))
+            self.avg_p.setValue(sum(power)/len(power))
+            self.max_i.setValue(max(curr))
+            self.max_p.setValue(max(power))
+            self.duration.setValue(max(times)-min(times) if len(times)>1 else 0)
+            self.drop.setValue(volt[0]-volt[-1] if len(volt)>1 else 0)
             capacity=0.0; energy=0.0
-            for n in range(1,len(mrows)):
-                t0=mrows[n-1][0]; t1=mrows[n][0]
-                if t0 is None or t1 is None: continue
-                dt=max(0.0,float(t1)-float(t0)); c0=[x for x in mrows[n-1][3:5] if x is not None]; c1=[x for x in mrows[n][3:5] if x is not None]
-                p0=mrows[n-1][5] or 0; p1=mrows[n][5] or 0
-                if c0 and c1: capacity += ((sum(c0)/len(c0))+(sum(c1)/len(c1)))/2*dt/3600*1000
-                energy += ((p0+p1)/2)*dt/3600
+            for a,b in zip(paired,paired[1:]):
+                dt=max(0.0,b[0]-a[0])/3600.0
+                capacity += (a[2]+b[2])*0.5*dt*1000.0
+                energy += (a[1]*a[2]+b[1]*b[2])*0.5*dt
             self.cap.setValue(capacity); self.energy.setValue(energy)
-            self.session_info.setText(f"Session {sid} | Instance {iid or '-'} | Result {result or 'COMPLETE'} | Start {start or '-'} | End {end or '-'} | {len(mrows)} samples")
-            self.status.setText(f"Loaded measurement result: Session {sid}")
+            self.session_info.setText(
+                f"Session {sid} | {channel} | Instance {iid or '-'} | Result {result or 'COMPLETE'} | Start {start or '-'} | End {end or '-'} | {len(paired)} valid samples"
+            )
+            self.status.setText(f"Loaded {channel} result: Session {sid}")
         except sqlite3.Error as exc:
+            self._channel_identity=None
             self.session_info.setText(f"Session read error: {exc}")
 
     def _register_result(self):
@@ -222,7 +281,7 @@ class BatteryDatabaseDialog(QDialog):
                     row=db.execute("SELECT end_time FROM measurement_session WHERE session_id=?",(sid,)).fetchone(); session_result='COMPLETE' if row and row[0] else 'RUNNING'
             if not row: raise ManualRegistrationError("SessionがDBに存在しません")
             validate_manual_registration(session_result=session_result,quality_ok=self.quality.isChecked(),operator_confirmed=self.operator.isChecked())
-            values=(sid,iid,self.version.text().strip() or "battery-benchmark-v1",self.count.value(),self.avg_v.value(),self.avg_i.value(),self.avg_p.value(),self.max_i.value(),self.max_p.value(),self.duration.value(),self.drop.value(),self.cap.value(),self.energy.value())
+            values=(sid,iid,self.version.text().strip() or "battery-benchmark-v2",self.count.value(),self.avg_v.value(),self.avg_i.value(),self.avg_p.value(),self.max_i.value(),self.max_p.value(),self.duration.value(),self.drop.value(),self.cap.value(),self.energy.value())
             with self._db() as db:
                 db.execute("INSERT OR REPLACE INTO battery_benchmark_result (session_id,instance_id,analysis_version,measurement_count,avg_voltage,avg_current,avg_power,max_current,max_power,discharge_time_s,voltage_drop,capacity_mah,energy_wh) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",values); db.commit()
             self.status.setText(f"REGISTERED: Session {sid} / Instance {iid}"); QMessageBox.information(self,"Benchmark Result","正式Benchmark Resultとして登録しました。")
