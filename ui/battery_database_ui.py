@@ -17,25 +17,12 @@ def is_legacy_channel_ambiguous(session_notes):
     return bool(session_notes and str(session_notes).startswith("Integrated Battery UI CH"))
 
 
-def infer_battery_session_channel(rows):
-    """Return CH identity only when every populated sample belongs to one channel.
-
-    Rows use (elapsed_time, voltage1, voltage2, current1, current2, ...).
-    Mixed, dual-populated, or unidentifiable sessions fail closed.
-    """
-    observed=set()
-    for row in rows:
-        ch1 = row[1] is not None or row[3] is not None
-        ch2 = row[2] is not None or row[4] is not None
-        if ch1 and ch2:
-            return None
-        if ch1:
-            observed.add("CH1")
-        if ch2:
-            observed.add("CH2")
-        if len(observed)>1:
-            return None
-    return next(iter(observed)) if len(observed)==1 else None
+def infer_battery_session_channel(scope_keys):
+    """Resolve CH only from an explicit persisted Scope Key, never column names."""
+    values = {str(value).strip() for value in scope_keys if value is not None and str(value).strip()}
+    if len(values) != 1:
+        return None
+    return {"BATTERY:CH1": "CH1", "BATTERY:CH2": "CH2"}.get(next(iter(values)))
 
 
 class BatteryDatabaseDialog(QDialog):
@@ -203,6 +190,16 @@ class BatteryDatabaseDialog(QDialog):
                 else:
                     note_expr = "notes" if "notes" in scols else "NULL"
                     srow=db.execute(f"SELECT instance_id,start_time,end_time,status,{note_expr} FROM measurement_session WHERE session_id=?",(sid,)).fetchone()
+                mcols={r[1] for r in db.execute("PRAGMA table_info(measurement)").fetchall()}
+                session_scope = db.execute(
+                    "SELECT scope_key FROM measurement_session WHERE session_id=?", (sid,)
+                ).fetchone()[0] if "scope_key" in scols else None
+                measurement_scopes = [
+                    row[0] for row in db.execute(
+                        "SELECT DISTINCT scope_key FROM measurement WHERE session_id=? AND scope_key IS NOT NULL",
+                        (sid,),
+                    ).fetchall()
+                ] if "scope_key" in mcols else []
                 mrows=db.execute(
                     "SELECT elapsed_time,voltage1,voltage2,current1,current2,state FROM measurement WHERE session_id=? ORDER BY elapsed_time,id",
                     (sid,),
@@ -217,12 +214,12 @@ class BatteryDatabaseDialog(QDialog):
                 )
                 self.status.setText("NOT REGISTERABLE: legacy channel identity missing")
                 return
-            channel=infer_battery_session_channel(mrows)
+            channel=infer_battery_session_channel([session_scope, *measurement_scopes])
             if channel is None:
                 for widget in (self.count,self.avg_v,self.avg_i,self.avg_p,self.max_i,self.max_p,self.duration,self.drop,self.cap,self.energy):
                     widget.setValue(0)
                 self.session_info.setText(
-                    f"Session {sid} | Channel UNKNOWN | CH別データの識別が一意でないため解析・登録できません"
+                    f"Session {sid} | Channel UNKNOWN | 明示Scope Keyが保存されていないため解析・登録できません"
                 )
                 self.status.setText("NOT REGISTERABLE: channel identity unknown")
                 return
