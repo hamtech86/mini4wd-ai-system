@@ -468,3 +468,37 @@ Request StateとAttempt StateをMain §3.2で固定。Retry ClosedはFAILED Atte
 - 旧A/B/C案、Session membership OPEN/TBD、統括確認待ちの記述は履歴としてのみ保持し、SUPERSEDED / NOT_ADOPTEDとする。
 
 v0.8.3全体承認、物理設計、DDL、DB生成、Migration、Restore実行、実装、PR作成・merge、main反映は未許可。
+
+## 41. 統括裁定 GL-01〜03 — 自己審査状態同期（2026-11-22）
+
+**正本根拠:** Issue #207 comment #7079475903。GL-01〜03のDECISION_STATUSはDECIDED。以下は文書同期・実装・検証・承認を分離した自己審査記録であり、v0.8.3全体承認ではない。
+
+### GL-01 UUIDv4 Issuer Authority
+
+- UUID-bearing Entity Type別の単一Issuer Role mapをMain §5.1 / Entity Inventory §37.1と同期する。
+- 実Principal / Service / Scope / 発行・失効・監査証拠がAuthority Registryに登録される前は発行禁止。
+- UUIDv5 / Namespace / Canonical Binary Name v2は現行方式に不採用。旧記述は履歴としてのみ保持し、OPENや承認待ちへ戻さない。
+- DB Session MirrorはLogicalSessionIDを再利用し、ReceiptIDはOperationIDから導出せず独立UUIDv4とする。
+
+### GL-02 Minimum Entity / Envelope / Event Schema
+
+- 23概念すべてを独立SQL Table / UUIDへ展開しない。現行運用の共通Identity・Authority・Reference・Lifecycle・Integrity境界を最小Schemaとする。
+- 外部正本Envelope: EntityType / SchemaVersion / EntityID / CreatedAtUTC必須。Root以外はOwnerReference、外部正本ObjectはPayloadReference / PayloadHash必須。
+- Ownerの完全Field Schema未受領Payloadはopaque保存のみ。意味解析・Field補完・Aggregate入力禁止。
+- Event schemaとAuthorityはEvent Registry / Owner Authorityに従い、Writer GrantはOperation Journalから独立したAuthority Chainとする。
+
+### GL-03 Current Aggregate Outcome
+
+- COMPLETE、正式Capture正常終端、必須Sample完全性、Envelope / Assignment / Scope / RawLog・Sample Reference / Hash検証、測定時ASSIGNEDかつ現在同一Instance、Scope / Owner条件をすべて満たすMeasurementのみCurrent Aggregate対象。
+- 契約未受領・証拠不足はUNKNOWN / opaqueとして除外。ANONYMOUS / NONE / STOP / ERROR / CANCEL / INCOMPLETE / UNKNOWNも除外。
+- Session Lifecycleとは独立。Battery CH1 / CH2は平均・合算せず独立Aggregate。Pair Analysisは別Artifact。
+
+### 5軸状態
+
+| Gate | DECISION | DOCUMENT | IMPLEMENTATION | VERIFICATION | APPROVAL |
+|---|---|---|---|---|---|
+| GL-01 | DECIDED | PARTIAL | NOT_STARTED | NOT_RUN | PENDING |
+| GL-02 | DECIDED | PARTIAL | NOT_STARTED | NOT_RUN | PENDING |
+| GL-03 | DECIDED | PARTIAL | NOT_STARTED | BLOCKED for contract-missing data | PENDING |
+
+**残る作業:** Entity Inventory / Audit / Self Reviewの旧候補記述を現行決定と区別して明示すること、Authority Registryの実Principal登録、Motor / Battery正式Capture契約の受領、実装後の独立適合・実証。これらはGL-01〜03の決定自体をOPENへ戻す理由ではない。
