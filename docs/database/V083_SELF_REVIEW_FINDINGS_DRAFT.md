@@ -397,7 +397,7 @@ Request StateとAttempt StateをMain §3.2で固定。Retry ClosedはFAILED Atte
 - **承認:** v0.8.3はDraft。統括最終承認・実装許可・DDL/DB生成/Migration/Restore実行/PR/main反映を意味しない。
 
 
-## 37. DB部門追補自己審査 — CC-02 / DB unavailable / Session membership（2026-11-21）
+## 37. DB部門追補自己審査 — CC-02 / DB unavailable / Session membership（HISTORICAL / SUPERSEDED by CC-03, 2026-11-22）
 
 ### SR-12 / SR-16 / SR-18の閉鎖
 1. Issue #210 CC-02が許可したNONE後日Associationを、既存DB管理Measurementに対する明示的なInstance関連付け履歴として定義した。AssociationはAssignment-at-Measurementを変更せず、Current Aggregateへ算入せず、Session membershipも変更しない。
