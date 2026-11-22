@@ -46,7 +46,7 @@
 | 初期NONE/ANONYMOUS | ASSIGNED | DB正常利用可能時に有効なAssignment Operationが確定した場合のみ論理Session identityとDB Run / Session Mirrorを生成。DB unavailable中は初回ASSIGNED・Session生成を認めない | DB正常利用可能時の新規ASSIGNED測定のみDB Mirrorへ登録。障害期間中はAssignment-at-Measurement=ANONYMOUS、外部正本のみ・後日取込禁止 |
 | ASSIGNED | ASSIGNED（同一Instance） | 維持 | 測定時Assignment Revisionを記録 |
 | ASSIGNED | ASSIGNED（別Instance） | 維持 | 過去測定の帰属は変更しない |
-| ASSIGNED | NONE | 維持・非アクティブ | DB正常利用可能時に既存DB管理Measurementとして登録されたもののみ明示Association対象。AssociationはSession membershipを変更しない。障害期間のCaptureはAnonymous Mode扱いで後日取込禁止 |
+| ASSIGNED | NONE | 維持・非アクティブ | DB正常利用可能時に既存DB管理Measurementとして登録されたもののみ明示Association対象。AssociationはMeasurement→Session直接関係を作成・変更しない。障害期間のCaptureはAnonymous Mode扱いで後日取込禁止 |
 | ASSIGNED | ANONYMOUS | 維持・制限状態 | ANONYMOUS期間の測定は外部正本のみ。後日取込・Mirror化・再紐付け禁止 |
 | NONE/ANONYMOUS（過去ASSIGNEDあり） | ASSIGNED | 既存IDを再利用 | 新規測定のみ現在のAssignmentに従う |
 
