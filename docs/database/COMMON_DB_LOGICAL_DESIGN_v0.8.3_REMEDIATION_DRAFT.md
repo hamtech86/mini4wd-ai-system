@@ -469,4 +469,11 @@ V082-001〜030は既存のまま保持する。V082-031〜053は追加案であ�
 1. 物理Lock方式、Epoch fencing、Filesystem durability、SQLite WAL / synchronous / isolation、crash injectionは本論理版で製品実装を指定しない。ただし§14の論理保証を実現・実証できない方式は採用不可。
 2. 未検証OS / filesystem / SQLite設定ではSource Commit / DB_COMMITTED / VERIFIEDを宣言しない。試験済み構成だけをSupported Environmentとして登録する。
 3. DB-RV-01〜08の論理選択は本節で確定。残るのは実装・テスト・外部契約の証拠回収と統括最終審査であり、設計選択を未決定に戻さない。
-4. **GL-04 Capture Contract（統括決定・契約受領待ち）:** Motor / Batteryの正式Capture終端・必須Sample・Outcome Mapping・RawLog framing / timestamp / channel契約をDB部門が推測補完しない。MotorはIssue #35を正本、#170を実装タスクとし、BatteryはIssue #16とBattery spec v2を参照する。各Ownerから正式契約が受領されるまでは対象Measurementをopaque保存に限定し、COMPLETE / Current Aggregate算入を推定しない。提出依頼はMotor Issue #35 comment #7079482192、Battery Issue #16 comment #7079482810に限定照会として記録済み。
+4. **Gate L 5軸状態（2026-11-22 / GL-01〜03文書同期後）:**
+   | Gate | DECISION_STATUS | DOCUMENT_STATUS | IMPLEMENTATION_STATUS | VERIFICATION_STATUS | APPROVAL_STATUS |
+   |---|---|---|---|---|---|
+   | GL-01 | DECIDED | REFLECTED | NOT_STARTED（実Principal / Service登録・発行経路未実装） | NOT_RUN | PENDING |
+   | GL-02 | DECIDED | REFLECTED | NOT_STARTED | NOT_RUN | PENDING |
+   | GL-03 | DECIDED | REFLECTED | NOT_STARTED | BLOCKED（正式Capture契約未受領データはAggregate不可） | PENDING |
+   | GL-04 | DECIDED（非推測・責任境界） | PARTIAL（完全Capture契約未受領） | NOT_APPLICABLE（契約受領前） | NOT_RUN | PENDING |
+5. **GL-04 Capture Contract（統括決定・契約受領待ち）:** Motor / Batteryの正式Capture終端・必須Sample・Outcome Mapping・RawLog framing / timestamp / channel契約をDB部門が推測補完しない。MotorはIssue #35を正本、#170を実装タスクとし、BatteryはIssue #16とBattery spec v2を参照する。各Ownerから正式契約が受領されるまでは対象Measurementをopaque保存に限定し、COMPLETE / Current Aggregate算入を推定しない。提出依頼はMotor Issue #35 comment #7079482192、Battery Issue #16 comment #7079482810に限定照会として記録済み。
