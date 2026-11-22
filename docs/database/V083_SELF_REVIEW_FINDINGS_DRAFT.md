@@ -153,7 +153,7 @@ Current Valid判定がInput Set Hash中心だが、RequestにはAssignment Snaps
 | 対象 | 確認結果 | 次に必要な作業 |
 |---|---|---|
 | DB Run | DB正常利用可能時の初回有効ASSIGNEDで生成、生成後保持、再ASSIGNEDで同一IDを使う方針は一貫 | DB record生成とDB file/schema/bootstrapを明確に分離。outage中の初回ASSIGNEDは無効 |
-| Session | DB正常利用可能時の初回有効ASSIGNEDで生成し、Assignment変更後も保持 | CC-01に従いLifecycle/Outcome分離。DB unavailable中の新規Session生成は禁止。NONE Association時の既存Session membership条件を別途定義 |
+| Session | DB正常利用可能時の初回有効ASSIGNEDで生成し、Assignment変更後も保持 | CC-01に従いLifecycle/Outcome分離。DB unavailable中の新規Session生成は禁止。CC-03によりMeasurementとの直接所属関係なし |
 | Assignment | Current AssignmentとAssignment-at-Measurementの分離は妥当 | NONE/ANONYMOUSの既存履歴・プライバシー処理境界を明文化 |
 | Current Aggregate | 現在ASSIGNED、測定時ASSIGNED、Instance ID一致という基準は一貫 | Request ID/Algorithm/Configuration/Assignment Snapshotを含む完全Fingerprintで有効性判定 |
 | Receipt | Source Commit後ABORTED禁止、同一Operation再開は一貫 | Event遷移・Restore時の未完了状態・ABORTED証拠条件を表形式で完成 |
@@ -184,7 +184,7 @@ Current Valid判定がInput Set Hash中心だが、RequestにはAssignment Snaps
 | 初回所見 | 現在の扱い | 決定・残作業 |
 |---|---|---|
 | SR-01 | 部分解決 | CC-02でANONYMOUS後日取込禁止、NONEの既存DB管理Measurementに限る明示Associationを分離。資料同期の残りを監査 |
-| SR-02 | 要再定義 | NONE Association対象MeasurementのSession membership条件が残る。ANONYMOUSは後付け所属禁止 |
+| SR-02 | SUPERSEDED / NOT_ADOPTED | 旧NONE MeasurementのSession membership論点はCC-03で解消。Measurement→Session直接関係なし |
 | SR-09 | 解決・旧案廃止 | CC-01によりSession LifecycleとMeasurement Outcomeを完全分離。OutcomeからLifecycleを導出しない |
 
 このDecision Overlayは初回レビューの履歴を消去せず、現行規範判断を上書き表示する。CC-01 / CC-02以外の未解決事項、v0.8.3全体の未承認状態、物理設計・実装禁止を変更しない。
@@ -221,7 +221,7 @@ Issue #16で確認できるのは、main統合済みと記述された旧Battery
 - Measurement OutcomeとSession Lifecycleの関係（現在はCC-01が優先）。
 - RawLog v2 schema、Sample Locator、Channel metadata、Capture終端イベント。
 - Benchmark Feature / Resultの完全schema、Algorithm/Configuration version、Artifact provenance。
-- NONE late associationのSession membership、ANONYMOUSの後日取込禁止に関する例外の有無（現行CC-02に例外なし）。
+- NONE late associationはInstance関連付けEventのみ。Measurement→Session直接関係なし（CC-03）。ANONYMOUS後日取込禁止。
 
 ### 7.3 共通DB側の契約受領状況
 
@@ -229,7 +229,7 @@ Issue #16で確認できるのは、main統合済みと記述された旧Battery
 |---|---|---|---|
 | Motor | Issue #35 | RawLog v1/v2の境界、センサー意味、推定値とRawLogの分離、Telemetry欠損許容、Device IDの意味 | Motor固有DB schema、Session/Assignment完全契約、Artifact schemaを補完しない |
 | Battery | Issue #16 | E2E検証の対象・境界とCH1/CH2独立性の検証要求 | Issue #16を完全データ契約と見なさない。Battery担当へ直接指示・実装変更しない |
-| Shared DB | Issue #210 CC-01/CC-02、Issue #201等 | Session Lifecycle / Outcome分離、NONEとANONYMOUSの境界 | NONE Session membershipの統括決定がない限り関連付け規則を確定しない |
+| Shared DB | Issue #210 CC-01/CC-02、Issue #201等 | Session Lifecycle / Outcome分離、NONEとANONYMOUSの境界 | CC-03によりMeasurement→Session直接関係は不採用。NONE AssociationはInstance関連付けEventに限定 |
 
 **結論:** Motorの正本契約はDB側で上書きしない。Batteryの現存IssueはE2E taskにとどまり、新DBの完全データ契約としては不足する。両者の不足をDB部門が推測で埋めず、統括経由で正式契約を受領する必要がある。これは契約照合であり、Motor/Battery実装の変更指示ではない。
 
@@ -271,10 +271,10 @@ NOT_CREATED_CONFIRMED / RETIRED_NOT_CREATEDへの変更は、個別成果物が�
 
 ## 9. 2026-11-21 DB-RV横断照合の追加所見
 
-### SR-12 — NONE AssociationとSession membershipの境界が未定義
+### SR-12 — NONE AssociationとSession membershipの境界が未定義（HISTORICAL / SUPERSEDED by CC-03）
 **重大度: HIGH / DB-RV-01・02・08**
 
-Issue #210 CC-02はNONE期間の既存DB管理Measurementについて明示Associationを許容する一方、Session membershipの条件・関連付け先Sessionの適格性は決めていない。Main §1.2(6)の「Session生成後にDBへ登録されたMeasurement集合」と、NONE Associationの関係が未定義。Session生成前のNONE Measurementと、Session生成後のNONE Measurementを分け、membership / audit-only / exclusionのどれかを統括判断対象として明確化する。ANONYMOUSは後日取込・membership追加とも禁止。
+（2026-11-21時点の履歴。2026-11-22の統括決定CC-03によりSUPERSEDED。）現行規範ではMeasurement→Session直接FK / membership / session_idを設けない。MeasurementはRUN_SCOPEへ直接属し、Sessionは同じRUN_SCOPE配下の独立Lifecycle Entity。NONE AssociationはInstance関連付けEventのみ。ANONYMOUSは後日取込禁止。
 
 ### SR-13 — Aggregate Request FingerprintがMainと補助Matrixで不一致
 **重大度: HIGH / DB-RV-04**
@@ -369,7 +369,7 @@ Request StateとAttempt StateをMain §3.2で固定。Retry ClosedはFAILED Atte
 
 | 論点 / DB-RV | 最終状態 | 決定根拠 | 残るもの（設計未決定ではない） |
 |---|---|---|---|
-| DB-RV-01 Session存在条件とAssignment State | DB部門案あり・統括承認待ち | Main §1（Session生成・保持・membership境界） | Session Manager実装・権限試験、NONE Session membershipの統括確認 |
+| DB-RV-01 Session存在条件とAssignment State | CC-01 / CC-03論理判断済み・文書同期 | Main §1 / §14.1（Session生成・保持、MeasurementはRUN_SCOPE直結） | Session Manager実装・権限試験。v0.8.3全体承認とは別 |
 | DB-RV-02 DB Run生成後ライフサイクル | DB部門案あり・統括承認待ち | Main §1（DB Run生成・保持・再割当条件） | Run Manager実装・権限試験 |
 | DB-RV-03 Receipt PREPARED永続化順序 | DB部門案あり・統括承認待ち | Main §2、Receipt Contract §22（Main優先） | filesystem / SQLite crash・durability・Recovery実証 |
 | DB-RV-04 Aggregate要求履歴 / Revision | DB部門案あり・統括承認待ち | Main §3 | Aggregate Manager / Workerの実装・競合・crash受入試験 |
@@ -446,7 +446,7 @@ Request StateとAttempt StateをMain §3.2で固定。Retry ClosedはFAILED Atte
 
 ## 40. MAJOR項目の自己審査状態（2026-11-21）
 
-- **NONE Session membership:** Main §1.2.6 / §14.1.4にDB部門選択案、採用理由、不採用案を明記した。統括の明示確認は未受領であり、承認済み扱いにしない。
+- **Measurement→Session relation:** CC-03により直接FK / membership / session_idを不採用。MeasurementはRUN_SCOPEへ直接属し、Sessionは同一RUN_SCOPE配下の独立Lifecycle Entity。文書同期対象。
 - **Aggregate Outcome:** Current AggregateをOutcome=COMPLETEに限定する理由をMain §14.2.3へ追記。COMPLETEは正式Capture契約が正常終端と必須Sample完了を証明した場合のみ。契約未受領時は推定せず除外。
 - **UUIDv4 / M4W-JCS-1:** Decimal negative-zero記述の矛盾を解消し、JCS期待Canonical bytes / SHA-256 vector 13件と拒否ケース10件をCanonical Audit §19に追加。二つの独立JCS実装の照合・CSPRNG実証は未実施。Entity TypeごとのIssuer Authority mappingも未完成であり、未登録EntityのID発行経路は未実装・未許可。
 - **DB-001〜124:** Evidence Ledgerで全IDの範囲履歴と個別根拠の強さを分離。REFERENCE_ONLY_NOT_EXECUTABLEは過去要求の撤回・無効化を意味しない。DB-001〜056は会話由来短縮定義、DB-057〜124は個別原文未回収。
@@ -454,3 +454,17 @@ Request StateとAttempt StateをMain §3.2で固定。Retry ClosedはFAILED Atte
 - **Entity Inventory:** 未受領Fieldは創作せず、Envelope / OwnerReference / PayloadReference / PayloadHash等の既知部分のみ検証。未知Payloadはopaque / reject。完全Field Schemaは未完成。
 - **Receipt Recovery:** §§1〜21を旧調査時点の履歴と明示し、Main §14.4 / 本書§22を現行規範とした。物理耐久性・Crash / Restore / fencingは未実証。
 - これらはDB部門自己審査であり、統括の承認・BLOCKER解除・実装許可を意味しない。
+
+
+## 39. 統括決定CC-03 — Measurement / Session直接関係の不採用（2026-11-22）
+
+**DECISION_STATUS: DECIDED / DOCUMENT_STATUS: REFLECTED（本Self Review）**
+
+- MeasurementはRUN_SCOPEへ直接属する。Sessionは同じRUN_SCOPE配下の独立Lifecycle Entity。
+- Measurement→Session直接FK / membership / session_id / 所属Ordinalは設けない。
+- 測定時Assignment Snapshot / Revision / State / InstanceIDはMeasurement側に不変保持する。
+- RUN_SCOPEを介した派生View / Queryによる同一Scope内の併記は可能だが、永続所属ではない。
+- NONE AssociationはInstance関連付け履歴のみであり、Session relationを変更しない。
+- 旧A/B/C案、Session membership OPEN/TBD、統括確認待ちの記述は履歴としてのみ保持し、SUPERSEDED / NOT_ADOPTEDとする。
+
+v0.8.3全体承認、物理設計、DDL、DB生成、Migration、Restore実行、実装、PR作成・merge、main反映は未許可。
