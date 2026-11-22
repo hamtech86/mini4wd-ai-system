@@ -1039,8 +1039,8 @@ Issue #210 CC-03より前のA/B/C membership案、OPEN/TBD、統括判断待ち�
 
 | Gate | Decision | Document | Implementation | Verification | Approval |
 |---|---|---|---|---|---|
-| GL-01 | DECIDED | PARTIAL | NOT_STARTED | NOT_RUN | PENDING |
-| GL-02 | DECIDED | PARTIAL | NOT_STARTED | NOT_RUN | PENDING |
-| GL-03 | DECIDED | PARTIAL | NOT_STARTED | BLOCKED for contract-missing data | PENDING |
+| GL-01 | DECIDED | REFLECTED | NOT_STARTED（Principal / Service登録未実施） | NOT_RUN | PENDING |
+| GL-02 | DECIDED | REFLECTED | NOT_STARTED | NOT_RUN | PENDING |
+| GL-03 | DECIDED | REFLECTED | NOT_STARTED | BLOCKED for contract-missing data | PENDING |
 
 GL-01〜03を「未決定」に戻さない。文書反映が部分ならDECIDED + PARTIAL、実Principal未登録は発行禁止、Capture契約未受領データはUNKNOWN / opaqueでAggregate除外とする。GL-04の契約受領は別の条件付き外部依存。
