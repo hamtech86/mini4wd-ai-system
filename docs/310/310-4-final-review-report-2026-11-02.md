@@ -173,3 +173,23 @@ PR #183はDraft/Open/Unmergedを維持し、HARDWARE_CURRENT_LIMIT_CONFIRMED=fal
 - §8.2に残っていた「EEPROM journal proposal」の見出し・末尾表現は、protocol-v2設計採用と補足文書のnormative宣言に対して古い状態表現だったため、採用済みの論理設計契約として表現を統一した。
 - EEPROM companion supplementの規範範囲を、byte assignmentだけでなくreserved/generation/valid-slot selection/duplicate generation/factory-empty/UINT64_MAX fail-closed等のvalidity・boot条件まで明示した。補足は§8.2を置換せず、具体化する。
 - これは既存のcommand-authority決定の反映であり、新たな設計判断・実装完了・物理受入ではない。MCU identity、fuse、supervisor/hold-up、brownout、EEPROM power-interruption、T13等の物理証拠は未取得。HARDWARE_CURRENT_LIMIT_CONFIRMED=falseを維持し、PR #183はDraft/Open/Unmergedのまま。
+
+## 2026-11-22 統括再審査追補 — evidence recovery
+
+PR #183の旧decision register / §13 / §14に残っていた状態記述を、上位決定と既存実装証拠に照合した。
+
+### 回収・訂正できた事項
+- Issue #35の2026-11-09リスク方針により、8,000ms T18 ceilingは合否ゲートから除外済み。target-host timingは診断値であり、fsync latencyの数値未確定を設計受入ブロッカーとして扱わない。
+- PR #198 HEADのdevice loss accountingはchannel別1秒半開windowを実装済み。旧decision registerの「window幅未定」は stale。
+- PR #198 firmware sourceと同一blobのcompile artifactを取得。ATmega328PB / MiniCore 3.1.3 / 16MHz external、.data 146B + .bss 747B = 893B。静的領域900B上限は満たす。関数単位stack reportは存在するが、worst-case call-chain / interrupt stack boundは未取得。
+- PR #198 native testsはSTOP_ACKによる未完了ADC_BATCHのpreemptionとdevice STOP latch/output-zeroを検証。PR #193 host testsはsame-UART priority STOPを検証。これらはsoftware evidenceであり、物理current cutoffではない。
+- PR #198 evidence_bundle.py はRawLog manifest/recordsと外部Evidence sidecarを別 bundle-manifest.json でhash結合する。現行manifestにbyte lengthとcompleteness stateがないため、package fixture/validatorの実装確認は残る。
+- EEPROM byte assignment companionはPR #215でmainへcanonical化済み。
+
+### 現在も条件付きの事項
+- 物理MCU marking/signature、fuse/BOD、電源過渡/hold-up、EEPROM power interruption、ADC reference/accuracy、実機STOP/current cessationは現物・外部設備・個別許可が必要。
+- 実搭載MCUは未確認。ATmega328PBはcompile targetであって物理chip identificationではない。
+- stack<=700B / reserve>=448Bはcompiler per-function reportだけでは証明できず、worst-case boundまたはhigh-waterが必要。
+
+### 受入境界
+この追補は#183の文書内状態を正確にするもので、DESIGN ACCEPTANCE、implementation acceptance、hardware qualificationを付与しない。PR #183はDraft/Open/Unmergedを維持する。HARDWARE_CURRENT_LIMIT_CONFIRMED=false を維持する。
