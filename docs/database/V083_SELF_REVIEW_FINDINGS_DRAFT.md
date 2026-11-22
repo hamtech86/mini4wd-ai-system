@@ -52,11 +52,11 @@
 
 該当: §1.2(6)、§1.3、§1.4。
 
-初回レビュー時は、Session membershipと後日Associationの境界が未定義だった。Issue #210 CC-02によりNONEの明示Associationが限定許容されたため、既存DB管理MeasurementのSession membership条件・関連付け先Sessionの適格性は別途論理定義が必要。
+初回レビュー時はNONE AssociationとSession関係の境界が未定義だった。2026-11-22の統括決定CC-03によりMeasurement→Session直接関係は不採用となり、NONE AssociationはInstance関連付けEventのみと確定した。
 
 修正方針:
 - SR-01のとおり後日Associationを本版から外す場合、Sessionの通常所属条件を「Session生成後に測定・登録され、測定時Assignmentが当該ScopeのASSIGNED状態であるMeasurement」として定義する。
-- 将来Associationを再設計する際は、Session membershipとAssignment-at-Measurementを別の関係として定義する。
+- 将来Associationを再設計する場合も、Measurement→Session直接関係を追加せず、Assignment-at-MeasurementとInstance関連付けEventを分離する。
 
 ### SR-03 — DB Run/Session生成とDBファイル生成・Bootstrapの境界
 **重大度: BLOCKER / 誤読防止**
@@ -162,7 +162,7 @@ Current Valid判定がInput Set Hash中心だが、RequestにはAssignment Snaps
 ## 4. 次の作業順
 
 1. Issue #201 / #85 / #86との範囲整合を反映する修正方針を確定（後日Association・Bootstrapの現行許可を除外）。
-2. Session membership / Assignment / Aggregateの状態遷移表を完成。
+2. Measurement→RUN_SCOPE / Session独立Lifecycle / Assignment / Aggregateの状態遷移表をCC-03に同期。
 3. Receipt Envelope/Event状態遷移・クラッシュ・Restore回復表を完成。
 4. Aggregate Request Fingerprint / Pointer / Retry終端規則を完成。
 5. Issue #35とRawLog耐久性の分類・Motor契約照合。
@@ -205,7 +205,7 @@ Issue #35本文を読み、DB側の契約と境界を次のとおり再確認し
 | 取得値 | A0巻線電流、A1独立ブラシ観測、A4/A5電圧、A2/A3参考値。A0/A1平均禁止、A2/A3を制御・判定に使用禁止 | Measurement Sample / Profile Snapshotにセンサー意味を混同したfieldを設けない。正式なv2 field listは未受領 |
 | RawLogとAnalysis | 個体推定に生ログ使用。推定値をRawLogへ混入しない。Analysisは別途算出・推定 | Artifact InputがRawLog/Sample/Algorithmをどう参照するかはDB論理候補にあるが、Motor側正式Artifact contractはIssue #35本文にない |
 | 欠損・耐久性 | 初期段階のTelemetry/RawLog欠損は頻度・範囲を記録したうえで許容可能。全サンプル完全保存を安全要件として目的化しない | DB草案§8の全RawLog一律fsync/hash/atomic durability要求は適用範囲の分類が必要。全種類へ一律適用しない |
-| Session / Instance | Issue #35本文には、共通DBのSession ID発行・Session membership・Assignment Snapshot・遅延Associationの正式データ契約なし | DB側でMotor固有の不足属性・FK・Session semanticsを補完してはならない。共通DB統括決定を待つ |
+| Session / Instance | Issue #35本文には、共通DBのSession ID発行・Measurement→Session直接関係・Assignment Snapshot・遅延Associationの正式データ契約なし | DB側でMotor固有の不足属性・FK・Session semanticsを補完してはならない。共通DB統括決定を待つ |
 | Device identity | INFOのIDはFW内部識別文字列であり、物理デバイス固有IDでもMotor Instance IDでもない | Device IDをMotor Instance IDやDB Entity IDへ流用しない |
 
 ### 7.2 Battery — Issue #16（E2E検証タスクであり完全データ契約ではない）
@@ -307,7 +307,7 @@ DB-001〜056は会話由来短縮定義のみ、DB-057〜124は個別本文未�
 ### SR-18 — Device-specific Data ContractをDB側で補完できない
 **重大度: HIGH / DB-RV-07・08・統括再提出条件**
 
-Issue #35はMotorの現行仕様唯一の正本であり、未記載事項を担当側で復元しない権限境界がある。RawLog v1 / v2は別形式、v2の完全Schemaは別の正式決定を要する。Issue #16はBattery E2E検証タスクであり、完全なBattery DB / RawLog契約ではない。DB部門はRawLog v2、Battery Channel metadata、Capture終端、durability / retentionを推測で補完しない。Issue #201 / #210に従いAnonymous RawLogの後日DB取込は禁止、NONE Associationは限定許容だがSession membershipは未決定。Motor/Batteryの実装変更や担当への直接指示は行わない。
+Issue #35はMotorの現行仕様唯一の正本であり、未記載事項を担当側で復元しない権限境界がある。RawLog v1 / v2は別形式、v2の完全Schemaは別の正式決定を要する。Issue #16はBattery E2E検証タスクであり、完全なBattery DB / RawLog契約ではない。DB部門はRawLog v2、Battery Channel metadata、Capture終端、durability / retentionを推測で補完しない。Issue #201 / #210に従いAnonymous RawLogの後日DB取込は禁止。NONE AssociationはInstance関連付けEventのみ。CC-03によりMeasurement→Session直接関係は不採用。Motor/Batteryの実装変更や担当への直接指示は行わない。
 
 
 ## 11. SR-19 — Entity別の一次根拠・Authority・契約所有者が未完
@@ -319,7 +319,7 @@ Entity Inventory 23種をMain §§1–10および利用可能な正式Issueへ�
 - Motor Issue #35 / #170はRawLog v1/v2の境界とv2契約の作業範囲を定めるが、DB部門が未記載Fieldやdurabilityを補完する権限はない。
 - Battery Issue #16はE2E検証タスクであり、Battery固有の完全DB / RawLog / Capture終端 / durability / retention契約ではない。
 - OPERATION_EVENT、Assignment Event、Intent、Receipt Eventの境界は未決定。Analysis / Simulation Artifact、Recovery Operation / Integrity Reportも完全な独立Entity契約は未完。
-- NONE Session membershipはIssue #210で未決定のため、A/B/Cいずれも採用仕様として扱わない。
+- 旧A/B/C Session membership案はCC-03によりSUPERSEDED / NOT_ADOPTED。Measurement→Session直接関係を設けない。
 
 **対応:** Entity Inventory §10とCross-document Audit §32に根拠・Authorityマップを追加。未回収項目は未定義として維持し、DB部門による推測補完を禁止する。
 
