@@ -209,9 +209,9 @@ RECOVERABLEの場合は具体的なファイル/Issue/PR/commit等を記す。CO
 
 | 残件 | 分類 | 根拠回収可能性 | 次の具体的行動 / 完了条件 |
 |---|---|---|---|
-| NONE MeasurementのSession membership | A — DESIGN_BLOCKER（DB設計範囲に限定） | RECOVERABLE（代替案・Issue #210の境界は文書化済み。ただし決定そのものの根拠は未存在） | DB部門案はExisting-Session-onlyを推奨するが未選択。統括が選択肢・影響を確認し、明示決定をIssue #210または新規決定Issueへ記録。Main/Matrix/Auditを同じ決定へ同期 |
-| UUIDv4 issuer authority mapping | A — DESIGN_BLOCKER（Identity/Authority契約） | CONDITIONALLY_RECOVERABLE | Entityごとの責任Owner/Issuer authorityの正式提示が必要。23 Entity Inventoryと照合し、未割当Entityの発行可否を明記 |
-| Entity 23概念中13件の完全Schema欠落 | A — DESIGN_BLOCKER（完全Field Schemaを必須とするEntityに限る） | CONDITIONALLY_RECOVERABLE | Motor/Battery正式契約・各Entity OwnerのField Schemaを受領。Opaque扱いで設計を進めるEntityは検証可能範囲と禁止処理を明記 |
+| NONE MeasurementのSession membership | MAJOR — 設計補完事項（Issue #211の分類を維持） | RECOVERABLE（代替案・Issue #210の境界は文書化済み。ただし決定そのものの根拠は未存在） | DB部門案はExisting-Session-onlyを推奨するが未選択。統括が選択肢・影響を確認し、明示決定をIssue #210または新規決定Issueへ記録。Main/Matrix/Auditを同じ決定へ同期 |
+| UUIDv4 issuer authority mapping | MAJOR — 設計補完事項（Issue #211の分類を維持） | CONDITIONALLY_RECOVERABLE | Entityごとの責任Owner/Issuer authorityの正式提示が必要。23 Entity Inventoryと照合し、未割当Entityの発行可否を明記 |
+| Entity 23概念中13件の完全Schema欠落 | MAJOR — 設計補完事項（Issue #211の分類を維持。必須Entityの範囲を個別判定） | CONDITIONALLY_RECOVERABLE | Motor/Battery正式契約・各Entity OwnerのField Schemaを受領。Opaque扱いで設計を進めるEntityは検証可能範囲と禁止処理を明記 |
 | DB-001〜056 | E — EVIDENCE_RECOVERY | RECOVERABLE（会話記録由来の短縮定義） | 元の正式要求文書と混同せず、短縮定義・期待結果・出典確度を維持。V082との対応は未確定 |
 | DB-057〜124 | E — EVIDENCE_RECOVERY | CONDITIONALLY_RECOVERABLE（元文書未回収。Git履歴/過去会話の追加探索が必要） | 新DB設計書 v0.2、旧Branch/Commit/Blob、過去会話を対象に探索。原文が回収できないIDは検索範囲を記録し統括へ扱い判断を求める |
 | V082 crosswalk | E — EVIDENCE_RECOVERY | RECOVERABLE（Crosswalk文書は存在。元定義との対応根拠は不足） | 旧IDの意味を変えず、DB-001〜124原文が回収できた項目から個別照合。現状のconfirmed mapping 0を維持し、網羅済みとしない |
