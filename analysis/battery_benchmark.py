@@ -57,7 +57,7 @@ def _channel_values(rows: list[Mapping], channel: str, metric: str) -> list[floa
     if metric not in ("voltage", "current"):
         raise ValueError("unsupported Battery metric")
     key = f"{metric}{1 if channel == 'CH1' else 2}"
-    return [value for row in rows if (value := _finite_value(row, key)) is not None]
+    return [value for row in rows if (value := _finite_value(row, key)) is not None and value != 0.0]
 
 
 def _values(rows: list[Mapping], *keys: str) -> list[float]:
