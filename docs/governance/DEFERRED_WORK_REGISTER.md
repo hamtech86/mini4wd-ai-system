@@ -266,3 +266,38 @@ PR #216および各部門の残件について、**全部門の棚卸し・既�
 - 全体整理の差分報告をIssue #217へ提出し、ユーザーが全体整理完了を確認した後に限り、新運用による統括審査へ進む。
 
 **このゲートは審査の延期であり、既存の設計承認・実装許可・安全条件を変更しない。**
+
+
+## 14. 2026-11-22 統括裁定追補 — 診断レポートScope / DB Gate L
+
+### 14.1 共通診断レポート SD-01〜04
+正本: [Issue #214 comment 7079414069](https://github.com/hamtech86/mini4wd-ai-system/issues/214#issuecomment-7079414069)。対象は#150/#151旧要件と#205/#206共通診断レポートのScope Disposition。
+
+| ID | Decision | 適用・非適用 | 5軸の現在状態 |
+|---|---|---|---|
+| SD-01 保存先 | diagnostic-reports/{battery|motor}/{run_id}へ置換 | verification/runsは新規保存先として廃止。既存証跡は不変保持 | DECIDED / REFLECTED（#214/#206コメント） / #206現行実装 / 実環境試験NOT RUN / #206承認PENDING |
+| SD-02 Token | masked dialog-only / session-only | MINI4WD_GITHUB_TOKEN環境変数と独立SET TOKEN UIは継承しない。tokenは永続化しない | DECIDED / REFLECTED（#214/#206コメント） / #206現行実装 / 実環境試験NOT RUN / #206承認PENDING |
+| SD-03 Physical observation | 共通診断レポートから分離 | Motor physical-verification将来拡張。過去証跡へ後付けしない。#206受入条件外 | DECIDED / REFLECTED / NOT_APPLICABLE（#206共通機能） / NOT_RUN / PENDING |
+| SD-04 Full controller/sequence history | 共通診断レポートの必須要件から除外 | ui_eventsは診断スナップショット。完全監査履歴と表現しない | DECIDED / REFLECTED / #206現行実装 / 実環境試験NOT RUN / #206承認PENDING |
+
+#205は共有診断レポート仕様正本、PR #206は唯一の実装候補。PR #206はOPEN/DRAFT/UNMERGED。exact-head CI 5/5 SUCCESSは既存記録を維持するが、target-PC GUI / live upload / 実環境API・network retryはNOT RUN。Scope裁定は実装受入・merge許可ではない。
+
+### 14.2 DB Gate L GL-01〜04
+正本: [Issue #207 comment 7079475903](https://github.com/hamtech86/mini4wd-ai-system/issues/207#issuecomment-7079475903)。DB draft branch HEADとして報告された値は `c05e451a7a51ef69729ef677731823bb5430845c`。main反映・DDL・DB生成・Migration・Restore・実装は未実施。
+
+| ID | Decision / scope | 回収可能性 | 5軸の現在状態 |
+|---|---|---|---|
+| GL-01 UUIDv4 Issuer Authority | Entity Typeごとの単一Issuer Role mapを採用。未登録Roleからの発行禁止。composite/derived identityはUUIDを発行しない | RECOVERABLE（Main §5.1〜5.3にIdentity方式あり） | DECIDED / PARTIAL（Authority Registry map同期待ち） / NOT_STARTED / NOT_RUN / PENDING |
+| GL-02 Minimum Schema | 現行運用の共通Envelope・Identity・Authority・Reference・Event境界に限定。23概念すべてを独立Table/UUID化しない。外部Owner未定義Payloadはopaque | RECOVERABLE（Main §14.3 / Event Registry） | DECIDED / PARTIAL（Entity Inventoryの旧UUIDv5記述等の同期待ち） / NOT_STARTED / NOT_RUN / PENDING |
+| GL-03 Current Aggregate Outcome | COMPLETE Measurement Outcomeのみ。Capture Ownerの正常終端証拠・必須Sample・Hash/Assignment条件が不足する対象はUNKNOWN/opaqueとして除外。Session Lifecycleとは独立。CH1/CH2平均化禁止 | RECOVERABLE（論理条件）＋Capture適用はCONDITIONALLY_RECOVERABLE | DECIDED / PARTIAL（Capture契約との相互参照待ち） / NOT_STARTED / BLOCKED（契約未受領対象は算入不可） / PENDING |
+| GL-04 Motor/Battery Capture Contract | DBは機器固有Capture開始/終端/必須Sample/Outcome/Channel意味を推測補完しない。各Device Ownerの正式契約が必要 | CONDITIONALLY_RECOVERABLE（Motor #35/#170、Battery #16/specは部分根拠。完全契約未受領） | DECIDED（非推測・責任境界） / PARTIAL / NOT_APPLICABLE（受領前） / NOT_RUN / PENDING |
+
+GL-01 Issuer Roleの役割分担は、Run Manager / Assignment Manager / Capture Identity Authority / Profile Authority / Evidence Storage Authority / Operation Authority / Receipt Authority / Artifact Authority / Aggregate Authority / Recovery Authority。実際のPrincipal・Service・Registry登録、乱数源、scope、発行/失効記録は別途必要。DB部門はMain §5.1〜5.3とEntity InventoryのUUIDv4表記を同期する。旧UUIDv5 / Namespace候補を現行未決定事項として再登録しない。
+
+GL-04の限定提出依頼はMotor Issue #35 comment 7079482192、Battery Issue #16 comment 7079482810。全体棚卸しの再依頼ではなく、Capture start/end、COMPLETE条件、必須Sample、RawLog Schema/byte boundary、ID/Hash参照、timestamp、partial/loss/retryの不足契約だけを求める。Motor #170 comment 7079483316にも責任境界を通知済み。
+
+### 14.3 既決定事項の再浮上防止
+- CC-03（Issue #210 comment 7076202503）はDECIDED / REFLECTED。MeasurementはRUN_SCOPEへ直接所属し、Sessionは独立Lifecycle Entity。Measurement→Session membership / FKを再OPENしない。
+- DB-001〜124の個別追跡・原本回収・全件Crosswalkはユーザー指示により終了済み。再開しない。
+- Issue #211はORANGE / 条件付き差戻し、v0.8.3は未承認。GL-01〜03の決定と文書同期・実証・統括承認を混同しない。
+- M4W-JCS-1独立実装適合、Filesystem durability、SQLite crash、Backup/Restoreは後続実証Gateであり、未実施をPASSにしない一方、論理決定を未決定へ戻す理由にも使わない。
