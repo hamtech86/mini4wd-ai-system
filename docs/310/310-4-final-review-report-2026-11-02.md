@@ -165,3 +165,11 @@ RawLog v2 records schema、ADC_SAMPLE field/type/version、Python sequence autho
 
 ## 最終GitHub状態
 PR #183はDraft/Open/Unmergedを維持し、HARDWARE_CURRENT_LIMIT_CONFIRMED=falseを維持する。実装、compile/upload、serial、motor energization、310秒測定、310-5移行は行わない。
+
+
+## 2026-11-22統括再監査 — 採用決定とEEPROM規範範囲の同期
+
+- 決定登録簿に記録済みの2026-11-04 v0.5通信プロトコル採用、および設計本文に記録済みの2026-11-05 protocol-v2 command-authority amendmentを確認した。PR #183のDraft/Open/UnmergedはGitHub workflow状態であり、これらの採用決定を取り消すものではない。
+- §8.2に残っていた「EEPROM journal proposal」の見出し・末尾表現は、protocol-v2設計採用と補足文書のnormative宣言に対して古い状態表現だったため、採用済みの論理設計契約として表現を統一した。
+- EEPROM companion supplementの規範範囲を、byte assignmentだけでなくreserved/generation/valid-slot selection/duplicate generation/factory-empty/UINT64_MAX fail-closed等のvalidity・boot条件まで明示した。補足は§8.2を置換せず、具体化する。
+- これは既存のcommand-authority決定の反映であり、新たな設計判断・実装完了・物理受入ではない。MCU identity、fuse、supervisor/hold-up、brownout、EEPROM power-interruption、T13等の物理証拠は未取得。HARDWARE_CURRENT_LIMIT_CONFIRMED=falseを維持し、PR #183はDraft/Open/Unmergedのまま。
