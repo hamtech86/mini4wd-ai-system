@@ -453,11 +453,11 @@ class BatteryTab(QWidget):
                     for s in self.samples[ch]:
                         self._insert_available(db, "measurement", {
                             "session_id": sid, "record_type": "BATTERY_5A", "device_model": "BATTERY_5A",
-                            "instance_id": iid, "elapsed_time": s.elapsed_sec, "voltage1": s.voltage,
-                            "current1": s.current, "pwm": s.pwm, "state": "COMPLETE", "power": s.voltage * s.current
+                            "instance_id": iid, "elapsed_time": s.elapsed_sec, f"voltage{ch}": s.voltage,
+                            f"current{ch}": s.current, "pwm": s.pwm, "state": "COMPLETE", "power": s.voltage * s.current
                         })
                     self._insert_available(db, "battery_benchmark_result", {
-                        "session_id": sid, "instance_id": iid, "analysis_version": "battery-benchmark-v1",
+                        "session_id": sid, "instance_id": iid, "analysis_version": "battery-benchmark-v2",
                         "measurement_count": n, "avg_voltage": av, "avg_current": ai, "avg_power": ap,
                         "max_current": mi, "max_power": mp, "discharge_time_s": dur,
                         "capacity_mah": cap, "energy_wh": energy
