@@ -1010,3 +1010,37 @@ Main §8.1を照合した。
 - 本文Main §1.2 / §1.4 / §14.1、Session Lifecycle、State Transition Matrix、Entity Inventoryと同じ意味で同期する。
 
 Issue #210 CC-03より前のA/B/C membership案、OPEN/TBD、統括判断待ちの記述は、当時の履歴としてのみ保持し、現行規範・現行Blockerとして扱わない。
+
+## 42. 統括裁定 GL-01〜03 — Cross-document同期監査（2026-11-22）
+
+**正本根拠:** Issue #207 comment #7079475903。Gate Lの論理境界はDECIDED。旧UUIDv5 / Namespace / Canonical Binary Name v2の候補・未承認記述は履歴であり、現行OPENではない。矛盾時はMain §5 / §14および本節を優先する。
+
+### 42.1 GL-01 UUIDv4 Issuer Authority
+
+- UUID-bearing Entity Typeごとに単一Issuer Roleを割り当てる。Role表はMain §5.1およびEntity Inventory §37.1と同一。
+- PhysicalRunID / LogicalSessionID / DBRunIDはRUN_MANAGER、AssignmentSnapshotIDはASSIGNMENT_MANAGER、MeasurementID / RawLogObjectID / SampleReferenceIDはCAPTURE_IDENTITY_AUTHORITY、MeasurementProfileSnapshotIDはPROFILE_AUTHORITY、RawLogReferenceIDはEVIDENCE_STORAGE_AUTHORITY、OperationIDはOPERATION_AUTHORITY、ReceiptIDはRECEIPT_AUTHORITY、AnalysisArtifactID / SimulationArtifactIDはARTIFACT_AUTHORITY、AggregateRequestID / AttemptID / ResultRevisionIDはAGGREGATE_AUTHORITY、RecoveryOperationID / IntegrityReportIDはRECOVERY_AUTHORITY。
+- 実Principal / Service / Scope / 発行・失効・監査証拠のAuthority Registry登録完了前は発行禁止。DB Session MirrorはLogicalSessionIDを再利用。ReceiptIDは独立UUIDv4。
+- Composite / derived identityはMain §5.3に従い独立UUIDを発行しない。
+
+### 42.2 GL-02 Minimum Entity / Envelope / Event Schema
+
+- 23概念はInventoryとして保持するが、23独立SQL Table / UUIDを要求しない。
+- 外部正本Envelopeの必須項目はEntityType / SchemaVersion / EntityID / CreatedAtUTC。Root以外はOwnerReference、外部正本ObjectはPayloadReference / PayloadHash必須。
+- 外部Ownerの完全Field Schema未受領Payloadはopaque保存のみ。意味解析・Field補完・Aggregate入力は禁止。
+- Eventのidentity / Ordinal / EventType / Actor-Authority / UTC / Payload Schema Version / Payload / Previous Hash / Event Hash / 連続・欠番規則をEvent Registry / Owner Authorityに従って固定。Writer Grantは別Authority Chain。
+
+### 42.3 GL-03 Current Aggregate
+
+- Outcome=COMPLETEに加え、正式Capture契約による正常終端・必須Sample完全性、Envelope / Assignment / Scope / RawLog・Sample Reference / Hash検証、測定時ASSIGNEDと現在同一Instance、Scope / Owner条件をすべて要求。
+- ANONYMOUS / NONE / STOP / ERROR / CANCEL / INCOMPLETE / UNKNOWN、契約未受領・証拠不足・必須Sample欠落・矛盾・Hash不一致は除外。
+- Session Lifecycleと独立。Battery CH1 / CH2は独立Aggregateで平均・合算禁止。
+
+### 42.4 5軸状態・再浮上防止
+
+| Gate | Decision | Document | Implementation | Verification | Approval |
+|---|---|---|---|---|---|
+| GL-01 | DECIDED | PARTIAL | NOT_STARTED | NOT_RUN | PENDING |
+| GL-02 | DECIDED | PARTIAL | NOT_STARTED | NOT_RUN | PENDING |
+| GL-03 | DECIDED | PARTIAL | NOT_STARTED | BLOCKED for contract-missing data | PENDING |
+
+GL-01〜03を「未決定」に戻さない。文書反映が部分ならDECIDED + PARTIAL、実Principal未登録は発行禁止、Capture契約未受領データはUNKNOWN / opaqueでAggregate除外とする。GL-04の契約受領は別の条件付き外部依存。
