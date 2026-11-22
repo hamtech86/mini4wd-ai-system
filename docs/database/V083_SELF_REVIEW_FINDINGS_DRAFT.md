@@ -497,8 +497,8 @@ v0.8.3全体承認、物理設計、DDL、DB生成、Migration、Restore実行�
 
 | Gate | DECISION | DOCUMENT | IMPLEMENTATION | VERIFICATION | APPROVAL |
 |---|---|---|---|---|---|
-| GL-01 | DECIDED | PARTIAL | NOT_STARTED | NOT_RUN | PENDING |
-| GL-02 | DECIDED | PARTIAL | NOT_STARTED | NOT_RUN | PENDING |
-| GL-03 | DECIDED | PARTIAL | NOT_STARTED | BLOCKED for contract-missing data | PENDING |
+| GL-01 | DECIDED | REFLECTED | NOT_STARTED（Principal / Service登録未実施） | NOT_RUN | PENDING |
+| GL-02 | DECIDED | REFLECTED | NOT_STARTED | NOT_RUN | PENDING |
+| GL-03 | DECIDED | REFLECTED | NOT_STARTED | BLOCKED for contract-missing data | PENDING |
 
 **残る作業:** Entity Inventory / Audit / Self Reviewの旧候補記述を現行決定と区別して明示すること、Authority Registryの実Principal登録、Motor / Battery正式Capture契約の受領、実装後の独立適合・実証。これらはGL-01〜03の決定自体をOPENへ戻す理由ではない。
