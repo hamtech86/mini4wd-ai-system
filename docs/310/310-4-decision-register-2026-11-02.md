@@ -231,3 +231,14 @@ This entry records the existing command-authority amendment in `docs/310/310-4-d
 - **条件付き回収可能なもの:** worst-case stack bound、物理MCU/fuse/BOD/電源/EEPROM、ADC reference/accuracy。必要な入力・設備・許可を明記した。
 - **根拠なし／回収見込みなしと断定できる項目:** 現時点ではなし。証拠がない物理項目は「不可能」ではなく「現物・設備・明示許可待ち」と分類する。
 - 本表により、上位決定で除外された時間ゲート、既に実装証拠がある1秒window/STOP/SRAM静的領域を未決定事項として再浮上させない。
+
+### Evidence durability batching — 2026-11-22 state correction
+
+The historical per-frame Evidence flush wording is superseded for ADC telemetry by Issue #35's 2026-11-09 risk decision and PR #193:
+- ADC telemetry Evidence is buffered in bounded groups of at most 10 ADC batches.
+- Preceding telemetry is flushed before normal control/error/command-intent durable append.
+- Each nonzero command still requires its own durable FRAME_TX_INTENT before serial write.
+- STOP transmission bypasses Evidence flush; STOP attempt evidence is queued and finalized off the STOP critical path.
+- No 8,000ms or other unapproved fsync latency ceiling is an acceptance gate.
+
+This does not relax RawLog durability, hash-chain integrity, fail-closed, UNKNOWN-not-SUCCESS, or no-auto-replay.
