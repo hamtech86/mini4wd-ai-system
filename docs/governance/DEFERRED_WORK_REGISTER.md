@@ -2,7 +2,7 @@
 
 - 作成日: 2026-11-22
 - 状態: 提案 / 未承認
-- 管理範囲: Mini 4WD AI System 全部門（Motor / Battery / DB / 共通UI / Python制御 / RawLog / 310 / 将来機能）
+- 管理範囲: アクティブ部門（Motor / Battery / DB）および統括直轄の横断管理事項。共通UI / RawLog / Python制御 / 310 / 将来機能は独立したアクティブ部門ではなく、該当する3部門または統括が管理する。
 - ガバナンス親: [Issue #212](https://github.com/hamtech86/mini4wd-ai-system/issues/212)
 - 全担当共通ルール: [Issue #77](https://github.com/hamtech86/mini4wd-ai-system/issues/77)
 - 依存関係・旧PR整合監査: [Issue #214](https://github.com/hamtech86/mini4wd-ai-system/issues/214)
@@ -177,8 +177,8 @@ RECOVERABLEの場合は具体的なファイル/Issue/PR/commit等を記す。CO
 | DB | [#207](https://github.com/hamtech86/mini4wd-ai-system/issues/207), [#211](https://github.com/hamtech86/mini4wd-ai-system/issues/211), [#210](https://github.com/hamtech86/mini4wd-ai-system/issues/210) | v0.8.3はORANGE条件付き差戻し・未承認。CC-01/CC-02の限定判断は有効だが、設計全体承認ではない。 | DB担当が#211のBLOCKER/MAJORごとに根拠回収可能性、未回収の正式契約、統括判断待ち、次の具体的行動を分けて報告。設計阻害事項はDB審査側に残し、本台帳へ移して隠さない |
 | Motor / 計測 | [#172](https://github.com/hamtech86/mini4wd-ai-system/issues/172), [#174](https://github.com/hamtech86/mini4wd-ai-system/issues/174), [#158](https://github.com/hamtech86/mini4wd-ai-system/issues/158) | PWM 0〜30段階測定・巻線抵抗測定への統合に関する既存タスクが存在する。 | Motor担当が設計確定事項、ソフトウェア検証、実機依存、必要なユーザー作業を区分し、各Issueの受入条件と現在状態を報告 |
 | Motor安全 / 実装境界 | [#161](https://github.com/hamtech86/mini4wd-ai-system/issues/161) | 巻線抵抗測定の状態機械とI/O Adapter契約に、独立ハードウェア電流制限の証拠がない場合のfail-closed境界が記録されている。 | Motor担当がソフトウェア上の未完了と実機許可待ちを分離し、ハードウェア電流制限の確認根拠・未確認範囲を報告 |
-| RawLog / 通信契約 | [#170](https://github.com/hamtech86/mini4wd-ai-system/issues/170), [#35](https://github.com/hamtech86/mini4wd-ai-system/issues/35) | #170はRawLog v2通信・解析入力のタスク、#35はMotor領域の現行接続・制御・RawLog契約正本。 | 担当が#35との整合、未確定フィールド/閾値、実装検証と実機検証の境界、証拠回収先を報告 |
-| 共通診断UI / RawLog | [#205](https://github.com/hamtech86/mini4wd-ai-system/issues/205), [#150](https://github.com/hamtech86/mini4wd-ai-system/issues/150), [#214](https://github.com/hamtech86/mini4wd-ai-system/issues/214) | 新旧の診断レポート要求が並存し、#214が旧/新要求の継承・廃止対応を監査中。 | UI/RawLog担当は#214を正本として、旧要件の継承・廃止・未確認を対応表で報告。#205/#150の要求を本台帳に重複転記しない |
+| Motor / DB境界（RawLog・通信） | [#170](https://github.com/hamtech86/mini4wd-ai-system/issues/170), [#35](https://github.com/hamtech86/mini4wd-ai-system/issues/35) | #170の機器側Capture・通信・解析入力はMotor責任範囲。DB側の保存参照・耐久性はDB責任範囲。#35はMotor領域の接続・制御・RawLog契約正本。 | Motorは機器側契約、DBはDB参照・保存境界を担当し、部門間矛盾は統括が調整する。独立RawLog部門は設けない |
+| 統括直轄（共通診断レポート横断） | [#205](https://github.com/hamtech86/mini4wd-ai-system/issues/205), [#150](https://github.com/hamtech86/mini4wd-ai-system/issues/150), [#214](https://github.com/hamtech86/mini4wd-ai-system/issues/214), [PR #206](https://github.com/hamtech86/mini4wd-ai-system/pull/206) | Motor/Battery共通機能。PR #206はCI 5/5成功だがDraft/未merge、実PC GUI・実GitHub upload・実環境retryはNOT RUN。旧#150/#151要件の一部scope dispositionも未決。 | 統括が旧要件の継承・変更・廃止を明示判断する。Motor/Batteryのログ意味・RawLog選択境界は各部門が支援。独立UI/RawLog部門は設けない |
 
 ### 初回棚卸しの完了条件
 
@@ -209,12 +209,10 @@ RECOVERABLEの場合は具体的なファイル/Issue/PR/commit等を記す。CO
 
 | 残件 | 分類 | 根拠回収可能性 | 次の具体的行動 / 完了条件 |
 |---|---|---|---|
-| NONE MeasurementのSession membership | MAJOR — 設計補完事項（Issue #211の分類を維持） | RECOVERABLE（代替案・Issue #210の境界は文書化済み。ただし決定そのものの根拠は未存在） | DB部門案はExisting-Session-onlyを推奨するが未選択。統括が選択肢・影響を確認し、明示決定をIssue #210または新規決定Issueへ記録。Main/Matrix/Auditを同じ決定へ同期 |
+| NONE MeasurementとSessionの関係 | SUPERSEDED / DECIDED（CC-03） | RECOVERABLE（決定根拠: Issue #210 comment 7076202503） | Measurementは常にRUN_SCOPEへ直接所属。Sessionは独立Lifecycle Entity。同一RUN_SCOPE配下の派生View以外に永続membership / Measurement→Session FKを設けない。再審議しない |
 | UUIDv4 issuer authority mapping | MAJOR — 設計補完事項（Issue #211の分類を維持） | CONDITIONALLY_RECOVERABLE | Entityごとの責任Owner/Issuer authorityの正式提示が必要。23 Entity Inventoryと照合し、未割当Entityの発行可否を明記 |
 | Entity 23概念中13件の完全Schema欠落 | MAJOR — 設計補完事項（Issue #211の分類を維持。必須Entityの範囲を個別判定） | CONDITIONALLY_RECOVERABLE | Motor/Battery正式契約・各Entity OwnerのField Schemaを受領。Opaque扱いで設計を進めるEntityは検証可能範囲と禁止処理を明記 |
-| DB-001〜056 | E — EVIDENCE_RECOVERY | RECOVERABLE（会話記録由来の短縮定義） | 元の正式要求文書と混同せず、短縮定義・期待結果・出典確度を維持。V082との対応は未確定 |
-| DB-057〜124 | E — EVIDENCE_RECOVERY | CONDITIONALLY_RECOVERABLE（元文書未回収。Git履歴/過去会話の追加探索が必要） | 新DB設計書 v0.2、旧Branch/Commit/Blob、過去会話を対象に探索。原文が回収できないIDは検索範囲を記録し統括へ扱い判断を求める |
-| V082 crosswalk | E — EVIDENCE_RECOVERY | RECOVERABLE（Crosswalk文書は存在。元定義との対応根拠は不足） | 旧IDの意味を変えず、DB-001〜124原文が回収できた項目から個別照合。現状のconfirmed mapping 0を維持し、網羅済みとしない |
+| 旧DB-001〜124個別追跡・原本回収・全件Crosswalk | SUPERSEDED / NOT_TRACKED_BY_USER_DIRECTION | 該当なし（ユーザーが個別追跡・原本回収・全件Crosswalkの終了を明示） | この作業は終了済み。台帳から再開しない。別の新しい具体的根拠が提示された場合も、同一作業の再開ではなく統括判断を先に行う |
 | UUID/JCS conformanceの独立実装照合 | B — IMPLEMENTATION_VERIFICATION | RECOVERABLE（vector/期待値はrepo内に存在） | 2つの独立実装で一致確認し、未実行はNOT RUNのまま記録 |
 | Backup/Restore/Filesystem/SQLite crash試験 | B — IMPLEMENTATION_VERIFICATION | CONDITIONALLY_RECOVERABLE | 実装段階で対象OS/filesystem/SQLite条件とfixtureを確定して実行。現時点で実施許可・PASS扱いしない |
 | Motor/Battery正式Capture・RawLog契約 | D — EXTERNAL_DEPENDENCY | CONDITIONALLY_RECOVERABLE | Motor/Battery責任者から正式契約を受領。Issue #35はMotor領域の契約正本、Issue #16はBattery E2E検証Issueであり、いずれも不足契約をDBが推定補完しない |
@@ -223,7 +221,7 @@ RECOVERABLEの場合は具体的なファイル/Issue/PR/commit等を記す。CO
 
 ### 12.3 初回全部門棚卸しの回答状況
 
-2026-11-22時点で、Issue #217への部門別直接回答は未確認。DB部門についてはIssue #207の既存報告を回収したため、未回答ではなく「既存報告から暫定回収・#217形式への再提出待ち」とする。Battery、Motor/計測、RawLog/通信、共通診断UIの各担当から、今回の棚卸し要求に対する新しい構造化回答は未確認。既存Issueコメントは履歴証拠として利用できるが、今回の棚卸し完了回答とは扱わない。
+2026-11-22時点のユーザー確認により、アクティブ部門はMotor / Battery / DBの3部門のみ。3部門の今回の棚卸し回答は受領済み（USER_CONFIRMED_RESPONDED）。既存Issueの担当名や過去のチャット役割は、独立したアクティブ部門の存在を意味しない。RawLog/通信、共通UI、統合検証等は、Motor / Battery / DBの責任境界または統括直轄へ再分類する。未確認の横断事項は統括が既存証拠をread-backし、部門へ同じ棚卸しを再依頼しない。
 
 本追補はPR #216の提案文書に対する監査追記であり、PR #216の承認・マージ、DB設計承認、実装、物理試験を意味しない。
 
@@ -255,7 +253,7 @@ PR #216および各部門の残件について、**全部門の棚卸し・既�
 単に古い文書やコメントに旧状態が残っているだけで、現行正本の解決を取り消してはならない。一方、修正案がDraftブランチに存在するだけの場合や、正式決定・承認・main反映が必要な場合は、解決済みと誤認してはならない。
 
 ### 13.4 全体整理完了の判定条件
-- 対象部門・担当領域・既存正本Issue/PRの棚卸し範囲を明示し、未確認範囲を残さない（未回答は未回答と記録）。
+- 対象範囲はアクティブ3部門（Motor / Battery / DB）と統括直轄の横断管理事項に限定し、未確認範囲を明示する（未回答・根拠未回収はそのまま記録）。
 - 全残件にRegister IDまたは既存Canonical Issueを対応付け、重複を識別する。
 - 既存解決済み事項は解決根拠・正本・HEAD・反映状況を再確認し、再浮上項目を既存IDへ統合する。
 - 各未解決事項に分類、回収可能性、影響範囲、担当、依存、次の行動、完了条件、審査停止要否がある。
