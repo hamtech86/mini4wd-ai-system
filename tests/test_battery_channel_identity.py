@@ -1,6 +1,6 @@
 import pytest
 
-from ui.battery_database_ui import infer_battery_session_channel
+from ui.battery_database_ui import infer_battery_session_channel, is_legacy_channel_ambiguous
 
 
 def test_session_channel_is_detected_from_channel_specific_measurement_columns():
@@ -22,3 +22,9 @@ def test_session_channel_is_detected_from_channel_specific_measurement_columns()
 ])
 def test_ambiguous_or_missing_channel_identity_fails_closed(rows):
     assert infer_battery_session_channel(rows) is None
+
+
+def test_legacy_session_notes_are_used_only_to_quarantine_unknown_channel():
+    assert is_legacy_channel_ambiguous("Integrated Battery UI CH2; manual result registration")
+    assert not is_legacy_channel_ambiguous("Integrated Battery UI; manual result registration")
+    assert not is_legacy_channel_ambiguous("CH2")
