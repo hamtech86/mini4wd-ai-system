@@ -11,7 +11,7 @@ def test_benchmark_result_persists_without_mutating_measurement():
     db.executemany("INSERT INTO measurement VALUES (?,?,?,?,?,?,?,?)", [
         (1,'S1',0,5.0,0,1.4,0,7.0), (2,'S1',1000,5.0,0,1.3,0,6.5)])
     before = [tuple(r) for r in db.execute("SELECT * FROM measurement ORDER BY id")]
-    result = BatteryBenchmarkService(db).analyze_session('S1', 'BAT-001')
+    result = BatteryBenchmarkService(db).analyze_session('S1', channel='CH1', instance_id='BAT-001')
     after = [tuple(r) for r in db.execute("SELECT * FROM measurement ORDER BY id")]
     stored = db.execute("SELECT * FROM battery_benchmark_result WHERE session_id='S1'").fetchone()
     assert before == after
