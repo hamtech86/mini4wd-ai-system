@@ -448,7 +448,7 @@ class BatteryTab(QWidget):
                         "session_id": sid, "instance_id": iid, "device_type": "EVALUATION",
                         "device_model": "BATTERY_5A", "firmware_version": "UNKNOWN",
                         "start_datetime": start, "end_datetime": end, "operator": "USER",
-                        "result": "COMPLETE", "notes": f"Integrated Battery UI CH{ch}; manual result registration"
+                        "result": "COMPLETE", "notes": "Integrated Battery UI; manual result registration"
                     })
                     for s in self.samples[ch]:
                         self._insert_available(db, "measurement", {
