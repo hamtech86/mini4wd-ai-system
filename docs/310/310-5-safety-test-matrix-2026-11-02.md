@@ -1,3 +1,45 @@
+# 2026-11-22 CURRENT STATUS OVERLAY —統括構造是正
+
+> **このoverlayが下記の初期37項目マトリクスより優先する。** 下記のFAIL/BLOCKED/NOT RUN件数は2026-11-02〜11-03時点の歴史的スナップショットであり、2026-11-22の現行software/host statusではない。後続のPR #193 / PR #198とIssue #35の上位決定を反映する。物理項目は引き続きNOT RUN/NOT CONFIRMEDであり、software/host acceptanceをphysical PASSへ読み替えない。
+
+## A. 現行のソフトウェア／ホスト側状態
+
+| 旧ID / 項目 | 2026-11-22状態 | 回収根拠 | 残る境界 |
+|---|---|---|---|
+| S01 STOP-before-log | **旧FAILはsuperseded** | PR #193のsame-UART priority STOP、STOP attemptをRawLog flushより先に実行するhost pathとregression。 | 実機停止・電流遮断は未確認。 |
+| S02/S03 bounded STOP / lock | **host software evidenceあり** | PR #193 same-UART arbiterは単一write owner、bounded write timeout、STOP deadline、normal TX inhibitionを実装。 | disconnected/wedged UART、USB/OS queue、物理driver cutoffは保証しない。 |
+| S04/S05 ACK・frame validation | **V2 implementation/test sourceあり** | PR #198 integration candidateのProtocol V2 host session、codec、native device/codec test source。 | PR #198 exact-headのnative workflow PASSは未確認。物理UARTの証明ではない。 |
+| S06/S07 process / persistence failure | **host implementation/regression evidenceあり** | PR #193 recovery marker、operator release、durable Evidence/T18 tests。Code HEAD c3f51b31のfull regression run #1737は636 passed / 2 xfailed。 | host fault injectionは実媒体の電源断証明ではない。 |
+| S08 independent physical cutoff | **BLOCKED / NOT RUN** | 2026-11-09 risk policyで独立STOP回路はINVESTIGATE。 | 現物回路・危険評価・個別承認が必要。 |
+| P01 MCU identity | **条件付き** | compile target ATmega328PB / 16MHz externalをartifactで確認。 | 実搭載chip marking/signature、board revision、実clockは未確認。 |
+| P02–P07 BOD/fuse/supervisor/EEPROM/reboot | **物理NOT RUN** | 論理設計とEEPROM companionは整理済み。HW02/03はINVESTIGATE、HW05はRELAX。 | fuse readback、電源過渡、hold-up、電源断境界、実機no-auto-resumeは現物/設備/許可が必要。 |
+| M01 static SRAM | **限定PASS（compile artifact）** | Run #43026483802 / artifact #13856624486。ATmega328PB buildの .data 146B + .bss 747B = 893B、900B以内。 | 対象はcompile target sourceのみ。 |
+| M02 stack / reserve | **PARTIAL / NOT PASS** | 関数単位stack usage reportとMAPを取得。 | worst nested call path / interrupt nesting boundまたはhigh-water未取得。700B / 448Bは未証明。 |
+| M03/M04 workspace / ownership | **実装・test sourceあり** | PR #198 firmwareにsingle TX workspace、bounded queue、ADC batch abort/preemptionを実装。native test sourceあり。 | 全構造sizeof inventory、worst occupancy / runtime backpressure trace、exact-head native CIは未確認。 |
+| A01–A05 ADC contract | **software implementation/test sourceあり** | V2 firmware ADC scheduler、per-conversion fields/status, host ADC_SAMPLE mapping, Protocol V2 session tests。 | reference accuracy、sensor fault circuit、physical stimulus/cadence traceはNOT RUN。20Hzは未採用。 |
+| L01/L02 loss accounting | **実装済み／host evidenceあり** | PR #198 device_loss_accounting.pyはchannel別1秒半開window。Protocol V2 host testsはstage境界をまたぐepoch window継続を検証。 | exact-head native/hardware traceは別。 |
+| L03 loss/Evidence append | **実装・host testあり** | PR #193 Evidence hash-chain append batchingとPR #198 integration。 | crash durabilityはhost filesystem範囲。 |
+| L04 companion package | **FAIL / implementation fixture incomplete** | PR #198 bundle-manifestはsession/hash/chain/countを検証。 | byte length/completeness stateとschema fixture/validator testが不足。 |
+| L05 incomplete recovery | **host recovery evidenceあり** | PR #198 RawLog Library recovery/export tests。 | Evidence companion complete/incompleteのroundtripはL04解消後に確認。 |
+| Y01/Y02 command / ACK identity | **V2 host implementation/test sourceあり** | protocol_v2_session.pyはUUID/session/epoch/command/context ACK correlationを持つ。 | exact-head native/protocol test runの帰属を確認し、実機通信と混同しない。 |
+| Y03 durable pre-send intent | **旧FAILはsuperseded** | Protocol V2 sessionはFRAME_TX_INTENTをdurable journalへappendしてからserial sendへ進む。PR #193 regression evidenceあり。 | 物理受信/適用の証明ではない。 |
+| Y04 fsync timing budget | **上位決定で合否ゲートから除外** | Issue #35 2026-11-09決定、PR #193の8,000ms ceiling撤廃。 | timingは診断値。時間値だけでFAILにしない。 |
+| Y05 UNKNOWN / replay | **host fail-closed evidenceあり** | PR #193 recovery marker/no-auto-replay tests。 | 実機reset/no-auto-resumeは未確認。 |
+| W01–W03 stage/PWM/context | **V2 host integration evidenceあり** | PR #198のSequenceController + ProtocolV2HostSessionとhost tests。 | 実機PWM/端子出力・実測stage時間はNOT RUN。 |
+
+## B. 正確なCI / artifact帰属
+
+- PR #193 code HEAD c3f51b314af85603ddeb4ed58b4be1e74f5c3442: T18 run #42559520579 SUCCESS、full regression #42559520609 SUCCESS（636 passed / 2 xfailed）。
+- PR #198 integration HEAD 1903db8aa148dfea4b2727b8cbd30b0bc338fe80: T18 run #43026483764 SUCCESS、ATmega328PB compile run #43026483802 SUCCESS、Break-in/Battery run #43026483769 SUCCESS。
+- Compile artifact #13856624486 / build run #43026233493: .data/.bss/stack-usage/MAPを含む。Build manifestはBOD fuse未設定、hardware upload/fuse/EEPROM operation未実施と明記。
+- PR #198はmainではなくintegration/310-5-unified-candidateへの統合である。mainへマージ済みとは扱わない。
+- PR #198 exact HEADのProtocol V2 native workflow runは今回のread-backでは確認できていない。native test sourceの存在をnative CI PASSへ読み替えない。
+
+## C. PR #184の現在の役割
+
+PR #184は、旧software/host FAIL一覧を現行判定として維持するPRではない。2026-11-22時点では、PR #193 / #198で回収したsoftware/host証拠を参照しつつ、HW01–HW08の物理NOT RUN/NOT CONFIRMED境界を保存する**物理安全性・証拠台帳**としてDraft/Openを維持する。正式な物理PASSは0件のまま。HARDWARE_CURRENT_LIMIT_CONFIRMED=falseを維持する。
+
+
 # 310-5 安全性試験一覧 — 2026-11-02
 
 **対象:** 310-4 v0.5契約 / PR #183 HEAD `291e8b17d31c2c4590986a4615f9454b9be666ce`  
