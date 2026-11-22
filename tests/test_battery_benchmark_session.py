@@ -10,7 +10,7 @@ def row(t, i, v, ch="CH1"):
 
 
 def test_benchmark_extracts_features_without_scoring():
-    result = extract_battery_benchmark([row(0, 5.0, 1.4), row(1000, 5.0, 1.3)])
+    result = extract_battery_benchmark([row(0, 5.0, 1.4), row(1000, 5.0, 1.3)], channel="CH1")
     assert result["measurement_count"] == 2
     assert result["avg_current"] == pytest.approx(5.0)
     assert result["voltage_drop"] == pytest.approx(0.1)
@@ -22,4 +22,12 @@ def test_benchmark_extracts_features_without_scoring():
 
 def test_benchmark_never_combines_channels():
     with pytest.raises(ValueError):
-        extract_battery_benchmark([row(0, 5, 1.4, "CH1"), row(1000, 5, 1.3, "CH2")])
+        extract_battery_benchmark([row(0, 5, 1.4, "CH1"), row(1000, 5, 1.3, "CH2")], channel="CH1")
+
+
+def test_benchmark_requires_explicit_channel_and_never_falls_back():
+    with pytest.raises(TypeError):
+        extract_battery_benchmark([row(0, 5.0, 1.4)])
+    ch2 = extract_battery_benchmark([row(0, 5.0, 1.4, "CH2")], channel="CH1") if False else None
+    with pytest.raises(ValueError):
+        extract_battery_benchmark([row(0, 5.0, 1.4, "CH2")], channel="CH1")
