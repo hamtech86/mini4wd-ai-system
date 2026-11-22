@@ -95,13 +95,24 @@ def analyze_5a_measurements(
     if channel not in ("CH1", "CH2"):
         raise ValueError("channel must be explicitly set to 'CH1' or 'CH2'")
     rows = list(measurements)
-    voltages = _channel_values(rows, channel, "voltage")
-    currents = _channel_values(rows, channel, "current")
-    times = _values(rows, "elapsed_time", "elapsed_s", "time_s")
-
-    # A generic power column is ambiguous when both channels coexist in one
-    # Measurement row. Derive power from the selected channel's own V and I.
-    powers = [v * i for v, i in zip(voltages, currents)] if len(voltages) == len(currents) else []
+    voltage_key = "voltage1" if channel == "CH1" else "voltage2"
+    current_key = "current1" if channel == "CH1" else "current2"
+    samples = []
+    for row in rows:
+        voltage = _finite_value(row, voltage_key)
+        current = _finite_value(row, current_key)
+        elapsed = next(
+            (_finite_value(row, key) for key in ("elapsed_time", "elapsed_s", "time_s") if row.get(key) is not None),
+            None,
+        )
+        # Zero means this channel is inactive in the legacy two-channel row
+        # representation. Never substitute the other channel's value.
+        if voltage is not None and current is not None and voltage != 0.0 and current != 0.0:
+            samples.append((elapsed, voltage, current))
+    voltages = [sample[1] for sample in samples]
+    currents = [sample[2] for sample in samples]
+    powers = [voltage * current for voltage, current in zip(voltages, currents)]
+    times = [sample[0] for sample in samples if sample[0] is not None]
 
     avg_voltage = mean(voltages) if voltages else None
     avg_current = mean(currents) if currents else None
@@ -111,8 +122,9 @@ def analyze_5a_measurements(
     discharge_time_s = max(times) - min(times) if len(times) >= 2 else None
     voltage_drop = voltages[0] - voltages[-1] if len(voltages) >= 2 else None
 
-    capacity_ah = _trapz(times, currents) / 3600.0 if len(times) == len(currents) and len(times) >= 2 else None
-    energy_wh = _trapz(times, powers) / 3600.0 if len(times) == len(powers) and len(times) >= 2 else None
+    has_complete_timestamps = len(times) == len(samples)
+    capacity_ah = _trapz(times, currents) / 3600.0 if has_complete_timestamps and len(times) >= 2 else None
+    energy_wh = _trapz(times, powers) / 3600.0 if has_complete_timestamps and len(times) >= 2 else None
 
     return BatteryBenchmarkResult(
         measurement_count=len(rows), avg_voltage=avg_voltage, avg_current=avg_current,
