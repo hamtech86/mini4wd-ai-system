@@ -193,3 +193,15 @@ This decision does not qualify the injected host STOP writer, physical independe
 ### 2026-11-05 supplemental STOP reason — NORMAL_COMPLETION
 
 Assign `0x0A NORMAL_COMPLETION` to the host STOP_REQ sent after all 31 PWM stages have completed and before RawLog finalization. A successful 310 sequence must attempt STOP before writing the completed-session event/final manifest. If the STOP write outcome is unknown or fails, the host must not finalize the RawLog as completed; retain incomplete work and require reconciliation. This reason code does not prove the physical motor stopped.
+
+
+## 2026-11-22 clarification — protocol-v2 EEPROM design adoption scope
+
+This entry records the existing command-authority amendment in `docs/310/310-4-design-v0.5.md` ("310 protocol v2 amendment — 2026-11-05") and the companion supplement dated 2026-11-05. It clarifies the scope of already-recorded decisions; it does not introduce a new electrical or physical-safety approval.
+
+- The 2026-11-04 command-authority decision adopts the v0.5 communication protocol as the production implementation contract. The 2026-11-05 protocol-v2 amendment is the command-authority implementation amendment; v1 and v2 frames are incompatible and must not be mixed.
+- The logical EEPROM journal structure, 16-byte slot model, ring update/commit order, factory-empty predicate and fail-closed boot behavior in §8.2 are part of the adopted protocol-v2 design contract.
+- `docs/310/310-protocol-v2-eeprom-journal-byte-assignment.md` is a normative companion supplement for exact slot/provisioning byte values **and** validity/boot rules: magic/version, reserved bytes zero, nonzero generation, unique highest valid generation, duplicate-generation rejection, factory-empty predicate and UINT64_MAX exhaustion behavior. It supplements §8.2; it does not replace the design section.
+- The word "proposal" previously left in the §8.2 heading and final paragraph was stale status wording. It is corrected in the design document to reflect the recorded adoption. This does not convert a logical persistence contract into proof of electrical behavior.
+- Actual MCU/package/fuse, supervisor/hold-up, VCC/reset behavior, EEPROM write conditions, brownout and physical power-interruption behavior remain unverified hardware qualification gates. T13 and all physical EEPROM/fuse tests remain NOT RUN/BLOCKED until separately authorized and evidenced. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains in force.
+- PR #183 remains Draft/Open/Unmerged as workflow state. This clarification does not merge the PR, declare implementation complete, or authorize physical operations.
