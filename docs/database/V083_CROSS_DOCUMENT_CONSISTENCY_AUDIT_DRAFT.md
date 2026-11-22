@@ -121,7 +121,7 @@ Issue #210の判断を受け、Main draft・Session Lifecycle supplemental・Sta
 
 ### Remaining checks
 - Main draft §1 / §6 / §7 / §12と補助資料の語彙・条件を再走査する。
-- NONE明示Association対象のSession membership条件を定義する（CC-02は許容範囲のみ決定し、membershipの詳細までは決めていない）。
+- NONE明示AssociationはInstance関連付けEventのみ。Measurement→Session直接関係はCC-03で不採用。
 - DB-001〜124個別原文・正式出典の回収は未完了。
 
 ### Verification boundary
@@ -745,7 +745,7 @@ CH1 / CH2独立性は現行要件として保持し、平均化・合算を導�
 ### 31.3 Anonymous — Issue #201とIssue #210 CC-02
 Issue #201はDB不存在時のMainUI起動と匿名運用の境界を定め、DB file / schema / empty DB / migration / initialization / test data / legacy data migrationを禁止する。Issue #210 CC-02はANONYMOUS期間のMeasurement / RawLogを現行設計範囲で後日DB取込・Mirror化・Instance再紐付けしないことを明示した。NONEは既存DB管理Measurementに限る明示Associationを設計対象として許容する。
 
-よってDB設計上、Anonymous RawLogの後日取込経路を追加しない。NONE AssociationのSession membershipはIssue #210が決定していないため、統括判断待ちのまま残す。
+よってDB設計上、Anonymous RawLogの後日取込経路を追加しない。NONE AssociationはInstance関連付けEventのみとし、Measurement→Session直接関係はCC-03により不採用。
 
 ### 31.4 判定
 Motor / Batteryの不足契約はDB部門の裁量で補完しない。Issue #35 / #16 / #201 / #210の範囲を維持し、正式契約の受領・統括判断後にのみ関連DB条項を同期する。
@@ -824,7 +824,7 @@ Main §14をDecision Authorityとして、従来のOPEN / TBD / candidateを以�
 - **fail-closed:** Unknown Schema / Field / EventType / InputType、partial tail、hash mismatch、fork、stale writer、unknown Capture End、未実証Filesystem / SQLite環境は拒否・OPEN維持・PENDING_RECOVERY・QUARANTINEDのいずれか。
 - **Recovery Authority:** Bootstrap登録済みPROJECT_RECOVERY_ADMINのみ。v0.8.3では元証拠不変・QUARANTINED解除禁止。
 - **Entity境界:** OPERATION_EVENT独立Entityは不採用、Aggregate PointerはDerived View、Analysis / Simulationは共通Envelope + ArtifactKind、Recovery OperationとIntegrity Reportは別Entity。
-- **Session / NONE / ANONYMOUS:** Issue #210 CC-01 / CC-02を維持し、Main §14.1–14.2で具体的なSession membership / Association / Outcome動作を固定。
+- **Session / NONE / ANONYMOUS:** Issue #210 CC-01 / CC-02 / CC-03を維持。MeasurementはRUN_SCOPE直結、Sessionは独立Lifecycle、NONE AssociationはInstance関連付けEventのみ。
 
 したがって論理設計の選択肢は残さない。残件は実装・試験・他部門正式契約・統括最終審査という証拠Gateであり、設計未決定とは区別する。
 
@@ -846,7 +846,7 @@ Request StateをOPEN / SUCCEEDED / FAILED / CANCELLED / INDETERMINATEに固定�
 
 | 論点 / DB-RV | 最終状態 | 決定根拠 | 残るもの（設計未決定ではない） |
 |---|---|---|---|
-| DB-RV-01 Session存在条件とAssignment State | DB部門案あり・統括承認待ち | Main §1（Session生成・保持・membership境界） | Session Manager実装・権限試験、NONE Session membershipの統括確認 |
+| DB-RV-01 Session存在条件とAssignment State | CC-01 / CC-03論理判断済み・文書同期 | Main §1 / §14.1（Session生成・保持、MeasurementはRUN_SCOPE直結） | Session Manager実装・権限試験。v0.8.3全体承認とは別 |
 | DB-RV-02 DB Run生成後ライフサイクル | DB部門案あり・統括承認待ち | Main §1（DB Run生成・保持・再割当条件） | Run Manager実装・権限試験 |
 | DB-RV-03 Receipt PREPARED永続化順序 | DB部門案あり・統括承認待ち | Main §2、Receipt Contract §22（Main優先） | filesystem / SQLite crash・durability・Recovery実証 |
 | DB-RV-04 Aggregate要求履歴 / Revision | DB部門案あり・統括承認待ち | Main §3 | Aggregate Manager / Workerの実装・競合・crash受入試験 |
@@ -874,7 +874,7 @@ Request StateをOPEN / SUCCEEDED / FAILED / CANCELLED / INDETERMINATEに固定�
 - **承認:** v0.8.3はDraft。統括最終承認・実装許可・DDL/DB生成/Migration/Restore実行/PR/main反映を意味しない。
 
 
-## 37. CC-02 / DB unavailable / Session membershipの最終整合処置（2026-11-21）
+## 37. CC-02 / DB unavailable / Session membershipの最終整合処置（HISTORICAL / SUPERSEDED by CC-03, 2026-11-22）
 
 **この節は本書の旧OPEN / candidate記述（特に§30.7、§31、§35.1）を更新する現行DB部門Decision Baselineである。** Issue #210 CC-01 / CC-02およびIssue #201を上位根拠とし、Main v0.8.3 §1 / §14.1、Session Lifecycle §§1 / 4 / 5 / 7、State Transition Matrix §§1–3を同期対象とする。
 
@@ -885,19 +885,19 @@ Request StateをOPEN / SUCCEEDED / FAILED / CANCELLED / INDETERMINATEに固定�
 - 同一Physical Run内で障害期間に初回ASSIGNEDを試みても、有効なAssignment Operationは成立せず、Logical Session identity / DB Runを生成しない。復旧後に同一Runを遡及DB管理へ変換せず、DB管理を開始する場合は新しいPhysical Runを開始する。
 
 ### 37.2 NONE AssociationとSession membershipの分離
-- Session membershipはMeasurementを外部Run Manifestへ初回確定記録した時点で同一Physical Run / Scopeの論理Session identityが存在する場合に限り固定する。DB Mirrorの有無はmembershipの事実を変えない。membershipは後日変更・遡及追加しない。
+- （旧規則・SUPERSEDED）Session membershipをMeasurementへ固定する方式はCC-03により不採用。Measurement→Session直接関係を設けない。
 - Session生成前に登録されたNONE Measurementは、後に初回ASSIGNEDでSessionが生成されてもSessionへ遡及所属しない。
 - **採用理由:** 既存Main §1.2のSession membership定義（Session生成後に登録されたMeasurement集合）を維持し、測定時点で存在しないSessionへ履歴を遡及接続しないため。Assignment AssociationはInstance帰属の別履歴であり、Session identity / membershipの変更手段にしない。
 - **不採用案A:** 初回ASSIGNED時に過去NONE Measurementを自動でSessionへ一括追加する案。測定時点に存在しなかったSessionへ遡及所属させるため不採用。
 - **不採用案B:** 後日NONE Association時にSession membershipを追加・移動する案。CC-02が許可するInstance関連付けとSession membershipを混同し、Association操作がMeasurementのRun履歴を変更するため不採用。
 - **不採用案C:** Sessionが既に存在する期間に登録されたNONE MeasurementもSession外へ切り離す案。既存membership定義と矛盾し、同一Scope / Physical Run内の履歴が不必要に分断されるため不採用。
-- Session生成後、DB正常利用可能時に取得・登録されたNONE Measurementは、登録時点で同一Scope Sessionへ所属する。後日のNONE AssociationはInstanceへの関連付け履歴のみを追加し、Session membershipを変更しない。
+- （旧規則・SUPERSEDED）NONE MeasurementをSessionへ所属させる規則はCC-03により不採用。NONE AssociationはInstance関連付けEventのみ。
 - NONE Associationは明示操作のみ。Association History Recordの論理Identityは(MeasurementID, AssociationOrdinal)、AssociationOrdinalはMeasurementごとに1から連続増加。Event Identityは(OperationID, EventOrdinal)。NONE_ASSOCIATION_CREATED / NONE_ASSOCIATION_CLOSEDをEvent Registryへ登録し、CreatedはTargetInstanceID / AssignmentSnapshotID・Revision / Actor / UTC / Reason、ClosedはPreviousCreatedEventRef / Actor / ClosedAtUTC / CloseReasonを保持する。ActiveはCreate後未Close、Closedは対応Close Eventありとし、MeasurementごとActive最大1件。Reassignmentは同一Operation内でClose→次Ordinal Createの順に記録し、必要Event集合をSource Commitで一括確定、DB MirrorとMarkerは同一Transactionで更新する。部分Tail・欠落・順序違反・Hash不一致・Commit不明はQUARANTINED、元Eventを修復しない。Assignment-at-Measurement=NONE / Session membership不変、Current Aggregate対象外。
 - ANONYMOUS / DB unavailable期間のデータはAssociation対象外。
 
 ### 37.3 旧記述の処置
 - §30.7、§31、§35.1にある「DB unavailable中のASSIGNED Measurementを復旧後BootstrapでMirror化できる」という記述は、Issue #201と不整合な旧候補として廃止する。
-- NONE MeasurementのSession membershipを統括判断待ちとした旧記述は、本節37.2で閉鎖する。
+- 本節37.2のmembership規則自体も、2026-11-22のCC-03によりSUPERSEDED / NOT_ADOPTED。現行規範は本書§41を参照。
 - 本節は論理設計文書の同期であり、DB作成・Bootstrap実行・Restore実行・Migration・実装許可を意味しない。
 
 ### 37.4 同一Physical Run内のモード再開境界
