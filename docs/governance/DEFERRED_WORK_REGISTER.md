@@ -165,3 +165,25 @@ RECOVERABLEの場合は具体的なファイル/Issue/PR/commit等を記す。CO
 - HARDWARE_CURRENT_LIMIT_CONFIRMED の変更
 
 これらは既存の各承認ゲートと統括の明示判断を別途必要とする。
+
+
+## 11. 初回全部門棚卸し候補（未判定・重複登録しない）
+
+2026-11-22に既存OPEN Issueを検索し、以下を初回確認対象として抽出した。これは各Issueの現行判定を変更するものではなく、各Issueを本台帳へ複製するものでもない。正本は引き続き各リンク先とし、担当部門から証拠・状態・移管可否を受け取ってから台帳IDを割り当てる。
+
+| 部門 | 既存正本/タスクIssue | 現時点で確認できる内容 | 初回依頼 |
+|---|---|---|---|
+| Battery / DB横断 | [#208](https://github.com/hamtech86/mini4wd-ai-system/issues/208) | Battery CH1/CH2の独立性方針と、解析関数・既存テストの平均化期待値の不整合が報告されている。 | Battery担当が現行正本との照合、影響範囲、修正方針、テスト状態を報告。DB設計は未承認のため、#208の指摘だけでDB正本を承認しない |
+| DB | [#207](https://github.com/hamtech86/mini4wd-ai-system/issues/207), [#211](https://github.com/hamtech86/mini4wd-ai-system/issues/211), [#210](https://github.com/hamtech86/mini4wd-ai-system/issues/210) | v0.8.3はORANGE条件付き差戻し・未承認。CC-01/CC-02の限定判断は有効だが、設計全体承認ではない。 | DB担当が#211のBLOCKER/MAJORごとに根拠回収可能性、未回収の正式契約、統括判断待ち、次の具体的行動を分けて報告。設計阻害事項はDB審査側に残し、本台帳へ移して隠さない |
+| Motor / 計測 | [#172](https://github.com/hamtech86/mini4wd-ai-system/issues/172), [#174](https://github.com/hamtech86/mini4wd-ai-system/issues/174), [#158](https://github.com/hamtech86/mini4wd-ai-system/issues/158) | PWM 0〜30段階測定・巻線抵抗測定への統合に関する既存タスクが存在する。 | Motor担当が設計確定事項、ソフトウェア検証、実機依存、必要なユーザー作業を区分し、各Issueの受入条件と現在状態を報告 |
+| Motor安全 / 実装境界 | [#161](https://github.com/hamtech86/mini4wd-ai-system/issues/161) | 巻線抵抗測定の状態機械とI/O Adapter契約に、独立ハードウェア電流制限の証拠がない場合のfail-closed境界が記録されている。 | Motor担当がソフトウェア上の未完了と実機許可待ちを分離し、ハードウェア電流制限の確認根拠・未確認範囲を報告 |
+| RawLog / 通信契約 | [#170](https://github.com/hamtech86/mini4wd-ai-system/issues/170), [#35](https://github.com/hamtech86/mini4wd-ai-system/issues/35) | #170はRawLog v2通信・解析入力のタスク、#35はMotor領域の現行接続・制御・RawLog契約正本。 | 担当が#35との整合、未確定フィールド/閾値、実装検証と実機検証の境界、証拠回収先を報告 |
+| 共通診断UI / RawLog | [#205](https://github.com/hamtech86/mini4wd-ai-system/issues/205), [#150](https://github.com/hamtech86/mini4wd-ai-system/issues/150), [#214](https://github.com/hamtech86/mini4wd-ai-system/issues/214) | 新旧の診断レポート要求が並存し、#214が旧/新要求の継承・廃止対応を監査中。 | UI/RawLog担当は#214を正本として、旧要件の継承・廃止・未確認を対応表で報告。#205/#150の要求を本台帳に重複転記しない |
+
+### 初回棚卸しの完了条件
+
+- 各部門が既存OPENタスクの正本・状態・根拠・受入条件・依存先を確認した。
+- 各残件についてRECOVERABLE / CONDITIONALLY_RECOVERABLE / NO_CURRENT_BASISのいずれかと具体的な根拠を記録した。
+- 設計阻害事項は該当する設計Issue/PRに残り、後続検証事項のみ台帳IDで相互参照された。
+- 既存Issueを重複管理せず、正本Issueの更新が必要な場合は担当部門が正本側を更新した。
+- 未回答・未確認の部門を明示し、全部門完了と誤表示しない。
