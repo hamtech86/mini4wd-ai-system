@@ -4,9 +4,9 @@ from analysis.battery_benchmark_session import extract_battery_benchmark
 
 
 def row(t, i, v, ch="CH1"):
-    return SimpleNamespace(elapsed_time=t, current1=i if ch == "CH1" else 0.0,
-                           current2=i if ch == "CH2" else 0.0, voltage1=v if ch == "CH1" else 0.0,
-                           voltage2=v if ch == "CH2" else 0.0, power=i*v, instance_id=ch)
+    return SimpleNamespace(elapsed_time=t, current1=i if ch == "CH1" else None,
+                           current2=i if ch == "CH2" else None, voltage1=v if ch == "CH1" else None,
+                           voltage2=v if ch == "CH2" else None, power=i*v, instance_id=ch)
 
 
 def test_benchmark_extracts_features_without_scoring():
@@ -28,6 +28,5 @@ def test_benchmark_never_combines_channels():
 def test_benchmark_requires_explicit_channel_and_never_falls_back():
     with pytest.raises(TypeError):
         extract_battery_benchmark([row(0, 5.0, 1.4)])
-    ch2 = extract_battery_benchmark([row(0, 5.0, 1.4, "CH2")], channel="CH1") if False else None
     with pytest.raises(ValueError):
         extract_battery_benchmark([row(0, 5.0, 1.4, "CH2")], channel="CH1")
