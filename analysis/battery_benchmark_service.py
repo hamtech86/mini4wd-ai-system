@@ -1,10 +1,4 @@
-"""Persistence boundary for Battery 5A benchmark analysis.
-
-The service reads Measurement rows and writes only derived Benchmark Result
-rows. It deliberately does not update Measurement data or calculate internal
-resistance.
-"""
-
+"""Persistence boundary for explicitly channel-scoped Battery analysis."""
 from __future__ import annotations
 
 from analysis.battery_benchmark import analyze_5a_measurements
@@ -17,9 +11,11 @@ class BatteryBenchmarkService:
         self.results = BatteryBenchmarkResultRepository(database)
         self.results.ensure_schema()
 
-    def analyze_session(self, session_id: str, instance_id: str | None = None):
+    def analyze_session(self, session_id: str, *, channel: str, instance_id: str | None = None):
+        if channel not in ("CH1", "CH2"):
+            raise ValueError("channel must be explicitly set to 'CH1' or 'CH2'")
         rows = self._load_measurements(session_id)
-        result = analyze_5a_measurements(rows)
+        result = analyze_5a_measurements(rows, channel=channel)
         result.update({"session_id": session_id, "instance_id": instance_id})
         self.results.save(result)
         return result
