@@ -1048,6 +1048,16 @@ Issue #207 comment #7096875931への回答。Main §7.1 / Entity Inventory §37.
 - SampleLocator grammar、Role / Ordinal domain、cardinality、Device固有Sample semanticsは未確定。Hash不一致 / 参照先欠落は拒否またはQUARANTINED。
 - legacy SQLiteにScope / Reference / Hash / Link Fieldがない場合は列名等から推定せず、登録拒否またはUNKNOWN / opaque隔離、Aggregate除外を維持。DB schema変更を含まない。
 
+### 42.5 DB-LR-01〜04 consistency reconciliation（統括判断待ち）
+
+Main §7.2を詳細提案正本、Entity Inventory §37.4を一覧とする。
+- LR-01: Main §14.6.4のOwner Schema-defined / undefined opaque規則は既存。共通Locator grammarは未定義。DB提案はOwner Schema委譲とexact opaque保持であり、統括判断前はPROPOSED。
+- LR-02: Main §14.5.4のRole必須・非NULL・Measurement Type Owner Contract語彙・未知Role拒否が既存規則。Inventoryの「Role domain未定義」は「共通語彙一覧なし、Owner Contractが値域を定義」へ訂正する。
+- LR-03: Main §14.5.4のOrdinalは(MeasurementID, Role)内1-based contiguous / no reuse。Inventoryの一意性未確定はstale記述として同期する。
+- LR-04: Link複合Identity / Required規則は既存。完全多重度は未定義。Main §7.2の0..1 RawLogReference per Measurement推奨案、0..N Sample Links、各Linkの1 Measurement + 1 SampleReference、SampleReferenceの1 RawLogReference従属を統括判断へ提出する。共有可否は決定待ち。
+
+この差分はDB-LRの論理提案・既存規則の文書整合であり、決定済みField Mappingの再OPEN、機器Owner契約の代行決定、DDL/schema実装を意味しない。統括裁定前はLR-01/04 OPEN、LR-02/03 DECIDED・補助文書同期残り。
+
 ### 42.5 5軸状態・再浮上防止
 
 | Gate | Decision | Document | Implementation | Verification | Approval |
