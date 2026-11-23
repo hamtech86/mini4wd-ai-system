@@ -245,6 +245,29 @@ Measurement Envelopeは最低限、以下を保持する。
 
 Assignment Snapshot Referenceは測定開始確定時点で有効な不変Snapshotを指す。Assignment-at-MeasurementはMeasurementの属性として固定し、後日Assignment変更で更新しない。
 
+### 7.1 GL-04 — RUN_SCOPE / RawLog / Sample Reference field mapping（2026-11-23）
+
+本節はIssue #207 comment #7096875931およびBattery部門の具体照会 #7080826716へのDB論理設計上の回答である。これはv0.8.3全体承認、既存SQLite schema変更、DDL、Migration、実装許可ではない。
+
+**RUN_SCOPEへの参照**
+- RUN_SCOPEの識別子は複合Identity `(PhysicalRunID, ScopeKey)` であり、独立したRUN_SCOPE UUID / RUN_SCOPE ID / 別個のRUN_SCOPE Reference IDは設けない（本書§5.1 / §5.3）。
+- Measurement Envelopeは必須Field `PhysicalRunID` と `ScopeKey` を同一Envelopeに保持する。この2 Fieldの組がRUN_SCOPEへの直接参照である。別の `RunScopeID` / `RUN_SCOPE_REFERENCE_ID` を追加しない。
+- Batteryの値は `ScopeKey=BATTERY:CH1` または `ScopeKey=BATTERY:CH2`。CH1 / CH2をSession、Instance、voltage列名から推定しない。MeasurementはRUN_SCOPEへ直接所属し、Session参照は持たない（CC-03）。
+
+**RawLog Object / RawLog Reference / Sample Reference**
+- RawLog Objectは `RawLogObjectID`（独立UUIDv4）で識別し、Object本体の完全なbyte列に対する `ContentHashSHA256` を持つ。Hash対象は変換・正規化前のファイル全byte（header / metadataを含む）であり、本書§5.2 / §8.1の規則に従う。
+- RawLog Referenceは `RawLogReferenceID`（独立UUIDv4）で識別し、`RawLogObjectID` と `RawLogObjectContentHash` を保持して対象Objectを固定参照する。
+- `RawLogObjectContentHash` は参照先Objectの `ContentHashSHA256` と完全一致しなければならない。不一致、Object欠落、ID衝突は受入拒否またはQUARANTINEDとし、ReferenceからObject本文を再構成しない。
+- Measurement Envelopeの `RawLogReferenceID` はRawLog Referenceを参照する。Objectへは RawLog Reference → `RawLogObjectID` → Object の方向に解決する。MeasurementからRawLog Objectへ直接IDを代用したり、Reference IDとObject IDを同一視しない。
+- Sample Referenceは `SampleReferenceID`（独立UUIDv4）、`RawLogReferenceID`、`SampleLocator` を持ち、必ず特定RawLog Reference配下のSample位置を指す。
+- Measurement Sample Linkは `(MeasurementID, SampleReferenceID, Role, Ordinal)` の複合Identityで、MeasurementとSample Referenceを結ぶ。参照方向は Measurement → Measurement Sample Link → Sample Reference → RawLog Reference → RawLog Object。
+- `SampleLocator` の文法、Role / Ordinalのdomain・cardinality・一意性、RawLog ReferenceとMeasurementの多重度、Owner固有のSample意味は未確定であり、本節では補完しない。未確定条件を満たせないデータはopaque保存に限定し、意味解析・Feature Extraction・Aggregate算入を禁止する。
+
+**既存legacy SQLite schemaの扱い**
+- 現行legacy `measurement_session` / `measurement` に `ScopeKey`、`RawLogReferenceID`、`RawLogObjectID`、Object Hash、Sample Reference Linkが存在しない場合、列名・Session notes・Instance ID・voltage1 / voltage2から補完しない。
+- 正式な共通Envelopeと参照保存経路が実装・検証されるまで、既存schemaへのBattery側独自列追加・推定登録を禁止する。Scope / Reference / Hashを証明できないMeasurementはDB登録拒否またはUNKNOWN / opaque隔離とし、Current Aggregateから除外する。
+- 本節は論理Field mappingの確定であり、現行legacy DBがこれを実装済みであることを意味しない。
+
 ## 8. RawLog耐障害完了条件の補足
 
 ### 8.1 適用範囲・責務境界
