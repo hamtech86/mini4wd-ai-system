@@ -500,7 +500,7 @@ v0.8.3全体承認、物理設計、DDL、DB生成、Migration、Restore実行�
 - Sample Reference: `SampleReferenceID` + `RawLogReferenceID` + `SampleLocator`。Measurement Sample Link: `MeasurementID` + `SampleReferenceID` + `Role` + `Ordinal`。参照鎖は Measurement → RawLog Reference → RawLog Object、および Measurement → Measurement Sample Link → Sample Reference → RawLog Reference → RawLog Object。
 - Object Hashは全RawLog byteのSHA-256。`RawLogObjectContentHash` と Objectの `ContentHashSHA256` の完全一致を要求。
 - legacy SQLite schemaに不足Fieldがあることを理由に推定列追加・列名解釈を行わない。登録拒否 / UNKNOWN opaque / Aggregate除外。
-- 未確定のSampleLocator grammar、Role / Ordinal domain、cardinality、Device固有Sample semanticsは未解決のまま明示。今回の論理mappingで実装・検証済みとはしない。
+- 未確定の共通SampleLocator grammar、Reference多重度、Device固有Sample semanticsは未解決のまま明示。Role / Ordinal / RequiredはMain §14.5.4に既存規則あり。今回の文書同期で実装・検証済みとはしない。
 - これはGL-04のDB側Field mapping回答であり、Motor側Capture契約受領、Batteryの全Capture契約受領、v0.8.3全体承認を意味しない。
 
 ### DB-LR-01〜04 Self Review（統括判断待ち）
