@@ -301,3 +301,58 @@ GL-04の限定提出依頼はMotor Issue #35 comment 7079482192、Battery Issue 
 - DB-001〜124の個別追跡・原本回収・全件Crosswalkはユーザー指示により終了済み。再開しない。
 - Issue #211はORANGE / 条件付き差戻し、v0.8.3は未承認。GL-01〜03の決定と文書同期・実証・統括承認を混同しない。
 - M4W-JCS-1独立実装適合、Filesystem durability、SQLite crash、Backup/Restoreは後続実証Gateであり、未実施をPASSにしない一方、論理決定を未決定へ戻す理由にも使わない。
+
+
+## 15. 2026-11-23 read-back update — DB GL-01〜03 / GL-04 field mapping / Battery CH1-CH2
+
+本節は2026-11-23の部門追補を提案台帳へ反映する。PR #216は引き続き未承認・未mergeであり、本追補は正式審査・仕様承認・実装受入を意味しない。
+
+### 15.1 DB Gate L — GL-01〜03 document reflection
+
+正本: [Issue #207 comment 7079913094](https://github.com/hamtech86/mini4wd-ai-system/issues/207#issuecomment-7079913094)
+
+- Branch: `db/v0.8.3-followup-remediation-20261121`
+- Reported exact HEAD: `5bc0bc530bbbd614454da86093df70ecf086ce9f`
+- GL-01 / GL-02 / GL-03: DECISION=DECIDED / DOCUMENT=REFLECTED。
+- IMPLEMENTATIONは未着手。VERIFICATIONは未実施、またはCapture契約不足データについてBLOCKED。APPROVAL=PENDING。
+- この文書同期をv0.8.3全体承認、DDL、DB生成、Migration、Restore、実装、PR作成/merge、main反映へ拡張しない。
+- 旧DB-001〜124の個別追跡・原本回収・全件Crosswalkは終了済みであり、再開しない。
+
+### 15.2 GL-04 — Battery field mapping照会
+
+正本: [Issue #207 comment 7080826716](https://github.com/hamtech86/mini4wd-ai-system/issues/207#issuecomment-7080826716)
+
+現行v0.8.3修正案のread-backで確認できる論理上の候補:
+- RUN_SCOPE identity: `(PhysicalRunID, ScopeKey)`。
+- Measurement Envelope §7: `Measurement ID / Physical Run ID / Scope Key`、`RawLog Reference / Sample Reference`、`Canonicalization Version / Envelope Hash`。
+- Measurement Sample Link: `(MeasurementID, SampleReferenceID, Role, Ordinal)`。
+- 共通Envelope: `EntityType / SchemaVersion / EntityID / OwnerReference / CreatedAtUTC / PayloadReference / PayloadHash`。
+- RawLog Object、RawLog Reference、Sample Referenceは別概念として保持する。
+
+ただし、Measurement EnvelopeからRUN_SCOPEへの明示Referenceの形、RawLog ReferenceからRawLog Object ID / Object Hashへの結び付け、Sample Referenceの完全な参照方向は、Battery向け回答としてDB部門がIssue #207で明示する必要がある。現行legacy SQLite schemaにScope Key / RawLog Object ID / hash linkがない場合はUNKNOWN/opaque、Aggregate除外、登録fail-closedを維持し、Battery側からschemaを変更しない。
+
+状態: Decision（非推測・責任境界）=DECIDED / Document=PARTIAL / Implementation=NOT_APPLICABLE pending contract / Verification=NOT_RUN / Approval=PENDING。回収可能性=CONDITIONALLY_RECOVERABLE。DB部門への限定field-mapping回答依頼はIssue #207の2026-11-23追補を参照。
+
+### 15.3 Battery CH1 / CH2 independent analysis
+
+正本: [Issue #208](https://github.com/hamtech86/mini4wd-ai-system/issues/208) / [Draft PR #218](https://github.com/hamtech86/mini4wd-ai-system/pull/218)
+
+- Branch: `fix/battery-ch1-ch2-independent-analysis-20261122`
+- Base main: `6d075213d4bdf8f5382805daeec4945e2a6c1146`
+- Reported current PR head: `c802451864405fc6a029cb5948d5d99b6a9afc27`
+- Explicit CH argument per analysis call; selected-channel-only voltage/current/power/capacity/energy; cross-channel averaging, sum, and fallback removed.
+- Scope Key is not inferred from column names or Session notes. Missing/contradictory Scope identity is UNKNOWN and fail-closed. Existing average results are not overwritten; analysis version is `battery-benchmark-v2`.
+- Raw Measurement / RawLog, DB schema, firmware, control, and hardware are unchanged.
+- CI reported: Break-in and Battery Tests #1922 SUCCESS (all jobs); DB Path Safety Phase 2 #651 SUCCESS.
+- Status: DECISION=DECIDED / DOCUMENT=REFLECTED / IMPLEMENTATION=COMPLETE on PR branch / VERIFICATION=PASS for reported exact-head CI only / APPROVAL=PENDING. PR #218 remains OPEN/DRAFT/UNMERGED.
+- Out-of-range numeric bounds remain undefined / NOT RUN because authoritative limits are unavailable. Real 5A E2E and physical discharge remain NOT RUN under Issue #16, with separate authorization required.
+- Recovery: implementation/test evidence RECOVERABLE; historical rows whose CH identity is not explicit CONDITIONALLY_RECOVERABLE.
+
+This item is B — IMPLEMENTATION_VERIFICATION and does not stop DB logical-design review. PR #218 acceptance/merge is not inferred from CI.
+
+### 15.4 Governance status
+
+- Issue #217 remains the cross-department inventory source.
+- PR #216 remains OPEN / unapproved / unmerged. This proposal update does not start its formal review.
+- Issue #211 remains ORANGE; v0.8.3 remains unapproved.
+- PR #183 remains without DESIGN ACCEPTANCE; PR #188 remains pending #183 canonical disposition; PR #184 remains a separate physical safety evidence ledger. Physical PASS=0 and `HARDWARE_CURRENT_LIMIT_CONFIRMED=false`.
