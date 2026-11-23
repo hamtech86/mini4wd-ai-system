@@ -418,3 +418,40 @@ Source: [PR #183 review comment](https://github.com/hamtech86/mini4wd-ai-system/
 - A stale row remains in the Decision Register: channel loss window still described as “window width/granularity undefined,” despite the later 2026-11-22 addendum recording the implemented 1-second window. PR #183 author was asked to synchronize the original row to resolved status, not merely rely on a later superseding note.
 - Formal DESIGN ACCEPTANCE remains PENDING. No Ready transition, merge, implementation, hardware action or 310-5 transition was authorized. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false`.
 
+
+
+## 18. 2026-11-23 follow-up — Owner Capture gaps / 310-4 stale-row status
+
+### 18.1 Battery selected-channel zero semantics
+
+Source: [統括 read-back, Issue #208 comment 7102617485](https://github.com/hamtech86/mini4wd-ai-system/issues/208#issuecomment-7102617485)
+
+- Re-fetched all Issue #208 comments after the request. No Battery Owner response was present after the 2026-11-23 question.
+- Question remains narrow: whether selected-channel voltage/current exactly 0.0 is always an inactive sentinel, may be a valid measured sample, or needs another authoritative Field/Event to distinguish the cases.
+- Do not infer numeric semantics. Keep current implementation limitation explicit; do not convert this into a new CH-independence design question or a DB logical-design blocker.
+- Classification: B — IMPLEMENTATION_VERIFICATION; recovery: CONDITIONALLY_RECOVERABLE (requires Battery Owner's authoritative Capture semantics or explicit limitation); status DOCUMENT=PARTIAL / VERIFICATION=NOT_RUN for zero semantics / APPROVAL=PENDING. PR #218 remains OPEN/DRAFT/UNMERGED at c802451864405fc6a029cb5948d5d99b6a9afc27; its two exact-head CI workflows remain SUCCESS. No acceptance or merge.
+
+### 18.2 Motor GL-04 Capture Contract
+
+Source: [統括 limited inquiry, Issue #35 comment 7079482192](https://github.com/hamtech86/mini4wd-ai-system/issues/35#issuecomment-7079482192)
+
+- Re-fetched Issue #35 comments. No Motor Owner response to the limited GL-04 Capture Contract inquiry was present.
+- Missing contract remains: explicit Capture start/normal end and STOP/ERROR/CANCEL/interruption/loss events; COMPLETE required Record/Sample set and duplicate/order handling; RawLog v2 framing/byte boundaries/ID/hash targets; timestamp basis/precision/wrap/order; A0/A1/A4/A5 semantics and Scope mapping; partial/loss/save/retry evidence semantics.
+- This is not a request to repeat the whole department inventory. Existing A0/A1 separation and other established decisions remain unchanged.
+- Classification: GL-04 Owner dependency / CONDITIONALLY_RECOVERABLE; requires Motor Owner's formal Issue #35 source update. Until received, DB retains opaque/UNKNOWN treatment and does not infer COMPLETE or Aggregate eligibility. Does not reopen GL-01〜03 or stop unrelated logical design work.
+
+### 18.3 PR #183 Decision Register stale row
+
+Source: [統括 read-back, PR #183 comment 7102649787](https://github.com/hamtech86/mini4wd-ai-system/pull/183#issuecomment-7102649787)
+
+- Re-fetched PR #183 metadata, discussion, changed-file list, and the Decision Register at exact HEAD 20af72abb6d0fa84b6f2bf31746860d99394d10f.
+- The Decision Register still contains the row “チャンネル別・期間別損失 ... window幅・粒度は未定”. A later row records the PR #198 implementation (WINDOW_US=1,000,000; channel-specific 1-second half-open window), so the older row is stale and must be synchronized in place.
+- No author correction was present in the checked PR discussion. This remains a documentation synchronization task, not a new design decision and not grounds to reopen the resolved loss-window item.
+- PR #183 remains OPEN/DRAFT/UNMERGED; formal DESIGN ACCEPTANCE remains PENDING. The already-recovered exact-head CI results are unchanged; no acceptance, Ready transition, merge, or hardware action.
+
+### 18.4 Governance disposition
+
+- DB GL-04 field mapping remains DOCUMENT=REFLECTED; complete Motor/Battery Owner Capture Contract remains PARTIAL.
+- PR #216 remains a proposal branch / OPEN / unmerged; this section is a ledger proposal update only, not formal review or approval.
+- PR #183 stale-row correction, PR #218 0.0 semantics, and Motor #35 contract response remain independently tracked. Do not merge these into a single blocker or reopen resolved decisions.
+- Issue #211 remains ORANGE; DB v0.8.3 remains unapproved; PR #188 remains blocked pending #183 canonical disposition; PR #184 remains the separate physical evidence ledger. Physical PASS=0 and HARDWARE_CURRENT_LIMIT_CONFIRMED=false.
