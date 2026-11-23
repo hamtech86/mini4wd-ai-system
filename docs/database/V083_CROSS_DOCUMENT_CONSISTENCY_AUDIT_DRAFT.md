@@ -1055,5 +1055,6 @@ Issue #207 comment #7096875931への回答。Main §7.1 / Entity Inventory §37.
 | GL-01 | DECIDED | REFLECTED | NOT_STARTED（Principal / Service登録未実施） | NOT_RUN | PENDING |
 | GL-02 | DECIDED | REFLECTED | NOT_STARTED | NOT_RUN | PENDING |
 | GL-03 | DECIDED | REFLECTED | NOT_STARTED | BLOCKED for contract-missing data | PENDING |
+| GL-04 | DECIDED（DB mapping / non-inference boundary） | PARTIAL（DB mapping reflected; Motor/Battery Capture contracts incomplete） | NOT_APPLICABLE before complete contract | NOT_RUN | PENDING |
 
 GL-01〜03を「未決定」に戻さない。文書反映が部分ならDECIDED + PARTIAL、実Principal未登録は発行禁止、Capture契約未受領データはUNKNOWN / opaqueでAggregate除外とする。GL-04の契約受領は別の条件付き外部依存。
