@@ -1058,7 +1058,7 @@ Main §7.2を詳細提案正本、Entity Inventory §37.4を一覧とする。
 
 この差分はDB-LRの論理提案・既存規則の文書整合であり、決定済みField Mappingの再OPEN、機器Owner契約の代行決定、DDL/schema実装を意味しない。統括裁定前はLR-01/04 OPEN、LR-02/03 DECIDED・補助文書同期残り。
 
-### 42.5 5軸状態・再浮上防止
+### 42.6 5軸状態・再浮上防止
 
 | Gate | Decision | Document | Implementation | Verification | Approval |
 |---|---|---|---|---|---|
