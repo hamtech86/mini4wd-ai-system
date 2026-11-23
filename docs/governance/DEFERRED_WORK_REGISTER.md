@@ -468,14 +468,27 @@ Source: [統括裁定 Issue #217 comment 7103027852](https://github.com/hamtech8
 - Legacy schema missing required fields: no inferred registration; reject or quarantine as UNKNOWN/opaque; exclude from Current Aggregate.
 - This field mapping is confirmed in the v0.8.3 Draft. Battery/Motor must not be asked again to clarify the same DB mapping. The GL-04 cross-department circular inquiry is closed; Owner Capture contract gaps remain separate.
 
-### 19.2 DB Owner logical residuals — UNKNOWN / NOT_DEFINED
-At DB Draft exact HEAD `3dc6419c15f63f9b6a870c28414b0ea70edeff17`, the four reviewed documents establish the reference shape but do not provide complete normative definitions for:
-- SampleLocator grammar, time/offset semantics, locator scope, cross-RawLog representation, missing-target handling.
-- Role allowed domain and duplicate/uniqueness rules.
-- Ordinal type, start value, continuity/gap, uniqueness scope, and tie handling.
-- Measurement↔Sample Link and Measurement↔RawLog Reference cardinality/multiplicity, composite PK/UK, duplicate-link rules, and referential update/delete behavior.
+### 19.2 DB Owner logical residuals — proposal submitted for central decision
 
-Recovery from existing documented evidence: NO_CURRENT_BASIS for these definitions. They remain DB Owner design work; do not invent values. A new logical proposal may be prepared and explicitly decided, but no DDL/schema implementation/Migration is authorized. See Issue #207 comment 7103330423 for the itemized register and source blob SHAs.
+At DB Draft exact HEAD `7d8716158ff058f0df05cd77ac1d862aa1af5886`, the four documents were reconciled against existing Main rules. The previous blanket statement that all Role / Ordinal rules were undefined was too broad: Main §14.5.4 already defines their generic policy.
+
+- **DB-LR-01 SampleLocator:** Main §14.6.4 only allows interpretation by the issuing Owner Schema; undefined Locator remains opaque and no time/channel/sample ordinal is inferred. A universal grammar, empty-value rule, and maximum length have NO_CURRENT_BASIS. DB proposal: Owner-Schema-defined opaque UTF-8 value, exact preservation without trim/case-fold/Unicode normalization, parser only for known SchemaVersion. Empty / max length await central decision.
+- **DB-LR-02 Role:** Main §14.5.4 already requires non-NULL Role, permits only values defined by the Measurement Type's formal Owner Contract, and rejects unknown Role. There is no DB-global vocabulary; the exact values remain Owner Contract data. Status: DECIDED in Main / supplementary inventory synchronization required.
+- **DB-LR-03 Ordinal:** Main §14.5.4 already defines 1-based contiguous Ordinal, unique and non-reusable within (MeasurementID, Role). Status: DECIDED in Main / supplementary inventory synchronization required.
+- **DB-LR-04 cardinality:** Link composite identity and Required=true semantics exist, but complete Measurement↔RawLogReference / Measurement↔SampleLink multiplicity, sharing rules, and complete FK/UNIQUE behavior have NO_CURRENT_BASIS. DB proposal for central decision: each Link references exactly one Measurement and one SampleReference; Measurement has 0..N Links; each SampleReference belongs to exactly one RawLogReference; one RawLogReference may have 0..N SampleReferences. Because the Envelope currently names singular `RawLogReferenceID`, recommend 0..1 RawLogReference per Measurement and require all its linked SampleReferences to resolve to that same reference. If multi-RawLog-per-Measurement is required, a separate field-shape decision is needed. Sharing of a RawLogReference across Measurements and SampleReference reuse across Links remain undecided.
+
+Detailed proposed wording, five-axis states, evidence, and decision questions are in [DB Draft Main §7.2 at exact HEAD](https://github.com/hamtech86/mini4wd-ai-system/blob/db/v0.8.3-followup-remediation-20261121/docs/database/COMMON_DB_LOGICAL_DESIGN_v0.8.3_REMEDIATION_DRAFT.md#L248-L340) and [Issue #207 comment with DB Logical Residual Register](https://github.com/hamtech86/mini4wd-ai-system/issues/207#issuecomment-7103330423) (updated proposal report to follow).
+
+### 19.2.1 Five-axis status / recovery classification
+
+| ID | DECISION | DOCUMENT | IMPLEMENTATION | VERIFICATION | APPROVAL | Recovery |
+|---|---|---|---|---|---|---|
+| DB-LR-01 | OPEN (proposal awaiting decision) | PARTIAL | NOT_STARTED | NOT_RUN | PENDING | NO_CURRENT_BASIS for a universal grammar; DB can propose Owner-Schema delegation |
+| DB-LR-02 | DECIDED (Owner Contract token policy) | PARTIAL (Main rule exists; inventory sync) | NOT_STARTED | NOT_RUN | PENDING | RECOVERABLE from Main §14.5.4 |
+| DB-LR-03 | DECIDED (1-based contiguous per Measurement+Role) | PARTIAL (Main rule exists; inventory sync) | NOT_STARTED | NOT_RUN | PENDING | RECOVERABLE from Main §14.5.4 |
+| DB-LR-04 | OPEN (multiplicity proposal awaiting decision) | PARTIAL | NOT_STARTED | NOT_RUN | PENDING | NO_CURRENT_BASIS for full multiplicity; logical proposal submitted |
+
+The proposed definitions are not decisions or implementation authorization. Owner-specific Sample meaning, required sample set, and Capture semantics remain with Motor / Battery Owners. Until central decision and formal Owner contracts, unknown data remains opaque, cannot become COMPLETE, and is excluded from Current Aggregate.
 
 ### 19.3 Owner Capture semantics remain external
 - Motor Capture events, required samples, RawLog framing/bytes, timestamps/sequences, partial/loss/retry semantics belong to Motor Owner / Issue #35.
