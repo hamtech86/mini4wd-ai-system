@@ -498,7 +498,7 @@ Issue #207 comment #7096875931への回答。Main §7.1をField mapping正本と
 
 legacy SQLiteに上記Field / Linkがない場合、既存列・Session notes・Instance ID・voltage列から補完しない。正式な保存経路が整うまで登録拒否またはUNKNOWN / opaque隔離、Current Aggregate除外を維持する。DB schema変更・DDL・Migrationを本節は許可しない。
 
-### 37.4 DB-LR-01〜04 論理定義案・Inventory同期候補（統括判断待ち）
+### 37.5 DB-LR-01〜04 論理定義案・Inventory同期候補（統括判断待ち）
 
 Main §7.2を論理提案の詳細正本とする。現行Main §14.5.4ですでに定義済みのRole / Ordinal規則を「未定義」と再記載しない。
 
@@ -511,7 +511,7 @@ Main §7.2を論理提案の詳細正本とする。現行Main §14.5.4ですで
 
 5軸と詳細提案はMain §7.2。Owner固有Sample意味・必須Sample群は各Owner契約であり本Inventoryで補完しない。統括判断前はDB-LR-01/04 OPEN、GL-01〜03およびField Mappingは既決定状態を維持する。
 
-### 37.5 Gate L 5軸状態
+### 37.6 Gate L 5軸状態
 
 | Gate | DECISION_STATUS | DOCUMENT_STATUS | IMPLEMENTATION_STATUS | VERIFICATION_STATUS | APPROVAL_STATUS |
 |---|---|---|---|---|---|
