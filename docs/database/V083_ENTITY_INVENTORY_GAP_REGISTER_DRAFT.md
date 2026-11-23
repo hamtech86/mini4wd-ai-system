@@ -480,6 +480,24 @@ RUN_SCOPE=(PhysicalRunID, ScopeKey)、Assignment History Event=(PhysicalRunID, S
 
 Current Aggregateの対象は、Outcome=COMPLETE、Device / Capture Ownerの正式契約による正常終端・必須Sample / Record完全性、Envelope / Assignment-at-Measurement / Scope / RawLog・Sample Reference / Hash・Integrityの検証、測定時ASSIGNEDかつ現在も同一Instance、Scope / Owner条件のすべてを満たすMeasurementに限る。ANONYMOUS / NONE / STOP / ERROR / CANCEL / INCOMPLETE / UNKNOWN、Capture契約未受領、終端証拠不足、必須Sample欠落、矛盾・Hash不一致は除外する。Session Lifecycleとは独立。Battery CH1 / CH2は独立Aggregateとし平均・合算禁止。Pair Analysisは別Artifact。
 
+### 37.4 GL-04 — RUN_SCOPE / RawLog / Sample Reference mapping（2026-11-23）
+
+Issue #207 comment #7096875931への回答。Main §7.1をField mapping正本とする。
+
+| Entity / Link | Identity / Field | 参照方向・意味 |
+|---|---|---|
+| RUN_SCOPE | 複合Identity `(PhysicalRunID, ScopeKey)` | 独立UUID / RunScopeIDなし |
+| Measurement Envelope | `PhysicalRunID`, `ScopeKey` | 2 Fieldの組でRUN_SCOPEを直接参照。Batteryは `BATTERY:CH1` / `BATTERY:CH2` |
+| RawLog Object | `RawLogObjectID`, `ContentHashSHA256` | Object本体の全byte（header / metadata含む）に対するSHA-256 |
+| RawLog Reference | `RawLogReferenceID`, `RawLogObjectID`, `RawLogObjectContentHash` | Object IDを参照し、参照HashはObjectのContentHashSHA256と一致必須 |
+| Measurement Envelope → RawLog | `RawLogReferenceID` | MeasurementはObjectへ直接でなくReferenceを介して参照 |
+| Sample Reference | `SampleReferenceID`, `RawLogReferenceID`, `SampleLocator` | RawLog Reference配下のSample位置 |
+| Measurement Sample Link | `MeasurementID`, `SampleReferenceID`, `Role`, `Ordinal` | MeasurementとSample Referenceを結ぶ複合Identity |
+
+参照鎖は Measurement → RawLog Reference → RawLog Object、および Measurement → Measurement Sample Link → Sample Reference → RawLog Reference → RawLog Object。Object Hash不一致・参照先欠落は拒否 / QUARANTINED。SampleLocator grammar、Role / Ordinal domain、参照cardinality、機器固有Sample semanticsは未確定であり推測しない。
+
+legacy SQLiteに上記Field / Linkがない場合、既存列・Session notes・Instance ID・voltage列から補完しない。正式な保存経路が整うまで登録拒否またはUNKNOWN / opaque隔離、Current Aggregate除外を維持する。DB schema変更・DDL・Migrationを本節は許可しない。
+
 ### 37.4 Gate L 5軸状態
 
 | Gate | DECISION_STATUS | DOCUMENT_STATUS | IMPLEMENTATION_STATUS | VERIFICATION_STATUS | APPROVAL_STATUS |
