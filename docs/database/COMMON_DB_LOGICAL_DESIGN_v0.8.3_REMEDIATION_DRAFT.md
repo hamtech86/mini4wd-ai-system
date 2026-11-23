@@ -261,7 +261,7 @@ Assignment Snapshot Referenceは測定開始確定時点で有効な不変Snapsh
 - Measurement Envelopeの `RawLogReferenceID` はRawLog Referenceを参照する。Objectへは RawLog Reference → `RawLogObjectID` → Object の方向に解決する。MeasurementからRawLog Objectへ直接IDを代用したり、Reference IDとObject IDを同一視しない。
 - Sample Referenceは `SampleReferenceID`（独立UUIDv4）、`RawLogReferenceID`、`SampleLocator` を持ち、必ず特定RawLog Reference配下のSample位置を指す。
 - Measurement Sample Linkは `(MeasurementID, SampleReferenceID, Role, Ordinal)` の複合Identityで、MeasurementとSample Referenceを結ぶ。参照方向は Measurement → Measurement Sample Link → Sample Reference → RawLog Reference → RawLog Object。
-- `SampleLocator` の文法、Role / Ordinalのdomain・cardinality・一意性、RawLog ReferenceとMeasurementの多重度、Owner固有のSample意味は未確定であり、本節では補完しない。未確定条件を満たせないデータはopaque保存に限定し、意味解析・Feature Extraction・Aggregate算入を禁止する。
+- `SampleLocator` の共通文法とMeasurement / RawLog Referenceの多重度は未確定であり、本節では補完しない。Role / Ordinal / Requiredの既存規則は§14.5.4に従う。Owner固有のSample意味・必須Sample集合はOwner Contractに委譲する。未確定条件を満たせないデータはopaque保存に限定し、意味解析・Feature Extraction・Aggregate算入を禁止する。
 
 **既存legacy SQLite schemaの扱い**
 - 現行legacy `measurement_session` / `measurement` に `ScopeKey`、`RawLogReferenceID`、`RawLogObjectID`、Object Hash、Sample Reference Linkが存在しない場合、列名・Session notes・Instance ID・voltage1 / voltage2から補完しない。
