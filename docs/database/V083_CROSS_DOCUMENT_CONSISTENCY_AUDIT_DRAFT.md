@@ -1048,7 +1048,7 @@ Issue #207 comment #7096875931への回答。Main §7.1 / Entity Inventory §37.
 - SampleLocator grammar、Role / Ordinal domain、cardinality、Device固有Sample semanticsは未確定。Hash不一致 / 参照先欠落は拒否またはQUARANTINED。
 - legacy SQLiteにScope / Reference / Hash / Link Fieldがない場合は列名等から推定せず、登録拒否またはUNKNOWN / opaque隔離、Aggregate除外を維持。DB schema変更を含まない。
 
-### 42.4 5軸状態・再浮上防止
+### 42.5 5軸状態・再浮上防止
 
 | Gate | Decision | Document | Implementation | Verification | Approval |
 |---|---|---|---|---|---|
