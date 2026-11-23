@@ -496,8 +496,9 @@ v0.8.3全体承認、物理設計、DDL、DB生成、Migration、Restore実行�
 ### GL-04 — Battery field mapping Self Review（2026-11-23）
 
 - RUN_SCOPE参照はMeasurement Envelopeの `PhysicalRunID` + `ScopeKey`。独立RunScopeIDは設けない。
-- RawLog Object / Reference / Sample Reference / Measurement Sample Linkを別Entity / Linkとして分離し、Main §7.1の参照鎖を反映。
-- Object Hashは全RawLog byteのSHA-256。ReferenceにObject IDと期待Hashを保持し、ObjectのContentHashSHA256との一致を要求。
+- RawLog Object: `RawLogObjectID` + `ContentHashSHA256`。RawLog Reference: `RawLogReferenceID` + `RawLogObjectID` + `RawLogObjectContentHash`。Measurement Envelopeは `RawLogReferenceID` を参照する。
+- Sample Reference: `SampleReferenceID` + `RawLogReferenceID` + `SampleLocator`。Measurement Sample Link: `MeasurementID` + `SampleReferenceID` + `Role` + `Ordinal`。参照鎖は Measurement → RawLog Reference → RawLog Object、および Measurement → Measurement Sample Link → Sample Reference → RawLog Reference → RawLog Object。
+- Object Hashは全RawLog byteのSHA-256。`RawLogObjectContentHash` と Objectの `ContentHashSHA256` の完全一致を要求。
 - legacy SQLite schemaに不足Fieldがあることを理由に推定列追加・列名解釈を行わない。登録拒否 / UNKNOWN opaque / Aggregate除外。
 - 未確定のSampleLocator grammar、Role / Ordinal domain、cardinality、Device固有Sample semanticsは未解決のまま明示。今回の論理mappingで実装・検証済みとはしない。
 - これはGL-04のDB側Field mapping回答であり、Motor側Capture契約受領、Batteryの全Capture契約受領、v0.8.3全体承認を意味しない。
