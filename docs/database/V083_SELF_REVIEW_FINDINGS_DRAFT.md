@@ -503,6 +503,14 @@ v0.8.3全体承認、物理設計、DDL、DB生成、Migration、Restore実行�
 - 未確定のSampleLocator grammar、Role / Ordinal domain、cardinality、Device固有Sample semanticsは未解決のまま明示。今回の論理mappingで実装・検証済みとはしない。
 - これはGL-04のDB側Field mapping回答であり、Motor側Capture契約受領、Batteryの全Capture契約受領、v0.8.3全体承認を意味しない。
 
+### DB-LR-01〜04 Self Review（統括判断待ち）
+
+- LR-01: Main §14.6.4にOwner Schemaで定義されたLocatorのみ解釈・未定義opaqueの既存規則あり。共通grammarは現行根拠なし。Owner Schema委譲 + exact opaque保持案をPROPOSEDとし、統括承認待ち。
+- LR-02: Main §14.5.4にRole必須・非NULL、Measurement Type Owner Contractで定義された値のみ許可、未知Role拒否の既存規則あり。Inventoryの未定義表現は同期対象。
+- LR-03: Main §14.5.4にOrdinal=(MeasurementID, Role)内1から連続・再利用不可の既存規則あり。Inventoryの未確定表現は同期対象。
+- LR-04: Link composite identity / Required=true欠落時COMPLETE不可は既存。完全多重度は根拠なし。0..1 RawLogReference / Measurement、0..N Sample Link、Link each exactly one Measurement and SampleReference、SampleReference exactly one RawLogReference案を提出。共有可否は統括判断待ち。
+- 未決中は意味解析・COMPLETE・Current Aggregateを許可せず、UNKNOWN / opaque・fail-closedを維持。機器固有Sample semanticsはOwnerに委譲。
+
 ### 5軸状態
 
 | Gate | DECISION | DOCUMENT | IMPLEMENTATION | VERIFICATION | APPROVAL |
