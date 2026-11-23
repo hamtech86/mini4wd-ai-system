@@ -1045,7 +1045,7 @@ Issue #207 comment #7096875931への回答。Main §7.1 / Entity Inventory §37.
 - Measurement Envelopeは `RawLogReferenceID` を参照し、RawLog Objectへ直接結び付けない。
 - Sample Referenceは `SampleReferenceID` + `RawLogReferenceID` + `SampleLocator`。Measurement Sample Linkは `MeasurementID` + `SampleReferenceID` + `Role` + `Ordinal`。
 - 参照鎖は Measurement → RawLog Reference → RawLog Object、および Measurement → Measurement Sample Link → Sample Reference → RawLog Reference → RawLog Object。
-- SampleLocator grammar、Role / Ordinal domain、cardinality、Device固有Sample semanticsは未確定。Hash不一致 / 参照先欠落は拒否またはQUARANTINED。
+- SampleLocatorの共通grammarとReference多重度は未確定。Role / Ordinal / RequiredはMain §14.5.4で規定済み（Role値はOwner Contract、Ordinalは(MeasurementID, Role)内1..N連続、Required必須）。Device固有Sample semanticsはOwner Contractへ委譲。Hash不一致 / 参照先欠落は拒否またはQUARANTINED。
 - legacy SQLiteにScope / Reference / Hash / Link Fieldがない場合は列名等から推定せず、登録拒否またはUNKNOWN / opaque隔離、Aggregate除外を維持。DB schema変更を含まない。
 
 ### 42.5 DB-LR-01〜04 consistency reconciliation（統括判断待ち）
