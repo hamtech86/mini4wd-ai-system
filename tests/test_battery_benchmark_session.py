@@ -34,3 +34,17 @@ def test_benchmark_requires_explicit_channel_and_never_falls_back():
         extract_battery_benchmark([row(0, 5.0, 1.4)])
     with pytest.raises(ValueError):
         extract_battery_benchmark([row(0, 5.0, 1.4, "CH2")], channel="CH1")
+
+
+def test_selected_channel_zero_is_unknown_not_silently_dropped():
+    with pytest.raises(ValueError, match="validity is UNKNOWN"):
+        extract_battery_benchmark([row(0, 0.0, 1.4, "CH1")], channel="CH1")
+
+
+def test_nonselected_channel_zero_does_not_affect_selected_channel():
+    source = SimpleNamespace(
+        elapsed_time=0, current1=5.0, voltage1=1.4, current2=0.0, voltage2=0.0
+    )
+    result = extract_battery_benchmark([source], channel="CH1")
+    assert result["avg_current"] == pytest.approx(5.0)
+    assert result["avg_voltage"] == pytest.approx(1.4)
