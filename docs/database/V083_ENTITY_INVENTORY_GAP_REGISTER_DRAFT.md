@@ -99,15 +99,15 @@
 |---:|---|---|---|---|
 | 1 | Physical Run / Run Manifest | — | 未定義・UUIDv4候補 | PhysicalRunIDはUUIDv4として記載。ManifestはContent Hashと別にIDを持つか未定義。UUIDv5を追加しない |
 | 2 | DB Run | DB_RUN | UUIDv4 / RUN_MANAGER | PhysicalRunIDと分離し、最初の有効ASSIGNED Operation時にRUN_MANAGERが発行 |
-| 3 | RUN_SCOPE | RUN_SCOPE | Schemaあり・部分 | PhysicalRunID + ScopeKey。ScopeKey domain/正規化/長さが未確定 |
+| 3 | RUN_SCOPE | RUN_SCOPE | 複合Identity確定 | (PhysicalRunID, ScopeKey)。独立UUID / RunScopeIDなし。ScopeKey domain/正規化/長さは未確定 |
 | 4 | Assignment Snapshot | — | 未定義 | Snapshot ID / Revision / Scope composite identityのどれを使うか未決定 |
 | 5 | Assignment History / Event | — | 未定義 | Operation eventとの同一性、OperationID + Ordinalの適用範囲を未決定 |
 | 6 | Session | SESSION | UUIDv4 / RUN_MANAGER | LogicalSessionIDをRUN_MANAGERが発行。DB Session Mirrorは同一IDを再利用 |
-| 7 | Measurement Envelope | — | 未定義 | MeasurementIDの発行方式、Envelope Hashとの識別関係を未決定 |
+| 7 | Measurement Envelope | — | Identity / RUN_SCOPE参照確定 | MeasurementIDは独立UUIDv4。PhysicalRunID + ScopeKeyでRUN_SCOPEを直接参照。Envelope HashはIdentityと別 |
 | 8 | Measurement Profile Snapshot | — | 未定義 | Snapshot ID、Profile ID + revision、Content Hashのどれが識別子か未決定 |
-| 9 | RawLog Object / RawLog Reference | RAWLOG_REFERENCE | Referenceのみ | Object本文はContent Hash / immutable object identityの区別が未定義。Reference schemaをObjectへ流用しない |
-| 10 | Sample Reference | SAMPLE_REFERENCE | Schemaあり・部分 | RawLogReferenceID + SampleLocator。Locator grammarとdomain uniqueness未確定 |
-| 11 | Measurement Sample Link | MEASUREMENT_SAMPLE_LINK | Schemaあり・部分 | MeasurementID + SampleReferenceID + Role + Ordinal。Role / Ordinal domain未確定 |
+| 9 | RawLog Object / RawLog Reference | RAWLOG_REFERENCE | Object / Reference分離・Field mapping確定 | Object: RawLogObjectID + ContentHashSHA256。Reference: RawLogReferenceID + RawLogObjectID + RawLogObjectContentHash。両Hash一致必須 |
+| 10 | Sample Reference | SAMPLE_REFERENCE | 参照関係確定・Schema部分 | SampleReferenceID + RawLogReferenceID + SampleLocator。Locator grammar / domain uniquenessは未確定 |
+| 11 | Measurement Sample Link | MEASUREMENT_SAMPLE_LINK | 複合Identity確定・Schema部分 | (MeasurementID, SampleReferenceID, Role, Ordinal)。Role / Ordinal domain・cardinalityは未確定 |
 | 12 | Operation Journal / Intent | — | 未定義 | OPERATION_EVENTとの対応は未確定。Intent本体とEventを同一視しない |
 | 13 | Receipt Envelope | RECEIPT | Schemaあり・部分 | OperationIDのみ。ReceiptIDの独立発行 / OperationIDからの決定的生成を確定していない |
 | 14 | Receipt Event | RECEIPT_EVENT | Schemaあり・部分 | ReceiptID + EventOrdinal。EventType domain / ordinal規則未確定 |
@@ -505,5 +505,6 @@ legacy SQLiteに上記Field / Linkがない場合、既存列・Session notes・
 | GL-01 | DECIDED | REFLECTED | NOT_STARTED（実Principal / Service登録・発行経路未実装） | NOT_RUN | PENDING |
 | GL-02 | DECIDED | REFLECTED | NOT_STARTED | NOT_RUN | PENDING |
 | GL-03 | DECIDED | REFLECTED | NOT_STARTED | BLOCKED for contract-missing data | PENDING |
+| GL-04 | DECIDED（DB field mapping / 非推測境界） | PARTIAL（DB mapping reflected; device Capture contracts incomplete） | NOT_APPLICABLE before complete Capture contract | NOT_RUN | PENDING |
 
 GL-01〜03の論理決定を文書・実装・検証・承認の未完了を理由にOPENへ戻さない。GL-04の正式Capture契約受領は別の外部依存として扱う。
