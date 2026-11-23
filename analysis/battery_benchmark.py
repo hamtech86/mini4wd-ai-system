@@ -51,13 +51,26 @@ def _finite_value(row: Mapping, key: str) -> Optional[float]:
     return number if isfinite(number) else None
 
 
+class BatterySampleValidityUnknown(ValueError):
+    """Selected-channel zero value has no authoritative validity semantics."""
+
+
 def _channel_values(rows: list[Mapping], channel: str, metric: str) -> list[float]:
     if channel not in ("CH1", "CH2"):
         raise ValueError("channel must be explicitly set to 'CH1' or 'CH2'")
     if metric not in ("voltage", "current"):
         raise ValueError("unsupported Battery metric")
     key = f"{metric}{1 if channel == 'CH1' else 2}"
-    return [value for row in rows if (value := _finite_value(row, key)) is not None and value != 0.0]
+    values = []
+    for index, row in enumerate(rows):
+        value = _finite_value(row, key)
+        if value == 0.0:
+            raise BatterySampleValidityUnknown(
+                f"{channel} {metric} is 0.0 at row {index}; validity is UNKNOWN"
+            )
+        if value is not None:
+            values.append(value)
+    return values
 
 
 def _values(rows: list[Mapping], *keys: str) -> list[float]:
@@ -105,9 +118,15 @@ def analyze_5a_measurements(
             (_finite_value(row, key) for key in ("elapsed_time", "elapsed_s", "time_s") if row.get(key) is not None),
             None,
         )
-        # Zero means this channel is inactive in the legacy two-channel row
-        # representation. Never substitute the other channel's value.
-        if voltage is not None and current is not None and voltage != 0.0 and current != 0.0:
+        # The firmware and Battery spec do not define selected-channel 0.0
+        # as an inactive sentinel. Preserve the raw row and fail closed rather
+        # than silently dropping it from derived values.
+        if voltage == 0.0 or current == 0.0:
+            metric = "voltage" if voltage == 0.0 else "current"
+            raise BatterySampleValidityUnknown(
+                f"{channel} {metric} is 0.0; validity is UNKNOWN and derived result is ineligible"
+            )
+        if voltage is not None and current is not None:
             samples.append((elapsed, voltage, current))
     voltages = [sample[1] for sample in samples]
     currents = [sample[2] for sample in samples]
