@@ -246,18 +246,18 @@ class BatteryDatabaseDialog(QDialog):
                     voltage=float(voltage); current=float(current)
                     if not (math.isfinite(voltage) and math.isfinite(current)):
                         continue
+                    if voltage == 0.0 or current == 0.0:
+                        self._channel_identity=None
+                        self.session_info.setText(
+                            f"Session {sid} | Channel {channel} | 選択CHの0.0値を検出: Validity UNKNOWN"
+                        )
+                        self.status.setText("NOT REGISTERABLE: selected-channel zero validity UNKNOWN")
+                        return
                     elapsed=float(elapsed)
                     if not math.isfinite(elapsed):
                         continue
                 except (TypeError,ValueError):
                     continue
-                if voltage == 0.0 or current == 0.0:
-                    self._channel_identity=None
-                    self.session_info.setText(
-                        f"Session {sid} | Channel {channel} | 選択CHの0.0値を検出: Validity UNKNOWN"
-                    )
-                    self.status.setText("NOT REGISTERABLE: selected-channel zero validity UNKNOWN")
-                    return
                 paired.append((elapsed,voltage,current))
             if not paired:
                 self._channel_identity=None
