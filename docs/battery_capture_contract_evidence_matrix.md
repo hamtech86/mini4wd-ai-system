@@ -46,7 +46,11 @@ The previous branch silently filtered selected-channel zero values from derived 
 - `analysis/battery_benchmark_session.py`
 - `ui/battery_database_ui.py`
 
-Regression tests cover selected-channel zero voltage/current, non-selected-channel zero isolation, and the legacy extractor. Exact-head CI is pending for the latest update.
+Regression tests cover selected-channel zero voltage/current, non-selected-channel zero isolation, and the legacy extractor. Exact-head CI for the matrix commit `ac6db58afe19ea70982e6ceac3869ec9462ea44a` passed:
+- Break-in and Battery Tests run #1931 (`45207546430`): all four jobs SUCCESS, including Battery tests, RawLog/sequence, Break-in, and full pytest suite.
+- DB Path Safety Phase 2 run #660 (`45207546113`): isolated DB integration and full repository pytest suite SUCCESS.
+
+This verifies automated software tests only; physical 5A E2E remains NOT RUN.
 
 ## Gate classification
 
