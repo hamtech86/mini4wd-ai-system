@@ -498,6 +498,19 @@ Issue #207 comment #7096875931への回答。Main §7.1をField mapping正本と
 
 legacy SQLiteに上記Field / Linkがない場合、既存列・Session notes・Instance ID・voltage列から補完しない。正式な保存経路が整うまで登録拒否またはUNKNOWN / opaque隔離、Current Aggregate除外を維持する。DB schema変更・DDL・Migrationを本節は許可しない。
 
+### 37.4 DB-LR-01〜04 論理定義案・Inventory同期候補（統括判断待ち）
+
+Main §7.2を論理提案の詳細正本とする。現行Main §14.5.4ですでに定義済みのRole / Ordinal規則を「未定義」と再記載しない。
+
+| ID | 項目 | 現行根拠・同期内容 | 未決 / 判断申請 |
+|---|---|---|---|
+| DB-LR-01 | SampleLocator grammar | Main §14.6.4はOwner Schemaで定義された形式のみ解釈し、未定義はopaque保全・時刻/Channel/ordinal推測禁止。 | 共通文法・空文字・最大長は根拠なし。Owner Schema委譲 + exact UTF-8 opaque保持案を統括判断へ |
+| DB-LR-02 | Role domain | Main §14.5.4はRole必須・非NULL、Measurement Type正式Owner Contract値のみ許可、未知Role拒否。 | 共通語彙一覧は設けずOwner Contractへ委譲。旧「domain未定義」を「Owner語彙一覧は外部契約」に修正 |
+| DB-LR-03 | Ordinal domain | Main §14.5.4は(MeasurementID, Role)内で1から連続増加・再利用不可。Integer表記あり。 | Inventoryの一意性未確定は旧記述。1-based contiguous / uniqueへ同期 |
+| DB-LR-04 | Link / Reference cardinality | Link複合Identity、SampleReference→RawLogReferenceの単一参照、Required条件あり。 | Measurement/RawLogReference多重度、Reference共有可否、複合FK/UNIQUE詳細は根拠なし。Main §7.2の0..1 RawLogReference推奨案を統括判断へ |
+
+5軸と詳細提案はMain §7.2。Owner固有Sample意味・必須Sample群は各Owner契約であり本Inventoryで補完しない。統括判断前はDB-LR-01/04 OPEN、GL-01〜03およびField Mappingは既決定状態を維持する。
+
 ### 37.5 Gate L 5軸状態
 
 | Gate | DECISION_STATUS | DOCUMENT_STATUS | IMPLEMENTATION_STATUS | VERIFICATION_STATUS | APPROVAL_STATUS |
