@@ -403,3 +403,18 @@ Source: [Issue #208 review comment](https://github.com/hamtech86/mini4wd-ai-syst
 - PR #216 remains OPEN / unmerged. This ledger update is on the proposal branch only and does not commence formal review.
 - PR #183 remains OPEN/DRAFT without DESIGN ACCEPTANCE; PR #188 remains blocked pending canonical design disposition; PR #184 remains the separate physical evidence ledger.
 - Physical PASS=0 and `HARDWARE_CURRENT_LIMIT_CONFIRMED=false`.
+
+
+## 17. 2026-11-23 310-4 PR #183 design read-back
+
+Source: [PR #183 review comment](https://github.com/hamtech86/mini4wd-ai-system/pull/183#issuecomment-7102649787)
+
+- PR #183 remains OPEN / DRAFT / UNMERGED; exact HEAD `20af72abb6d0fa84b6f2bf31746860d99394d10f`.
+- Four artifact blobs at exact HEAD: design `228d60381db61fd75baa7b4ba314e0f246925f29`; decision register `e9268ba413dbc018026f9526dd7915fb5f7a9729`; acceptance tests `65423d102152125c939429e7e1eb87a539ad3085`; final review `d2259baac7c12af2af5aeb30cb884aa132815f05`.
+- Exact-HEAD workflows: Break-in and Battery Tests `44974065949` SUCCESS; DB Path Safety Phase 2 `44974065932` SUCCESS. These are CI only.
+- Read-back confirms: protocol-v2 / EEPROM logical design adoption and #215 canonical companion; 8,000ms T18 ceiling removed as acceptance gate; 1-second channel half-open loss window implemented in #198; static SRAM .data 146B + .bss 747B = 893B against 900B limit; software STOP-priority evidence exists; physical STOP is not proven; RawLog Evidence companion logical mapping exists but byte-length/completeness fixture/validator remains.
+- Remaining items classified as B — IMPLEMENTATION_VERIFICATION: worst-case stack bound/high-water; Evidence companion byte length/completeness fixture. D — EXTERNAL_DEPENDENCY / physical or measurement evidence: ADC reference/accuracy; physical MCU marking/fuse/BOD/power/EEPROM interruption; physical STOP/current cutoff.
+- No new A — DESIGN_BLOCKER was identified in this read-back. This is not formal DESIGN ACCEPTANCE.
+- A stale row remains in the Decision Register: channel loss window still described as “window width/granularity undefined,” despite the later 2026-11-22 addendum recording the implemented 1-second window. PR #183 author was asked to synchronize the original row to resolved status, not merely rely on a later superseding note.
+- Formal DESIGN ACCEPTANCE remains PENDING. No Ready transition, merge, implementation, hardware action or 310-5 transition was authorized. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false`.
+
