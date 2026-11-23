@@ -493,6 +493,15 @@ v0.8.3全体承認、物理設計、DDL、DB生成、Migration、Restore実行�
 - 契約未受領・証拠不足はUNKNOWN / opaqueとして除外。ANONYMOUS / NONE / STOP / ERROR / CANCEL / INCOMPLETE / UNKNOWNも除外。
 - Session Lifecycleとは独立。Battery CH1 / CH2は平均・合算せず独立Aggregate。Pair Analysisは別Artifact。
 
+### GL-04 — Battery field mapping Self Review（2026-11-23）
+
+- RUN_SCOPE参照はMeasurement Envelopeの `PhysicalRunID` + `ScopeKey`。独立RunScopeIDは設けない。
+- RawLog Object / Reference / Sample Reference / Measurement Sample Linkを別Entity / Linkとして分離し、Main §7.1の参照鎖を反映。
+- Object Hashは全RawLog byteのSHA-256。ReferenceにObject IDと期待Hashを保持し、ObjectのContentHashSHA256との一致を要求。
+- legacy SQLite schemaに不足Fieldがあることを理由に推定列追加・列名解釈を行わない。登録拒否 / UNKNOWN opaque / Aggregate除外。
+- 未確定のSampleLocator grammar、Role / Ordinal domain、cardinality、Device固有Sample semanticsは未解決のまま明示。今回の論理mappingで実装・検証済みとはしない。
+- これはGL-04のDB側Field mapping回答であり、Motor側Capture契約受領、Batteryの全Capture契約受領、v0.8.3全体承認を意味しない。
+
 ### 5軸状態
 
 | Gate | DECISION | DOCUMENT | IMPLEMENTATION | VERIFICATION | APPROVAL |
