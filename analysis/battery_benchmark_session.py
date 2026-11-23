@@ -14,7 +14,7 @@ def extract_battery_benchmark(measurements, *, channel):
     voltage_key = "voltage1" if channel == "CH1" else "voltage2"
     current_key = "current1" if channel == "CH1" else "current2"
 
-    def numeric(row, key, zero_is_missing=False):
+    def numeric(row, key):
         value = getattr(row, key, None)
         if value is None:
             return None
@@ -22,13 +22,15 @@ def extract_battery_benchmark(measurements, *, channel):
             value = float(value)
         except (TypeError, ValueError):
             return None
-        return value if isfinite(value) and (not zero_is_missing or value != 0.0) else None
+        return value if isfinite(value) else None
 
     samples = []
     for row in rows:
-        voltage = numeric(row, voltage_key, zero_is_missing=True)
-        current = numeric(row, current_key, zero_is_missing=True)
+        voltage = numeric(row, voltage_key)
+        current = numeric(row, current_key)
         elapsed = numeric(row, "elapsed_time")
+        if voltage == 0.0 or current == 0.0:
+            raise ValueError(f"{channel} selected-channel zero sample; validity is UNKNOWN")
         if voltage is None or current is None or elapsed is None:
             continue
         samples.append((elapsed, voltage, current))
