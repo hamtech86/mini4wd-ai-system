@@ -251,6 +251,13 @@ class BatteryDatabaseDialog(QDialog):
                         continue
                 except (TypeError,ValueError):
                     continue
+                if voltage == 0.0 or current == 0.0:
+                    self._channel_identity=None
+                    self.session_info.setText(
+                        f"Session {sid} | Channel {channel} | 選択CHの0.0値を検出: Validity UNKNOWN"
+                    )
+                    self.status.setText("NOT REGISTERABLE: selected-channel zero validity UNKNOWN")
+                    return
                 paired.append((elapsed,voltage,current))
             if not paired:
                 self._channel_identity=None
@@ -286,6 +293,9 @@ class BatteryDatabaseDialog(QDialog):
 
     def _register_result(self):
         sid=self.session.currentData() or self.session.currentText().strip(); iid=self.result_instance.currentData()
+        if self._channel_identity not in ("CH1", "CH2"):
+            QMessageBox.warning(self,"Benchmark Result","Channel identityまたはSample ValidityがUNKNOWNのため登録できません。")
+            return
         if not sid or not iid:
             QMessageBox.warning(self,"Benchmark Result","SessionとBattery Instanceを指定してください。"); return
         try:
