@@ -268,6 +268,57 @@ Assignment Snapshot Referenceは測定開始確定時点で有効な不変Snapsh
 - 正式な共通Envelopeと参照保存経路が実装・検証されるまで、既存schemaへのBattery側独自列追加・推定登録を禁止する。Scope / Reference / Hashを証明できないMeasurementはDB登録拒否またはUNKNOWN / opaque隔離とし、Current Aggregateから除外する。
 - 本節は論理Field mappingの確定であり、現行legacy DBがこれを実装済みであることを意味しない。
 
+### 7.2 DB-LR-01〜04 — DB Logical Residual Proposal（統括判断申請・2026-11-24）
+
+本節は統括指示 #7103140455 に基づくDB Ownerの論理定義案であり、**PROPOSED / NOT APPROVED**。現行Draftに既に存在する規範と、追加判断が必要な提案を分離する。ここでの提案は決定・実装・DDL許可ではない。
+
+#### DB-LR-01 — SampleLocator grammar
+
+**既存根拠:** §14.6.4は「発行元Schemaで定義された形式だけ解釈し、未定義Locatorはopaque referenceとして保全し、時刻・Channel・Sample ordinalを推測しない」と定める。一方、共通Locatorの具体的文法・文字集合・offset/index意味は定義していない。
+
+**提案:** DB共通層ではSampleLocatorの内部構文を規定しない。値は発行元Schema / SchemaVersionに属するopaque UTF-8文字列として正確に保持し、DB側でtrim・case-fold・Unicode normalization・数値化・時刻変換をしない。解釈は発行元Ownerが同一SchemaVersionで定義したparserが存在するときだけ許可する。SchemaVersion / parserが不明、または形式不一致の場合はopaque保全に限定し、Sample順序・時刻・Channel・Featureを導出しない。空文字の許否・最大長は共通根拠がないため別途統括判断対象とする。
+
+**判断申請:** 共通文法を作らずOwner Schemaに委譲し、DBはopaque stringとして保全する方針を採用するか。空文字 / 最大長の制約を共通化するか。
+
+#### DB-LR-02 — Role domain
+
+**既存根拠:** §14.5.4はMeasurement Sample LinkのRoleを必須・非NULLとし、Role語彙はMeasurement Typeの正式Owner Contractで定義された値のみ許可、未知Roleは拒否と明記する。したがってRoleの共通語彙一覧をDBが新設する根拠はない。Inventoryの「Role domain未定義」はこの既存境界と矛盾するため、表現を「語彙はOwner Contract定義。共通列挙値なし」に訂正する必要がある。
+
+**提案:** Roleはcase-sensitiveなOwner Contract tokenとし、DB共通層は値の一覧・意味・機器別必須Roleを定義しない。Measurement Type + Contract Versionで許可値を照合する。Owner Contract不在 / version不明 / 未知Roleは意味解析・COMPLETE・Current Aggregateから除外（必要に応じ拒否またはUNKNOWN/opaque）。Roleの正規化・別名変換は禁止。
+
+**判断申請:** 上記をDB共通Role policyとして確定し、具体Role語彙を各Measurement Type Ownerへ委譲するか。
+
+#### DB-LR-03 — Ordinal domain
+
+**既存根拠:** §14.5.4はOrdinalを(MeasurementID, Role)内で1から連続増加、再利用不可と定める。OrdinalはIntegerとしてEntity Inventory §10/11で表記される。したがって開始値・連続性・Role内適用範囲は新規未決ではなく、既存Main定義で回収可能。Inventoryの「Ordinal一意性未確定」は旧記述として訂正する。
+
+**提案:** Ordinalは正整数（1-based Integer）。同一(MeasurementID, Role)内で1..Nの連続値とし、重複・欠番・再利用を拒否する。異なるRole間で同じOrdinal値を許容する。訂正・追加は既存Linkの再採番ではなく、新Measurement / Operation等の不変性規則に従う。Owner ContractがRole内に期待するSample数を決めるが、Ordinal自体から機器固有Sample意味を推定しない。
+
+**判断申請:** §14.5.4の規則をEntity Inventory / Audit / Self Reviewへ同期し、Ordinal residualを「定義済み・文書同期残り」に移すか。
+
+#### DB-LR-04 — Link / Reference cardinality・multiplicity
+
+**既存根拠:** Link identityは(MeasurementID, SampleReferenceID, Role, Ordinal)。SampleReferenceは単一RawLogReferenceIDを保持。§14.5.4はRequiredを必須Fieldとし、Required=trueのLink欠落時はMeasurementをCOMPLETEにしない。§7.1 / §14.6はMeasurement→Sample→RawLogの参照方向を定める。ただし、EnvelopeのRawLog Reference多重度、Measurement当たりのLink件数、SampleReference共有可否、完全な複合FK/UNIQUE制約は確定していない。
+
+**提案（最小関係案）:**
+1. 各Measurement Sample Linkは、Measurementをちょうど1件、Sample Referenceをちょうど1件参照する。複合Identity全体を一意とする。
+2. Measurementは0..N件のSample Linkを持てる。0件を許すことはCOMPLETEを意味しない。COMPLETEに必要なRole / Ordinal集合はMeasurement Type Owner Contractが明示し、Required=trueの期待Linkが全件存在するときだけ必須Sample条件を満たす。
+3. Sample Referenceはちょうど1件のRawLog Referenceに属する。1つのRawLog Referenceは0..N件のSample Referenceを持てる。
+4. 現行Envelope field名が単数 `RawLogReferenceID` であるため、暫定推奨はMeasurement EnvelopeごとにRawLog Referenceを0..1件とし、Sample Link配下の全Sample Referenceは同一MeasurementのEnvelopeが示すRawLogReferenceIDと一致させる。RawLogReferenceIDがNULLのMeasurementはSample Linkを持てない。1 Measurementに複数RawLogReferenceが必要な実例・Owner契約が提示された場合は、単数Fieldを複数Reference集合へ拡張する別判断が必要。
+5. RawLog Referenceの複数Measurement共有、Sample Referenceの複数Measurement Link共有、ON DELETE / ON UPDATEの物理FK動作は根拠不足。論理上は正本・履歴不変、削除/更新禁止、参照欠落はREJECT / QUARANTINEDとする。共有可否は統括判断待ちとし、暗黙に許可しない。
+
+**判断申請:** 4の「1 Measurement : 0..1 RawLog Reference」推奨案、および共有可否の扱いを採用するか。異なる多重度が必要なら、根拠となる現行Owner Contractを指定してほしい。
+
+#### 5軸状態 / 回収可能性
+
+| ID | DECISION_STATUS | DOCUMENT_STATUS | IMPLEMENTATION_STATUS | VERIFICATION_STATUS | APPROVAL_STATUS | 回収可能性 |
+|---|---|---|---|---|---|---|
+| DB-LR-01 | OPEN（提案待ち） | PARTIAL（opaque ruleあり、grammar未定） | NOT_STARTED | NOT_RUN | PENDING | 共通grammarはNO_CURRENT_BASIS。Owner schema委譲案はDB内で作成可能 |
+| DB-LR-02 | DECIDED（Owner Contract語彙・unknown拒否の既存規則） | PARTIAL（Main記載、補助Inventory同期待ち） | NOT_STARTED | NOT_RUN | PENDING | RECOVERABLE（Main §14.5.4） |
+| DB-LR-03 | DECIDED（1-based contiguous / unique per Measurement+Role） | PARTIAL（Main記載、補助Inventory同期待ち） | NOT_STARTED | NOT_RUN | PENDING | RECOVERABLE（Main §14.5.4） |
+| DB-LR-04 | OPEN（多重度案の統括決定待ち） | PARTIAL（identity/link directionのみ） | NOT_STARTED | NOT_RUN | PENDING | NO_CURRENT_BASIS（完全多重度の現行根拠なし。論理案は提出可能） |
+
+Owner固有Sample種類・必須数・Capture semanticsはMotor / Battery Ownerの責任であり、本表のDB論理残件へ含めない。未決の間はUnknown / opaque、COMPLETE不可、Current Aggregate除外を維持する。
 ## 8. RawLog耐障害完了条件の補足
 
 ### 8.1 適用範囲・責務境界
