@@ -455,3 +455,36 @@ Source: [統括 read-back, PR #183 comment 7102649787](https://github.com/hamtec
 - PR #216 remains a proposal branch / OPEN / unmerged; this section is a ledger proposal update only, not formal review or approval.
 - PR #183 stale-row correction, PR #218 0.0 semantics, and Motor #35 contract response remain independently tracked. Do not merge these into a single blocker or reopen resolved decisions.
 - Issue #211 remains ORANGE; DB v0.8.3 remains unapproved; PR #188 remains blocked pending #183 canonical disposition; PR #184 remains the separate physical evidence ledger. Physical PASS=0 and HARDWARE_CURRENT_LIMIT_CONFIRMED=false.
+
+
+## 19. 2026-11-23 DB Logical Residual Register / GL-04 circular inquiry closure
+
+Source: [統括裁定 Issue #217 comment 7103027852](https://github.com/hamtech86/mini4wd-ai-system/issues/217#issuecomment-7103027852), [統括指示 Issue #207 comment 7103140455](https://github.com/hamtech86/mini4wd-ai-system/issues/207#issuecomment-7103140455), [DB部門 Residual Register Issue #207 comment 7103330423](https://github.com/hamtech86/mini4wd-ai-system/issues/207#issuecomment-7103330423).
+
+### 19.1 Closed: DB field mapping / cross-department inquiry
+- RUN_SCOPE identity = (PhysicalRunID, ScopeKey); Measurement Envelope's same two fields directly reference it; no independent RunScopeID.
+- RawLog Object = RawLogObjectID + ContentHashSHA256; RawLog Reference = RawLogReferenceID + RawLogObjectID + RawLogObjectContentHash, with exact object-hash equality.
+- Measurement Envelope → RawLogReferenceID; Sample Reference = SampleReferenceID + RawLogReferenceID + SampleLocator; Measurement Sample Link = (MeasurementID, SampleReferenceID, Role, Ordinal).
+- Legacy schema missing required fields: no inferred registration; reject or quarantine as UNKNOWN/opaque; exclude from Current Aggregate.
+- This field mapping is confirmed in the v0.8.3 Draft. Battery/Motor must not be asked again to clarify the same DB mapping. The GL-04 cross-department circular inquiry is closed; Owner Capture contract gaps remain separate.
+
+### 19.2 DB Owner logical residuals — UNKNOWN / NOT_DEFINED
+At DB Draft exact HEAD `3dc6419c15f63f9b6a870c28414b0ea70edeff17`, the four reviewed documents establish the reference shape but do not provide complete normative definitions for:
+- SampleLocator grammar, time/offset semantics, locator scope, cross-RawLog representation, missing-target handling.
+- Role allowed domain and duplicate/uniqueness rules.
+- Ordinal type, start value, continuity/gap, uniqueness scope, and tie handling.
+- Measurement↔Sample Link and Measurement↔RawLog Reference cardinality/multiplicity, composite PK/UK, duplicate-link rules, and referential update/delete behavior.
+
+Recovery from existing documented evidence: NO_CURRENT_BASIS for these definitions. They remain DB Owner design work; do not invent values. A new logical proposal may be prepared and explicitly decided, but no DDL/schema implementation/Migration is authorized. See Issue #207 comment 7103330423 for the itemized register and source blob SHAs.
+
+### 19.3 Owner Capture semantics remain external
+- Motor Capture events, required samples, RawLog framing/bytes, timestamps/sequences, partial/loss/retry semantics belong to Motor Owner / Issue #35.
+- Battery Capture and channel/ADC/zero validity semantics belong to Battery Owner / Issue #16 and the external firmware source.
+- DB does not define device-specific meaning. Missing/undefined Owner contract remains UNKNOWN/opaque; no COMPLETE classification or Current Aggregate inclusion.
+- Do not restart DB↔Motor/Battery mapping questions. Do not reopen GL-01〜03 decisions.
+
+### 19.4 Governance status
+- DB v0.8.3 remains unapproved; Issue #211 remains ORANGE.
+- PR #216 remains proposal-only, OPEN/unmerged, and not formally reviewed or approved.
+- No DDL, DB generation, Migration, Restore, schema change, implementation PR, merge/main update, or hardware operation.
+- This entry is a proposal-ledger synchronization only and does not grant acceptance or implementation authority.
