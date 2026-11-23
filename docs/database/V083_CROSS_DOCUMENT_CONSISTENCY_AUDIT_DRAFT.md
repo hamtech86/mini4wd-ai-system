@@ -1035,6 +1035,19 @@ Issue #210 CC-03より前のA/B/C membership案、OPEN/TBD、統括判断待ち�
 - ANONYMOUS / NONE / STOP / ERROR / CANCEL / INCOMPLETE / UNKNOWN、契約未受領・証拠不足・必須Sample欠落・矛盾・Hash不一致は除外。
 - Session Lifecycleと独立。Battery CH1 / CH2は独立Aggregateで平均・合算禁止。
 
+### 42.4 GL-04 — Battery field mapping照合（2026-11-23）
+
+Issue #207 comment #7096875931への回答。Main §7.1 / Entity Inventory §37.4を照合正本とする。
+
+- RUN_SCOPEは `(PhysicalRunID, ScopeKey)` の複合Identity。Measurement Envelopeの `PhysicalRunID` + `ScopeKey` が直接参照であり、別RunScopeIDは存在しない。
+- Battery Scope Keyは `BATTERY:CH1` / `BATTERY:CH2`。MeasurementはRUN_SCOPE直結でSession FK / membershipを持たない（CC-03）。
+- RawLog Objectは `RawLogObjectID` + `ContentHashSHA256`。RawLog Referenceは `RawLogReferenceID` + `RawLogObjectID` + `RawLogObjectContentHash` を持ち、参照HashとObject Hashの一致を要求する。
+- Measurement Envelopeは `RawLogReferenceID` を参照し、RawLog Objectへ直接結び付けない。
+- Sample Referenceは `SampleReferenceID` + `RawLogReferenceID` + `SampleLocator`。Measurement Sample Linkは `MeasurementID` + `SampleReferenceID` + `Role` + `Ordinal`。
+- 参照鎖は Measurement → RawLog Reference → RawLog Object、および Measurement → Measurement Sample Link → Sample Reference → RawLog Reference → RawLog Object。
+- SampleLocator grammar、Role / Ordinal domain、cardinality、Device固有Sample semanticsは未確定。Hash不一致 / 参照先欠落は拒否またはQUARANTINED。
+- legacy SQLiteにScope / Reference / Hash / Link Fieldがない場合は列名等から推定せず、登録拒否またはUNKNOWN / opaque隔離、Aggregate除外を維持。DB schema変更を含まない。
+
 ### 42.4 5軸状態・再浮上防止
 
 | Gate | Decision | Document | Implementation | Verification | Approval |
