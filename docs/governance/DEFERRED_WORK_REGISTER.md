@@ -356,3 +356,50 @@ This item is B — IMPLEMENTATION_VERIFICATION and does not stop DB logical-desi
 - PR #216 remains OPEN / unapproved / unmerged. This proposal update does not start its formal review.
 - Issue #211 remains ORANGE; v0.8.3 remains unapproved.
 - PR #183 remains without DESIGN ACCEPTANCE; PR #188 remains pending #183 canonical disposition; PR #184 remains a separate physical safety evidence ledger. Physical PASS=0 and `HARDWARE_CURRENT_LIMIT_CONFIRMED=false`.
+
+
+## 16. 2026-11-23 follow-up — GL-04 mapping read-back / PR #218 exact-HEAD CI review
+
+### 16.1 DB GL-04 field mapping
+
+Source: [DB department response, Issue #207 comment 7101200440](https://github.com/hamtech86/mini4wd-ai-system/issues/207#issuecomment-7101200440)
+
+- Branch: `db/v0.8.3-followup-remediation-20261121`
+- Exact HEAD: `3dc6419c15f63f9b6a870c28414b0ea70edeff17`
+- Four existing database draft documents were fetched at this exact HEAD; each returned a content blob and the updated mapping was read back.
+- RUN_SCOPE identity is `(PhysicalRunID, ScopeKey)`; Measurement Envelope's PhysicalRunID + ScopeKey is the direct reference. No independent RunScopeID.
+- RawLog Object: `RawLogObjectID + ContentHashSHA256`.
+- RawLog Reference: `RawLogReferenceID + RawLogObjectID + RawLogObjectContentHash`; referenced object hash must exactly match.
+- Measurement Envelope references `RawLogReferenceID`.
+- Sample Reference: `SampleReferenceID + RawLogReferenceID + SampleLocator`.
+- Measurement Sample Link: `(MeasurementID, SampleReferenceID, Role, Ordinal)`.
+- Reference chains are explicitly defined: Measurement → RawLog Reference → RawLog Object; and Measurement → Measurement Sample Link → Sample Reference → RawLog Reference → RawLog Object.
+- Legacy SQLite missing Scope / Reference / Hash / Sample Link fields remains fail-closed: no inference, registration reject or UNKNOWN/opaque quarantine, no Current Aggregate inclusion.
+
+Remaining Owner contract gaps: SampleLocator grammar, Role/Ordinal domain and cardinality, multiplicities, device-specific Sample semantics. Motor Issue #35 has no formal response to the limited Capture Contract inquiry in the checked comments. Battery Issue #16 has a partial answer, not a complete contract: Capture start/end events, required COMPLETE sample set, byte-preservation/hash linkage, timestamp ordering, duplicate/partial/retry semantics, and Outcome mapping remain incomplete.
+
+Status: DB-side field mapping DOCUMENT=REFLECTED; complete Motor/Battery Capture contract DOCUMENT=PARTIAL / VERIFICATION=NOT_RUN / APPROVAL=PENDING. This does not reopen GL-01〜03 and does not authorize DB implementation or v0.8.3 approval.
+
+Sources: [Issue #207 mapping response](https://github.com/hamtech86/mini4wd-ai-system/issues/207#issuecomment-7101200440), [Issue #207 structural read-back](https://github.com/hamtech86/mini4wd-ai-system/issues/207#issuecomment-7102618343).
+
+### 16.2 Battery CH1/CH2 PR #218
+
+Source: [Issue #208 review comment](https://github.com/hamtech86/mini4wd-ai-system/issues/208#issuecomment-7102617485)
+
+- PR #218 remains OPEN / DRAFT / UNMERGED.
+- Branch: `fix/battery-ch1-ch2-independent-analysis-20261122`
+- Base main: `6d075213d4bdf8f5382805daeec4945e2a6c1146`
+- Exact HEAD: `c802451864405fc6a029cb5948d5d99b6a9afc27`
+- Exact-HEAD PR-triggered workflows: Break-in and Battery Tests run `45034408753` SUCCESS; DB Path Safety Phase 2 run `45034408728` SUCCESS.
+- Confirmed: explicit channel required; only selected-channel values are analyzed; cross-channel averaging/summing/fallback removed; UI requires persisted Scope Key and fails closed if absent/ambiguous; no DB schema, RawLog, firmware, control or hardware changes; old averaged results are not overwritten.
+- CI is not physical 5A E2E, physical discharge, or out-of-range qualification.
+- Additional B — IMPLEMENTATION_VERIFICATION question: current code excludes selected-channel voltage/current values of exactly 0.0 as inactive/missing. Battery Owner must clarify whether zero on the selected channel is always an inactive sentinel or may be a valid measured value, and identify the authoritative field/event that distinguishes them. Until answered, preserve this as an explicit limitation; do not infer numeric range semantics.
+- 5-axis: DECISION=CH independence/no averaging DECIDED; DOCUMENT=PARTIAL (Capture semantics); IMPLEMENTATION=COMPLETE on PR branch; VERIFICATION=PASS for exact-HEAD CI only; APPROVAL=PENDING.
+- This B item does not reopen design decisions and is not a DB logical-design blocker. No PR acceptance, Ready transition, or merge was performed.
+
+### 16.3 Current governance disposition
+
+- Issue #211 remains ORANGE; v0.8.3 remains unapproved.
+- PR #216 remains OPEN / unmerged. This ledger update is on the proposal branch only and does not commence formal review.
+- PR #183 remains OPEN/DRAFT without DESIGN ACCEPTANCE; PR #188 remains blocked pending canonical design disposition; PR #184 remains the separate physical evidence ledger.
+- Physical PASS=0 and `HARDWARE_CURRENT_LIMIT_CONFIRMED=false`.
