@@ -28,6 +28,35 @@ def infer_battery_session_channel(scope_keys):
     return {"BATTERY:CH1": "CH1", "BATTERY:CH2": "CH2"}.get(next(iter(values)))
 
 
+def validate_persisted_battery_scope(db, session_id, expected_channel):
+    """Re-read and validate the Session and every Measurement Scope Key from the DB."""
+    expected_scope = {"CH1": "BATTERY:CH1", "CH2": "BATTERY:CH2"}.get(expected_channel)
+    if expected_scope is None:
+        raise ManualRegistrationError("選択CHがUNKNOWNのため登録できません。")
+
+    session_columns = {
+        row[1] for row in db.execute("PRAGMA table_info(measurement_session)").fetchall()
+    }
+    measurement_columns = {
+        row[1] for row in db.execute("PRAGMA table_info(measurement)").fetchall()
+    }
+    if "scope_key" not in session_columns or "scope_key" not in measurement_columns:
+        raise ManualRegistrationError("Scope Key列がないため登録できません。")
+
+    session_row = db.execute(
+        "SELECT scope_key FROM measurement_session WHERE session_id=?", (session_id,)
+    ).fetchone()
+    if session_row is None or session_row[0] != expected_scope:
+        raise ManualRegistrationError("Session Scope Keyが選択CHと一致しません。")
+
+    measurement_rows = db.execute(
+        "SELECT scope_key FROM measurement WHERE session_id=? ORDER BY id", (session_id,)
+    ).fetchall()
+    if not measurement_rows or any(row[0] != expected_scope for row in measurement_rows):
+        raise ManualRegistrationError("Measurement全行のScope Keyが欠損または不一致です。")
+    return expected_scope
+
+
 class BatteryDatabaseDialog(QDialog):
     def __init__(self, db_path: str | Path, parent=None):
         super().__init__(parent)
@@ -292,26 +321,49 @@ class BatteryDatabaseDialog(QDialog):
             self.session_info.setText(f"Session read error: {exc}")
 
     def _register_result(self):
-        sid=self.session.currentData() or self.session.currentText().strip(); iid=self.result_instance.currentData()
-        if self._channel_identity not in ("CH1", "CH2"):
+        sid=self.session.currentData() or self.session.currentText().strip()
+        iid=self.result_instance.currentData()
+        expected_channel=self._channel_identity
+        if expected_channel not in ("CH1", "CH2"):
             QMessageBox.warning(self,"Benchmark Result","Channel identityまたはSample ValidityがUNKNOWNのため登録できません。")
             return
         if not sid or not iid:
-            QMessageBox.warning(self,"Benchmark Result","SessionとBattery Instanceを指定してください。"); return
+            QMessageBox.warning(self,"Benchmark Result","SessionとBattery Instanceを指定してください。")
+            return
         try:
+            values=(sid,iid,self.version.text().strip() or "battery-benchmark-v2",self.count.value(),self.avg_v.value(),self.avg_i.value(),self.avg_p.value(),self.max_i.value(),self.max_p.value(),self.duration.value(),self.drop.value(),self.cap.value(),self.energy.value())
+            # Lock the SQLite writer before the fresh identity read. Keep validation and
+            # INSERT in this same transaction so a concurrent Scope Key change cannot
+            # slip between the final check and registration.
             with self._db() as db:
+                db.execute("BEGIN IMMEDIATE")
+                validate_persisted_battery_scope(db, sid, expected_channel)
                 cols={r[1] for r in db.execute("PRAGMA table_info(measurement_session)").fetchall()}
                 if 'result' in cols:
-                    row=db.execute("SELECT result FROM measurement_session WHERE session_id=?",(sid,)).fetchone(); session_result=row[0] if row else None
+                    row=db.execute("SELECT result FROM measurement_session WHERE session_id=?",(sid,)).fetchone()
+                    session_result=row[0] if row else None
                 else:
-                    row=db.execute("SELECT end_time FROM measurement_session WHERE session_id=?",(sid,)).fetchone(); session_result='COMPLETE' if row and row[0] else 'RUNNING'
-            if not row: raise ManualRegistrationError("SessionがDBに存在しません")
-            validate_manual_registration(session_result=session_result,quality_ok=self.quality.isChecked(),operator_confirmed=self.operator.isChecked())
-            values=(sid,iid,self.version.text().strip() or "battery-benchmark-v2",self.count.value(),self.avg_v.value(),self.avg_i.value(),self.avg_p.value(),self.max_i.value(),self.max_p.value(),self.duration.value(),self.drop.value(),self.cap.value(),self.energy.value())
-            with self._db() as db:
-                db.execute("INSERT OR REPLACE INTO battery_benchmark_result (session_id,instance_id,analysis_version,measurement_count,avg_voltage,avg_current,avg_power,max_current,max_power,discharge_time_s,voltage_drop,capacity_mah,energy_wh) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",values); db.commit()
-            self.status.setText(f"REGISTERED: Session {sid} / Instance {iid}"); QMessageBox.information(self,"Benchmark Result","正式Benchmark Resultとして登録しました。")
-        except (ManualRegistrationError,sqlite3.Error) as exc: QMessageBox.critical(self,"Benchmark Result",str(exc))
+                    row=db.execute("SELECT end_time FROM measurement_session WHERE session_id=?",(sid,)).fetchone()
+                    session_result='COMPLETE' if row and row[0] else 'RUNNING'
+                if not row:
+                    raise ManualRegistrationError("SessionがDBに存在しません")
+                validate_manual_registration(
+                    session_result=session_result,
+                    quality_ok=self.quality.isChecked(),
+                    operator_confirmed=self.operator.isChecked(),
+                )
+                db.execute(
+                    "INSERT OR REPLACE INTO battery_benchmark_result "
+                    "(session_id,instance_id,analysis_version,measurement_count,avg_voltage,avg_current,avg_power,max_current,max_power,discharge_time_s,voltage_drop,capacity_mah,energy_wh) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    values,
+                )
+                db.commit()
+            self.status.setText(f"REGISTERED: Session {sid} / Instance {iid}")
+            QMessageBox.information(self,"Benchmark Result","正式Benchmark Resultとして登録しました。")
+        except (ManualRegistrationError,sqlite3.Error) as exc:
+            self.status.setText("NOT REGISTERED: Scope / Session validation failed")
+            QMessageBox.critical(self,"Benchmark Result",str(exc))
 
     def refresh_all(self):
         self._load_models(); self._load_instances(); self._load_sessions()
