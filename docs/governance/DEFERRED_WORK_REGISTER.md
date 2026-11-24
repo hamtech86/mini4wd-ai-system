@@ -501,3 +501,34 @@ The proposed definitions are not decisions or implementation authorization. Owne
 - PR #216 remains proposal-only, OPEN/unmerged, and not formally reviewed or approved.
 - No DDL, DB generation, Migration, Restore, schema change, implementation PR, merge/main update, or hardware operation.
 - This entry is a proposal-ledger synchronization only and does not grant acceptance or implementation authority.
+
+
+### 19.5 2026-11-24 統括決定 CC-04 / Owner Evidence Matrix read-back（旧提案状態を置換）
+
+Sources: [CC-04 Issue #210 comment #7129872294](https://github.com/hamtech86/mini4wd-ai-system/issues/210#issuecomment-7129872294), [統括指示 Issue #207 comment #7129889629](https://github.com/hamtech86/mini4wd-ai-system/issues/207#issuecomment-7129889629), [横断再審査 Issue #211 comment #7129906998](https://github.com/hamtech86/mini4wd-ai-system/issues/211#issuecomment-7129906998).
+
+This section supersedes the pending/proposed decision values in §19.2 and §19.2.1. Earlier proposal history is retained for audit; it is not current status.
+
+- DB-LR-01 SampleLocator: **DECIDED** — no DB-global grammar; Owner Schema + exact SchemaVersion owns interpretation; opaque UTF-8 lossless preservation; zero-length string invalid; no common logical max length; explicit implementation limit with reject/quarantine; no trim, normalization, truncation, or inferred semantics.
+- DB-LR-02 Role: **DECIDED** by Main §14.5.4 — non-NULL; only formal Measurement Type Owner Contract tokens; unknown Role rejected; no DB-global vocabulary.
+- DB-LR-03 Ordinal: **DECIDED** by Main §14.5.4 — 1-based contiguous, unique, non-reusable within (MeasurementID, Role).
+- DB-LR-04 cardinality: **DECIDED** — Measurement→RawLogReference 0..1; if Sample Links exist, exactly one RawLogReference is required; Measurement→Sample Link 0..N; each Link exactly one Measurement + one SampleReference; each SampleReference exactly one RawLogReference; RawLogReference at most one Measurement; SampleReference at most one Link; no implicit sharing; Required Role/Ordinal set is Owner Contract-defined.
+
+| ID | DECISION | DOCUMENT | IMPLEMENTATION | VERIFICATION | APPROVAL | Recovery |
+|---|---|---|---|---|---|---|
+| DB-LR-01 | DECIDED | REFLECTED after CC-04 sync | NOT_STARTED | NOT_RUN | PENDING | NO_CURRENT_BASIS for a universal grammar; owner-schema delegation is now decided |
+| DB-LR-02 | DECIDED | REFLECTED | NOT_STARTED | NOT_RUN | PENDING | RECOVERABLE from Main §14.5.4 |
+| DB-LR-03 | DECIDED | REFLECTED | NOT_STARTED | NOT_RUN | PENDING | RECOVERABLE from Main §14.5.4 |
+| DB-LR-04 | DECIDED | REFLECTED after CC-04 sync | NOT_STARTED | NOT_RUN | PENDING | Proposal is now decided; implementation evidence remains future work |
+
+### 19.6 Owner Capture evidence received — contract remains partial
+- Motor Issue #35 comment #7120818752 (M-01〜M-09 Evidence Matrix): RECEIVED; Motor evidence organization task is complete. No repeated evidence-matrix request. M-04 normative SPEC source remains PARTIAL unless formally identified; CODE/tests are implementation evidence.
+- Battery Issue #16 comment #7105933799 (seven-domain Evidence Matrix): RECEIVED; Battery evidence report is accepted for this inventory. PR #218 remains a separate OPEN/DRAFT/UNMERGED implementation review; CI PASS does not equal merge or physical 5A E2E verification.
+- Both Owner reports are received, but formal device Capture Contracts remain PARTIAL for normative end conditions, required sample sets, Outcome mapping, and physical verification. This is not “report missing”. DB Field Mapping remains DECIDED/REFLECTED. Do not re-query Motor/Battery for the same DB mapping.
+- GL-04 five-axis: DECISION=DECIDED (non-inference / responsibility boundary); DOCUMENT=PARTIAL (Owner evidence received; normative Capture contracts incomplete); IMPLEMENTATION=NOT_APPLICABLE before applicable Owner contract; VERIFICATION=NOT_RUN; APPROVAL=PENDING.
+- Unknown Owner semantics remain UNKNOWN/opaque, cannot be inferred COMPLETE, and are excluded from Current Aggregate.
+
+### 19.7 Authority and approval boundary
+- DB v0.8.3 remains unapproved pending separate final review. PR #216 remains OPEN / unmerged / not formally approved.
+- No DDL, DB generation, schema change, Migration, Restore, implementation PR, merge/main update, or hardware operation is authorized by CC-04 or this ledger synchronization.
+- Do not reopen CC-03, GL-01〜03, confirmed Field Mapping, or closed DB-001〜124 tracking. Earlier text in §19.2/19.2.1 is historical proposal state only and must not be used as current status.
