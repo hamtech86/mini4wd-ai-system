@@ -1,6 +1,7 @@
 """Operator UI for Battery Model, Instance and confirmed Benchmark registration."""
 from __future__ import annotations
 import sqlite3
+import math
 from pathlib import Path
 from PyQt5.QtWidgets import (QComboBox, QDialog, QFormLayout, QGroupBox, QLabel,
     QLineEdit, QMessageBox, QPushButton, QDoubleSpinBox, QSpinBox, QTabWidget,
@@ -19,7 +20,9 @@ def is_legacy_channel_ambiguous(session_notes):
 
 def infer_battery_session_channel(scope_keys):
     """Resolve CH only from an explicit persisted Scope Key, never column names."""
-    values = {str(value).strip() for value in scope_keys if value is not None and str(value).strip()}
+    if not scope_keys or any(value is None or not str(value).strip() for value in scope_keys):
+        return None
+    values = {str(value).strip() for value in scope_keys}
     if len(values) != 1:
         return None
     return {"BATTERY:CH1": "CH1", "BATTERY:CH2": "CH2"}.get(next(iter(values)))
@@ -194,16 +197,13 @@ class BatteryDatabaseDialog(QDialog):
                 session_scope = db.execute(
                     "SELECT scope_key FROM measurement_session WHERE session_id=?", (sid,)
                 ).fetchone()[0] if "scope_key" in scols else None
-                measurement_scopes = [
-                    row[0] for row in db.execute(
-                        "SELECT DISTINCT scope_key FROM measurement WHERE session_id=? AND scope_key IS NOT NULL",
-                        (sid,),
-                    ).fetchall()
-                ] if "scope_key" in mcols else []
                 mrows=db.execute(
-                    "SELECT elapsed_time,voltage1,voltage2,current1,current2,state FROM measurement WHERE session_id=? ORDER BY elapsed_time,id",
+                    "SELECT elapsed_time,voltage1,voltage2,current1,current2,state"
+                    + (",scope_key" if "scope_key" in mcols else "")
+                    + " FROM measurement WHERE session_id=? ORDER BY elapsed_time,id",
                     (sid,),
                 ).fetchall()
+                measurement_scopes = [row[6] for row in mrows] if "scope_key" in mcols else []
             if not srow or not mrows: return
             session_iid,start,end,result,session_notes=srow
             if is_legacy_channel_ambiguous(session_notes):
