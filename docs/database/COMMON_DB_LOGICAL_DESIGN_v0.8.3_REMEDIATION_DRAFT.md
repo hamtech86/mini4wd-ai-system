@@ -268,9 +268,9 @@ Assignment Snapshot Referenceは測定開始確定時点で有効な不変Snapsh
 - 正式な共通Envelopeと参照保存経路が実装・検証されるまで、既存schemaへのBattery側独自列追加・推定登録を禁止する。Scope / Reference / Hashを証明できないMeasurementはDB登録拒否またはUNKNOWN / opaque隔離とし、Current Aggregateから除外する。
 - 本節は論理Field mappingの確定であり、現行legacy DBがこれを実装済みであることを意味しない。
 
-### 7.2 DB-LR-01〜04 — DB Logical Residual Proposal（統括判断申請・2026-11-24）
+### 7.2 DB-LR-01〜04 — DB Logical Residual Record（CC-04決定反映・2026-11-24）
 
-本節は統括指示 #7103140455 に基づくDB Ownerの論理定義案であり、**PROPOSED / NOT APPROVED**。現行Draftに既に存在する規範と、追加判断が必要な提案を分離する。ここでの提案は決定・実装・DDL許可ではない。
+本節はDB Owner提案の履歴と統括決定を併記する。DB-LR-01 / 04はIssue #210 comment #7129872294（CC-04）でDECIDED、DB-LR-02 / 03はMain §14.5.4の既存規則によりDECIDED。以下の旧「判断申請」文言・提案内容は履歴であり、CC-04と本節末尾の統括決定同期を現行正本として優先する。実装・DDL許可ではない。
 
 #### DB-LR-01 — SampleLocator grammar
 
@@ -278,7 +278,7 @@ Assignment Snapshot Referenceは測定開始確定時点で有効な不変Snapsh
 
 **提案:** DB共通層ではSampleLocatorの内部構文を規定しない。値は発行元Schema / SchemaVersionに属するopaque UTF-8文字列として正確に保持し、DB側でtrim・case-fold・Unicode normalization・数値化・時刻変換をしない。解釈は発行元Ownerが同一SchemaVersionで定義したparserが存在するときだけ許可する。SchemaVersion / parserが不明、または形式不一致の場合はopaque保全に限定し、Sample順序・時刻・Channel・Featureを導出しない。空文字の許否・最大長は共通根拠がないため別途統括判断対象とする。
 
-**判断申請:** 共通文法を作らずOwner Schemaに委譲し、DBはopaque stringとして保全する方針を採用するか。空文字 / 最大長の制約を共通化するか。
+**CC-04決定:** 共通文法なし、Owner Schema / SchemaVersionへ委譲。opaque UTF-8をlossless保持。空文字は禁止、共通最大長なし、実装上限超過は拒否または隔離。
 
 #### DB-LR-02 — Role domain
 
@@ -307,16 +307,16 @@ Assignment Snapshot Referenceは測定開始確定時点で有効な不変Snapsh
 4. 現行Envelope field名が単数 `RawLogReferenceID` であるため、暫定推奨はMeasurement EnvelopeごとにRawLog Referenceを0..1件とし、Sample Link配下の全Sample Referenceは同一MeasurementのEnvelopeが示すRawLogReferenceIDと一致させる。RawLogReferenceIDがNULLのMeasurementはSample Linkを持てない。1 Measurementに複数RawLogReferenceが必要な実例・Owner契約が提示された場合は、単数Fieldを複数Reference集合へ拡張する別判断が必要。
 5. RawLog Referenceの複数Measurement共有、Sample Referenceの複数Measurement Link共有、ON DELETE / ON UPDATEの物理FK動作は根拠不足。論理上は正本・履歴不変、削除/更新禁止、参照欠落はREJECT / QUARANTINEDとする。共有可否は統括判断待ちとし、暗黙に許可しない。
 
-**判断申請:** 4の「1 Measurement : 0..1 RawLog Reference」推奨案、および共有可否の扱いを採用するか。異なる多重度が必要なら、根拠となる現行Owner Contractを指定してほしい。
+**CC-04決定:** Measurement→RawLogReferenceは0..1（Sample Linkがあれば必須）。Reference共有は複数Measurement間で禁止。SampleReferenceの複数Link共有も禁止。完全な制約は本節末尾のCC-04同期を参照。
 
 #### 5軸状態 / 回収可能性
 
 | ID | DECISION_STATUS | DOCUMENT_STATUS | IMPLEMENTATION_STATUS | VERIFICATION_STATUS | APPROVAL_STATUS | 回収可能性 |
 |---|---|---|---|---|---|---|
-| DB-LR-01 | OPEN（提案待ち） | PARTIAL（opaque ruleあり、grammar未定） | NOT_STARTED | NOT_RUN | PENDING | 共通grammarはNO_CURRENT_BASIS。Owner schema委譲案はDB内で作成可能 |
+| DB-LR-01 | DECIDED（CC-04） | REFLECTED（CC-04同期） | NOT_STARTED | NOT_RUN | PENDING | 共通grammarはNO_CURRENT_BASIS。Owner Schema委譲を決定 |
 | DB-LR-02 | DECIDED（Owner Contract語彙・unknown拒否の既存規則） | PARTIAL（Main記載、補助Inventory同期待ち） | NOT_STARTED | NOT_RUN | PENDING | RECOVERABLE（Main §14.5.4） |
 | DB-LR-03 | DECIDED（1-based contiguous / unique per Measurement+Role） | PARTIAL（Main記載、補助Inventory同期待ち） | NOT_STARTED | NOT_RUN | PENDING | RECOVERABLE（Main §14.5.4） |
-| DB-LR-04 | OPEN（多重度案の統括決定待ち） | PARTIAL（identity/link directionのみ） | NOT_STARTED | NOT_RUN | PENDING | NO_CURRENT_BASIS（完全多重度の現行根拠なし。論理案は提出可能） |
+| DB-LR-04 | DECIDED（CC-04） | REFLECTED（CC-04同期） | NOT_STARTED | NOT_RUN | PENDING | 論理多重度・共有禁止をCC-04で決定 |
 
 Owner固有Sample種類・必須数・Capture semanticsはMotor / Battery Ownerの責任であり、本表のDB論理残件へ含めない。未決の間はUnknown / opaque、COMPLETE不可、Current Aggregate除外を維持する。
 ## 8. RawLog耐障害完了条件の補足
