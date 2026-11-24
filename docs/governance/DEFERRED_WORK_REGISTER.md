@@ -551,3 +551,51 @@ Source: [Issue #210 comment #7130272797](https://github.com/hamtech86/mini4wd-ai
 | DB-RV-01〜08 | DECIDED | REFLECTED | NOT_STARTED | NOT_RUN | v0.8.3 PENDING |
 | GL-04 | DECIDED responsibility boundary | PARTIAL (Owner evidence received; formal Capture Contract incomplete) | NOT_APPLICABLE until Owner Contract | NOT_RUN | PENDING |
 | DB v0.8.3 overall | — | Draft synchronized | NOT_STARTED | NOT_RUN | PENDING |
+
+
+### 19.9 2026-11-24 統括最終受入レビュー — DB v0.8.3 Decision Baseline / 後続Gate分類
+
+Source: [Issue #211 final acceptance review comment #7130987157](https://github.com/hamtech86/mini4wd-ai-system/issues/211#issuecomment-7130987157), [CC-04 #7129872294](https://github.com/hamtech86/mini4wd-ai-system/issues/210#issuecomment-7129872294), [CC-05 #7130272797](https://github.com/hamtech86/mini4wd-ai-system/issues/210#issuecomment-7130272797).
+
+**Review disposition:** DB v0.8.3 logical Decision Baseline is conditionally acceptable. This is not approval of v0.8.3 as a whole, not implementation acceptance, and not authorization to merge this ledger PR or any implementation PR.
+
+- Reviewed DB Draft branch `db/v0.8.3-followup-remediation-20261121`, exact HEAD `4bf7f49abc79fe4b84820e86ebcc13d2d08c9b29`; four Draft documents were read back at that same SHA.
+- CC-01〜05, DB-RV-01〜08, and DB-LR-01〜04 are DECIDED; their decision state must not be reopened because implementation or verification is pending.
+- The old V083-RV-01〜05 and DB-LR-01〜04 proposal/pending entries in earlier sections are retained as audit history. Current state is defined by §19.5, §19.8, the four synchronized Drafts, and this §19.9.
+- No evidence-supported A — DESIGN_BLOCKER remains in the reviewed logical Decision Baseline. GL-04 Owner-specific semantics remain opaque/UNKNOWN and excluded from COMPLETE / Current Aggregate; this is a bounded Owner gate, not permission to infer missing semantics.
+
+#### 19.9.1 Remaining gates — ownership, recoverability, and disposition
+
+| Gate | Class | Recovery | Owner / dependency | Current status and next action | Stops logical design review? |
+|---|---|---|---|---|---|
+| GL-04 Motor formal Capture Contract | D + E | CONDITIONALLY_RECOVERABLE | Motor Owner; Issue #35 | M-01〜M-09 Evidence Matrix received. Only normative gaps remain: start/end and terminal Outcome contract, required Record/Sample set, retry/loss semantics, and authoritative SPEC location. Update Issue #35 only where the Owner can provide a normative source or explicitly declare NO_CURRENT_BASIS. Until then DB remains UNKNOWN/opaque. | NO |
+| GL-04 Battery formal Capture Contract | D + E | CONDITIONALLY_RECOVERABLE | Battery Owner; Issue #16 and external FW authority | Seven-domain Evidence Matrix received. Remaining normative gaps include Capture start/end, required COMPLETE sample set, byte/hash linkage, timestamp order, duplicate/partial/retry semantics, and Outcome mapping. No repeat Evidence Matrix or DB mapping request. Owner may provide formal source or explicitly mark unsupported items NO_CURRENT_BASIS. | NO |
+| Motor M-04 normative SPEC source | E | NO_CURRENT_BASIS (current checked record) | Motor Owner; Issue #35 | Code/tests evidence exists, but a distinct normative SPEC location has not been established. Keep SPEC=PARTIAL / CODE=IMPLEMENTED. Do not relabel code comments/tests as normative SPEC. | NO |
+| Motor physical benchmark / timestamp accuracy / physical STOP and current limit | D | CONDITIONALLY_RECOVERABLE | Motor Owner + physical equipment / user authorization; Issue #172 | NOT_RUN / NOT_CONFIRMED. Requires approved safety review, equipment, and explicit user authorization before any physical operation. `HARDWARE_CURRENT_LIMIT_CONFIRMED=false` remains. | NO |
+| Battery selected-channel 0.0 validity | B + D | NO_CURRENT_BASIS for current semantic distinction; conditionally recoverable only if Owner supplies an authoritative validity contract or new evidence | Battery Owner / external FW authority; Issue #208 and PR #218 | FW rounds current below 0.01A to 0.0 and no validity discriminator is evidenced. Keep selected-channel 0.0 as UNKNOWN / fail-closed; preserve raw values. Do not infer inactive sentinel. | NO |
+| Battery 5A physical E2E / expected-value validation | D + B | CONDITIONALLY_RECOVERABLE | Battery Owner + physical sample/fixture and authorized test setup; Issue #16 | NOT_RUN. Requires known-origin 5A dataset or reproducible fixture plus expected values; physical discharge requires separate explicit authorization. | NO |
+| DB UUIDv4 issuance / CSPRNG / M4W-JCS-1 / Golden Vectors | B | CONDITIONALLY_RECOVERABLE | DB implementation owner; target runtime and implementation authorization | Logical choices DECIDED; implementation NOT_STARTED; independent conformance and entity-specific issuance-path verification NOT_RUN. Build deterministic vectors and runtime evidence only after implementation authorization. | NO |
+| DB Receipt / Journal / SQLite transaction and crash recovery | B | CONDITIONALLY_RECOVERABLE | DB implementation owner; target OS/runtime and authorized test environment | Logical sequence DECIDED; implementation NOT_STARTED; verification NOT_RUN. Requires implementation authorization, crash-injection environment, and exact-head tests. | NO |
+| RawLog filesystem durability / read-back / fsync / rename | B + D | CONDITIONALLY_RECOVERABLE | DB / storage implementation owner; target OS, filesystem, mount, and test medium | Logical acceptance conditions DECIDED; target-environment durability evidence NOT_RUN. Do not mark Durable / VERIFIED before environment-specific proof. | NO |
+| Restore Phase A/B and source-to-mirror consistency | B | CONDITIONALLY_RECOVERABLE | DB implementation owner; approved backup/restore test environment | Two-phase rule DECIDED; implementation and restore exercise NOT_RUN. No Restore execution is authorized by this review. | NO |
+| PR #218 Battery CH1/CH2 code acceptance | B | RECOVERABLE for source/CI review; physical E2E remains CONDITIONALLY_RECOVERABLE | Battery Owner / authorized reviewer; PR #218 | PR remains OPEN / DRAFT / UNMERGED. Two reported workflows are SUCCESS on the code-bearing commit; CI is not merge acceptance or physical PASS. Conduct source review separately; no merge implied. | NO |
+| Governance ledger PR #216 acceptance | B / governance | RECOVERABLE |統括; PR #216 | This section updates the proposal ledger only. PR #216 remains OPEN / unmerged; formal review and merge are separate explicit actions. | NO |
+
+#### 19.9.2 Five-axis state after final review
+
+| Area | DECISION_STATUS | DOCUMENT_STATUS | IMPLEMENTATION_STATUS | VERIFICATION_STATUS | APPROVAL_STATUS |
+|---|---|---|---|---|---|
+| CC-01〜05 / DB-RV-01〜08 / DB-LR-01〜04 | DECIDED | REFLECTED in four Drafts | NOT_STARTED | NOT_RUN | v0.8.3 overall PENDING |
+| GL-04 responsibility boundary | DECIDED | PARTIAL — Owner evidence received, formal normative contracts incomplete | NOT_APPLICABLE until applicable Owner contract / authorization | NOT_RUN | PENDING |
+| Motor physical gate | Existing logical boundaries DECIDED | Evidence Matrix RECEIVED | Existing software evidence only | Physical NOT_RUN | PENDING |
+| Battery 0.0 / 5A E2E gate | CH independence DECIDED; zero semantics UNKNOWN | Evidence Matrix RECEIVED; contract PARTIAL | PR #218 OPEN / DRAFT | CI SUCCESS only; physical 5A E2E NOT_RUN | PENDING |
+| DB implementation / durability / restore gates | Logical requirements DECIDED | REFLECTED | NOT_STARTED | NOT_RUN | PENDING |
+| DB v0.8.3 overall | — | Draft only | NOT_STARTED | NOT_RUN | PENDING |
+
+#### 19.9.3 Re-entry and anti-resurfacing rule
+
+1. A closed decision reopens only on new contradictory evidence that identifies the exact affected rule, source, and impact. Historical OPEN wording, missing implementation, or NOT_RUN verification is not contradictory evidence.
+2. Owner reports already received are not requested again. Ask only for a missing normative source or a specifically identified new fact; if none exists, record NO_CURRENT_BASIS and retain the fail-closed disposition.
+3. Every follow-up updates the relevant canonical Issue and links this ledger; do not create duplicate issue trackers for the same gate.
+4. No gate above authorizes DDL, schema change, DB generation, Migration, Restore execution, implementation PR merge, main update, firmware change, physical energization, or hardware measurement.
+5. Overall v0.8.3 approval, PR #216 merge, PR #218 merge, and physical test authorization remain separate explicit decisions.
