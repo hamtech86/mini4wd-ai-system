@@ -847,15 +847,15 @@ Request StateをOPEN / SUCCEEDED / FAILED / CANCELLED / INDETERMINATEに固定�
 | 論点 / DB-RV | 最終状態 | 決定根拠 | 残るもの（設計未決定ではない） |
 |---|---|---|---|
 | DB-RV-01 Session存在条件とAssignment State | CC-01 / CC-03論理判断済み・文書同期 | Main §1 / §14.1（Session生成・保持、MeasurementはRUN_SCOPE直結） | Session Manager実装・権限試験。v0.8.3全体承認とは別 |
-| DB-RV-02 DB Run生成後ライフサイクル | DB部門案あり・統括承認待ち | Main §1（DB Run生成・保持・再割当条件） | Run Manager実装・権限試験 |
-| DB-RV-03 Receipt PREPARED永続化順序 | DB部門案あり・統括承認待ち | Main §2、Receipt Contract §22（Main優先） | filesystem / SQLite crash・durability・Recovery実証 |
-| DB-RV-04 Aggregate要求履歴 / Revision | DB部門案あり・統括承認待ち | Main §3 | Aggregate Manager / Workerの実装・競合・crash受入試験 |
-| DB-RV-05 Artifact DAG / 再解析不変性 | DB部門案あり・統括承認待ち | Main §4 | Kind別Payload契約受領と検証器試験。未知Kindはopaque / reject |
-| DB-RV-06 UUIDv5 Canonical Input（旧要求） | 旧UUIDv5案を不採用とする変更案・統括承認待ち | Main §5（UUIDv4 / M4W-JCS-1案） | JCS適合試験、Entity別入力・期待Hash vector、Namespace不採用の統括確認 |
-| DB-RV-07 外部正本とDB Entity / Mirror境界 | DB部門案あり・統括承認待ち | Main §6、§8 | 機器別Capture / RawLog契約、OS / filesystem durability、Restore実証 |
-| DB-RV-08 AssignmentとAggregate対象範囲 | DB部門案あり・統括承認待ち | Main §1、§7 | NONE / ANONYMOUS対象条件とAggregate / Pair Analysisの正式契約照合 |
+| DB-RV-02 DB Run生成後ライフサイクル | CC-05 DECIDED | Main §1（DB Run生成・保持・再割当条件） | Run Manager実装・権限試験 |
+| DB-RV-03 Receipt PREPARED永続化順序 | CC-05 DECIDED | Main §2、Receipt Contract §22（Main優先） | filesystem / SQLite crash・durability・Recovery実証 |
+| DB-RV-04 Aggregate要求履歴 / Revision | CC-05 DECIDED | Main §3 | Aggregate Manager / Workerの実装・競合・crash受入試験 |
+| DB-RV-05 Artifact DAG / 再解析不変性 | CC-05 DECIDED | Main §4 | Kind別Payload契約受領と検証器試験。未知Kindはopaque / reject |
+| DB-RV-06 Identity / Hash（旧UUIDv5要求の置換） | CC-05 DECIDED（UUIDv4 / M4W-JCS-1、UUIDv5不採用） | Main §5（UUIDv4 / M4W-JCS-1案） | JCS適合試験、Entity別入力・期待Hash vector、Namespace不採用の統括確認 |
+| DB-RV-07 外部正本とDB Entity / Mirror境界 | CC-05 DECIDED | Main §6、§8 | 機器別Capture / RawLog契約、OS / filesystem durability、Restore実証 |
+| DB-RV-08 AssignmentとAggregate対象範囲 | CC-05 DECIDED | Main §1、§7 | NONE / ANONYMOUS対象条件とAggregate / Pair Analysisの正式契約照合 |
 
-**番号対応の拘束:** DB-RV-01〜08はIssue #209の元定義を固定して使用する。上表のIDと意味を別の論点へ転用しない。Entity / identity inventoryは横断的な設計資料であり、独立したDB-RV番号ではない。新規の統括差戻し論点はV083-RV-01等の別系列で追跡する。表中の「DB部門案あり」は統括承認・実証完了を意味しない。
+**番号対応の拘束:** DB-RV-01〜08はIssue #209の元定義を固定して使用する。上表のIDと意味を別の論点へ転用しない。Entity / identity inventoryは横断的な設計資料であり、独立したDB-RV番号ではない。新規の統括差戻し論点はV083-RV-01等の別系列で追跡する。DB-RV-01〜08の論理選択はCC-01 / CC-03 / CC-05によりDECIDED。実装・検証・Owner Contract・v0.8.3全体承認は別軸である。
 
 ### 36.1 過去の未決定記述の置換規則
 1. NONE Session membershipのA/B/C案はSUPERSEDED / NOT_ADOPTED。CC-03によりMeasurementはRUN_SCOPEへ直接属し、Sessionは同一RUN_SCOPE配下の独立Lifecycle Entityとする。
@@ -1113,3 +1113,18 @@ Source of truth: [Issue #210 comment #7129872294](https://github.com/hamtech86/m
 - Motor M-04: protocol byte layout evidenced in CODE/tests is not by itself proof of a normative SPEC. Until the normative specification source is identified, classify SPEC=PARTIAL and CODE=IMPLEMENTED. No M-01〜M-09 re-investigation is requested.
 
 Do not reopen CC-03, GL-01〜03, confirmed Field Mapping, or the closed DB-001〜124 tracking task. Do not ask Motor/Battery the same DB mapping questions again.
+
+
+## 統括決定 CC-05 同期 — DB-RV-02〜08（2026-11-24）
+
+Source of truth: [Issue #210 comment #7130272797](https://github.com/hamtech86/mini4wd-ai-system/issues/210#issuecomment-7130272797). DB-RV-01はCC-01 / CC-03で既決定。CC-05はDB-RV-02〜08の論理選択をDECIDEDとする。Issue #209の旧BLOCKERは設計選択として解消し、未実装・未実証事項は独立Gateに残す。
+
+- **DB-RV-02 DECIDED:** DB RunはPhysical Runにつき最大1件。DB正常利用可能時の最初の有効ASSIGNED Operationで一度だけ生成し、NONE/ANONYMOUSへの再割当後も保持・再利用。DB unavailable期間はIssue #201 Anonymous Modeを適用し、新規DB Run/ASSIGNEDを作らない。削除・再生成・再採番禁止。
+- **DB-RV-03 DECIDED:** Writer Grant/Chain検証からOperation/Receipt固定、Journal Intent、Receipt Envelope、PREPARED、Source Commit、SOURCE_COMMITTED、DB Mirror+Marker同一Transaction、read-back、DB_COMMITTED、依存再検証、VERIFIED、Writer Releaseの順序を採用。Source Commit後ABORTED禁止。結果不明・tail・Hash/ID/Ordinal/Epoch競合はQUARANTINED。同一ID+同一Payloadのみ冪等再試行。
+- **DB-RV-04 DECIDED:** Request/Attemptは不変・append-only、Ordinalは指定Scope内単調増加・再利用禁止。Request内成功Attempt/Resultは最大1件。成功AttemptのみResult Revision生成。Latest Requested/Successful/Current Validは派生参照とし、結果不明はfencing proofまで隔離。
+- **DB-RV-05 DECIDED:** Analysis/Simulation Artifactは不変、再解析・再実行ごとに新ID。Inputは確定済み・Hash検証済み。自己参照/循環禁止。Input Set Hashは型・参照ID・Hash・Role・Ordinal・Required・Source Revisionを固定順で計算。欠落/不一致は拒否または隔離。
+- **DB-RV-06 DECIDED:** 新規Entity IDはUUIDv4、Issuer RoleはGL-01。Structured HashはM4W-JCS-1/SHA-256。RawLog Object Hashは変換前ファイル全byteのSHA-256。UUIDv5/Namespace/Canonical Binary Name v2は新規方式として不採用。独立JCS適合、Golden Vector、CSPRNG、Entity別発行経路は検証Gate。
+- **DB-RV-07 DECIDED:** 外部正本を唯一の事実Authority、DB Mirrorは派生検索/集計表現とする。Mirrorから正本を逆生成しない。DB unavailable中のMeasurement/RawLogはANONYMOUS外部正本のみで保全し、後日取込・Mirror化・Association禁止。RestoreはPhase A structural / Phase B cross-evidence validationの二段階。
+- **DB-RV-08 DECIDED:** Current Aggregateは現在ASSIGNEDかつ測定開始時ASSIGNED、測定時と現在のInstance ID一致、Scope/Owner/Capture/Reference/Hash条件を満たすMeasurementのみ。NONE/ANONYMOUS開始、異なるInstance、STOP/ERROR/CANCEL/INCOMPLETE/UNKNOWN、Capture Contract不足・証拠不足は除外。後日Assignment遡及算入禁止。Historical Analysisは別Artifact。CH1/CH2独立、平均・合算禁止。
+
+**5軸:** DB-RV-01〜08 DECISION_STATUS=DECIDED。DOCUMENT_STATUSは本節同期後REFLECTED。IMPLEMENTATION_STATUS=NOT_STARTED、VERIFICATION_STATUS=NOT_RUN。v0.8.3全体APPROVAL_STATUSは別審査でPENDING。CC-05はDDL、DB生成、Migration、Restore、実装PR、merge、main反映、実機操作を許可しない。
