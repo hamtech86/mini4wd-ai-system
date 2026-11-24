@@ -532,3 +532,22 @@ This section supersedes the pending/proposed decision values in §19.2 and §19.
 - DB v0.8.3 remains unapproved pending separate final review. PR #216 remains OPEN / unmerged / not formally approved.
 - No DDL, DB generation, schema change, Migration, Restore, implementation PR, merge/main update, or hardware operation is authorized by CC-04 or this ledger synchronization.
 - Do not reopen CC-03, GL-01〜03, confirmed Field Mapping, or closed DB-001〜124 tracking. Earlier text in §19.2/19.2.1 is historical proposal state only and must not be used as current status.
+
+
+### 19.8 2026-11-24 統括決定 CC-05 — DB-RV-02〜08
+
+Source: [Issue #210 comment #7130272797](https://github.com/hamtech86/mini4wd-ai-system/issues/210#issuecomment-7130272797). This decision supersedes the historical "統括承認待ち" status for DB-RV-02〜08 in §19. Earlier investigation entries remain audit history only.
+
+- DB-RV-01: already DECIDED by CC-01 / CC-03.
+- DB-RV-02〜08: DECIDED by CC-05. DB Run lifecycle, Receipt persistence order, Aggregate Request/Attempt/Revision, immutable Artifact DAG, UUIDv4 + M4W-JCS-1 identity/hash, external source vs DB Mirror boundary, and Assignment/Current Aggregate eligibility are now selected at the logical-design level.
+- DB-RV-06 explicitly rejects UUIDv5 / Namespace / Canonical Binary Name v2 as new v0.8.3 issuance schemes. Existing IDs are not changed.
+- Implementation and verification remain separate: IMPLEMENTATION=NOT_STARTED; VERIFICATION=NOT_RUN. Hardware, crash durability, independent JCS conformance, CSPRNG, Owner Capture Contract and restore evidence remain their respective gates.
+- DB-RV-01〜08 DECISION_STATUS=DECIDED. DOCUMENT_STATUS=REFLECTED after the CC-05 synchronization across Main, Entity Inventory, Cross-Document Audit and Self Review. v0.8.3 overall approval remains PENDING; PR #216 remains unmerged.
+- CC-05 does not authorize DDL, schema change, DB generation, Migration, Restore, implementation PR, merge, main update, or hardware operation.
+- Do not reopen CC-01〜05, GL-01〜03, DB Field Mapping, or closed DB-001〜124 tracking. Do not re-ask Motor/Battery for DB mapping. Their Evidence Matrices are RECEIVED; normative Capture Contract gaps remain Owner-specific gates.
+
+| Gate | Decision | Document | Implementation | Verification | Overall approval |
+|---|---|---|---|---|---|
+| DB-RV-01〜08 | DECIDED | REFLECTED | NOT_STARTED | NOT_RUN | v0.8.3 PENDING |
+| GL-04 | DECIDED responsibility boundary | PARTIAL (Owner evidence received; formal Capture Contract incomplete) | NOT_APPLICABLE until Owner Contract | NOT_RUN | PENDING |
+| DB v0.8.3 overall | — | Draft synchronized | NOT_STARTED | NOT_RUN | PENDING |
