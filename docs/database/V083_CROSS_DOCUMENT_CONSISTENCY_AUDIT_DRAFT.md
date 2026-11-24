@@ -851,7 +851,7 @@ Request StateをOPEN / SUCCEEDED / FAILED / CANCELLED / INDETERMINATEに固定�
 | DB-RV-03 Receipt PREPARED永続化順序 | CC-05 DECIDED | Main §2、Receipt Contract §22（Main優先） | filesystem / SQLite crash・durability・Recovery実証 |
 | DB-RV-04 Aggregate要求履歴 / Revision | CC-05 DECIDED | Main §3 | Aggregate Manager / Workerの実装・競合・crash受入試験 |
 | DB-RV-05 Artifact DAG / 再解析不変性 | CC-05 DECIDED | Main §4 | Kind別Payload契約受領と検証器試験。未知Kindはopaque / reject |
-| DB-RV-06 Identity / Hash（旧UUIDv5要求の置換） | CC-05 DECIDED（UUIDv4 / M4W-JCS-1、UUIDv5不採用） | Main §5（UUIDv4 / M4W-JCS-1案） | JCS適合試験、Entity別入力・期待Hash vector、Namespace不採用の統括確認 |
+| DB-RV-06 Identity / Hash（旧UUIDv5要求の置換） | CC-05 DECIDED（UUIDv4 / M4W-JCS-1、UUIDv5不採用） | Main §5（UUIDv4 / M4W-JCS-1案） | JCS独立実装適合・Golden Vector・CSPRNG・Entity別発行経路のVerification Gate（UUIDv5 / Namespace承認待ちではない） |
 | DB-RV-07 外部正本とDB Entity / Mirror境界 | CC-05 DECIDED | Main §6、§8 | 機器別Capture / RawLog契約、OS / filesystem durability、Restore実証 |
 | DB-RV-08 AssignmentとAggregate対象範囲 | CC-05 DECIDED | Main §1、§7 | NONE / ANONYMOUS対象条件とAggregate / Pair Analysisの正式契約照合 |
 
