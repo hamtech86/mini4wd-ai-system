@@ -314,8 +314,8 @@ Assignment Snapshot Referenceは測定開始確定時点で有効な不変Snapsh
 | ID | DECISION_STATUS | DOCUMENT_STATUS | IMPLEMENTATION_STATUS | VERIFICATION_STATUS | APPROVAL_STATUS | 回収可能性 |
 |---|---|---|---|---|---|---|
 | DB-LR-01 | DECIDED（CC-04） | REFLECTED（CC-04同期） | NOT_STARTED | NOT_RUN | PENDING | 共通grammarはNO_CURRENT_BASIS。Owner Schema委譲を決定 |
-| DB-LR-02 | DECIDED（Owner Contract語彙・unknown拒否の既存規則） | PARTIAL（Main記載、補助Inventory同期待ち） | NOT_STARTED | NOT_RUN | PENDING | RECOVERABLE（Main §14.5.4） |
-| DB-LR-03 | DECIDED（1-based contiguous / unique per Measurement+Role） | PARTIAL（Main記載、補助Inventory同期待ち） | NOT_STARTED | NOT_RUN | PENDING | RECOVERABLE（Main §14.5.4） |
+| DB-LR-02 | DECIDED（Main §14.5.4） | REFLECTED（CC-04同期） | NOT_STARTED | NOT_RUN | PENDING | RECOVERABLE（Main §14.5.4） |
+| DB-LR-03 | DECIDED（Main §14.5.4） | REFLECTED（CC-04同期） | NOT_STARTED | NOT_RUN | PENDING | RECOVERABLE（Main §14.5.4） |
 | DB-LR-04 | DECIDED（CC-04） | REFLECTED（CC-04同期） | NOT_STARTED | NOT_RUN | PENDING | 論理多重度・共有禁止をCC-04で決定 |
 
 Owner固有Sample種類・必須数・Capture semanticsはMotor / Battery Ownerの責任であり、本表のDB論理残件へ含めない。未決の間はUnknown / opaque、COMPLETE不可、Current Aggregate除外を維持する。
@@ -451,7 +451,7 @@ V082-001〜030は既存のまま保持する。V082-031〜053は追加案であ�
 - [ ] RawLogのFile fsync / Directory fsync / collision / recovery条件を対象環境で実証
 - [ ] Restore二段階Receipt検証とMirror再生成条件を対象環境で実証
 - [x] DB-001〜124個別追跡・全件Crosswalkは現行完成条件から除外済み（再開しない）
-- [ ] Motor / Battery正式Capture契約を受領し、GL-04境界を照合
+- [x] Motor / Battery Evidence Matrixを受領・照合済み（Issue #35 comment #7120818752 / Issue #16 comment #7105933799）。正式Capture Contractの不足部分はOwner側Gateとして継続し、DBはUNKNOWN / opaque / fail-closedを維持。
 
 **提出状態: 差戻し解消案。統括再審査・承認前。実装移行不可。**
 
@@ -549,8 +549,8 @@ V082-001〜030は既存のまま保持する。V082-031〜053は追加案であ�
    | GL-01 | DECIDED | REFLECTED | NOT_STARTED（実Principal / Service登録・発行経路未実装） | NOT_RUN | PENDING |
    | GL-02 | DECIDED | REFLECTED | NOT_STARTED | NOT_RUN | PENDING |
    | GL-03 | DECIDED | REFLECTED | NOT_STARTED | BLOCKED（正式Capture契約未受領データはAggregate不可） | PENDING |
-   | GL-04 | DECIDED（非推測・責任境界） | PARTIAL（完全Capture契約未受領） | NOT_APPLICABLE（契約受領前） | NOT_RUN | PENDING |
-5. **GL-04 Capture Contract（統括決定・契約受領待ち）:** Motor / Batteryの正式Capture終端・必須Sample・Outcome Mapping・RawLog framing / timestamp / channel契約をDB部門が推測補完しない。MotorはIssue #35を正本、#170を実装タスクとし、BatteryはIssue #16とBattery spec v2を参照する。各Ownerから正式契約が受領されるまでは対象Measurementをopaque保存に限定し、COMPLETE / Current Aggregate算入を推定しない。提出依頼はMotor Issue #35 comment #7079482192、Battery Issue #16 comment #7079482810に限定照会として記録済み。
+   | GL-04 | DECIDED（非推測・責任境界） | PARTIAL（Owner Evidence Matrix受領済み、正式Capture Contractは部分定義） | NOT_APPLICABLE（Owner Contract確定前） | NOT_RUN | PENDING |
+5. **GL-04 Capture Contract（Evidence Matrix受領済み・Owner Contract部分定義）:** Motor Issue #35 comment #7120818752のM-01〜M-09 Evidence Matrix、およびBattery Issue #16 comment #7105933799の7領域Evidence Matrixを受領済み。これらは証拠整理報告であり、正式Capture Contractの全て（規範的終端条件・必須Sample集合・Outcome mapping・物理検証）を確定するものではない。正式契約の不足部分は各Ownerの責任とし、DB部門は推測補完しない。未定義MeasurementはUNKNOWN / opaqueとして保持し、COMPLETE / Current Aggregate算入を推定しない。DB Field MappingはDECIDED / REFLECTEDであり、同じMappingの再照会は禁止。
 
 
 ### 7.3 統括決定 CC-04 同期
