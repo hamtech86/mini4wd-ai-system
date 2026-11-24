@@ -423,14 +423,14 @@ Request StateはOPEN / SUCCEEDED / FAILED / CANCELLED / INDETERMINATE。Attempt�
 
 | 論点 / DB-RV | 最終状態 | 決定根拠 | 残るもの（設計未決定ではない） |
 |---|---|---|---|
-| DB-RV-01 Session存在条件とAssignment State | 統括決定CC-03済み・文書同期待ち | Main §1 / §14.1（Measurement→RUN_SCOPE、Session独立Lifecycle） | Session Manager実装・権限試験 |
-| DB-RV-02 DB Run生成後ライフサイクル | CC-05 DECIDED | Main §1（DB Run生成・保持・再割当条件） | 実装・権限試験 |
-| DB-RV-03 Receipt PREPARED永続化順序 | CC-05 DECIDED | Main §2、Receipt Contract §22（Main優先） |  / SQLite crash・durability・Recovery実証 |
-| DB-RV-04 Aggregate要求履歴 / Revision | CC-05 DECIDED | Main §3 |  / Workerの実装・競合・crash受入試験 |
-| DB-RV-05 Artifact DAG / 再解析不変性 | CC-05 DECIDED | Main §4 | Payload契約受領と検証器試験。未知Kindはopaque / reject |
+| DB-RV-01 Session存在条件とAssignment State | CC-01 / CC-03 DECIDED | Main §1 / §14.1 | Session Manager実装・権限試験 |
+| DB-RV-02 DB Run生成後ライフサイクル | CC-05 DECIDED | Main §1 / CC-05 | Run Manager実装・権限試験 |
+| DB-RV-03 Receipt PREPARED永続化順序 | CC-05 DECIDED | Main §2 / CC-05 | Filesystem / SQLite crash・durability・Recovery実証 |
+| DB-RV-04 Aggregate要求履歴 / Revision | CC-05 DECIDED | Main §3 / CC-05 | Aggregate Manager / Worker実装・競合・crash受入試験 |
+| DB-RV-05 Artifact DAG / 再解析不変性 | CC-05 DECIDED | Main §4 / CC-05 | Kind別Payload Contractと検証器試験 |
 | DB-RV-06 Identity / Hash（旧UUIDv5要求の置換） | CC-05 DECIDED（UUIDv4 / M4W-JCS-1、UUIDv5不採用） | Main §5 / GL-01 / CC-05 | JCS独立適合・CSPRNG・Entity別発行経路のVerification Gate |
-| DB-RV-07 外部正本とDB Entity / Mirror境界 | CC-05 DECIDED | Main §6、§8 | Capture / RawLog契約、OS / filesystem durability、Restore実証 |
-| DB-RV-08 AssignmentとAggregate対象範囲 | CC-05 DECIDED | Main §1、§7 | 対象条件とAggregate / Pair Analysisの正式契約照合 |
+| DB-RV-07 外部正本とDB Entity / Mirror境界 | CC-05 DECIDED | Main §6 / §8 / CC-05 | Owner Capture / RawLog Contract、OS / filesystem durability、Restore実証 |
+| DB-RV-08 AssignmentとAggregate対象範囲 | CC-05 DECIDED | Main §1 / §7 / CC-05 | Aggregate / Pair Analysis実装・検証、Owner Contract Gate |
 
 **番号対応の拘束:** DB-RV-01〜08はIssue #209の元定義を固定して使用する。上表のIDと意味を別の論点へ転用しない。Entity / identity inventoryは横断的な設計資料であり、独立したDB-RV番号ではない。新規の統括差戻し論点はV083-RV-01等の別系列で追跡する。DB-RV-01〜08の論理選択はCC-01 / CC-03 / CC-05によりDECIDED。実装・検証・Owner Contract・v0.8.3全体承認は別軸である。
 
