@@ -370,15 +370,15 @@ Request StateとAttempt StateをMain §3.2で固定。Retry ClosedはFAILED Atte
 | 論点 / DB-RV | 最終状態 | 決定根拠 | 残るもの（設計未決定ではない） |
 |---|---|---|---|
 | DB-RV-01 Session存在条件とAssignment State | CC-01 / CC-03論理判断済み・文書同期 | Main §1 / §14.1（Session生成・保持、MeasurementはRUN_SCOPE直結） | Session Manager実装・権限試験。v0.8.3全体承認とは別 |
-| DB-RV-02 DB Run生成後ライフサイクル | DB部門案あり・統括承認待ち | Main §1（DB Run生成・保持・再割当条件） | Run Manager実装・権限試験 |
-| DB-RV-03 Receipt PREPARED永続化順序 | DB部門案あり・統括承認待ち | Main §2、Receipt Contract §22（Main優先） | filesystem / SQLite crash・durability・Recovery実証 |
-| DB-RV-04 Aggregate要求履歴 / Revision | DB部門案あり・統括承認待ち | Main §3 | Aggregate Manager / Workerの実装・競合・crash受入試験 |
-| DB-RV-05 Artifact DAG / 再解析不変性 | DB部門案あり・統括承認待ち | Main §4 | Kind別Payload契約受領と検証器試験。未知Kindはopaque / reject |
-| DB-RV-06 UUIDv5 Canonical Input（旧要求） | 旧UUIDv5案を不採用とする変更案・統括承認待ち | Main §5（UUIDv4 / M4W-JCS-1案） | JCS適合試験、Entity別入力・期待Hash vector、Namespace不採用の統括確認 |
-| DB-RV-07 外部正本とDB Entity / Mirror境界 | DB部門案あり・統括承認待ち | Main §6、§8 | 機器別Capture / RawLog契約、OS / filesystem durability、Restore実証 |
-| DB-RV-08 AssignmentとAggregate対象範囲 | DB部門案あり・統括承認待ち | Main §1、§7 | NONE / ANONYMOUS対象条件とAggregate / Pair Analysisの正式契約照合 |
+| DB-RV-02 DB Run生成後ライフサイクル | CC-05 DECIDED | Main §1.1 / CC-05 | Run Manager実装・権限試験 |
+| DB-RV-03 Receipt PREPARED永続化順序 | CC-05 DECIDED | Main §2 / CC-05 | filesystem / SQLite crash・durability・Recovery実証 |
+| DB-RV-04 Aggregate要求履歴 / Revision | CC-05 DECIDED | Main §3 / CC-05 | Aggregate Manager / Workerの実装・競合・crash受入試験 |
+| DB-RV-05 Artifact DAG / 再解析不変性 | CC-05 DECIDED | Main §4 / CC-05 | Kind別Payload契約受領と検証器試験。未知Kindはopaque / reject |
+| DB-RV-06 Identity / Hash（旧UUIDv5要求の置換） | CC-05 DECIDED（UUIDv4 / M4W-JCS-1、UUIDv5不採用） | Main §5 / GL-01 / CC-05 | JCS独立実装適合、CSPRNG、Entity別発行経路の実証 |
+| DB-RV-07 外部正本とDB Entity / Mirror境界 | CC-05 DECIDED | Main §6、§8 / CC-05 | 機器別Capture Contract、OS / filesystem durability、Restore実証 |
+| DB-RV-08 AssignmentとAggregate対象範囲 | CC-05 DECIDED | Main §1、§7 / CC-05 | Aggregate / Pair Analysis実装・検証、Owner Contract Gate |
 
-**番号対応の拘束:** DB-RV-01〜08はIssue #209の元定義を固定して使用する。上表のIDと意味を別の論点へ転用しない。Entity / identity inventoryは横断的な設計資料であり、独立したDB-RV番号ではない。新規の統括差戻し論点はV083-RV-01等の別系列で追跡する。表中の「DB部門案あり」は統括承認・実証完了を意味しない。
+**番号対応の拘束:** DB-RV-01〜08はIssue #209の元定義を固定して使用する。上表のIDと意味を別の論点へ転用しない。Entity / identity inventoryは横断的な設計資料であり、独立したDB-RV番号ではない。新規の統括差戻し論点はV083-RV-01等の別系列で追跡する。DB-RV-01〜08の論理選択はCC-01 / CC-03 / CC-05によりDECIDED。実装・検証・Owner Contract・v0.8.3全体承認は別軸である。
 
 ### 36.1 過去の未決定記述の置換規則
 1. NONE Session membershipのA/B/C案は不採用。Main §14.1(4)–(7)のScope単位・Session存在条件・DB availability・ANONYMOUS禁止境界を採用。
@@ -392,7 +392,7 @@ Request StateとAttempt StateをMain §3.2で固定。Retry ClosedはFAILED Atte
 
 ### 36.2 完了判定の分離
 - **設計選択:** 本表によりOPEN / TBDを閉じた。
-- **契約証拠:** Motor / Battery / Run Managerからの正式Schema・Lifecycle・Capture終端・Close authorityは未受領のものがある。未受領項目は本版の適用対象外またはopaque/fail-closedであり、他部門仕様を推測しない。
+- **契約証拠:** Motor Issue #35 comment #7120818752とBattery Issue #16 comment #7105933799のEvidence Matrixは受領済み。ただし正式Schema / Capture終端 / 必須Sample / Outcome mapping / Close authorityの一部は未確定であり、各Ownerの別Gateとして扱う。DBはUNKNOWN / opaque / fail-closedを維持し、他部門仕様を推測しない。
 - **実証:** UUID/JCS、filesystem、SQLite、crash recovery、Restore、Concurrencyの受入試験は未実施。
 - **承認:** v0.8.3はDraft。統括最終承認・実装許可・DDL/DB生成/Migration/Restore実行/PR/main反映を意味しない。
 
