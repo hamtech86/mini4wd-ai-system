@@ -51,12 +51,11 @@ def test_service_requires_explicit_channel():
         service.analyze_session("S1")
 
 
-@pytest.mark.parametrize("requested_channel", ["CH1", "CH2"])
-def test_service_rejects_session_scope_mismatch(requested_channel):
+def test_service_rejects_session_scope_mismatch():
     db = make_database()
     service = BatteryBenchmarkService(db)
     with pytest.raises(ValueError, match="Session Scope Key"):
-        service.analyze_session("S1", channel=requested_channel if requested_channel == "CH2" else "CH2")
+        service.analyze_session("S1", channel="CH2")
 
 
 @pytest.mark.parametrize("bad_scopes", [
