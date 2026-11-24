@@ -551,3 +551,49 @@ V082-001〜030は既存のまま保持する。V082-031〜053は追加案であ�
    | GL-03 | DECIDED | REFLECTED | NOT_STARTED | BLOCKED（正式Capture契約未受領データはAggregate不可） | PENDING |
    | GL-04 | DECIDED（非推測・責任境界） | PARTIAL（完全Capture契約未受領） | NOT_APPLICABLE（契約受領前） | NOT_RUN | PENDING |
 5. **GL-04 Capture Contract（統括決定・契約受領待ち）:** Motor / Batteryの正式Capture終端・必須Sample・Outcome Mapping・RawLog framing / timestamp / channel契約をDB部門が推測補完しない。MotorはIssue #35を正本、#170を実装タスクとし、BatteryはIssue #16とBattery spec v2を参照する。各Ownerから正式契約が受領されるまでは対象Measurementをopaque保存に限定し、COMPLETE / Current Aggregate算入を推定しない。提出依頼はMotor Issue #35 comment #7079482192、Battery Issue #16 comment #7079482810に限定照会として記録済み。
+
+
+### 7.3 統括決定 CC-04 同期
+
+## 統括決定 CC-04 同期 — DB-LR-01 / DB-LR-04（2026-11-24）
+
+Source of truth: [Issue #210 comment #7129872294](https://github.com/hamtech86/mini4wd-ai-system/issues/210#issuecomment-7129872294). This addendum supersedes earlier proposal/pending wording for DB-LR-01 and DB-LR-04 in this Draft. It does not approve v0.8.3 as a whole or authorize DDL, schema changes, DB generation, Migration, Restore, implementation, merge, or main update.
+
+### CC-04A — SampleLocator (DB-LR-01): DECIDED
+- No DB-global SampleLocator grammar. The issuing Owner Schema and SchemaVersion own interpretation.
+- Store as an opaque UTF-8 value, losslessly. Do not trim, case-fold, Unicode-normalize, parse numerically, convert timestamps, or infer offset/index/time/channel/sample ordinal.
+- Empty string (zero length) is invalid. Non-empty values, including whitespace-only values, remain opaque unless the applicable Owner Schema explicitly says otherwise; DB must not trim them.
+- No common logical maximum character/byte length is defined. A storage/implementation limit must be explicit; exceeding it means reject or quarantine, never truncate or normalize.
+- Interpret only with the formal Owner parser for the exact matching SchemaVersion. Otherwise retain opaque only.
+- Invalid UTF-8 that cannot be losslessly represented as text is rejected or quarantined as opaque byte evidence; never repair with replacement characters.
+
+### CC-04B — Link / Reference cardinality (DB-LR-04): DECIDED
+- Measurement Envelope has 0..1 RawLogReferenceID. If it has one or more Sample Links, it MUST have exactly one RawLogReferenceID. A Measurement with NULL RawLogReferenceID cannot have Sample Links.
+- A Measurement may omit RawLogReferenceID only where its Measurement Type's Owner Contract does not require RawLog. If the Owner Contract is unknown or requires RawLog, absence prevents COMPLETE and Current Aggregate inclusion.
+- Measurement has 0..N Measurement Sample Links; zero Links do not establish COMPLETE.
+- Each Link references exactly one Measurement and exactly one SampleReference, retaining identity (MeasurementID, SampleReferenceID, Role, Ordinal).
+- Each SampleReference belongs to exactly one RawLogReference. A RawLogReference may own 0..N SampleReferences.
+- Each RawLogReference is referenced by at most one Measurement. Sharing across Measurements is prohibited.
+- Each SampleReference is used by at most one Measurement Sample Link. Implicit reuse across Links or Measurements is prohibited. If an Owner Contract needs equivalent content in multiple Roles, it must issue distinct SampleReferences.
+- Required Role / Ordinal sets are defined by the Measurement Type Owner Contract. Required Links must all exist and their references, hashes, and Owner Contract must validate before the required-sample condition is satisfied. DB does not invent device-specific sample counts.
+- Missing references, duplicates, sharing violations, or hash mismatches are REJECTED or QUARANTINED. Do not mutate/delete canonical evidence, reassign IDs, or silently retarget references.
+- Physical deduplication of identical bytes must not merge logical identities or ownership.
+
+### DB-LR five-axis status after this synchronization
+
+| ID | DECISION_STATUS | DOCUMENT_STATUS | IMPLEMENTATION_STATUS | VERIFICATION_STATUS | APPROVAL_STATUS |
+|---|---|---|---|---|---|
+| DB-LR-01 | DECIDED | REFLECTED | NOT_STARTED | NOT_RUN | PENDING |
+| DB-LR-02 | DECIDED (Main §14.5.4) | REFLECTED | NOT_STARTED | NOT_RUN | PENDING |
+| DB-LR-03 | DECIDED (Main §14.5.4) | REFLECTED | NOT_STARTED | NOT_RUN | PENDING |
+| DB-LR-04 | DECIDED | REFLECTED | NOT_STARTED | NOT_RUN | PENDING |
+
+### GL-04 current status — received evidence is not a complete Owner Contract
+- Motor Issue #35 comment #7120818752 (M-01〜M-09 Evidence Matrix) and Battery Issue #16 comment #7105933799 (seven-domain Evidence Matrix) are RECEIVED. Do not describe either report as missing/unreceived.
+- The formal device Owner Capture Contracts remain PARTIAL: evidence matrices document implementation/tests and UNKNOWNs but do not establish every normative Capture end condition, required-sample set, Outcome mapping, and physical verification item.
+- DB Field Mapping remains DECIDED / REFLECTED. DB does not re-ask Motor or Battery to answer the same mapping questions.
+- Gate GL-04 five-axis state: DECISION=DECIDED (non-inference and responsibility boundary); DOCUMENT=PARTIAL (Owner evidence received; normative Capture contracts incomplete); IMPLEMENTATION=NOT_APPLICABLE until applicable Owner contract exists; VERIFICATION=NOT_RUN; APPROVAL=PENDING.
+- Unknown Owner semantics remain opaque/UNKNOWN, cannot be inferred COMPLETE, and are excluded from Current Aggregate. Owner-specific Capture semantics remain with the relevant Owner.
+- Motor M-04: protocol byte layout evidenced in CODE/tests is not by itself proof of a normative SPEC. Until the normative specification source is identified, classify SPEC=PARTIAL and CODE=IMPLEMENTED. No M-01〜M-09 re-investigation is requested.
+
+Do not reopen CC-03, GL-01〜03, confirmed Field Mapping, or the closed DB-001〜124 tracking task. Do not ask Motor/Battery the same DB mapping questions again.
