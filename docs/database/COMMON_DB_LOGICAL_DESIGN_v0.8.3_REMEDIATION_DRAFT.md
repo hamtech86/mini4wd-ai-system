@@ -597,3 +597,18 @@ Source of truth: [Issue #210 comment #7129872294](https://github.com/hamtech86/m
 - Motor M-04: protocol byte layout evidenced in CODE/tests is not by itself proof of a normative SPEC. Until the normative specification source is identified, classify SPEC=PARTIAL and CODE=IMPLEMENTED. No M-01〜M-09 re-investigation is requested.
 
 Do not reopen CC-03, GL-01〜03, confirmed Field Mapping, or the closed DB-001〜124 tracking task. Do not ask Motor/Battery the same DB mapping questions again.
+
+
+## 統括決定 CC-05 同期 — DB-RV-02〜08（2026-11-24）
+
+Source of truth: [Issue #210 comment #7130272797](https://github.com/hamtech86/mini4wd-ai-system/issues/210#issuecomment-7130272797). DB-RV-01はCC-01 / CC-03で既決定。CC-05はDB-RV-02〜08の論理選択をDECIDEDとする。Issue #209の旧BLOCKERは設計選択として解消し、未実装・未実証事項は独立Gateに残す。
+
+- **DB-RV-02 DECIDED:** DB RunはPhysical Runにつき最大1件。DB正常利用可能時の最初の有効ASSIGNED Operationで一度だけ生成し、NONE/ANONYMOUSへの再割当後も保持・再利用。DB unavailable期間はIssue #201 Anonymous Modeを適用し、新規DB Run/ASSIGNEDを作らない。削除・再生成・再採番禁止。
+- **DB-RV-03 DECIDED:** Writer Grant/Chain検証からOperation/Receipt固定、Journal Intent、Receipt Envelope、PREPARED、Source Commit、SOURCE_COMMITTED、DB Mirror+Marker同一Transaction、read-back、DB_COMMITTED、依存再検証、VERIFIED、Writer Releaseの順序を採用。Source Commit後ABORTED禁止。結果不明・tail・Hash/ID/Ordinal/Epoch競合はQUARANTINED。同一ID+同一Payloadのみ冪等再試行。
+- **DB-RV-04 DECIDED:** Request/Attemptは不変・append-only、Ordinalは指定Scope内単調増加・再利用禁止。Request内成功Attempt/Resultは最大1件。成功AttemptのみResult Revision生成。Latest Requested/Successful/Current Validは派生参照とし、結果不明はfencing proofまで隔離。
+- **DB-RV-05 DECIDED:** Analysis/Simulation Artifactは不変、再解析・再実行ごとに新ID。Inputは確定済み・Hash検証済み。自己参照/循環禁止。Input Set Hashは型・参照ID・Hash・Role・Ordinal・Required・Source Revisionを固定順で計算。欠落/不一致は拒否または隔離。
+- **DB-RV-06 DECIDED:** 新規Entity IDはUUIDv4、Issuer RoleはGL-01。Structured HashはM4W-JCS-1/SHA-256。RawLog Object Hashは変換前ファイル全byteのSHA-256。UUIDv5/Namespace/Canonical Binary Name v2は新規方式として不採用。独立JCS適合、Golden Vector、CSPRNG、Entity別発行経路は検証Gate。
+- **DB-RV-07 DECIDED:** 外部正本を唯一の事実Authority、DB Mirrorは派生検索/集計表現とする。Mirrorから正本を逆生成しない。DB unavailable中のMeasurement/RawLogはANONYMOUS外部正本のみで保全し、後日取込・Mirror化・Association禁止。RestoreはPhase A structural / Phase B cross-evidence validationの二段階。
+- **DB-RV-08 DECIDED:** Current Aggregateは現在ASSIGNEDかつ測定開始時ASSIGNED、測定時と現在のInstance ID一致、Scope/Owner/Capture/Reference/Hash条件を満たすMeasurementのみ。NONE/ANONYMOUS開始、異なるInstance、STOP/ERROR/CANCEL/INCOMPLETE/UNKNOWN、Capture Contract不足・証拠不足は除外。後日Assignment遡及算入禁止。Historical Analysisは別Artifact。CH1/CH2独立、平均・合算禁止。
+
+**5軸:** DB-RV-01〜08 DECISION_STATUS=DECIDED。DOCUMENT_STATUSは本節同期後REFLECTED。IMPLEMENTATION_STATUS=NOT_STARTED、VERIFICATION_STATUS=NOT_RUN。v0.8.3全体APPROVAL_STATUSは別審査でPENDING。CC-05はDDL、DB生成、Migration、Restore、実装PR、merge、main反映、実機操作を許可しない。
