@@ -498,18 +498,18 @@ Issue #207 comment #7096875931への回答。Main §7.1をField mapping正本と
 
 legacy SQLiteに上記Field / Linkがない場合、既存列・Session notes・Instance ID・voltage列から補完しない。正式な保存経路が整うまで登録拒否またはUNKNOWN / opaque隔離、Current Aggregate除外を維持する。DB schema変更・DDL・Migrationを本節は許可しない。
 
-### 37.5 DB-LR-01〜04 論理定義案・Inventory同期候補（統括判断待ち）
+### 37.5 DB-LR-01〜04 論理定義・Inventory同期（CC-04決定反映）
 
-Main §7.2を論理提案の詳細正本とする。現行Main §14.5.4ですでに定義済みのRole / Ordinal規則を「未定義」と再記載しない。
+Main §7.2およびCC-04（Issue #210 comment #7129872294）を現行判断とする。以下の旧調査は証拠履歴であり、未決定一覧ではない。
 
-| ID | 項目 | 現行根拠・同期内容 | 未決 / 判断申請 |
+| ID | 項目 | 現行決定・根拠 | Owner / 実装上の境界 |
 |---|---|---|---|
-| DB-LR-01 | SampleLocator grammar | Main §14.6.4はOwner Schemaで定義された形式のみ解釈し、未定義はopaque保全・時刻/Channel/ordinal推測禁止。 | 共通文法・空文字・最大長は根拠なし。Owner Schema委譲 + exact UTF-8 opaque保持案を統括判断へ |
-| DB-LR-02 | Role domain | Main §14.5.4はRole必須・非NULL、Measurement Type正式Owner Contract値のみ許可、未知Role拒否。 | 共通語彙一覧は設けずOwner Contractへ委譲。旧「domain未定義」を「Owner語彙一覧は外部契約」に修正 |
-| DB-LR-03 | Ordinal domain | Main §14.5.4は(MeasurementID, Role)内で1から連続増加・再利用不可。Integer表記あり。 | Inventoryの一意性未確定は旧記述。1-based contiguous / uniqueへ同期 |
-| DB-LR-04 | Link / Reference cardinality | Link複合Identity、SampleReference→RawLogReferenceの単一参照、Required条件あり。 | Measurement/RawLogReference多重度、Reference共有可否、複合FK/UNIQUE詳細は根拠なし。Main §7.2の0..1 RawLogReference推奨案を統括判断へ |
+| DB-LR-01 | SampleLocator | 共通grammarなし。Owner Schema / SchemaVersionへ委譲しopaque UTF-8をlossless保持。空文字禁止、共通最大長なし。 | parserは完全一致SchemaVersionのみ。実装上限超過は拒否/隔離。 |
+| DB-LR-02 | Role | Main §14.5.4既存決定。Role必須・非NULL、Measurement Type正式Owner Contractの語彙のみ許可、未知Role拒否。 | DB共通語彙を新設しない。 |
+| DB-LR-03 | Ordinal | Main §14.5.4既存決定。(MeasurementID, Role)内1-based contiguous / unique / no reuse。 | Owner Contractが意味と必要集合を定義。 |
+| DB-LR-04 | Link / Reference cardinality | CC-04で決定。Measurement→RawLogReference 0..1、Sample LinkがあればRawLogReference必須。Measurement→Link 0..N。各Linkは1 Measurement + 1 SampleReference。SampleReferenceは1 RawLogReferenceに属する。共有禁止。 | Required Role / Ordinal集合はOwner Contract定義。欠落・不一致はREJECT / QUARANTINE。 |
 
-5軸と詳細提案はMain §7.2。Owner固有Sample意味・必須Sample群は各Owner契約であり本Inventoryで補完しない。統括判断前はDB-LR-01/04 OPEN、GL-01〜03およびField Mappingは既決定状態を維持する。
+4件すべてDECIDED。文書は本節およびMain §7.3で同期済み。Owner固有Sample意味・必須Sample群・Capture終端は本Inventoryで補完しない。
 
 ### 37.6 Gate L 5軸状態
 
