@@ -299,6 +299,21 @@ class BatteryTab(QWidget):
         if not self.transport.connected:
             return
         targets = (1, 2) if channel is None else (channel,)
+        # In Anonymous Mode, retry a terminal capture's RawLog save before
+        # applying the generic pending-Sample guard. A failed retry retains
+        # every source buffer and blocks START; a successful save releases
+        # the parsed samples and may then permit the next capture.
+        if self.anonymous_mode and any(
+            self._capture_active[ch] and self._capture_terminal_status[ch]
+            for ch in targets
+        ):
+            self.retry_anonymous_raw_log_saves()
+            if any(
+                self._capture_active[ch] and self._capture_terminal_status[ch]
+                for ch in targets
+            ):
+                QMessageBox.warning(self, "Battery RawLog", "前回のRawLog保存が未完了です。保存を再試行してから放電を開始してください。")
+                return
         blocked = [ch for ch in targets if battery_capture_start_blocked(
             self.samples[ch],
             self.completed[ch] and not (self.anonymous_mode and self.local_raw_log_ids[ch]),
@@ -310,17 +325,6 @@ class BatteryTab(QWidget):
             return
         a = self.ch1_instance.currentData()
         b = self.ch2_instance.currentData()
-        if self.anonymous_mode and any(
-            self._capture_active[ch] and self._capture_terminal_status[ch]
-            for ch in ((1, 2) if channel is None else (channel,))
-        ):
-            self.retry_anonymous_raw_log_saves()
-            if any(
-                self._capture_active[ch] and self._capture_terminal_status[ch]
-                for ch in ((1, 2) if channel is None else (channel,))
-            ):
-                QMessageBox.warning(self, "Battery RawLog", "前回のRawLog保存が未完了です。保存を再試行してから放電を開始してください。")
-                return
         if not self.anonymous_mode and (a is None or b is None):
             QMessageBox.warning(self, "Battery Instance", "CH1 / CH2のBattery Instanceを指定してください。")
             return
