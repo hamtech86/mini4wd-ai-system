@@ -238,6 +238,8 @@ def test_db_commit_failure_retains_samples_and_retry_allows_next_capture(
 
     assert tab.samples[1] == [sample]
     assert tab.samples[1][0] is sample
+    assert tab.completed[1] is True
+    assert tab.latest_status[1] == "COMPLETE"
     assert _table_counts(path) == (0, 0, 0)
 
     tab._db = original_db
@@ -287,10 +289,23 @@ def test_anonymous_rawlog_save_failure_retains_capture_until_retry_then_allows_s
     assert tab._capture_terminal_status[1] == "COMPLETE"
     assert transport.commands == []
 
+    # Calling the actual restart path while RawLog is still failing must
+    # attempt the retry, refuse START, and retain every capture source.
+    raw_capture_before = list(tab._raw_capture[1])
+    tab.start_channel(1)
+
+    assert rawlog.calls == 2
+    assert transport.commands == []
+    assert tab.samples[1] == [sample]
+    assert tab.samples[1][0] is sample
+    assert tab._raw_capture[1] == raw_capture_before
+    assert tab._capture_active[1] is True
+    assert tab._capture_terminal_status[1] == "COMPLETE"
+
     rawlog.fail = False
     tab.retry_anonymous_raw_log_saves()
 
-    assert rawlog.calls == 2
+    assert rawlog.calls == 3
     assert tab.samples[1] == []
     assert tab._capture_active[1] is False
     tab.start_channel(1)
