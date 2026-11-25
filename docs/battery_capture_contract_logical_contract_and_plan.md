@@ -6,6 +6,7 @@
 - Accepted Battery code baseline: PR #218 exact HEAD `91c635dd5c129633898566adf929a8dc2f7386ab`
 - Document branch: `docs/battery-capture-contract-logical-plan-20261125`
 - Purpose: record the seven logical decisions, current implementation/test status, fail-closed behavior, and a proposed implementation/test plan for separate approval.
+- Revision: v2 clarification responding to Central Command review comment #7162994812; no implementation authorization is implied.
 - **This document does not authorize implementation.** No source code, Firmware, DB schema/DDL/Migration, DB data, main branch, or hardware was changed.
 
 ## 1. Authority and non-regression boundaries
@@ -55,7 +56,8 @@ A decision or documentation entry does not imply implementation or test completi
 | DATA state = COMPLETE | Firmware | COMPLETE |
 | DATA state = STOP | Firmware | STOP |
 | DATA state = TIMEOUT | Firmware | INCOMPLETE |
-| ERROR frame | Firmware | ERROR |
+| ERROR frame observed within the Capture boundary and proven correlated to that Capture | Firmware | ERROR |
+| ERROR frame outside a proven Capture boundary, or with unproven Capture correlation | Firmware diagnostic event | UNKNOWN (retain diagnostic Raw Evidence; do not attach it to a Measurement Outcome) |
 | User-requested cancellation | Host | CANCEL |
 | Disconnect | Host-observed transport event | INCOMPLETE |
 | Process interruption | Host | INCOMPLETE |
@@ -65,10 +67,12 @@ Rules:
 
 1. Record the observed event and its origin; do not relabel a Host event as Firmware-origin.
 2. START request, ACK receipt, first DATA, STOP request, and terminal DATA are distinct observations.
-3. ACK receipt alone is not successful Capture completion.
-4. If ACK cannot be tied to a Capture with evidence, its Capture correlation is UNKNOWN.
-5. Session CLOSED never implies Measurement Outcome COMPLETE.
-6. Aggregate admission requires both Outcome=COMPLETE and Quality/Eligibility=PASS. All other outcomes and Quarantine are excluded.
+3. ACK receipt alone is not successful Capture completion. If ACK cannot be tied to a Capture with evidence, its Capture correlation is UNKNOWN.
+4. A Firmware ERROR frame maps to Measurement Outcome=ERROR only when it is observed within the proven Capture boundary AND evidence proves its association with that specific Capture. Temporal proximity, a preceding START request, or arrival order alone is not sufficient correlation evidence.
+5. A Firmware ERROR that is outside the Capture boundary or cannot be proven to belong to a specific Capture is retained as a Firmware-origin diagnostic Raw Evidence event. Its Measurement Outcome correlation remains UNKNOWN; it must not be attached to a Measurement as ERROR.
+6. Host process interruption is a Host event type `INTERRUPTED`; the resulting Measurement Outcome is `INCOMPLETE`. These are different layers: event identity/source versus Measurement Outcome. Do not store or report `INTERRUPTED` as a Firmware event or as an Outcome value.
+7. Session CLOSED never implies Measurement Outcome COMPLETE.
+8. Aggregate admission requires both Outcome=COMPLETE and Quality/Eligibility=PASS. All other outcomes and Quarantine are excluded.
 
 ## 5. Quality / Eligibility rules (CC-CR02 / CC-CR03)
 
@@ -137,12 +141,13 @@ This is a planning proposal only. It does not authorize code changes. The sequen
 ### Phase P0 — design closure and implementation authorization
 
 1. Review this contract table and approve the proposed host-only scope.
-2. Resolve the Capture boundary and Capture Key design against existing Physical Run / Operation / Receipt concepts. Do not invent a new ID scheme independently.
-3. Confirm the existing DB field mapping in Issue #207 comment #7101200440 is used as-is. Do not ask DB to repeat the mapping.
-4. Identify any behavior that cannot be represented without a DB schema change; leave it opaque/excluded and submit a separate request rather than modifying schema.
-5. Obtain separate authorization before any source implementation begins.
+2. Define the Capture start boundary from an observable event and the Capture end boundary from an observable terminal condition. Distinguish a Host request from a Firmware acknowledgement/terminal observation; where either boundary cannot be proven, retain evidence without asserting a per-Capture association.
+3. Specify the Capture Key using the existing Physical Run / Operation / Receipt identities and their relationships. Identify the exact authoritative identifier, uniqueness scope, and derivation/reference rule; do not invent a parallel ID scheme.
+4. Confirm the existing DB field mapping in Issue #207 comment #7101200440 is used as-is. If Outcome / Quality / RawLog references cannot be represented by that approved contract, keep the data opaque and excluded from Aggregate; submit the exact persistence gap for separate authorization. Do not ask DB to repeat the mapping.
+5. Define a reconciliation procedure for partial RawLog writes: which persisted objects/manifests/hashes/read-back evidence prove complete, incomplete, or conflicting state. Until such evidence can prove reconciliation, retain Quarantine and prohibit retry from overwriting uncertain evidence.
+6. Obtain separate authorization before any source implementation begins.
 
-**Exit:** Central Command explicitly approves the implementation scope and test plan. Any DB schema, Firmware, or physical action remains separately gated.
+**Exit:** Central Command explicitly approves the implementation scope and test plan, and the four design closure items above have evidence-backed answers or explicit UNKNOWN/opaque stop conditions. Any DB schema, Firmware, or physical action remains separately gated.
 
 ### Phase P1 — host event capture and source-aware lifecycle
 
@@ -238,7 +243,7 @@ The tests below are proposed and **NOT RUN**. They are not evidence of current i
 
 | Test group | Required cases | Expected result |
 |---|---|---|
-| Lifecycle event provenance | Firmware ACK/DATA/ERROR; Host CANCEL/INTERRUPTED; disconnect; ACK with no proven Capture correlation | Source and event preserved; uncorrelated ACK remains UNKNOWN; ACK alone never completes Capture. |
+| Lifecycle event provenance | Firmware ACK/DATA/ERROR; Host CANCEL/INTERRUPTED; disconnect; ACK with no proven Capture correlation; ERROR before/outside boundary; ERROR inside boundary but uncorrelated; correlated in-boundary ERROR | Source and event preserved; ACK correlation unknown unless proven; only proven in-boundary ERROR maps to Outcome ERROR; uncorrelated ERROR remains diagnostic Raw Evidence with Outcome correlation UNKNOWN; Host INTERRUPTED event maps separately to Outcome INCOMPLETE. |
 | Outcome mapping | COMPLETE, STOP, TIMEOUT, Firmware ERROR, Host CANCEL, disconnect, process interruption, unknown event | Exact CC-CR07 mapping; Session CLOSED does not alter Outcome. |
 | COMPLETE vs Quality | COMPLETE with unknown minimum count / missing required event / selected 0.0 / non-finite row | Device Outcome remains COMPLETE where observed; Quality UNKNOWN/FAIL; no Benchmark/Aggregate admission. |
 | Order | Monotonic arrival; arrival order conflicts with elapsed order; duplicate suspicion; equal elapsed only | Contradiction quarantined; equal elapsed alone is not deduplicated; all raw rows preserved. |
