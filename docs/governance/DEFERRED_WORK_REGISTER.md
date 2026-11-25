@@ -599,3 +599,35 @@ Source: [Issue #211 final acceptance review comment #7130987157](https://github.
 3. Every follow-up updates the relevant canonical Issue and links this ledger; do not create duplicate issue trackers for the same gate.
 4. No gate above authorizes DDL, schema change, DB generation, Migration, Restore execution, implementation PR merge, main update, firmware change, physical energization, or hardware measurement.
 5. Overall v0.8.3 approval, PR #216 merge, PR #218 merge, and physical test authorization remain separate explicit decisions.
+
+
+## 20. 2026-11-26 統括終結処置 — 初回全体棚卸し完了・ロードマップ再開
+
+本節は、§19.4 / §19.7 / §19.9等に残る過去時点のOPEN・ORANGE・未受領表現を、2026-11-26時点の現在状態として誤用しないための最新状態記録である。過去記述は監査履歴として保持し、本節を現在状態の優先記録とする。
+
+### 20.1 全体棚卸しの完了判定
+- アクティブ部門はMotor / Battery / DBの3部門。3部門の初回棚卸し回答は受領済み。非アクティブ領域を独立部門の未回答として扱わない。
+- Motor Evidence Matrix、Battery Evidence Matrix、DB v0.8.3 Decision Baselineおよび後続Gateの統括read-backは実施済み。
+- 旧DB-001〜124の個別追跡・全件Crosswalkは終了済み。既回答Field Mappingや既決定論点の再照会・再審査は禁止。
+- 未実施の実装・耐久性検証・Owner Capture Contract・実機試験は、各正本Issueの後続Gateとして残す。これらは初回棚卸しの未完了を意味せず、ロードマップ再開を妨げない。
+- 初回全体棚卸しIssue #217は、上記の受入確認をもって完了・クローズする。
+
+### 20.2 DB審査状態の訂正
+- DB v0.8.3 Decision Baseline: CONDITIONAL ACCEPTED / LOGICAL DESIGN REVIEW CLOSED（Issue #211 comment #7174282529）。
+- DB-RV-01〜08、DB-LR-01〜04、CC-01〜05はDECIDED。具体的な新規矛盾・反証がない限り再OPENしない。
+- Issue #211は後続Gateの追跡先としてOPENを維持する。旧タイトル・本文のORANGE条件付き差戻しは歴史的審査記録であり、現在の論理設計審査状態ではない。
+- DDL/schema/DB生成/Migration/Restore/実装PR/merge/main反映は本節で許可されない。従来のユーザー承認境界を維持する。
+
+### 20.3 台帳PRとロードマップの関係
+- PR #216はガバナンス台帳の提案PR。文書レビューはACCEPTABLE AS GOVERNANCE REGISTER DRAFT（PR comment #7131360562）。
+- PR #216のmergeは別個の明示判断事項であり、未mergeを理由にロードマップを停止しない。PR #216はOPEN / UNMERGEDを維持する。
+- PR #216の正式merge、PR #218のmerge、実装権限、実機操作許可はそれぞれ独立した承認事項であり、本節では実施・許可しない。
+
+### 20.4 ロードマップ再開規則
+- 全体棚卸し・初回分類のGateはCLOSED。ロードマップ工程1〜6へ復帰可能。
+- 次の実作業は工程1「DB RawLog v2対応」の実装準備。DB部門は既決Decision Baselineに基づくGap / target files / sequence / tests / rollback・failure isolationを一括提示する。
+- 工程2〜6は依存関係に従い並行準備する。実装・merge・実機操作は個別の承認境界を守る。
+- 新しい矛盾が見つかった場合は該当する正本Issueだけを更新し、全体棚卸しを再OPENしない。
+- 各GateのNOT RUNはそのGateにのみ適用し、決定済み設計・完了済み棚卸しへ転記しない。
+
+**統括最終状態:** INITIAL_CROSS_DEPARTMENT_INVENTORY = COMPLETE / CLOSED。ROADMAP = REOPENED。PR #216 = OPEN / UNMERGED（非ブロッカー）。Issue #211 = OPEN（後続Gate追跡、論理設計審査は終結）。
