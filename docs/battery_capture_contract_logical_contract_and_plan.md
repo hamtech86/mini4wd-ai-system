@@ -6,7 +6,9 @@
 - Accepted Battery code baseline: PR #218 exact HEAD `91c635dd5c129633898566adf929a8dc2f7386ab`
 - Document branch: `docs/battery-capture-contract-logical-plan-20261125`
 - Purpose: record the seven logical decisions, current implementation/test status, fail-closed behavior, and a proposed implementation/test plan for separate approval.
-- Revision: v2 clarification responding to Central Command review comment #7162994812; no implementation authorization is implied.
+- Revision: v3 consolidated consistency pass responding to Central Command instructions #7173638386 and #7173763360; no implementation authorization is implied.
+
+> **Document hierarchy and current authority (Central Command instruction #7173763360):** Sections §8–§11 are historical proposals, candidate inventories and planning notes only. They are not current task instructions, design authority, or implementation permission. The controlling statement of current implementation feasibility, blocked work, stop conditions, approvals and status is §14.1–§14.5. Where earlier sections conflict with §14, §14 controls. In particular, Capture Key design, Capture-level idempotency/retry, Capture boundary/assembly, formal Owner Envelope persistence, and Battery-specific RawLog reconciliation remain BLOCKED or NOT AUTHORIZED as specified in §14; do not execute old P5 or test-inventory proposals.
 - **This document does not authorize implementation.** No source code, Firmware, DB schema/DDL/Migration, DB data, main branch, or hardware was changed.
 
 ## 1. Authority and non-regression boundaries
@@ -46,7 +48,7 @@ A decision or documentation entry does not imply implementation or test completi
 | CC-CR03 Ordering | Suspected order/duplicate/gap anomalies are quarantined with Raw Evidence preserved. Equal elapsed_ms alone is not proof of duplication. No automatic deduplication. Arrival-order vs elapsed-order conflict is UNKNOWN / Quarantine, not repaired by sorting. No gap or duplicate threshold without evidence. | YES | YES | NO/PARTIAL: current analysis sorts by elapsed time; no complete anomaly detector or quarantine gate. | NO for the new policy; existing sorting/analysis tests do not prove anomaly quarantine. | Sequence absent; duplicate identity and gap threshold undefined; no physical cadence evidence. |
 | CC-CR04 RawLog | Raw Serial Byte Stream is canonical evidence and receives SHA-256 over original received bytes. Decoded Text / Parsed Records are derived representations, optionally with separate hashes. Preserve DATA and control/diagnostic frames within the Capture boundary, including ACK/INFO/DEBUG/ERROR; do not alter LF/CRLF or undecodable bytes. | YES | YES | NO: current receive path decodes UTF-8 with replacement; RawLog stores decoded text; frame coverage is partial; raw-byte hash and complete identity linkage are not implemented. | NO for byte-exact preservation/hash/linkage; existing text-line tests cover only decoded text behavior. | Physical source-byte equivalence and capture boundary/correlation proof. |
 | CC-CR05 Time | Device elapsed_ms is authoritative within a Capture. Host wall-clock is separate offset-aware metadata only; no conversion or synchronization claim. Do not synthesize Sequence. No millis rollover reconstruction or STARTALL skew inference without platform/device evidence. | YES | YES | PARTIAL: elapsed_ms parsing exists; host start timestamp is currently local naive time in the reviewed path; no approved dual-clock metadata contract. | PARTIAL: parser conversion tested; UTC-offset metadata, rollover and skew behavior not tested. | Target MCU rollover details, physical skew and clock accuracy. |
-| CC-CR06 Partial/Retry | Target exactly-once logical persistence using a stable Capture/Idempotency Key. Same key + same content = no-op; same key + different content = Conflict. Uncertain partial multi-file persistence = Quarantine until reconciled. This is a target contract, not a claim about current RawLog atomicity. | YES | YES | NO/PARTIAL: selected DB/Anonymous retry protections and A7 idempotency exist; RawLog multi-file write is not atomic and no stable Capture key covers the whole capture evidence set. | PARTIAL: A7 and V1 retry tests pass; RawLog partial-write fault-injection / capture-key exactly-once tests absent. | Key generation and atomicity design; crash/fault injection not run. |
+| CC-CR06 Partial/Retry | Capture-wide exactly-once / idempotency is not authorized: no Capture Key, alias, or Capture-level retry may be designed or implemented by Battery under the current decision. Existing A7 and specifically accepted DB/Anonymous retry behavior remain separate and unchanged. Uncertain partial RawLog state follows DB Main §8 / §14.3 and remains PENDING_RECOVERY / QUARANTINED. | YES | YES | NO for Capture-wide persistence; existing separate retry protections remain as previously accepted. | Existing A7/V1 tests remain accepted; Capture-wide tests are BLOCKED / NOT RUN. | Reopen only through a future common identity change proposal backed by new evidence and explicit Central Command direction; no current Battery action. |
 | CC-CR07 Outcome/Aggregate | Map observed event source to Outcome table below. Session Lifecycle is independent. Aggregate requires Outcome=COMPLETE AND independent Quality/Eligibility=PASS. UNKNOWN, INCOMPLETE, STOP, ERROR, CANCEL, Quarantine are excluded. Legacy Session result is not a formal Outcome Envelope. | YES | YES | PARTIAL: legacy completed/result fields exist; formal independent Outcome envelope, event mapping and Aggregate gate are not implemented end-to-end. | PARTIAL: local COMPLETE and validity tests exist; full event-to-Outcome and Aggregate rejection matrix is not tested. | Real E2E / Aggregate acceptance remains NOT RUN. |
 
 ## 4. Normative event-to-Outcome table (CC-CR07)
@@ -112,14 +114,13 @@ Additional approved contract behavior:
 - Do not synthesize sequence numbers.
 - Do not infer millis rollover reconstruction or STARTALL channel start skew. If a decreasing elapsed value creates an order conflict under currently available evidence, keep the source record and classify ordering quality UNKNOWN / Quarantine; do not silently unwrap or reorder.
 
-### 6.3 Exactly-once logical persistence target
+### 6.3 Capture-wide retry / persistence — current stop condition
 
-- A stable Capture/Idempotency Key must be designed in alignment with existing Physical Run / Operation / Receipt concepts before implementation.
-- Same key and identical complete persistence payload: no-op success; no UPDATE/REPLACE.
-- Same key and different payload: Conflict; preserve existing evidence.
-- Any multi-file partial write with uncertain final state: Quarantine; reconcile before treating as saved.
-- The existing A7 Benchmark result idempotency decision remains separate and unchanged.
-- No claim of exactly-once until failure injection covers each persistence boundary and read-back proves the same logical object is not duplicated or replaced.
+- Central Command decision #7172052263 rejects Capture=Measurement 1:1, rejects `MeasurementID` as a Capture Key, and prohibits substituting `PhysicalRunID`, `ScopeKey`, `OperationID`, or `ReceiptID`, or creating a new Capture ID/issuer.
+- Therefore Battery must not design or implement a Capture/Idempotency Key, Capture-wide exactly-once semantics, or Capture-keyed retry under the current authority. This work is **BLOCKED**; the former target wording is superseded.
+- The existing A7 Benchmark-result idempotency decision and specifically accepted DB/Anonymous retry protections remain separate and unchanged; they do not establish Capture-wide idempotency.
+- For uncertain partial RawLog persistence, follow DB Main §8 / §14.3: preserve evidence and classify PENDING_RECOVERY / QUARANTINED. Do not delete, overwrite, regenerate IDs, or perform a mutating retry on uncertain state. Battery must not invent a reconciliation algorithm.
+- Reconsider Capture-wide identity only through a future common identity change proposal backed by new evidence and explicit Central Command direction. See §14.2 and §14.4.
 
 ## 7. Current implementation delta and fail-closed behavior
 
@@ -134,7 +135,9 @@ Additional approved contract behavior:
 | Retry | Current selected retry paths and A7 idempotency exist; multi-file RawLog is not atomic and no capture-wide key. | Stable key + identical no-op / different Conflict + partial-write quarantine + fault injection. | Uncertain write state = Quarantine; no exactly-once claim. |
 | Aggregate | Legacy COMPLETE registration path exists; no complete Outcome AND Quality gate. | Require Outcome=COMPLETE and Quality/Eligibility=PASS, with raw evidence linkage. | Exclude every unknown, partial, invalid, or quarantined capture. |
 
-## 8. Proposed implementation plan — approval required before work
+## 8. Proposed implementation plan — historical proposal only
+
+> **Not current instructions.** This section and §§9–§11 predate the final Central Command stop conditions. They are retained for traceability, not as an execution backlog. Any candidate, phase, test, or file inventory below is superseded where inconsistent with §14.1–§14.5. No item in §§8–§11 is authorized merely by appearing here. Capture Key / Capture-wide retry work in old Phase P5 is BLOCKED and must not be pursued by Battery.
 
 This is a planning proposal only. It does not authorize code changes. The sequence avoids firmware and DB schema changes and keeps the accepted PR #218 code baseline intact.
 
@@ -220,7 +223,7 @@ Planned work:
 - Require Outcome=COMPLETE AND Quality/Eligibility=PASS for Aggregate admission.
 - If formal Outcome / Quality representation cannot be persisted using the approved existing contract, leave the capture opaque/excluded and request a separate DB design/implementation authorization. Do not alter schema.
 
-### Phase P5 — stable Capture key and retry/fault recovery
+### Phase P5 — historical proposal; BLOCKED by current decision (not an active task)
 
 Candidate files:
 - `raw_log_library/manager.py`
@@ -326,26 +329,26 @@ Do not re-query DB for the GL-04 mapping. If the existing mapping does not permi
 
 **Completion condition:** Central Command accepts a boundary rule based on an identified observable event and correlation mechanism, or explicitly accepts the UNKNOWN/opaque stop condition. No rule is inferred by Battery.
 
-### P0-2 — Capture Key and identity alignment
+### P0-2 — Capture Key and identity alignment (final decision; closed)
 
 **Classification**
-- Existing common identity model and issuer assignments: **RECOVERABLE**.
-- Whether a Capture is exactly one Measurement, and therefore whether `MeasurementID` can serve as the Capture Key: **NO_CURRENT_BASIS**.
-- A distinct Capture Key / its derivation, uniqueness scope, and persistence relationship: **NO_CURRENT_BASIS** in the current approved identity registry.
+- Current common identity registry / issuer assignments: **RECOVERABLE** and documented; see the existing DB Main references below.
+- Capture=Measurement 1:1 and `MeasurementID` as Capture Key: **DECIDED NOT APPROVED**.
+- Any replacement Capture Key, alias, or Battery-created identity/issuer: **DECIDED NOT ALLOWED** under the current authority. No further Battery-side design is pending.
 
-**Verified facts**
+**Verified facts retained from the evidence review**
 - DB Main §5.1 assigns `MeasurementID`, `RawLogObjectID`, and `SampleReferenceID` to `CAPTURE_IDENTITY_AUTHORITY`; `RawLogReferenceID` to `EVIDENCE_STORAGE_AUTHORITY`; `PhysicalRunID` / `LogicalSessionID` / `DBRunID` to `RUN_MANAGER`; `OperationID` to `OPERATION_AUTHORITY`; and `ReceiptID` to `RECEIPT_AUTHORITY`.
-- DB Main §5.3 defines RUN_SCOPE identity as the composite `(PhysicalRunID, ScopeKey)`; it has no independent RunScopeID. Measurement Envelope `PhysicalRunID` + `ScopeKey` is the direct RUN_SCOPE reference (Issue #207 #7101200440 and Main §7.1).
-- The DB identity inventory lists Measurement, RawLog Object, RawLog Reference, Sample Reference, Operation / Intent, and Receipt as distinct identities. ReceiptID is independently UUIDv4 and is not derived from OperationID.
-- No current accepted Battery source or approved common identity mapping defines an entity/field named CaptureKey, a Capture-Key derivation, or a normative one-Capture-to-one-Measurement cardinality.
+- DB Main §5.3 defines RUN_SCOPE identity as `(PhysicalRunID, ScopeKey)`; it has no independent RunScopeID. Measurement Envelope `PhysicalRunID` + `ScopeKey` is the direct RUN_SCOPE reference (Issue #207 comment #7101200440 and Main §7.1).
+- These existing identities do not establish a Capture identity or Capture↔Measurement cardinality.
 
-**Disposition**
-- Do not reuse `PhysicalRunID`, `ScopeKey`, `OperationID`, or `ReceiptID` as an assumed Capture Key.
-- Do not assume `MeasurementID = CaptureKey` until the one-to-one relationship and lifecycle are explicitly decided. The existing issuer assignments do not by themselves establish that equivalence.
-- Preserve the already-decided identities and mapping. A future retry implementation remains blocked from claiming capture-wide idempotency until the key's owner, identity, uniqueness scope, and relationship to Measurement / RawLog Object / Operation / Receipt are approved.
-- Specific decision needed before implementation: Central Command must determine whether one Battery Capture is normatively identical to one Measurement (permitting the already-defined MeasurementID to be the stable key), or whether Capture and Measurement have different cardinality/lifecycle and require a separately approved identity relationship. Battery will not invent a new ID or issue it itself.
+**Final disposition — Central Command decision #7172052263**
+- Do not treat one Battery Capture as normatively identical to one Measurement.
+- Do not use `MeasurementID` as a Capture Key.
+- Do not substitute `PhysicalRunID`, `ScopeKey`, `OperationID`, or `ReceiptID`; do not create a new Capture ID or issuer.
+- Capture-wide exactly-once / idempotency / key-based retry is **BLOCKED** and remains NOT IMPLEMENTED / NOT GUARANTEED.
+- Reconsideration is possible only through a future common identity change proposal supported by new evidence and explicit Central Command direction. This is not a current Battery task.
 
-**Completion condition:** An explicit Central Command decision records the Capture↔Measurement cardinality and identifies the authoritative existing ID (or approves a separate identity with issuer authority). Until then, no Capture Key is generated and exactly-once Capture persistence is NOT IMPLEMENTED.
+**Completion condition:** Met for the current stop condition: Central Command has explicitly rejected the proposed equivalence and prohibited replacement identities. No further decision request or Battery-side design is required now.
 
 ### P0-3 — Existing DB contract representation for Outcome / Quality / RawLog
 
@@ -370,7 +373,7 @@ Do not re-query DB for the GL-04 mapping. If the existing mapping does not permi
 - Where the existing approved external Measurement Envelope / Owner Payload cannot unambiguously represent Outcome and Quality/Eligibility, retain the data as opaque / UNKNOWN, reject formal Benchmark registration, and exclude it from Current Aggregate. Do not add SQLite columns, reinterpret `Measurement Status`, or create an implicit mapping.
 - The RawLog reference chain is a known logical contract; it is not implemented end-to-end by the accepted Battery code. The current Battery RawLog manager's local `log_id` must not be assumed to be a DB `RawLogObjectID` or `RawLogReferenceID`.
 
-**Completion condition:** Before implementation, the authoritative Owner Envelope schema must identify the separate Outcome and Quality/Eligibility representation, or Central Command must explicitly retain the opaque/excluded boundary. Existing GL-04 field mapping remains closed.
+**Completion condition:** Met for the current fail-closed boundary: Central Command has decided that, absent an explicit Owner Envelope representation, Outcome/Quality remain opaque/UNKNOWN/excluded and formal Benchmark/Aggregate admission is rejected. If an authoritative Owner Envelope schema is supplied in the future, review that exact source; do not re-query the closed GL-04 mapping.
 
 ### P0-4 — Partial RawLog write reconciliation
 
@@ -392,7 +395,7 @@ Do not re-query DB for the GL-04 mapping. If the existing mapping does not permi
 - For existing legacy local logs, where no canonical byte hash and no durable commit/reconciliation record exist, report the exact observed files as legacy evidence only; do not retroactively assert atomicity, exact-once, or complete Capture status.
 - Applying the generic process to the current Battery multi-file layout requires a separately approved implementation design that identifies the canonical object, its manifest/commit record, and fault-injection coverage. This is a design dependency, not implementation permission.
 
-**Completion condition:** A reviewed persistence design maps the existing common temp-write/hash/read-back/rename/Journal criteria to a canonical Battery RawLog Object and Reference, and specifies the observable reconciliation result for each failure boundary. Until implemented and fault-tested, uncertain partial state remains PENDING_RECOVERY / QUARANTINED.
+**Completion condition:** The common storage rule is decided and documented by DB Main §8 / §14.3. Battery-specific canonical-object/manifest/commit mapping and reconciliation are not approved; do not design or implement them under this instruction. Uncertain partial state remains PENDING_RECOVERY / QUARANTINED. Any future proposal requires separate explicit Central Command direction and approval.
 
 ### P0 overall status — superseded by Central Command decision #7172052263
 
@@ -441,7 +444,7 @@ This section supersedes any earlier wording that requests a new P0 decision. P0-
 | P2 Raw byte fidelity | Byte-preserving receive and isolated fidelity tests | Canonical per-Capture RawLog Object/Reference/Sample linkage and Capture-keyed retry |
 | P3 Ordering / Quality | Preserve order/elapsed evidence; detect direct contradictions; default unknown quality to NOT ELIGIBLE | Numeric gap/duplicate policy, sequence synthesis, Quality PASS where required contract absent |
 | P4 Outcome / Aggregate | Pure CC-CR07 mapping and unit tests for explicitly evidenced events | Persisted formal Outcome/Quality, Benchmark/Aggregate admission without Owner Envelope mapping |
-| P5 Retry / recovery | No Capture-keyed implementation at present; may prepare non-mutating inspection/test design for legacy artifacts | Capture idempotency, canonical object commit, retry/reconciliation that mutates uncertain state |
+| P5 Retry / recovery | No active Battery work; no Capture Key design or Capture-keyed retry. Existing DB Main storage rules remain the governing reference only. | Capture identity/idempotency, Battery canonical-object commit/reconciliation, and any retry that mutates uncertain state |
 
 ### 14.4 Required approvals and gates
 
