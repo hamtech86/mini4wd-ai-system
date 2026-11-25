@@ -1,38 +1,160 @@
 import sqlite3
+import pytest
 
 from analysis.battery_benchmark_service import BatteryBenchmarkService
 
 
-def test_service_reads_measurement_and_only_writes_result():
+def make_database():
+    db = sqlite3.connect(":memory:")
+    db.row_factory = sqlite3.Row
+    db.execute("CREATE TABLE measurement_session (session_id TEXT PRIMARY KEY, scope_key TEXT)")
+    db.execute("""CREATE TABLE measurement (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL,
+        scope_key TEXT, elapsed_time REAL, voltage1 REAL, voltage2 REAL,
+        current1 REAL, current2 REAL, power REAL
+    )""")
+    db.executemany(
+        "INSERT INTO measurement_session(session_id,scope_key) VALUES (?,?)",
+        [("S1", "BATTERY:CH1"), ("S2", "BATTERY:CH2")],
+    )
+    db.executemany(
+        """INSERT INTO measurement(session_id,scope_key,elapsed_time,voltage1,voltage2,current1,current2)
+           VALUES(?,?,?,?,?,?,?)""",
+        [
+            ("S1", "BATTERY:CH1", 0.0, 1.40, 1.42, 5.0, 4.8),
+            ("S1", "BATTERY:CH1", 2.0, 1.38, 1.40, 5.0, 4.8),
+            ("S2", "BATTERY:CH2", 0.0, 1.40, 1.42, 5.0, 4.8),
+        ],
+    )
+    db.commit()
+    return db
+
+
+def test_service_reads_and_saves_only_the_requested_channel():
+    db = make_database()
+    before = db.execute("SELECT * FROM measurement ORDER BY id").fetchall()
+    service = BatteryBenchmarkService(db)
+    result1 = service.analyze_session("S1", channel="CH1")
+    result2 = service.analyze_session("S2", channel="CH2")
+    after = db.execute("SELECT * FROM measurement ORDER BY id").fetchall()
+    assert result1["channel"] == "CH1" and result2["channel"] == "CH2"
+    assert result1["avg_voltage"] != result2["avg_voltage"]
+    assert before == after
+    assert db.execute("SELECT COUNT(*) FROM battery_benchmark_result").fetchone()[0] == 2
+
+
+def test_service_requires_explicit_channel():
+    db = make_database()
+    service = BatteryBenchmarkService.__new__(BatteryBenchmarkService)
+    service.database = db
+    with pytest.raises(TypeError):
+        service.analyze_session("S1")
+
+
+def test_service_rejects_session_scope_mismatch():
+    db = make_database()
+    service = BatteryBenchmarkService(db)
+    with pytest.raises(ValueError, match="Session Scope Key"):
+        service.analyze_session("S1", channel="CH2")
+
+
+@pytest.mark.parametrize("bad_scopes", [
+    [None, "BATTERY:CH1"],
+    ["BATTERY:CH1", "BATTERY:CH2"],
+    ["UNKNOWN", "UNKNOWN"],
+])
+def test_service_rejects_missing_unknown_or_mixed_measurement_scopes(bad_scopes):
+    db = make_database()
+    db.execute("DELETE FROM measurement WHERE session_id='S1'")
+    for index, scope in enumerate(bad_scopes):
+        db.execute(
+            "INSERT INTO measurement(session_id,scope_key,elapsed_time,voltage1,current1) VALUES(?,?,?,?,?)",
+            ("S1", scope, float(index), 1.4, 5.0),
+        )
+    db.commit()
+    service = BatteryBenchmarkService(db)
+    with pytest.raises(ValueError, match="Measurement Scope Keys"):
+        service.analyze_session("S1", channel="CH1")
+
+
+def test_service_rejects_schema_without_persisted_scope_key():
     db = sqlite3.connect(":memory:")
     db.row_factory = sqlite3.Row
     db.execute("CREATE TABLE measurement_session (session_id TEXT PRIMARY KEY)")
-    db.execute(
-        """CREATE TABLE measurement (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            session_id TEXT NOT NULL,
-            elapsed_time REAL,
-            voltage1 REAL,
-            voltage2 REAL,
-            current1 REAL,
-            current2 REAL,
-            power REAL
-        )"""
-    )
-    db.execute("INSERT INTO measurement_session VALUES ('S1')")
+    db.execute("CREATE TABLE measurement (id INTEGER PRIMARY KEY, session_id TEXT)")
+    service = BatteryBenchmarkService.__new__(BatteryBenchmarkService)
+    service.database = db
+    with pytest.raises(ValueError, match="persisted Scope Key"):
+        service.analyze_session("S1", channel="CH1")
+
+
+def test_service_exact_retry_is_idempotent_and_changed_payload_conflicts():
+    db = make_database()
+    service = BatteryBenchmarkService(db)
+    first = service.analyze_session("S1", channel="CH1")
+    second = service.analyze_session("S1", channel="CH1")
+    assert first == second
+    assert db.execute("SELECT COUNT(*) FROM battery_benchmark_result WHERE session_id='S1'").fetchone()[0] == 1
+
+    db.execute("UPDATE measurement SET voltage1=1.25 WHERE session_id='S1' AND id=1")
+    db.commit()
+    with pytest.raises(ValueError, match="conflict"):
+        service.analyze_session("S1", channel="CH1")
+    saved = db.execute("SELECT avg_voltage FROM battery_benchmark_result WHERE session_id='S1'").fetchone()[0]
+    assert saved == pytest.approx(first["avg_voltage"])
+
+
+def test_service_keeps_validation_analysis_and_save_inside_writer_transaction(monkeypatch):
+    import analysis.battery_benchmark_service as service_module
+    db = make_database()
+    service = BatteryBenchmarkService(db)
+    observed = []
+    original = service_module.analyze_5a_measurements
+
+    def observe(rows, *, channel):
+        observed.append(db.in_transaction)
+        return original(rows, channel=channel)
+
+    monkeypatch.setattr(service_module, "analyze_5a_measurements", observe)
+    service.analyze_session("S1", channel="CH1")
+    assert observed == [True]
+    assert db.in_transaction is False
+
+
+def test_service_writer_transaction_blocks_concurrent_scope_change(tmp_path, monkeypatch):
+    import analysis.battery_benchmark_service as service_module
+    path = tmp_path / "battery-lock.sqlite"
+    db = sqlite3.connect(path, timeout=0.1)
+    db.row_factory = sqlite3.Row
+    db.execute("CREATE TABLE measurement_session (session_id TEXT PRIMARY KEY, scope_key TEXT)")
+    db.execute("""CREATE TABLE measurement (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT, scope_key TEXT,
+        elapsed_time REAL, voltage1 REAL, voltage2 REAL, current1 REAL, current2 REAL
+    )""")
+    db.execute("INSERT INTO measurement_session VALUES ('S1','BATTERY:CH1')")
     db.executemany(
-        "INSERT INTO measurement(session_id,elapsed_time,voltage1,current1) VALUES(?,?,?,?)",
-        [('S1', 0.0, 1.40, 5.0), ('S1', 2.0, 1.38, 5.0)],
+        "INSERT INTO measurement(session_id,scope_key,elapsed_time,voltage1,current1) VALUES(?,?,?,?,?)",
+        [("S1","BATTERY:CH1",0.0,1.4,5.0),("S1","BATTERY:CH1",1.0,1.3,5.0)],
     )
     db.commit()
+    service = BatteryBenchmarkService(db)
+    concurrent = sqlite3.connect(path, timeout=0.01)
+    observed = []
+    original = service_module.analyze_5a_measurements
 
-    # Service must be able to create its result table against the existing
-    # session/measurement schema without modifying the raw Measurement rows.
-    before = db.execute("SELECT * FROM measurement ORDER BY id").fetchall()
-    result = BatteryBenchmarkService(db).analyze_session('S1')
-    after = db.execute("SELECT * FROM measurement ORDER BY id").fetchall()
+    def attempt_concurrent_writer(rows, *, channel):
+        try:
+            concurrent.execute("UPDATE measurement_session SET scope_key='BATTERY:CH2' WHERE session_id='S1'")
+            concurrent.commit()
+            observed.append("unexpected-write")
+        except sqlite3.OperationalError as exc:
+            observed.append("locked" if "locked" in str(exc).lower() else str(exc))
+        return original(rows, channel=channel)
 
-    assert result['measurement_count'] == 2
-    assert result['capacity_mah'] == 10.0 / 3600.0 * 1000.0
-    assert before == after
-    assert db.execute("SELECT COUNT(*) FROM battery_benchmark_result").fetchone()[0] == 1
+    monkeypatch.setattr(service_module, "analyze_5a_measurements", attempt_concurrent_writer)
+    try:
+        service.analyze_session("S1", channel="CH1")
+    finally:
+        concurrent.close()
+        db.close()
+    assert observed == ["locked"]

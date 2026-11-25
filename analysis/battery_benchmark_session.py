@@ -1,33 +1,56 @@
-"""Session-level Battery benchmark feature extraction."""
+"""Legacy session-level feature extractor with explicit channel isolation."""
 from __future__ import annotations
+from math import isfinite
 from statistics import mean, pstdev
 
 
-def extract_battery_benchmark(measurements):
-    """Return derived benchmark features without modifying measurements."""
+def extract_battery_benchmark(measurements, *, channel):
+    """Return one channel's features; never fall back to the other channel."""
+    if channel not in ("CH1", "CH2"):
+        raise ValueError("channel must be explicitly set to 'CH1' or 'CH2'")
     rows = list(measurements)
     if not rows:
         raise ValueError("no Battery measurements")
-    channels = {getattr(row, "instance_id", None) for row in rows}
-    if len(channels) != 1:
-        raise ValueError("Battery benchmark requires one independent channel")
-    voltages = [float(row.voltage1 or row.voltage2) for row in rows]
-    currents = [float(row.current1 or row.current2) for row in rows]
-    powers = [float(row.power) for row in rows]
-    times_ms = [float(row.elapsed_time) for row in rows]
+    voltage_key = "voltage1" if channel == "CH1" else "voltage2"
+    current_key = "current1" if channel == "CH1" else "current2"
+
+    def numeric(row, key):
+        value = getattr(row, key, None)
+        if value is None:
+            return None
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            return None
+        return value if isfinite(value) else None
+
+    samples = []
+    for row in rows:
+        voltage = numeric(row, voltage_key)
+        current = numeric(row, current_key)
+        elapsed = numeric(row, "elapsed_time")
+        if voltage == 0.0 or current == 0.0:
+            raise ValueError(f"{channel} selected-channel zero sample; validity is UNKNOWN")
+        if voltage is None or current is None or elapsed is None:
+            raise ValueError(f"{channel} sample has missing or non-finite V/I/time; validity is UNKNOWN")
+        samples.append((elapsed, voltage, current))
+    if not samples:
+        raise ValueError(f"no valid {channel} voltage/current samples")
+    samples.sort(key=lambda item: item[0])
+    voltages = [sample[1] for sample in samples]
+    currents = [sample[2] for sample in samples]
+    powers = [v * i for v, i in zip(voltages, currents)]
     capacity_ah = 0.0
     energy_wh = 0.0
-    for a, b in zip(rows, rows[1:]):
-        dt_h = (float(b.elapsed_time) - float(a.elapsed_time)) / 3600000.0
-        i1, i2 = float(a.current1 or a.current2), float(b.current1 or b.current2)
-        v1, v2 = float(a.voltage1 or a.voltage2), float(b.voltage1 or b.voltage2)
-        capacity_ah += ((i1 + i2) / 2) * dt_h
-        energy_wh += (((i1 * v1) + (i2 * v2)) / 2) * dt_h
+    for a, b in zip(samples, samples[1:]):
+        dt_h = (b[0] - a[0]) / 3600000.0
+        capacity_ah += ((a[2] + b[2]) / 2) * dt_h
+        energy_wh += ((a[1] * a[2] + b[1] * b[2]) / 2) * dt_h
     return {
-        "measurement_count": len(rows), "channel": next(iter(channels)),
+        "measurement_count": len(samples), "channel": channel,
         "avg_voltage": mean(voltages), "avg_current": mean(currents), "avg_power": mean(powers),
         "max_current": max(currents), "max_power": max(powers),
-        "discharge_time_s": max(times_ms) / 1000.0,
+        "discharge_time_s": (samples[-1][0] - samples[0][0]) / 1000.0,
         "voltage_drop": voltages[0] - voltages[-1],
         "capacity_ah": capacity_ah, "capacity_mah": capacity_ah * 1000.0,
         "energy_wh": energy_wh,

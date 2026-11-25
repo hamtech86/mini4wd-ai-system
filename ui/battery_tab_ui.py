@@ -5,6 +5,7 @@ operator explicitly registers the result. STOP/ERROR/CANCEL results are never
 registered as benchmark results.
 """
 import sqlite3
+import math
 import uuid
 from datetime import datetime
 from PyQt5.QtCore import QTimer
@@ -13,6 +14,13 @@ from battery_system.serial import BatterySerial
 from raw_log_library import RawLog, RawLogLibrary
 from ui.battery_database_ui import BatteryDatabaseDialog
 from database.path_resolver import connect_database, resolve_database_path
+
+
+def battery_capture_start_blocked(samples, completed, status):
+    """Never start over a capture whose samples have not been persisted."""
+    return bool(samples) or bool(completed) or str(status).strip().upper() in {
+        "STARTING", "RUN", "RUNNING", "STOPPING"
+    }
 
 
 class BatteryTab(QWidget):
@@ -246,6 +254,10 @@ class BatteryTab(QWidget):
             self._capture_active[channel] = False
             self._capture_terminal_status[channel] = None
             self.local_raw_log_ids[channel] = record.log_id
+            # RawLog persistence is the success boundary in Anonymous Mode.
+            # Release only the parsed in-memory samples after the exact capture
+            # has been durably saved; failed saves retain them for retry.
+            self.samples[channel] = []
             self.result_labels[f"CH{channel}"].setText(
                 f"CH{channel} Result: {terminal_status} / LOCAL RAWLOG {record.log_id}"
             )
@@ -286,19 +298,33 @@ class BatteryTab(QWidget):
     def start_channel(self, channel):
         if not self.transport.connected:
             return
-        a = self.ch1_instance.currentData()
-        b = self.ch2_instance.currentData()
+        targets = (1, 2) if channel is None else (channel,)
+        # In Anonymous Mode, retry a terminal capture's RawLog save before
+        # applying the generic pending-Sample guard. A failed retry retains
+        # every source buffer and blocks START; a successful save releases
+        # the parsed samples and may then permit the next capture.
         if self.anonymous_mode and any(
             self._capture_active[ch] and self._capture_terminal_status[ch]
-            for ch in ((1, 2) if channel is None else (channel,))
+            for ch in targets
         ):
             self.retry_anonymous_raw_log_saves()
             if any(
                 self._capture_active[ch] and self._capture_terminal_status[ch]
-                for ch in ((1, 2) if channel is None else (channel,))
+                for ch in targets
             ):
                 QMessageBox.warning(self, "Battery RawLog", "前回のRawLog保存が未完了です。保存を再試行してから放電を開始してください。")
                 return
+        blocked = [ch for ch in targets if battery_capture_start_blocked(
+            self.samples[ch],
+            self.completed[ch] and not (self.anonymous_mode and self.local_raw_log_ids[ch]),
+            self.latest_status[ch],
+        )]
+        if blocked:
+            labels = ", ".join(f"CH{ch}" for ch in blocked)
+            QMessageBox.warning(self, "Battery Capture", f"{labels} に未保存または進行中のSampleがあります。永続化成功まで再STARTできません。")
+            return
+        a = self.ch1_instance.currentData()
+        b = self.ch2_instance.currentData()
         if not self.anonymous_mode and (a is None or b is None):
             QMessageBox.warning(self, "Battery Instance", "CH1 / CH2のBattery Instanceを指定してください。")
             return
@@ -390,6 +416,14 @@ class BatteryTab(QWidget):
 
     @staticmethod
     def _stats(samples):
+        if not samples:
+            raise ValueError("No Battery samples to register")
+        for index, sample in enumerate(samples):
+            values = (sample.voltage, sample.current, sample.elapsed_sec)
+            if any(value is None or not math.isfinite(float(value)) for value in values):
+                raise ValueError(f"CH sample {index} has missing or non-finite data; validity is UNKNOWN")
+            if float(sample.voltage) == 0.0 or float(sample.current) == 0.0:
+                raise ValueError(f"Selected channel has 0.0 at sample {index}; validity is UNKNOWN")
         samples = sorted(samples, key=lambda x: x.elapsed_sec)
         n = len(samples)
         avg_v = sum(x.voltage for x in samples) / n
@@ -426,12 +460,16 @@ class BatteryTab(QWidget):
             QMessageBox.information(self, "Anonymous Mode", "Database registration is unavailable. The original local RawLog is retained instead.")
             return
         completed = []
-        for ch in (1, 2):
-            if not self.completed[ch]:
-                continue
-            iid = self.ch1_instance.currentData() if ch == 1 else self.ch2_instance.currentData()
-            if self.samples[ch] and iid:
-                completed.append((ch, iid, self._stats(self.samples[ch])))
+        try:
+            for ch in (1, 2):
+                if not self.completed[ch]:
+                    continue
+                iid = self.ch1_instance.currentData() if ch == 1 else self.ch2_instance.currentData()
+                if self.samples[ch] and iid:
+                    completed.append((ch, iid, self._stats(self.samples[ch])))
+        except (TypeError, ValueError) as exc:
+            QMessageBox.warning(self, "Battery Result", f"Validity UNKNOWNのため登録できません。Raw Sampleは保持されます。\\n{exc}")
+            return
         if not completed:
             QMessageBox.warning(self, "Battery Result", "正常終了(COMPLETE)した測定がありません。")
             return
@@ -439,25 +477,33 @@ class BatteryTab(QWidget):
             return
         try:
             with self._db() as db:
+                session_columns = self._table_columns(db, "measurement_session")
+                measurement_columns = self._table_columns(db, "measurement")
+                if "scope_key" not in session_columns or "scope_key" not in measurement_columns:
+                    QMessageBox.warning(
+                        self, "Battery Result",
+                        "DBに明示的なScope Key保存欄がありません。CH1/CH2 identityを保持できないためDB登録を中止しました。"
+                    )
+                    return
                 for ch, iid, stats in completed:
                     n, av, ai, ap, mi, mp, dur, cap, energy = stats
                     sid = int(uuid.uuid4().int % 2147483647)
                     start = self.session_started[ch] or datetime.now().isoformat(timespec="seconds")
                     end = datetime.now().isoformat(timespec="seconds")
                     self._insert_available(db, "measurement_session", {
-                        "session_id": sid, "instance_id": iid, "device_type": "EVALUATION",
+                        "session_id": sid, "instance_id": iid, "scope_key": f"BATTERY:CH{ch}", "device_type": "EVALUATION",
                         "device_model": "BATTERY_5A", "firmware_version": "UNKNOWN",
                         "start_datetime": start, "end_datetime": end, "operator": "USER",
-                        "result": "COMPLETE", "notes": f"Integrated Battery UI CH{ch}; manual result registration"
+                        "result": "COMPLETE", "notes": "Integrated Battery UI; manual result registration"
                     })
                     for s in self.samples[ch]:
                         self._insert_available(db, "measurement", {
                             "session_id": sid, "record_type": "BATTERY_5A", "device_model": "BATTERY_5A",
-                            "instance_id": iid, "elapsed_time": s.elapsed_sec, "voltage1": s.voltage,
-                            "current1": s.current, "pwm": s.pwm, "state": "COMPLETE", "power": s.voltage * s.current
+                            "instance_id": iid, "scope_key": f"BATTERY:CH{ch}", "elapsed_time": s.elapsed_sec, f"voltage{ch}": s.voltage,
+                            f"current{ch}": s.current, "pwm": s.pwm, "state": s.state, "power": s.voltage * s.current
                         })
                     self._insert_available(db, "battery_benchmark_result", {
-                        "session_id": sid, "instance_id": iid, "analysis_version": "battery-benchmark-v1",
+                        "session_id": sid, "instance_id": iid, "analysis_version": "battery-benchmark-v2",
                         "measurement_count": n, "avg_voltage": av, "avg_current": ai, "avg_power": ap,
                         "max_current": mi, "max_power": mp, "discharge_time_s": dur,
                         "capacity_mah": cap, "energy_wh": energy
@@ -465,7 +511,10 @@ class BatteryTab(QWidget):
                 db.commit()
             QMessageBox.information(self, "Battery Result", "COMPLETEしたMeasurementとBenchmark Resultを登録しました。")
             for ch, _, _ in completed:
+                # Clear only the in-memory buffer after the DB commit succeeded.
+                self.samples[ch] = []
                 self.completed[ch] = False
+                self.latest_status[ch] = "IDLE"
                 self.result_labels[f"CH{ch}"].setText(f"CH{ch} Result: REGISTERED")
             self._update_register_button()
         except sqlite3.Error as exc:
