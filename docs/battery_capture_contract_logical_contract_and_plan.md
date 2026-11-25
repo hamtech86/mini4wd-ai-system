@@ -298,3 +298,117 @@ Do not re-query DB for the GL-04 mapping. If the existing mapping does not permi
 - PR #218: must remain **OPEN / DRAFT / UNMERGED** at accepted code HEAD `91c635dd5c129633898566adf929a8dc2f7386ab`. This document does not update or reopen the accepted code PR.
 
 **Requested next decision:** approve or revise the proposed host-only implementation scope and test plan. Until explicit approval is received, Battery will make no implementation changes.
+
+
+## 13. P0 design-closure disposition — Central Command review #7164298834
+
+- Review authority: PR #218 comment #7164298834.
+- This section classifies the four P0 questions from existing source / approved logical contracts. It does not create a new Capture rule, identity, DB field, recovery algorithm, or implementation authorization.
+- Evidence baseline: accepted Battery code HEAD `91c635dd5c129633898566adf929a8dc2f7386ab`; DB logical draft branch `db/v0.8.3-followup-remediation-20261121`, Main blob `e1cdac6f75225877034c70d6023de5f6c7558e30`; Issue #207 comment #7101200440; PR #218 accepted code and this document's v2 revision.
+
+### P0-1 — Capture start / end boundary
+
+**Classification**
+- Existing observable markers: **RECOVERABLE**.
+- Normative rule that declares which marker opens/closes a Capture: **NO_CURRENT_BASIS**.
+- Equivalence between the cited external Firmware source and the deployed device: **CONDITIONALLY_RECOVERABLE** (Firmware Owner / device identity evidence required).
+
+**Verified facts**
+- At accepted Battery HEAD, `BatteryTab.start_channel()` records a Host local timestamp, clears the new in-memory buffer only after the prior-capture safety gate, and sends START. The timestamp is not an offset-aware Firmware start timestamp and is not evidence that the device accepted START.
+- `BatterySerial.start()` sends `START1` / `START2` / `STARTALL`; `read_lines()` decodes incoming bytes to UTF-8 with replacement; `parse_data()` parses DATA rows only.
+- `poll_serial()` appends parsed DATA rows. It does not persist a durable event journal for START request, ACK, first DATA, STOP request, and terminal DATA as separate linked events. The current terminal UI recognition does not establish a complete mapping for all Firmware states (notably literal STOP / TIMEOUT).
+- Firmware command/state vocabulary and the distinctions START request, ACK, first DATA, STOP request, terminal DATA are documented in Issue #16 #7080826275 and Central Command decision #7161905985. CC-CR01 explicitly forbids treating ACK alone as completion and requires UNKNOWN when ACK-to-Capture correlation cannot be proven.
+- DB Main §14.2 requires UNKNOWN when start/end existence or ordering cannot be established; elapsed silence, application exit, or last value must not be used to infer end.
+
+**Disposition**
+- We can retain each observed marker as a distinct fact, with its actual source and available timestamp.
+- We cannot currently declare “Capture begins at START request”, “Capture begins at ACK”, or “Capture begins at first DATA”; likewise we cannot declare a universal end boundary from silence, STOP request, disconnect, or application exit.
+- Until an approved boundary rule and correlation evidence exist, no per-Capture completeness assertion is made. Raw bytes/lines, if captured, remain opaque evidence; Measurement Outcome / eligibility remains UNKNOWN or INCOMPLETE as supported by explicit evidence, and Aggregate admission is blocked.
+- No user confirmation is requested now. If a future implementation requires deployed-device equivalence, Firmware Owner must identify the deployed firmware build/hash and confirm its event behavior. This is evidence confirmation, not permission to modify Firmware or run hardware.
+
+**Completion condition:** Central Command accepts a boundary rule based on an identified observable event and correlation mechanism, or explicitly accepts the UNKNOWN/opaque stop condition. No rule is inferred by Battery.
+
+### P0-2 — Capture Key and identity alignment
+
+**Classification**
+- Existing common identity model and issuer assignments: **RECOVERABLE**.
+- Whether a Capture is exactly one Measurement, and therefore whether `MeasurementID` can serve as the Capture Key: **NO_CURRENT_BASIS**.
+- A distinct Capture Key / its derivation, uniqueness scope, and persistence relationship: **NO_CURRENT_BASIS** in the current approved identity registry.
+
+**Verified facts**
+- DB Main §5.1 assigns `MeasurementID`, `RawLogObjectID`, and `SampleReferenceID` to `CAPTURE_IDENTITY_AUTHORITY`; `RawLogReferenceID` to `EVIDENCE_STORAGE_AUTHORITY`; `PhysicalRunID` / `LogicalSessionID` / `DBRunID` to `RUN_MANAGER`; `OperationID` to `OPERATION_AUTHORITY`; and `ReceiptID` to `RECEIPT_AUTHORITY`.
+- DB Main §5.3 defines RUN_SCOPE identity as the composite `(PhysicalRunID, ScopeKey)`; it has no independent RunScopeID. Measurement Envelope `PhysicalRunID` + `ScopeKey` is the direct RUN_SCOPE reference (Issue #207 #7101200440 and Main §7.1).
+- The DB identity inventory lists Measurement, RawLog Object, RawLog Reference, Sample Reference, Operation / Intent, and Receipt as distinct identities. ReceiptID is independently UUIDv4 and is not derived from OperationID.
+- No current accepted Battery source or approved common identity mapping defines an entity/field named CaptureKey, a Capture-Key derivation, or a normative one-Capture-to-one-Measurement cardinality.
+
+**Disposition**
+- Do not reuse `PhysicalRunID`, `ScopeKey`, `OperationID`, or `ReceiptID` as an assumed Capture Key.
+- Do not assume `MeasurementID = CaptureKey` until the one-to-one relationship and lifecycle are explicitly decided. The existing issuer assignments do not by themselves establish that equivalence.
+- Preserve the already-decided identities and mapping. A future retry implementation remains blocked from claiming capture-wide idempotency until the key's owner, identity, uniqueness scope, and relationship to Measurement / RawLog Object / Operation / Receipt are approved.
+- Specific decision needed before implementation: Central Command must determine whether one Battery Capture is normatively identical to one Measurement (permitting the already-defined MeasurementID to be the stable key), or whether Capture and Measurement have different cardinality/lifecycle and require a separately approved identity relationship. Battery will not invent a new ID or issue it itself.
+
+**Completion condition:** An explicit Central Command decision records the Capture↔Measurement cardinality and identifies the authoritative existing ID (or approves a separate identity with issuer authority). Until then, no Capture Key is generated and exactly-once Capture persistence is NOT IMPLEMENTED.
+
+### P0-3 — Existing DB contract representation for Outcome / Quality / RawLog
+
+**Classification**
+- RUN_SCOPE, RawLog Object / Reference, Sample Reference, and Measurement Sample Link field mapping: **RECOVERABLE / DECIDED**.
+- Logical Outcome vocabulary and Aggregate admission rule: **RECOVERABLE / DECIDED**.
+- Field-level persistence mapping for Battery Outcome and independent Quality/Eligibility in the currently approved common Envelope / legacy SQLite implementation: **CONDITIONALLY_RECOVERABLE**; not proven implementable in the current legacy schema without a separately approved persistence representation.
+
+**Verified facts**
+- Issue #207 comment #7101200440 is the authoritative completed mapping; it must not be re-queried:
+  - RUN_SCOPE = `(PhysicalRunID, ScopeKey)`; Measurement Envelope carries both fields.
+  - RawLog Object = `RawLogObjectID + ContentHashSHA256`.
+  - RawLog Reference = `RawLogReferenceID + RawLogObjectID + RawLogObjectContentHash`; reference hash must equal the Object hash.
+  - Measurement Envelope references `RawLogReferenceID`; Sample Reference carries `SampleReferenceID + RawLogReferenceID + SampleLocator`; Measurement Sample Link is `(MeasurementID, SampleReferenceID, Role, Ordinal)`.
+- DB Main §7.0 / §7.1 / §14.2 defines Measurement Envelope information, RawLog reference chain, Outcome values, and the rule that formal COMPLETE requires the Device/Capture Owner contract's terminal evidence and required Samples. Unknown / unreceived Owner Payload Schema is opaque only.
+- DB Main §14.2 decides the Outcome vocabulary (COMPLETE / STOP / ERROR / CANCEL / INCOMPLETE / UNKNOWN) and Aggregate gate. However, the minimum Measurement Envelope field list in §7.0 names `Measurement Status` and `Termination Reason`; it does not by itself specify an unambiguous persisted field mapping for the separate Outcome value and the Battery Quality/Eligibility result.
+- The accepted legacy SQLite `measurement_session` / `measurement` path has no complete Scope / RawLog Reference / Object Hash / Sample Link persistence chain. The Battery registration path fails closed if required explicit Scope Key columns are absent. No DB schema change is authorized.
+
+**Disposition**
+- Treat the Issue #207 RawLog / Sample reference mapping as closed and do not reopen it.
+- Preserve Outcome and Quality as separate logical concepts. Do not equate either with Session Lifecycle, legacy Session result/status, or each other.
+- Where the existing approved external Measurement Envelope / Owner Payload cannot unambiguously represent Outcome and Quality/Eligibility, retain the data as opaque / UNKNOWN, reject formal Benchmark registration, and exclude it from Current Aggregate. Do not add SQLite columns, reinterpret `Measurement Status`, or create an implicit mapping.
+- The RawLog reference chain is a known logical contract; it is not implemented end-to-end by the accepted Battery code. The current Battery RawLog manager's local `log_id` must not be assumed to be a DB `RawLogObjectID` or `RawLogReferenceID`.
+
+**Completion condition:** Before implementation, the authoritative Owner Envelope schema must identify the separate Outcome and Quality/Eligibility representation, or Central Command must explicitly retain the opaque/excluded boundary. Existing GL-04 field mapping remains closed.
+
+### P0-4 — Partial RawLog write reconciliation
+
+**Classification**
+- Generic common storage acceptance evidence / criteria: **RECOVERABLE**.
+- Exact reconciliation of the current Battery RawLog Library's multi-file partial-write states: **CONDITIONALLY_RECOVERABLE**; no current implementation evidence proves it.
+- Any claim that current Battery RawLog writes are atomic / exactly-once: **NO_CURRENT_BASIS**.
+
+**Verified facts**
+- DB Main §8 / §14.3 specifies the common storage evidence sequence for a received object: write a temporary file; fsync; read back and verify SHA-256; check final-path collision; atomic rename; fsync parent directory; reopen final path and re-verify hash; record completion in Journal. On failure or power loss, preserve the partial state as PENDING_RECOVERY / QUARANTINED; do not delete or overwrite. Retry uses the same RawLog ID and expected hash; a different hash for the same ID is prohibited.
+- DB Main explicitly says these are common storage requirements, not Battery-specific Capture semantics, and that successful storage alone does not prove Capture completion / Measurement Outcome=COMPLETE.
+- At accepted Battery HEAD, `RawLogLibrary.register()` writes the decoded text body, then updates a JSON metadata store, then appends a CSV index. The inspected path does not establish a temp-file/fsync/atomic-rename/read-back-hash/Journal commit chain. The current record uses a library-allocated local `log_id`; no proof maps it to the DB RawLog Object / Reference IDs.
+- The current Battery RawLog library has no capture-wide manifest or transaction record that proves all three local artifacts (body, metadata, index) form one committed Capture object after a crash at each boundary.
+
+**Disposition**
+- Reuse the existing DB common storage acceptance criteria; do not invent a Battery-specific alternative.
+- For future accepted-object persistence, “complete” can only be asserted after the canonical object bytes and expected hash are read back and match, final-path collision checks pass, the RawLog Reference points to the matching Object ID/hash, and the required Journal/Source Commit evidence is durable and verified.
+- If a crash leaves body / metadata / index / reference / Journal state incomplete or ambiguous, preserve all surviving evidence and classify PENDING_RECOVERY / QUARANTINED. Do not delete, rewrite, overwrite, regenerate IDs, or mark successful based only on the presence of one file.
+- For existing legacy local logs, where no canonical byte hash and no durable commit/reconciliation record exist, report the exact observed files as legacy evidence only; do not retroactively assert atomicity, exact-once, or complete Capture status.
+- Applying the generic process to the current Battery multi-file layout requires a separately approved implementation design that identifies the canonical object, its manifest/commit record, and fault-injection coverage. This is a design dependency, not implementation permission.
+
+**Completion condition:** A reviewed persistence design maps the existing common temp-write/hash/read-back/rename/Journal criteria to a canonical Battery RawLog Object and Reference, and specifies the observable reconciliation result for each failure boundary. Until implemented and fault-tested, uncertain partial state remains PENDING_RECOVERY / QUARANTINED.
+
+### P0 overall status and next decision
+
+| P0 item | Classification | DECISION / DOCUMENT | IMPLEMENTATION | VERIFICATION | APPROVAL / dependency |
+|---|---|---|---|---|---|
+| P0-1 Capture boundary | Markers RECOVERABLE; exact boundary NO_CURRENT_BASIS; deployed build CONDITIONALLY_RECOVERABLE | Existing markers recorded; no normative boundary asserted | NOT_STARTED | NOT_RUN | Central Command boundary decision; Firmware Owner confirmation only for deployed-build equivalence |
+| P0-2 Capture Key | Existing identity map RECOVERABLE; Capture↔Measurement relation NO_CURRENT_BASIS | Existing issuer roles and identities preserved; no key invented | NOT_STARTED | NOT_RUN | Central Command decision on 1:1 Capture/Measurement relation and authoritative ID |
+| P0-3 DB representation | RawLog mapping and Outcome vocabulary DECIDED; Outcome/Quality field representation CONDITIONALLY_RECOVERABLE | Existing GL-04 mapping remains closed; unsupported fields opaque/excluded | NOT_STARTED | NOT_RUN | Owner Envelope schema / Central Command clarification if a persisted Outcome+Quality field mapping is required |
+| P0-4 Partial-write recovery | Generic storage criteria RECOVERABLE; Battery multi-file reconciliation CONDITIONALLY_RECOVERABLE | Common storage rules reused; no Battery-specific algorithm invented | NOT_STARTED | NOT_RUN | Approved canonical object/manifest/commit design; later fault-injection tests |
+
+**Battery decision request to Central Command (only the unresolved points):**
+1. P0-1: accept the current stop condition that no Capture start/end boundary is asserted until an authoritative boundary/correlation rule is available, or specify the event that is the boundary and the evidence that correlates it.
+2. P0-2: decide whether a Battery Capture is exactly one Measurement and may use the existing MeasurementID as its stable idempotency key. If not, specify the required identity relationship and issuer; Battery will not create a parallel key.
+3. P0-3: confirm that Outcome / Quality without an explicit Owner Envelope representation remains opaque / excluded (no legacy SQLite inference or schema change).
+4. P0-4: confirm that the DB common storage procedure in Main §8 is the governing reconciliation contract and that all uncertain legacy multi-file states remain PENDING_RECOVERY / QUARANTINED until a separately approved canonical-object implementation is tested.
+
+No source code, tests, Firmware, DB schema/DDL/Migration, DB data, main, or hardware were changed by this P0 assessment. PR #218 remains OPEN / DRAFT / UNMERGED at accepted code HEAD `91c635dd5c129633898566adf929a8dc2f7386ab`. Physical 5A E2E remains NOT RUN (Issue #16).
