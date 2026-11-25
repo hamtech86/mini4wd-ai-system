@@ -138,16 +138,14 @@ Additional approved contract behavior:
 
 This is a planning proposal only. It does not authorize code changes. The sequence avoids firmware and DB schema changes and keeps the accepted PR #218 code baseline intact.
 
-### Phase P0 — design closure and implementation authorization
+### Phase P0 — design closure (Central Command decision #7172052263)
 
-1. Review this contract table and approve the proposed host-only scope.
-2. Define the Capture start boundary from an observable event and the Capture end boundary from an observable terminal condition. Distinguish a Host request from a Firmware acknowledgement/terminal observation; where either boundary cannot be proven, retain evidence without asserting a per-Capture association.
-3. Specify the Capture Key using the existing Physical Run / Operation / Receipt identities and their relationships. Identify the exact authoritative identifier, uniqueness scope, and derivation/reference rule; do not invent a parallel ID scheme.
-4. Confirm the existing DB field mapping in Issue #207 comment #7101200440 is used as-is. If Outcome / Quality / RawLog references cannot be represented by that approved contract, keep the data opaque and excluded from Aggregate; submit the exact persistence gap for separate authorization. Do not ask DB to repeat the mapping.
-5. Define a reconciliation procedure for partial RawLog writes: which persisted objects/manifests/hashes/read-back evidence prove complete, incomplete, or conflicting state. Until such evidence can prove reconciliation, retain Quarantine and prohibit retry from overwriting uncertain evidence.
-6. Obtain separate authorization before any source implementation begins.
-
-**Exit:** Central Command explicitly approves the implementation scope and test plan, and the four design closure items above have evidence-backed answers or explicit UNKNOWN/opaque stop conditions. Any DB schema, Firmware, or physical action remains separately gated.
+P0-1 through P0-4 are now **DECIDED**. Do not reopen them as questions or infer additional semantics:
+1. Capture start/end: no normative boundary is assigned to START request, ACK, first DATA, STOP request, silence, disconnect, application exit, or last Sample. Keep observations distinct. If correlation/boundary cannot be proven, retain only the strongest supported evidence as UNKNOWN/opaque, do not assert Capture completeness or Aggregate eligibility. Firmware build/hash confirmation is conditional only if a future device-specific equivalence claim is made.
+2. Capture Key: Capture is not approved as 1:1 with Measurement; MeasurementID is not approved as Capture Key. Do not substitute PhysicalRunID, ScopeKey, OperationID, or ReceiptID. Do not create a new Capture ID or issuer. Capture-level exactly-once/idempotency remains NOT IMPLEMENTED / NOT GUARANTEED; any function requiring a Capture Key is blocked.
+3. DB representation: Outcome and Quality/Eligibility remain separate. Without an explicit Owner Envelope representation, preserve opaque/UNKNOWN/excluded; reject formal Benchmark registration and exclude from Current Aggregate. Do not infer from Session Lifecycle, legacy Session result/status, Measurement Status, or add/change DB fields. Issue #207 #7101200440 mapping remains closed.
+4. Partial RawLog reconciliation: DB Main §8 / §14.3 is the governing common storage contract. Apply its temp-write, fsync, SHA-256 read-back, collision, atomic rename, directory fsync, final read-back, and Journal commit evidence sequence. Any missing/mismatched/uncertain Body/Metadata/Index/Reference/Journal state is PENDING_RECOVERY / QUARANTINED; no delete, overwrite, ID regeneration, or retry that mutates uncertain evidence. Legacy logs without proof remain legacy evidence only.
+5. These decisions close the logical stop conditions, not implementation authorization. Obtain a separate explicit Central Command approval before any source changes.
 
 ### Phase P1 — host event capture and source-aware lifecycle
 
@@ -280,7 +278,7 @@ No Firmware source path, DB schema/DDL, Migration, DB data, main branch, or phys
 | Dependency | Why required | Current status |
 |---|---|---|
 | Central Command implementation authorization | Logical decisions are approved, but implementation is explicitly not authorized by comment #7161905985. | REQUIRED / NOT GRANTED |
-| Capture Key design alignment | Must align with existing Physical Run / Operation / Receipt model. | DESIGN TASK / NOT APPROVED |
+| Capture Key design | Central Command rejected Capture=Measurement 1:1 and use of MeasurementID as Capture Key; no replacement key may be invented. | DECIDED STOP / NO KEY / Capture-key-dependent work BLOCKED |
 | DB schema/persistence authorization | Only if formal Outcome/Quality/RawLog references cannot be represented in existing approved fields. | NOT REQUESTED; no schema change planned |
 | Firmware Owner confirmation | Deployed firmware identity and platform-specific millis behavior; no firmware change requested. | CONDITIONALLY REQUIRED for device-specific claims |
 | User / equipment authorization | Any physical serial capture, real 5A E2E or discharge. | NOT GRANTED; Issue #16 remains NOT RUN |
@@ -297,7 +295,7 @@ Do not re-query DB for the GL-04 mapping. If the existing mapping does not permi
 - Firmware, DB schema/DDL/Migration, DB data, main, hardware: **UNCHANGED**.
 - PR #218: must remain **OPEN / DRAFT / UNMERGED** at accepted code HEAD `91c635dd5c129633898566adf929a8dc2f7386ab`. This document does not update or reopen the accepted code PR.
 
-**Requested next decision:** approve or revise the proposed host-only implementation scope and test plan. Until explicit approval is received, Battery will make no implementation changes.
+**Current gate:** P0-1 through P0-4 are decided and documented. The host-side plan is now classified by feasibility under those decisions. No source implementation is authorized until a separate explicit Central Command approval is received.
 
 
 ## 13. P0 design-closure disposition — Central Command review #7164298834
@@ -396,19 +394,71 @@ Do not re-query DB for the GL-04 mapping. If the existing mapping does not permi
 
 **Completion condition:** A reviewed persistence design maps the existing common temp-write/hash/read-back/rename/Journal criteria to a canonical Battery RawLog Object and Reference, and specifies the observable reconciliation result for each failure boundary. Until implemented and fault-tested, uncertain partial state remains PENDING_RECOVERY / QUARANTINED.
 
-### P0 overall status and next decision
+### P0 overall status — superseded by Central Command decision #7172052263
 
-| P0 item | Classification | DECISION / DOCUMENT | IMPLEMENTATION | VERIFICATION | APPROVAL / dependency |
+| P0 item | Central Command decision | DECISION / DOCUMENT | IMPLEMENTATION | VERIFICATION | Remaining dependency |
 |---|---|---|---|---|---|
-| P0-1 Capture boundary | Markers RECOVERABLE; exact boundary NO_CURRENT_BASIS; deployed build CONDITIONALLY_RECOVERABLE | Existing markers recorded; no normative boundary asserted | NOT_STARTED | NOT_RUN | Central Command boundary decision; Firmware Owner confirmation only for deployed-build equivalence |
-| P0-2 Capture Key | Existing identity map RECOVERABLE; Capture↔Measurement relation NO_CURRENT_BASIS | Existing issuer roles and identities preserved; no key invented | NOT_STARTED | NOT_RUN | Central Command decision on 1:1 Capture/Measurement relation and authoritative ID |
-| P0-3 DB representation | RawLog mapping and Outcome vocabulary DECIDED; Outcome/Quality field representation CONDITIONALLY_RECOVERABLE | Existing GL-04 mapping remains closed; unsupported fields opaque/excluded | NOT_STARTED | NOT_RUN | Owner Envelope schema / Central Command clarification if a persisted Outcome+Quality field mapping is required |
-| P0-4 Partial-write recovery | Generic storage criteria RECOVERABLE; Battery multi-file reconciliation CONDITIONALLY_RECOVERABLE | Common storage rules reused; no Battery-specific algorithm invented | NOT_STARTED | NOT_RUN | Approved canonical object/manifest/commit design; later fault-injection tests |
+| P0-1 Capture boundary | No normative start/end boundary; UNKNOWN/opaque if correlation cannot be proven | DECIDED / reflected | NOT IMPLEMENTED | NOT RUN | None for stop condition; Firmware build/hash only for future device-specific equivalence claim |
+| P0-2 Capture Key | No Capture=Measurement 1:1; MeasurementID not a Capture Key; no new key/issuer | DECIDED / reflected | NOT IMPLEMENTED; key-dependent work blocked | NOT RUN | Future common identity change proposal only if evidence creates a need |
+| P0-3 Outcome / Quality | Without explicit Owner Envelope representation, opaque/UNKNOWN/excluded; no legacy inference/schema changes | DECIDED / reflected | NOT IMPLEMENTED | NOT RUN | Future Owner Envelope schema evidence; GL-04 mapping remains closed |
+| P0-4 Partial RawLog | DB Main §8 / §14.3 governs; uncertain states PENDING_RECOVERY / QUARANTINED | DECIDED / reflected | NOT IMPLEMENTED | NOT RUN | Separately approved canonical object/manifest/commit design and fault-injection tests |
 
-**Battery decision request to Central Command (only the unresolved points):**
-1. P0-1: accept the current stop condition that no Capture start/end boundary is asserted until an authoritative boundary/correlation rule is available, or specify the event that is the boundary and the evidence that correlates it.
-2. P0-2: decide whether a Battery Capture is exactly one Measurement and may use the existing MeasurementID as its stable idempotency key. If not, specify the required identity relationship and issuer; Battery will not create a parallel key.
-3. P0-3: confirm that Outcome / Quality without an explicit Owner Envelope representation remains opaque / excluded (no legacy SQLite inference or schema change).
-4. P0-4: confirm that the DB common storage procedure in Main §8 is the governing reconciliation contract and that all uncertain legacy multi-file states remain PENDING_RECOVERY / QUARANTINED until a separately approved canonical-object implementation is tested.
+**P0 status:** all four logical stop conditions are **DECIDED** by Central Command comment #7172052263. They are not open questions. This does not authorize implementation.
 
 No source code, tests, Firmware, DB schema/DDL/Migration, DB data, main, or hardware were changed by this P0 assessment. PR #218 remains OPEN / DRAFT / UNMERGED at accepted code HEAD `91c635dd5c129633898566adf929a8dc2f7386ab`. Physical 5A E2E remains NOT RUN (Issue #16).
+
+
+## 14. Final implementation feasibility plan — Central Command decision #7172052263
+
+This section supersedes any earlier wording that requests a new P0 decision. P0-1 through P0-4 are closed as logical decisions. The classifications below describe only whether work is logically possible under those decisions; **none of these classifications grants implementation permission**.
+
+### 14.1 Work that can be implemented within the decided boundaries (after separate approval)
+
+| Workstream | Allowed implementation scope | Mandatory limit / fail-closed behavior |
+|---|---|---|
+| P1 — Host event observation | Preserve each actually observed Host/Firmware event as a distinct observation with source, event type, receive timestamp and original evidence where available. Record Host START/STOP requests separately from received ACK/DATA/terminal/diagnostic frames. | Do not declare Capture start/end; do not create Capture association from temporal proximity, order, ACK, silence, disconnect or last Sample. Uncorrelated events remain standalone UNKNOWN/opaque evidence. |
+| P2 — Raw byte acquisition | Add byte-preserving receive/test seams and prove byte fidelity for the bytes actually delivered by the serial layer; derive decoded text separately without mutating source bytes. | This alone does not authorize a Capture RawLog Object, RawLog Reference, Sample Reference, Capture Key, per-Capture hash claim or formal Measurement linkage. If canonical object ownership/boundary cannot be proven, retain only unassociated evidence or stop before persistence. |
+| P3 — Ordering evidence | Preserve observed arrival order and Device elapsed_ms as separate values; detect and report contradictions only where directly observable. | No generated sequence, automatic deduplication, sorting to normalize source order, invented gap/duplicate threshold, rollover reconstruction or Quality PASS. Unknown cadence/identity means Quality UNKNOWN / NOT ELIGIBLE. |
+| P4 — Pure Outcome mapping | Implement/test a pure mapping for explicit, source-attributed events exactly as CC-CR07 specifies, including Host INTERRUPTED event vs Outcome INCOMPLETE and correlated in-boundary Firmware ERROR only. | No formal Outcome persistence, Benchmark registration or Aggregate admission unless an explicit Owner Envelope representation exists. Unknown correlation remains UNKNOWN. Outcome COMPLETE does not imply Quality PASS or prove Capture boundary. |
+| Regression-only work | Add tests for the above fail-closed rules and preserve accepted CH1/CH2, selected-CH 0.0, A1-A7, V1/V2 and Scope Key behavior. | Tests must not require real hardware, alter DB schema/data, or weaken accepted behavior. New tests remain NOT RUN until separately authorized/executed. |
+
+### 14.2 Work blocked by the P0 decisions (do not implement)
+
+| Workstream | Why blocked | Stop condition |
+|---|---|---|
+| Capture-wide ID / exactly-once / idempotent retry | P0-2 explicitly rejects Capture=Measurement 1:1 and use of MeasurementID as Capture Key; no new ID or issuer is allowed. | Do not create Capture ID, alias an existing ID, or claim Capture-level exactly-once. |
+| Capture start/end lifecycle and complete Capture assembly | P0-1 deliberately assigns no normative boundary. | Do not declare Capture started/ended/complete or bind uncorrelated frames/Samples into one Capture. |
+| Formal RawLog Object / Reference / Sample Reference linkage to a Capture/Measurement | Requires proven ownership and Capture boundary; P0-1/P0-2 do not supply it. Existing GL-04 mapping defines the shape but does not prove a Battery Capture identity/link. | Do not invent links, IDs, SampleLocator, or ownership. Preserve only separately proven evidence. |
+| Formal Outcome + Quality persistence, Benchmark registration and Aggregate admission | P0-3 requires an explicit Owner Envelope representation; it is not currently available in the approved path. | Opaque/UNKNOWN/excluded; reject formal Benchmark registration and Current Aggregate inclusion. No legacy-field inference or schema changes. |
+| Battery RawLog multi-file atomic commit/reconciliation and retry | P0-4 provides the common storage criteria but the Battery canonical Object/Manifest/Commit mapping and Capture identity are not yet approved/implemented. | Do not retrofit a guessed recovery algorithm. Uncertain legacy states stay PENDING_RECOVERY / QUARANTINED; no overwrite, deletion, ID regeneration or mutating retry. |
+| Hardware/device-specific boundary, millis rollover or STARTALL skew claims | No deployed-build equivalence evidence or physical test authorization. | No Firmware modification, hardware access or device-specific assertion. |
+
+### 14.3 P1-P5 phase disposition
+
+| Phase | Can proceed after separate implementation approval | Blocked portion |
+|---|---|---|
+| P1 Host event lifecycle | Observation-only event provenance and preservation, without Capture association | Normative Capture lifecycle, ACK-to-Capture correlation, Capture completeness |
+| P2 Raw byte fidelity | Byte-preserving receive and isolated fidelity tests | Canonical per-Capture RawLog Object/Reference/Sample linkage and Capture-keyed retry |
+| P3 Ordering / Quality | Preserve order/elapsed evidence; detect direct contradictions; default unknown quality to NOT ELIGIBLE | Numeric gap/duplicate policy, sequence synthesis, Quality PASS where required contract absent |
+| P4 Outcome / Aggregate | Pure CC-CR07 mapping and unit tests for explicitly evidenced events | Persisted formal Outcome/Quality, Benchmark/Aggregate admission without Owner Envelope mapping |
+| P5 Retry / recovery | No Capture-keyed implementation at present; may prepare non-mutating inspection/test design for legacy artifacts | Capture idempotency, canonical object commit, retry/reconciliation that mutates uncertain state |
+
+### 14.4 Required approvals and gates
+
+1. **Implementation authorization:** separate explicit Central Command approval is mandatory before any source-code change, including the implementable observation/test-only portions above.
+2. **P0-2 identity:** no further Battery-side design work or ID proposal is authorized/needed now. Reopen only through a future common identity change proposal backed by new evidence and Central Command direction.
+3. **P0-3 Owner Envelope:** if a formal field mapping later becomes available, review that exact authoritative schema. Do not ask DB to repeat Issue #207 GL-04 mapping.
+4. **P0-4 storage:** any future canonical-object/manifest/commit design must map each DB Main §8 / §14.3 durability step and fault boundary before implementation authorization.
+5. **Physical / Firmware:** remains separately gated; Issue #16 5A E2E and physical discharge remain NOT RUN.
+6. **PR #218:** remain OPEN / DRAFT / UNMERGED. Preserve accepted code HEAD `91c635dd5c129633898566adf929a8dc2f7386ab`; do not modify main or the accepted code scope.
+
+### 14.5 Current status
+
+- P0-1..P0-4 decision: **DECIDED** by #7172052263; documented here.
+- P1/P2/P3/P4 observation-only or pure-logic scope: **IMPLEMENTABLE IN PRINCIPLE, NOT AUTHORIZED, NOT STARTED**.
+- Capture identity, formal linkage, formal persistence/eligibility, Capture-keyed retry/reconciliation: **BLOCKED BY DECIDED STOP CONDITIONS**.
+- Source code changes for this update: **NONE**.
+- New tests: **NOT RUN**.
+- Firmware / DB schema / DDL / Migration / DB data / main / hardware: **UNCHANGED**.
+- PR #218: **OPEN / DRAFT / UNMERGED**, accepted code HEAD unchanged.
+- Physical 5A E2E / discharge: **NOT RUN**.
