@@ -133,12 +133,32 @@ class BatteryBenchmarkResultRepository(BaseRepository):
         self.database.commit()
 
     def save(self, result):
-        """Persist derived analysis without touching measurement rows."""
+        """Insert immutable derived analysis; exact retries are idempotent."""
+        cursor = self.database.execute(
+            f"SELECT * FROM {self.TABLE} WHERE session_id=? AND analysis_version=?",
+            (result["session_id"], result["analysis_version"]),
+        )
+        existing = cursor.fetchone()
+        if existing is not None:
+            columns = [item[0] for item in cursor.description]
+            existing_values = dict(zip(columns, existing))
+            keys = tuple(result.keys())
+            if any(key not in existing_values for key in keys) or "result_id" not in existing_values:
+                raise ValueError("Benchmark result comparison is incomplete; refusing replacement")
+            metadata = {"result_id", "created_at"}
+            if any(
+                column not in keys and column not in metadata and value is not None
+                for column, value in existing_values.items()
+            ):
+                raise ValueError("Benchmark result comparison is incomplete; refusing replacement")
+            if all(existing_values[key] == result[key] for key in keys):
+                return existing_values["result_id"]
+            raise ValueError("Benchmark result conflict: existing immutable result differs")
         columns = ",".join(result.keys())
         placeholders = ",".join("?" for _ in result)
-        query = f"INSERT OR REPLACE INTO {self.TABLE} ({columns}) VALUES ({placeholders})"
+        query = f"INSERT INTO {self.TABLE} ({columns}) VALUES ({placeholders})"
         cursor = self.execute(query, tuple(result.values()))
-        self.database.commit()
+        # The caller owns the transaction boundary; do not commit here.
         return cursor.lastrowid
 
     def get_for_session(self, session_id, analysis_version=None):

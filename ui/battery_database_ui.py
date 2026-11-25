@@ -7,6 +7,7 @@ from PyQt5.QtWidgets import (QComboBox, QDialog, QFormLayout, QGroupBox, QLabel,
     QLineEdit, QMessageBox, QPushButton, QDoubleSpinBox, QSpinBox, QTabWidget,
     QVBoxLayout, QWidget, QListWidget, QHBoxLayout)
 from battery_system.manual_result_registration import validate_manual_registration, ManualRegistrationError
+from analysis.battery_benchmark import analyze_5a_measurements
 from database.path_resolver import connect_database, resolve_database_path
 
 
@@ -233,7 +234,12 @@ class BatteryDatabaseDialog(QDialog):
                     (sid,),
                 ).fetchall()
                 measurement_scopes = [row[6] for row in mrows] if "scope_key" in mcols else []
-            if not srow or not mrows: return
+            if not srow or not mrows:
+                for widget in (self.count,self.avg_v,self.avg_i,self.avg_p,self.max_i,self.max_p,self.duration,self.drop,self.cap,self.energy):
+                    widget.setValue(0)
+                self.session_info.setText(f"Session {sid} | Channel UNKNOWN | SessionまたはMeasurement行がありません")
+                self.status.setText("NOT REGISTERABLE: missing Session or Measurement rows")
+                return
             session_iid,start,end,result,session_notes=srow
             if is_legacy_channel_ambiguous(session_notes):
                 for widget in (self.count,self.avg_v,self.avg_i,self.avg_p,self.max_i,self.max_p,self.duration,self.drop,self.cap,self.energy):
@@ -243,7 +249,8 @@ class BatteryDatabaseDialog(QDialog):
                 )
                 self.status.setText("NOT REGISTERABLE: legacy channel identity missing")
                 return
-            channel=infer_battery_session_channel([session_scope, *measurement_scopes])
+            channel=(infer_battery_session_channel([session_scope, *measurement_scopes])
+                     if "scope_key" in mcols and measurement_scopes else None)
             if channel is None:
                 for widget in (self.count,self.avg_v,self.avg_i,self.avg_p,self.max_i,self.max_p,self.duration,self.drop,self.cap,self.energy):
                     widget.setValue(0)
@@ -270,11 +277,14 @@ class BatteryDatabaseDialog(QDialog):
                 voltage=row[voltage_index]
                 current=row[current_index]
                 if voltage is None or current is None:
-                    continue
+                    self._channel_identity=None
+                    self.session_info.setText(f"Session {sid} | Channel {channel} | 欠損V/I: Validity UNKNOWN")
+                    self.status.setText("NOT REGISTERABLE: incomplete selected-channel sample")
+                    return
                 try:
                     voltage=float(voltage); current=float(current)
                     if not (math.isfinite(voltage) and math.isfinite(current)):
-                        continue
+                        raise ValueError("non-finite selected-channel V/I")
                     if voltage == 0.0 or current == 0.0:
                         self._channel_identity=None
                         self.session_info.setText(
@@ -284,9 +294,12 @@ class BatteryDatabaseDialog(QDialog):
                         return
                     elapsed=float(elapsed)
                     if not math.isfinite(elapsed):
-                        continue
+                        raise ValueError("non-finite elapsed time")
                 except (TypeError,ValueError):
-                    continue
+                    self._channel_identity=None
+                    self.session_info.setText(f"Session {sid} | Channel {channel} | 不正値: Validity UNKNOWN")
+                    self.status.setText("NOT REGISTERABLE: invalid selected-channel sample")
+                    return
                 paired.append((elapsed,voltage,current))
             if not paired:
                 self._channel_identity=None
@@ -331,10 +344,8 @@ class BatteryDatabaseDialog(QDialog):
             QMessageBox.warning(self,"Benchmark Result","SessionとBattery Instanceを指定してください。")
             return
         try:
-            values=(sid,iid,self.version.text().strip() or "battery-benchmark-v2",self.count.value(),self.avg_v.value(),self.avg_i.value(),self.avg_p.value(),self.max_i.value(),self.max_p.value(),self.duration.value(),self.drop.value(),self.cap.value(),self.energy.value())
-            # Lock the SQLite writer before the fresh identity read. Keep validation and
-            # INSERT in this same transaction so a concurrent Scope Key change cannot
-            # slip between the final check and registration.
+            # Re-read Scope and raw Measurement rows, then derive the persisted
+            # payload inside the same locked transaction. UI widgets are not evidence.
             with self._db() as db:
                 db.execute("BEGIN IMMEDIATE")
                 validate_persisted_battery_scope(db, sid, expected_channel)
@@ -352,17 +363,53 @@ class BatteryDatabaseDialog(QDialog):
                     quality_ok=self.quality.isChecked(),
                     operator_confirmed=self.operator.isChecked(),
                 )
+                measurement_columns=[r[1] for r in db.execute("PRAGMA table_info(measurement)").fetchall()]
+                raw_rows=db.execute("SELECT * FROM measurement WHERE session_id=? ORDER BY elapsed_time,id",(sid,)).fetchall()
+                if not raw_rows:
+                    raise ManualRegistrationError("Measurementがありません")
+                analysis_rows=[dict(zip(measurement_columns, raw)) for raw in raw_rows]
+                derived=analyze_5a_measurements(analysis_rows, channel=expected_channel)
+                payload={
+                    "session_id":sid, "instance_id":iid,
+                    "analysis_version":self.version.text().strip() or "battery-benchmark-v2",
+                    "measurement_count":derived["measurement_count"],
+                    "avg_voltage":derived["avg_voltage"], "avg_current":derived["avg_current"],
+                    "avg_power":derived["avg_power"], "max_current":derived["max_current"],
+                    "max_power":derived["max_power"], "discharge_time_s":derived["discharge_time_s"],
+                    "voltage_drop":derived["voltage_drop"], "capacity_mah":derived["capacity_mah"],
+                    "energy_wh":derived["energy_wh"],
+                }
+                names=list(payload)
+                existing_cursor=db.execute(
+                    "SELECT * FROM battery_benchmark_result WHERE session_id=? AND analysis_version=?",
+                    (sid,payload["analysis_version"]),
+                )
+                existing=existing_cursor.fetchone()
+                if existing is not None:
+                    existing_columns=[item[0] for item in existing_cursor.description]
+                    existing_values=dict(zip(existing_columns,existing))
+                    metadata={"result_id","created_at"}
+                    if any(
+                        column not in payload and column not in metadata and value is not None
+                        for column,value in existing_values.items()
+                    ):
+                        raise ManualRegistrationError("Benchmark Result Conflict: payload比較に不足する保存項目があります。")
+                    if all(existing_values.get(name)==payload[name] for name in names):
+                        db.commit()
+                        self.status.setText(f"REGISTERED (IDEMPOTENT NO-OP): Session {sid} / Instance {iid}")
+                        QMessageBox.information(self,"Benchmark Result","同一内容の登録済み結果を確認しました。既存行は変更していません。")
+                        return
+                    raise ManualRegistrationError("Benchmark Result Conflict: 既存結果とpayloadが異なるため上書きしません。")
                 db.execute(
-                    "INSERT OR REPLACE INTO battery_benchmark_result "
-                    "(session_id,instance_id,analysis_version,measurement_count,avg_voltage,avg_current,avg_power,max_current,max_power,discharge_time_s,voltage_drop,capacity_mah,energy_wh) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                    values,
+                    "INSERT INTO battery_benchmark_result ("+",".join(names)+") VALUES ("+
+                    ",".join("?" for _ in names)+")",
+                    tuple(payload[name] for name in names),
                 )
                 db.commit()
             self.status.setText(f"REGISTERED: Session {sid} / Instance {iid}")
             QMessageBox.information(self,"Benchmark Result","正式Benchmark Resultとして登録しました。")
-        except (ManualRegistrationError,sqlite3.Error) as exc:
-            self.status.setText("NOT REGISTERED: Scope / Session validation failed")
+        except (ManualRegistrationError,sqlite3.Error,ValueError) as exc:
+            self.status.setText("NOT REGISTERED: Scope / Measurement / Result validation failed")
             QMessageBox.critical(self,"Benchmark Result",str(exc))
 
     def refresh_all(self):

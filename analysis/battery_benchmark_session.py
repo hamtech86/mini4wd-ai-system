@@ -32,7 +32,7 @@ def extract_battery_benchmark(measurements, *, channel):
         if voltage == 0.0 or current == 0.0:
             raise ValueError(f"{channel} selected-channel zero sample; validity is UNKNOWN")
         if voltage is None or current is None or elapsed is None:
-            continue
+            raise ValueError(f"{channel} sample has missing or non-finite V/I/time; validity is UNKNOWN")
         samples.append((elapsed, voltage, current))
     if not samples:
         raise ValueError(f"no valid {channel} voltage/current samples")

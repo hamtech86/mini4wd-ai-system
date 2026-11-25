@@ -161,3 +161,63 @@ def test_register_result_rejects_session_scope_changed_after_ui_load_without_ins
         count = db.execute("SELECT COUNT(*) FROM battery_benchmark_result").fetchone()[0]
     assert count == 0
     assert len(MessageBoxRecorder.criticals) == 1
+
+
+def test_registration_uses_fresh_measurements_not_edited_widgets(tmp_path):
+    path = tmp_path / "battery.sqlite"
+    create_database(path)
+    dialog = make_dialog(path)
+    dialog.avg_v = ValueWidget(99.0)
+    dialog.avg_i = ValueWidget(99.0)
+    battery_database_ui.BatteryDatabaseDialog._register_result(dialog)
+    with sqlite3.connect(path) as db:
+        row = db.execute("SELECT avg_voltage,avg_current,measurement_count FROM battery_benchmark_result").fetchone()
+    assert row == (1.35, 5.0, 2)
+
+
+def test_registration_exact_retry_is_noop_and_does_not_replace(tmp_path):
+    path = tmp_path / "battery.sqlite"
+    create_database(path)
+    dialog = make_dialog(path)
+    battery_database_ui.BatteryDatabaseDialog._register_result(dialog)
+    with sqlite3.connect(path) as db:
+        before = db.execute("SELECT rowid,* FROM battery_benchmark_result").fetchone()
+    retry = make_dialog(path)
+    battery_database_ui.BatteryDatabaseDialog._register_result(retry)
+    with sqlite3.connect(path) as db:
+        after = db.execute("SELECT rowid,* FROM battery_benchmark_result").fetchone()
+        count = db.execute("SELECT COUNT(*) FROM battery_benchmark_result").fetchone()[0]
+    assert after == before
+    assert count == 1
+    assert retry.status.value.startswith("REGISTERED (IDEMPOTENT NO-OP):")
+
+
+def test_registration_changed_payload_conflicts_without_replacing_existing(tmp_path):
+    path = tmp_path / "battery.sqlite"
+    create_database(path)
+    first = make_dialog(path)
+    battery_database_ui.BatteryDatabaseDialog._register_result(first)
+    with sqlite3.connect(path) as db:
+        before = db.execute("SELECT rowid,* FROM battery_benchmark_result").fetchone()
+        db.execute("UPDATE measurement SET voltage1=1.25 WHERE id=2")
+    changed = make_dialog(path)
+    battery_database_ui.BatteryDatabaseDialog._register_result(changed)
+    with sqlite3.connect(path) as db:
+        after = db.execute("SELECT rowid,* FROM battery_benchmark_result").fetchone()
+        count = db.execute("SELECT COUNT(*) FROM battery_benchmark_result").fetchone()[0]
+    assert after == before
+    assert count == 1
+    assert changed.status.value.startswith("NOT REGISTERED:")
+    assert "Conflict" in MessageBoxRecorder.criticals[-1][2]
+
+
+def test_registration_reloads_measurements_changed_after_ui_load(tmp_path):
+    path = tmp_path / "battery.sqlite"
+    create_database(path)
+    dialog = make_dialog(path)  # represents values already shown in the UI
+    with sqlite3.connect(path) as db:
+        db.execute("UPDATE measurement SET voltage1=1.25 WHERE id=2")
+    battery_database_ui.BatteryDatabaseDialog._register_result(dialog)
+    with sqlite3.connect(path) as db:
+        row = db.execute("SELECT avg_voltage FROM battery_benchmark_result").fetchone()
+    assert row[0] == pytest.approx((1.4 + 1.25) / 2)

@@ -14,13 +14,21 @@ class BatteryBenchmarkService:
     def analyze_session(self, session_id: str, *, channel: str, instance_id: str | None = None):
         if channel not in ("CH1", "CH2"):
             raise ValueError("channel must be explicitly set to 'CH1' or 'CH2'")
-        self._validate_scope_identity(session_id, channel)
-        rows = self._load_measurements(session_id)
-        result = analyze_5a_measurements(rows, channel=channel)
-        result.update({"session_id": session_id, "instance_id": instance_id})
-        persisted = {key: value for key, value in result.items() if key != "channel"}
-        self.results.save(persisted)
-        return result
+        # Keep Scope validation, complete Measurement read, derivation and save
+        # under one SQLite writer transaction.
+        self.database.execute("BEGIN IMMEDIATE")
+        try:
+            self._validate_scope_identity(session_id, channel)
+            rows = self._load_measurements(session_id)
+            result = analyze_5a_measurements(rows, channel=channel)
+            result.update({"session_id": session_id, "instance_id": instance_id})
+            persisted = {key: value for key, value in result.items() if key != "channel"}
+            self.results.save(persisted)
+            self.database.commit()
+            return result
+        except Exception:
+            self.database.rollback()
+            raise
 
     def _validate_scope_identity(self, session_id: str, channel: str):
         """Reject analysis unless Session and every Measurement persist the requested Scope Key."""

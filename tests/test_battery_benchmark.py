@@ -51,10 +51,10 @@ def test_zero_selected_channel_has_unknown_validity_and_is_not_silently_dropped(
     ("CH1", "current1", "current2"),
     ("CH2", "current2", "current1"),
 ])
-def test_missing_selected_current_does_not_fallback(channel, selected, other):
+def test_missing_selected_current_fails_closed_without_other_channel_fallback(channel, selected, other):
     data = [{"elapsed_time": 0.0, selected: None, other: 5.0}]
-    result = analyze_5a_measurements(data, channel=channel)
-    assert result["avg_current"] is None
+    with pytest.raises(ValueError, match="validity is UNKNOWN"):
+        analyze_5a_measurements(data, channel=channel)
 
 
 @pytest.mark.parametrize("channel,selected,other", [
@@ -77,20 +77,18 @@ def test_nonselected_channel_zero_does_not_invalidate_selected_channel():
     assert result["avg_current"] == pytest.approx(5.0)
 
 
-def test_both_selected_values_missing_produce_no_values():
-    result = analyze_5a_measurements([{"elapsed_time": 0.0}], channel="CH1")
-    assert result["avg_voltage"] is None
-    assert result["avg_current"] is None
+def test_both_selected_values_missing_fail_closed():
+    with pytest.raises(ValueError, match="validity is UNKNOWN"):
+        analyze_5a_measurements([{"elapsed_time": 0.0}], channel="CH1")
 
 
 @pytest.mark.parametrize("bad", ["not-a-number", float("nan"), float("inf"), float("-inf")])
-def test_invalid_selected_values_are_ignored_without_other_channel_fallback(bad):
-    result = analyze_5a_measurements(
-        [{"elapsed_time": 0.0, "voltage1": bad, "voltage2": 1.4, "current1": bad, "current2": 5.0}],
-        channel="CH1",
-    )
-    assert result["avg_voltage"] is None
-    assert result["avg_current"] is None
+def test_invalid_selected_values_fail_closed_without_other_channel_fallback(bad):
+    with pytest.raises(ValueError, match="validity is UNKNOWN"):
+        analyze_5a_measurements(
+            [{"elapsed_time": 0.0, "voltage1": bad, "voltage2": 1.4, "current1": bad, "current2": 5.0}],
+            channel="CH1",
+        )
 
 
 def test_channel_is_mandatory_and_validated():
@@ -105,3 +103,23 @@ def test_source_measurements_are_not_mutated():
     before = [dict(row) for row in source]
     analyze_5a_measurements(source, channel="CH1")
     assert source == before
+
+
+@pytest.mark.parametrize("channel,vkey,ikey", [("CH1","voltage1","current1"),("CH2","voltage2","current2")])
+@pytest.mark.parametrize("position", [0, 1, 2])
+@pytest.mark.parametrize("bad", [None, "not-a-number", float("nan"), float("inf")])
+def test_incomplete_selected_sample_at_any_position_fails_closed(channel, vkey, ikey, position, bad):
+    data = [
+        {"elapsed_time": float(i), vkey: 1.4, ikey: 5.0}
+        for i in range(3)
+    ]
+    data[position][vkey] = bad
+    with pytest.raises(ValueError, match="validity is UNKNOWN"):
+        analyze_5a_measurements(data, channel=channel)
+
+
+@pytest.mark.parametrize("channel,vkey,ikey", [("CH1","voltage1","current1"),("CH2","voltage2","current2")])
+def test_incomplete_elapsed_time_fails_closed(channel, vkey, ikey):
+    data = [{"elapsed_time": None, vkey: 1.4, ikey: 5.0}]
+    with pytest.raises(ValueError, match="validity is UNKNOWN"):
+        analyze_5a_measurements(data, channel=channel)

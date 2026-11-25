@@ -126,8 +126,13 @@ def analyze_5a_measurements(
             raise BatterySampleValidityUnknown(
                 f"{channel} {metric} is 0.0; validity is UNKNOWN and derived result is ineligible"
             )
-        if voltage is not None and current is not None:
-            samples.append((elapsed, voltage, current))
+        if voltage is None or current is None or elapsed is None:
+            raise BatterySampleValidityUnknown(
+                f"{channel} sample row is incomplete or non-finite; validity is UNKNOWN"
+            )
+        samples.append((elapsed, voltage, current))
+    if not samples:
+        raise BatterySampleValidityUnknown(f"{channel} has no complete valid samples; validity is UNKNOWN")
     voltages = [sample[1] for sample in samples]
     currents = [sample[2] for sample in samples]
     powers = [voltage * current for voltage, current in zip(voltages, currents)]
