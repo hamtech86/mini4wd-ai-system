@@ -171,3 +171,55 @@ def test_hash_locator_must_be_canonical_sha256(tmp_path):
     for invalid in ("", "A" * 64, "g" * 64, "0" * 63, None):
         with pytest.raises(ValueError):
             store.get_bytes(invalid)
+
+
+
+def test_large_payload_is_preserved_without_text_transformation(tmp_path):
+    store = ImmutableObjectStore(tmp_path)
+    payload = (bytes(range(256)) + b"\\r\\n") * 4096
+
+    receipt = store.put_bytes(payload)
+
+    assert receipt.byte_length == len(payload)
+    assert receipt.content_hash == hashlib.sha256(payload).hexdigest()
+    assert store.get_bytes(receipt.content_hash) == payload
+
+
+def test_short_writes_are_completed_until_all_bytes_are_stored(tmp_path, monkeypatch):
+    store = ImmutableObjectStore(tmp_path)
+    payload = b"short-write-boundary" * 100
+    real_write = os.write
+    write_sizes = []
+
+    def short_write(fd, data):
+        chunk = data[:7]
+        write_sizes.append(len(chunk))
+        return real_write(fd, chunk)
+
+    monkeypatch.setattr(object_store.os, "write", short_write)
+    receipt = store.put_bytes(payload)
+
+    assert len(write_sizes) > 1
+    assert store.get_bytes(receipt.content_hash) == payload
+
+
+def test_partial_write_failure_does_not_publish_final_object(tmp_path, monkeypatch):
+    store = ImmutableObjectStore(tmp_path)
+    payload = b"partial-write-must-not-publish" * 10
+    real_write = os.write
+    calls = {"count": 0}
+
+    def fail_after_partial(fd, data):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return real_write(fd, data[:5])
+        raise OSError("injected partial write failure")
+
+    monkeypatch.setattr(object_store.os, "write", fail_after_partial)
+
+    with pytest.raises(PublicationError):
+        store.put_bytes(payload)
+
+    expected = hashlib.sha256(payload).hexdigest()
+    assert not (tmp_path / expected).exists()
+    assert list(tmp_path.glob(".rawlog-v2-staging-*")) == []
