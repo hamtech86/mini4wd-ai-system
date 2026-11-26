@@ -223,3 +223,30 @@ def test_partial_write_failure_does_not_publish_final_object(tmp_path, monkeypat
     expected = hashlib.sha256(payload).hexdigest()
     assert not (tmp_path / expected).exists()
     assert list(tmp_path.glob(".rawlog-v2-staging-*")) == []
+
+
+def test_symlink_at_content_addressed_destination_fails_closed(tmp_path):
+    store = ImmutableObjectStore(tmp_path)
+    payload = b"symlink destination must not be followed"
+    expected = hashlib.sha256(payload).hexdigest()
+    external = tmp_path.parent / "external-rawlog-target"
+    external.write_bytes(b"do not modify")
+    (tmp_path / expected).symlink_to(external)
+
+    with pytest.raises(ObjectIntegrityError):
+        store.put_bytes(payload)
+
+    assert external.read_bytes() == b"do not modify"
+
+
+def test_directory_at_content_addressed_destination_fails_closed(tmp_path):
+    store = ImmutableObjectStore(tmp_path)
+    payload = b"directory destination is not an object"
+    expected = hashlib.sha256(payload).hexdigest()
+    (tmp_path / expected).mkdir()
+
+    with pytest.raises(ObjectIntegrityError):
+        store.put_bytes(payload)
+
+    assert (tmp_path / expected).is_dir()
+    assert list(tmp_path.glob(".rawlog-v2-staging-*")) == []
