@@ -197,7 +197,10 @@ class ImmutableObjectStore:
 
     def _fsync_directory(self) -> None:
         flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
-        fd = os.open(str(self._root), flags)
+        try:
+            fd = os.open(str(self._root), flags)
+        except OSError as exc:
+            raise PublicationError(f"directory open for fsync failed: {exc}") from exc
         try:
             os.fsync(fd)
         except OSError as exc:
