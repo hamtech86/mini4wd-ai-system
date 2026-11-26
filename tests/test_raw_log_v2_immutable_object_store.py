@@ -176,7 +176,7 @@ def test_hash_locator_must_be_canonical_sha256(tmp_path):
 
 def test_large_payload_is_preserved_without_text_transformation(tmp_path):
     store = ImmutableObjectStore(tmp_path)
-    payload = (bytes(range(256)) + b"\\r\\n") * 4096
+    payload = (bytes(range(256)) + b"\r\n") * 4096
 
     receipt = store.put_bytes(payload)
 
