@@ -250,3 +250,38 @@ def test_directory_at_content_addressed_destination_fails_closed(tmp_path):
 
     assert (tmp_path / expected).is_dir()
     assert list(tmp_path.glob(".rawlog-v2-staging-*")) == []
+
+
+
+def test_root_path_replacement_after_store_initialization_fails_closed(tmp_path):
+    original_root = tmp_path / "store"
+    original_root.mkdir()
+    replacement_root = tmp_path / "replacement"
+    replacement_root.mkdir()
+    store = ImmutableObjectStore(original_root)
+    payload = b"must not be redirected after root replacement"
+
+    moved_original = tmp_path / "store-original"
+    original_root.rename(moved_original)
+    original_root.mkdir()
+
+    with pytest.raises(object_store.RootIdentityError):
+        store.put_bytes(payload)
+
+    expected = hashlib.sha256(payload).hexdigest()
+    assert not (replacement_root / expected).exists()
+    assert not (original_root / expected).exists()
+    assert not (moved_original / expected).exists()
+
+
+def test_root_path_replaced_by_symlink_fails_closed(tmp_path):
+    original_root = tmp_path / "store"
+    original_root.mkdir()
+    replacement_root = tmp_path / "replacement"
+    replacement_root.mkdir()
+    store = ImmutableObjectStore(original_root)
+    original_root.rmdir()
+    original_root.symlink_to(replacement_root, target_is_directory=True)
+
+    with pytest.raises(object_store.RootIdentityError):
+        store.get_bytes("0" * 64)
